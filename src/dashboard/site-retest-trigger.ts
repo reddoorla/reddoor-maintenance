@@ -8,7 +8,7 @@
 import type { WebsiteRow } from "../fleet/site-row.js";
 import { siteSlug } from "../fleet/site-row.js";
 import { buildSiteAlarmContext } from "./fleet-cockpit.js";
-import { retestPlanFromItems, SITE_RETEST_WORKFLOW, SLUG_PATTERN } from "../retest/site-retest.js";
+import { retestPlanForRow, SITE_RETEST_WORKFLOW, SLUG_PATTERN } from "../retest/site-retest.js";
 
 export type TriggerSiteRetestDeps = {
   getSite: (slug: string) => Promise<WebsiteRow | null>;
@@ -18,7 +18,7 @@ export type TriggerSiteRetestDeps = {
 };
 
 export type TriggerSiteRetestResult =
-  | { status: "dispatched"; slug: string; site: string; audits: string[] }
+  | { status: "dispatched"; slug: string; audits: string[] }
   | { status: "bad-slug"; slug: string }
   | { status: "not-found"; slug: string }
   | { status: "nothing-to-retest"; slug: string }
@@ -37,11 +37,11 @@ export async function triggerSiteRetest(
   const target = siteSlug(site.name);
   if (!SLUG_PATTERN.test(target)) return { status: "not-found", slug };
   const now = (deps.now ?? (() => new Date()))();
-  const plan = retestPlanFromItems(buildSiteAlarmContext(site, [], "", now).items);
+  const plan = retestPlanForRow(site, buildSiteAlarmContext(site, [], "", now).items);
   if (plan.audits.length === 0) return { status: "nothing-to-retest", slug };
   try {
     await deps.dispatch(SITE_RETEST_WORKFLOW, { site: target });
-    return { status: "dispatched", slug, site: target, audits: plan.audits };
+    return { status: "dispatched", slug, audits: plan.audits };
   } catch (e) {
     return { status: "failed", slug, error: e instanceof Error ? e.message : String(e) };
   }

@@ -31,7 +31,7 @@ import {
 import { assignTier, type SiteAlarmContext } from "../../../../src/dashboard/fleet-cockpit.js";
 import { chipClass } from "../cockpit/view.js";
 import { buildSubmissionRowView, type SubmissionRowView } from "../submission/view.js";
-import { retestPlanFromItems } from "../../../../src/retest/site-retest.js";
+import { retestPlanForRow } from "../../../../src/retest/site-retest.js";
 
 /**
  * The `/s/:slug` page as plain data (#582). Every value the old string renderer
@@ -383,7 +383,7 @@ function securityTotal(site: WebsiteRow): number | null {
   return parts.reduce<number>((sum, p) => sum + (p ?? 0), 0);
 }
 
-function alarm(a: SiteAlarmContext | null, slug: string): SiteView["alarm"] {
+function alarm(a: SiteAlarmContext | null, site: WebsiteRow, slug: string): SiteView["alarm"] {
   if (!a) return null;
   const chips: Chip[] = [];
   for (const it of a.items) {
@@ -417,7 +417,7 @@ function alarm(a: SiteAlarmContext | null, slug: string): SiteView["alarm"] {
         : a.tier === "watch"
           ? "Watch"
           : "Status";
-  const plan = retestPlanFromItems(a.items);
+  const plan = retestPlanForRow(site, a.items);
   const retest =
     plan.audits.length > 0 ? { url: `/api/sites/${slug}/retest`, audits: plan.audits } : null;
   return { label, chips, retest };
@@ -598,7 +598,7 @@ export function buildSiteView(
       reason: g.reason,
       acceptKey: g.acceptKey,
     })),
-    alarm: alarm(siteAlarm, slug),
+    alarm: alarm(siteAlarm, site, slug),
     pending: reports.filter(isPendingApproval).map((r) => pendingView(r, site, now)),
     scores: allScoresNull
       ? null

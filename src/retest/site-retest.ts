@@ -15,6 +15,9 @@
 // anything outside it, so no command line or button can widen it.
 import type { AuditName } from "../types.js";
 import type { AttentionItem } from "../alerts/attention.js";
+import type { WebsiteRow } from "../fleet/site-row.js";
+import type { FleetWriteResult } from "../audits/write-audits.js";
+import { selectFleetSites } from "../inventory/select.js";
 
 /** The audits a re-test may run, in the order it runs them. Every one is checkout-free
  *  (deployed URL or API only), as in fleet-lighthouse's own pass. */
@@ -73,6 +76,47 @@ export function retestPlanFromItems(items: readonly AttentionItem[]): RetestPlan
   }
   const wanted = new Set(reasons.map((r) => r.audit));
   return { audits: RETESTABLE_AUDITS.filter((a) => wanted.has(a)), reasons, untouched };
+}
+
+/**
+ * The plan for one roster row: `retestPlanFromItems`, narrowed to what the run can
+ * measure for this site. The run audits through the fleet roster (`selectFleetSites`),
+ * so a site that selection drops (launching, archived, no http(s) url) has nothing to
+ * re-test, and every re-testable audit is checkout-free only with a deployed url,
+ * netlify-deploy only with a Netlify id. A reason the run could not measure moves to
+ * `untouched`, so the button never offers a run that would refuse it or skip it. PURE.
+ */
+export function retestPlanForRow(row: WebsiteRow, items: readonly AttentionItem[]): RetestPlan {
+  const plan = retestPlanFromItems(items);
+  const site = selectFleetSites([row], "/retest")[0];
+  const can = (a: RetestableAudit): boolean =>
+    site !== undefined &&
+    site.deployedUrl !== undefined &&
+    (a !== "netlify-deploy" || site.netlifyId !== undefined);
+  const reasons = plan.reasons.filter((r) => can(r.audit));
+  const untouched = [
+    ...plan.untouched,
+    ...plan.reasons.filter((r) => !can(r.audit)).map((r) => r.title),
+  ];
+  const wanted = new Set(reasons.map((r) => r.audit));
+  return { audits: RETESTABLE_AUDITS.filter((a) => wanted.has(a)), reasons, untouched };
+}
+
+/** Did the write-back measure `audit` for `slug`? False when the site failed to write,
+ *  kept its row, never reached write-back, or the audit measured nothing or said it did
+ *  not apply: in each case the row still holds the old verdict, so the reason was not
+ *  re-tested at all, and the run must not read as a clean re-test. PURE. */
+export function retestMeasured(write: FleetWriteResult, slug: string, audit: string): boolean {
+  if (write.failed.some((f) => f.slug === slug)) return false;
+  if ((write.kept ?? []).some((k) => k.slug === slug)) return false;
+  if ((write.missing ?? []).includes(slug)) return false;
+  if ((write.notApplicable ?? []).includes(slug)) return false;
+  if ((write.notApplicableAudits?.[audit as AuditName] ?? []).includes(slug)) return false;
+  for (const [key, slugs] of Object.entries(write.unmeasuredAudits ?? {})) {
+    if ((key === audit || key.startsWith(`${audit}.`)) && (slugs ?? []).includes(slug))
+      return false;
+  }
+  return true;
 }
 
 /** `--only` for a re-test: a comma list drawn from `RETESTABLE_AUDITS` alone. Blank or

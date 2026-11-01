@@ -15,6 +15,8 @@ import {
   RETEST_AUDIT_BY_PREFIX,
   parseRetestOnly,
   retestPlanFromItems,
+  retestPlanForRow,
+  retestMeasured,
   assertRetestSlug,
   SITE_RETEST_WORKFLOW,
 } from "../../src/retest/site-retest.js";
@@ -26,6 +28,7 @@ import { buildSiteView } from "../../cockpit/src/lib/site/view.js";
 import type { AuditCommandOptions } from "../../src/cli/commands/audit.js";
 import type { AuditResult, Site } from "../../src/types.js";
 import type { FleetEvent } from "../../src/db/fleet-events.js";
+import type { FleetWriteResult } from "../../src/audits/write-audits.js";
 import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 import { websiteRowsFrom } from "../_helpers/raw-rows.js";
@@ -75,8 +78,9 @@ describe("the plan: only the audits behind the site's current reasons", () => {
       functionHealthCheckedAt: FRESH,
       deployStatus: "error",
       pScore: 40,
+      netlifyId: "nf-1",
     };
-    const plan = retestPlanFromItems(itemsOf(row(every)));
+    const plan = retestPlanForRow(row(every), itemsOf(row(every)));
     const byPrefix = Object.fromEntries(plan.reasons.map((r) => [r.key.split(":")[0], r.audit]));
     expect(byPrefix).toEqual({
       uptime: "browser",
@@ -216,7 +220,11 @@ describe("the command: plan, run one site, read back, report", () => {
         readRoster: async () => (reads++ === 0 ? before : after),
         runAudit: async (o: AuditCommandOptions) => {
           calls.push(o);
-          return { output: "FLEET_WRITE_SUMMARY wrote=1 failed=0 total=1", writeBackFailed: false };
+          return {
+            output: "FLEET_WRITE_SUMMARY wrote=1 failed=0 total=1",
+            writeBackFailed: false,
+            writeResult: { written: [], failed: [] } as FleetWriteResult,
+          };
         },
       },
     };
@@ -246,7 +254,37 @@ describe("the command: plan, run one site, read back, report", () => {
     expect(output).toContain("RETEST site=sonder audits=browser,domain");
     expect(output).toContain("cleared: 2 broken links");
     expect(output).toContain("still failing: TLS certificate expires in 20 days");
-    expect(output).toContain("RETEST_RESULT site=sonder cleared=1 still=1 write=ok");
+    expect(output).toContain("RETEST_RESULT site=sonder cleared=1 still=1 unmeasured=0 write=ok");
+  });
+
+  it("an audit that measured nothing is reported per reason and reds the run (round 1)", async () => {
+    const h = harness([row(linksAndCert)], [row(linksAndCert)]);
+    const blind = {
+      ...h.deps,
+      runAudit: async () => ({
+        output: "",
+        writeBackFailed: false,
+        writeResult: {
+          written: [],
+          failed: [],
+          unmeasuredAudits: { browser: ["sonder"] },
+        } as FleetWriteResult,
+      }),
+    };
+    const { output, code } = await runSiteRetestCommand("sonder", {}, blind);
+    expect(code).toBe(1);
+    expect(output).toContain("not measured: 2 broken links (browser measured nothing)");
+    expect(output).not.toContain("still failing: 2 broken links");
+    expect(output).toContain("still failing: TLS certificate expires in 20 days");
+    expect(output).toContain("unmeasured=1 write=unmeasured");
+  });
+
+  it("a run with no write-back account at all is unmeasured, never ok", async () => {
+    const h = harness([row(linksAndCert)], [row(linksAndCert)]);
+    const none = { ...h.deps, runAudit: async () => ({ output: "", writeBackFailed: false }) };
+    const { output, code } = await runSiteRetestCommand("sonder", {}, none);
+    expect(code).toBe(1);
+    expect(output).toContain("write=unmeasured");
   });
 
   it("nothing to re-test: no audit runs, exit 0", async () => {
@@ -313,7 +351,6 @@ describe("the cockpit: button and trigger", () => {
     );
     expect(res).toMatchObject({
       status: "dispatched",
-      site: "sonder",
       audits: ["browser", "domain"],
     });
     expect(dispatched).toEqual([{ workflow: SITE_RETEST_WORKFLOW, inputs: { site: "sonder" } }]);
@@ -376,5 +413,80 @@ describe("the cockpit: button and trigger", () => {
     ).alarm!;
     expect(quiet.chips.length).toBeGreaterThan(0);
     expect(quiet.retest).toBeNull();
+  });
+});
+
+describe("only what the run can measure is offered (round 1)", () => {
+  it("a launching site with a low Lighthouse score has nothing to re-test, on the page and the trigger", async () => {
+    const launching = row({ status: "launching", pScore: 60 });
+    expect(retestPlanFromItems(itemsOf(launching)).audits).toEqual(["lighthouse"]);
+    expect(retestPlanForRow(launching, itemsOf(launching)).audits).toEqual([]);
+    const view = buildSiteView(
+      launching,
+      [],
+      [],
+      null,
+      NOW,
+      buildSiteAlarmContext(launching, [], "", NOW),
+    ).alarm;
+    expect(view?.retest ?? null).toBeNull();
+    const dispatched: string[] = [];
+    const res = await triggerSiteRetest(
+      {
+        now: () => NOW,
+        getSite: async () => launching,
+        dispatch: async (w) => {
+          dispatched.push(w);
+        },
+      },
+      "sonder",
+    );
+    expect(res.status).toBe("nothing-to-retest");
+    expect(dispatched).toEqual([]);
+  });
+
+  it("a failed deploy with no Netlify id is not re-testable; with one it is", () => {
+    const noId = row({ deployStatus: "error" });
+    expect(retestPlanForRow(noId, itemsOf(noId)).audits).toEqual([]);
+    expect(retestPlanForRow(noId, itemsOf(noId)).untouched).toContain(
+      "latest production deploy error",
+    );
+    const withId = row({ deployStatus: "error", netlifyId: "nf-1" });
+    expect(retestPlanForRow(withId, itemsOf(withId)).audits).toEqual(["netlify-deploy"]);
+  });
+
+  it("a site whose url is not http(s) has nothing to re-test", () => {
+    const r = row({ ...linksAndCert, url: "ftp://acme.example.com" });
+    expect(retestPlanForRow(r, itemsOf(r)).audits).toEqual([]);
+  });
+});
+
+describe("retestMeasured reads the write-back's own account", () => {
+  const base: FleetWriteResult = { written: [], failed: [] };
+  it.each<[string, FleetWriteResult, boolean]>([
+    ["a clean write", base, true],
+    ["another site unmeasured", { ...base, unmeasuredAudits: { browser: ["vida"] } }, true],
+    ["this audit unmeasured", { ...base, unmeasuredAudits: { browser: ["sonder"] } }, false],
+    [
+      "a lighthouse category unmeasured",
+      { ...base, unmeasuredAudits: { "lighthouse.seo": ["sonder"] } },
+      true,
+    ],
+    ["site failed", { ...base, failed: [{ slug: "sonder", error: "x" }] }, false],
+    ["site kept", { ...base, kept: [{ slug: "sonder", reason: "x" }] }, false],
+    ["site missing", { ...base, missing: ["sonder"] }, false],
+    ["audit not applicable", { ...base, notApplicableAudits: { browser: ["sonder"] } }, false],
+  ])("%s", (_name, write, want) => {
+    expect(retestMeasured(write, "sonder", "browser")).toBe(want);
+  });
+
+  it("a lighthouse category the run did not score counts against lighthouse", () => {
+    expect(
+      retestMeasured(
+        { ...base, unmeasuredAudits: { "lighthouse.seo": ["sonder"] } },
+        "sonder",
+        "lighthouse",
+      ),
+    ).toBe(false);
   });
 });

@@ -28,7 +28,8 @@ on:
         default: ""
         type: string
 
-# One re-test per site at a time; a second press waits instead of racing the first.
+# One re-test per site at a time: a second press waits for the first (GitHub keeps one
+# pending run per group, so a third press replaces the second).
 concurrency:
   group: site-retest-${{ inputs.site }}
   cancel-in-progress: false
@@ -71,7 +72,9 @@ jobs:
           set -o pipefail
           args=("$SITE" --workdir /tmp/site-retest)
           [ -n "${ONLY:-}" ] && args+=(--only "$ONLY")
-          node dist/cli/bin.js site-retest "${args[@]}" | tee /tmp/retest.out
+          # Keep the status so the summary is written on a red run too, then exit with it.
+          status=0
+          node dist/cli/bin.js site-retest "${args[@]}" | tee /tmp/retest.out || status=$?
           result=$(grep -E "^RETEST_RESULT " /tmp/retest.out | tail -n1 || true)
           plan=$(grep -E "^RETEST " /tmp/retest.out | tail -n1 || true)
           {
@@ -81,5 +84,6 @@ jobs:
             echo
             echo "\`${result:-nothing ran}\`"
             echo
-            grep -E "^  (reason|cleared|still failing|not re-tested): " /tmp/retest.out | sed 's/^  /- /' || true
+            grep -E "^  (reason|cleared|still failing|not measured|not re-tested): " /tmp/retest.out | sed 's/^  /- /' || true
           } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"

@@ -85,8 +85,9 @@ so the tracking issue says so.
 | `47 */6 * * *`                                             | `forms-deadletter-replay` | Replays the form dead-letter queue back through the normal ingest pipeline (section 3.1)                                                                                                                                                                      | "Form dead-letter replay failing"                                                                                                                     |
 | `0 */12 * * *`                                             | `renovate`                | Dependency PR creation **and merge** — platform auto-merge is off fleet-wide, so Renovate merges from inside the run                                                                                                                                          | none                                                                                                                                                  |
 
-Event-driven, not scheduled: `ci` (push + every PR), `release` (push to `main`), and
-`report-rerender` (dispatch only).
+Event-driven, not scheduled: `ci` (push + every PR), `release` (push to `main`),
+`report-rerender` (dispatch only), and `site-retest` (dispatch only: one site's re-test
+from the cockpit's Re-test button or `gh workflow run site-retest.yml -f site=<slug>`).
 
 `pm-pass-watch`, the missed-PM-pass alarm, moved to `reddoorla/reddoor-workspace` at the
 2026-10-20 cutover, with the PM loop it watches.

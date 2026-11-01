@@ -7,18 +7,21 @@
 // and the cockpit's Re-test button dispatches that workflow.
 //
 // It never runs security or deps, and imports nothing that dispatches Renovate (P0-1):
-// tests/retest/site-retest-no-renovate.test.ts pins both.
+// tests/build/site-retest-workflow.test.ts pins both.
 import type { WebsiteRow } from "../../fleet/site-row.js";
 import { siteSlug } from "../../fleet/site-row.js";
 import { buildSiteAlarmContext } from "../../dashboard/fleet-cockpit.js";
 import {
   assertRetestSlug,
   parseRetestOnly,
-  retestPlanFromItems,
+  RETESTABLE_AUDITS,
+  retestMeasured,
+  retestPlanForRow,
   type RetestPlan,
   type RetestableAudit,
 } from "../../retest/site-retest.js";
 import type { AuditCommandOptions } from "./audit.js";
+import type { FleetWriteResult } from "../../audits/write-audits.js";
 
 export type SiteRetestOptions = {
   /** Override the plan with these audits (re-testable ones only). */
@@ -30,7 +33,11 @@ export type SiteRetestOptions = {
 
 export type SiteRetestDeps = {
   readRoster?: () => Promise<WebsiteRow[]>;
-  runAudit?: (opts: AuditCommandOptions) => Promise<{ output: string; writeBackFailed: boolean }>;
+  runAudit?: (opts: AuditCommandOptions) => Promise<{
+    output: string;
+    writeBackFailed: boolean;
+    writeResult?: FleetWriteResult;
+  }>;
   now?: () => Date;
 };
 
@@ -38,8 +45,15 @@ export type SiteRetestDeps = {
 const NO_BASE = "https://cockpit.invalid";
 
 function planFor(rows: WebsiteRow[], now: Date): RetestPlan {
-  const items = rows.flatMap((r) => buildSiteAlarmContext(r, [], NO_BASE, now).items);
-  return retestPlanFromItems(items);
+  const plans = rows.map((r) =>
+    retestPlanForRow(r, buildSiteAlarmContext(r, [], NO_BASE, now).items),
+  );
+  const wanted = new Set(plans.flatMap((p) => p.audits));
+  return {
+    audits: RETESTABLE_AUDITS.filter((a) => wanted.has(a)),
+    reasons: plans.flatMap((p) => p.reasons),
+    untouched: plans.flatMap((p) => p.untouched),
+  };
 }
 
 export async function runSiteRetestCommand(
@@ -99,18 +113,28 @@ export async function runSiteRetestCommand(
   });
   out.push("", run.output, "");
 
-  // Read the row back: a reason the run's audits cover is cleared when it is gone.
+  // An audit the write-back did not measure for this site left the old verdict in the
+  // row: its reasons were not re-tested, and the run says so and goes red (review round 1).
+  const measured = (audit: string): boolean =>
+    run.writeResult !== undefined && retestMeasured(run.writeResult, slug, audit);
+  const unmeasured = audits.filter((a) => !measured(a));
+
+  // Read the row back: a reason a measured audit covers is cleared when it is gone.
   const after = planFor(rowsOf(await readRoster()), now());
-  const ran = new Set<string>(audits);
+  const ran = new Set<string>(audits.filter(measured));
   const stillKeys = new Set(after.reasons.filter((r) => ran.has(r.audit)).map((r) => r.key));
-  const covered = before.reasons.filter((r) => ran.has(r.audit));
-  const cleared = covered.filter((r) => !stillKeys.has(r.key));
+  const cleared = before.reasons.filter((r) => ran.has(r.audit) && !stillKeys.has(r.key));
   const still = after.reasons.filter((r) => ran.has(r.audit));
+  const notMeasured = before.reasons.filter((r) => !ran.has(r.audit) && audits.includes(r.audit));
   for (const r of cleared) out.push(`  cleared: ${r.title}`);
   for (const r of still) out.push(`  still failing: ${r.title}`);
+  for (const r of notMeasured) out.push(`  not measured: ${r.title} (${r.audit} measured nothing)`);
+  for (const a of unmeasured) out.push(`::error::site-retest: ${a} measured nothing for ${slug}`);
+  const write = run.writeBackFailed ? "failed" : unmeasured.length > 0 ? "unmeasured" : "ok";
   out.push(
-    `RETEST_RESULT site=${slug} cleared=${cleared.length} still=${still.length} write=${run.writeBackFailed ? "failed" : "ok"}`,
+    `RETEST_RESULT site=${slug} cleared=${cleared.length} still=${still.length} unmeasured=${unmeasured.length} write=${write}`,
   );
-  // A failing verdict is the answer, not a fault: only a failed write reds the run.
-  return { output: out.join("\n"), code: run.writeBackFailed ? 1 : 0 };
+  // A failing verdict is the answer, not a fault: a failed write, or an audit that
+  // measured nothing, reds the run.
+  return { output: out.join("\n"), code: write === "ok" ? 0 : 1 };
 }

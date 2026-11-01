@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { Listr } from "listr2";
 import { runOneAudit, ALL_AUDIT_NAMES } from "../../audits/index.js";
 import type { AuditName, AuditResult, Site } from "../../types.js";
+import type { FleetWriteResult } from "../../audits/write-audits.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
 import {
   prepareFleetSites,
@@ -370,8 +371,9 @@ export async function runAuditCommand(
 ): Promise<{
   output: string;
   code: number;
-  results: AuditResult[];
   writeBackFailed: boolean;
+  /** The fleet write-back's own account, when one ran (P1-88 reads it per audit). */
+  writeResult?: FleetWriteResult;
 }> {
   const which = parseOnly(opts.only) ?? ALL_AUDIT_NAMES;
   const cwd = opts.cwd ? resolve(opts.cwd) : process.cwd();
@@ -466,6 +468,7 @@ export async function runAuditCommand(
   // would see a clean run. (The single-site writer throws on failure, so it's
   // already non-zero via the propagated error.)
   let writeBackFailed = false;
+  let writeResult: FleetWriteResult | undefined;
   if (opts.writeBack !== undefined) {
     if (opts.fleet !== undefined) {
       const wb = await runFleetWriteBack({
@@ -475,6 +478,7 @@ export async function runAuditCommand(
         rollup: opts.retest !== true,
       });
       if (wb.anyFailed) writeBackFailed = true;
+      writeResult = wb.write;
       // Gate on !json: the write-summary is human text; appending it after the
       // results array would corrupt `--json` output (the other notices already
       // guard this way). The write itself still happens regardless of --json.
@@ -522,7 +526,7 @@ export async function runAuditCommand(
     auditExitCode(results, opts.failOnViolations === true),
     writeBackFailed ? 1 : 0,
   );
-  return { output, code, results, writeBackFailed };
+  return { output, code, writeBackFailed, ...(writeResult ? { writeResult } : {}) };
 }
 
 /** The fleet `--write-back` step: write every site's audits back to its
@@ -547,7 +551,7 @@ export async function runFleetWriteBack(args: {
     makeMirror?: () => Promise<HealthMirror | null>;
     recordEvents?: (events: FleetEvent[], now: Date) => Promise<void>;
   };
-}): Promise<{ summary: string; anyFailed: boolean }> {
+}): Promise<{ summary: string; anyFailed: boolean; write: FleetWriteResult }> {
   const { results, which, deps = {} } = args;
   const { writeFleetAudits, formatFleetWriteSummary, fleetWriteFailed } =
     await import("../../audits/write-audits.js");
@@ -588,5 +592,6 @@ export async function runFleetWriteBack(args: {
   return {
     summary: formatFleetWriteSummary(fleetWrite),
     anyFailed: fleetWriteFailed(fleetWrite),
+    write: fleetWrite,
   };
 }
