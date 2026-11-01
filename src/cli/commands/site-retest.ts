@@ -16,6 +16,7 @@ import {
   parseRetestOnly,
   RETESTABLE_AUDITS,
   retestMeasured,
+  retestPassed,
   retestPlanForRow,
   type RetestPlan,
   type RetestableAudit,
@@ -120,19 +121,33 @@ export async function runSiteRetestCommand(
   const unmeasured = audits.filter((a) => !measured(a));
 
   // Read the row back: a reason a measured audit covers is cleared when it is gone.
-  const after = planFor(rowsOf(await readRoster()), now());
+  const afterRead = rowsOf(await readRoster());
+  const after = planFor(afterRead, now());
   const ran = new Set<string>(audits.filter(measured));
   const stillKeys = new Set(after.reasons.filter((r) => ran.has(r.audit)).map((r) => r.key));
-  const cleared = before.reasons.filter((r) => ran.has(r.audit) && !stillKeys.has(r.key));
+  const afterRows = afterRead;
+  // Gone from the list is not enough: the row must hold a measured pass for it (round 2).
+  const passed = (key: string) => afterRows.some((r) => retestPassed(key, r));
+  const gone = before.reasons.filter((r) => ran.has(r.audit) && !stillKeys.has(r.key));
+  const cleared = gone.filter((r) => passed(r.key));
+  const nulled = gone.filter((r) => !passed(r.key));
   const still = after.reasons.filter((r) => ran.has(r.audit));
-  const notMeasured = before.reasons.filter((r) => !ran.has(r.audit) && audits.includes(r.audit));
+  const notMeasured = [
+    ...before.reasons.filter((r) => !ran.has(r.audit) && audits.includes(r.audit)),
+    ...nulled,
+  ];
   for (const r of cleared) out.push(`  cleared: ${r.title}`);
   for (const r of still) out.push(`  still failing: ${r.title}`);
-  for (const r of notMeasured) out.push(`  not measured: ${r.title} (${r.audit} measured nothing)`);
+  for (const r of notMeasured)
+    out.push(`  not measured: ${r.title} (${r.audit} wrote no verdict for it)`);
   for (const a of unmeasured) out.push(`::error::site-retest: ${a} measured nothing for ${slug}`);
-  const write = run.writeBackFailed ? "failed" : unmeasured.length > 0 ? "unmeasured" : "ok";
+  const write = run.writeBackFailed
+    ? "failed"
+    : unmeasured.length > 0 || nulled.length > 0
+      ? "unmeasured"
+      : "ok";
   out.push(
-    `RETEST_RESULT site=${slug} cleared=${cleared.length} still=${still.length} unmeasured=${unmeasured.length} write=${write}`,
+    `RETEST_RESULT site=${slug} cleared=${cleared.length} still=${still.length} unmeasured=${notMeasured.length} write=${write}`,
   );
   // A failing verdict is the answer, not a fault: a failed write, or an audit that
   // measured nothing, reds the run.

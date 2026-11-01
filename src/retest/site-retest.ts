@@ -119,6 +119,49 @@ export function retestMeasured(write: FleetWriteResult, slug: string, audit: str
   return true;
 }
 
+const LIGHTHOUSE_FIELD: Readonly<Record<string, keyof WebsiteRow>> = {
+  performance: "pScore",
+  accessibility: "rScore",
+  "best-practices": "bpScore",
+  seo: "seoScore",
+};
+
+/**
+ * Does the row, read back after the re-test, hold a measured PASS for this reason?
+ * A reason can leave the cockpit's list because its verdict became null (the browser
+ * audit sampled no route or checked no link, which writes null with a fresh stamp):
+ * that is "not measured", never "cleared" (review round 2). PURE.
+ */
+export function retestPassed(key: string, row: WebsiteRow): boolean {
+  const [prefix, , rest] = key.split(":");
+  switch (prefix) {
+    case "uptime":
+      return row.reachableOk === "pass";
+    case "render":
+      return row.crossbrowserOk === true && row.mobileOk === true;
+    case "links":
+      return row.linksOk === true;
+    case "titles":
+      return row.titleMetaOk === "pass";
+    case "domain":
+    case "cert":
+    case "cert-expiring":
+      return row.certDaysRemaining !== null;
+    case "function-health":
+      return row.functionHealth === "pass";
+    case "cms":
+      return row.cmsReachable === "pass";
+    case "deploy":
+      return row.deployStatus !== null;
+    case "lighthouse": {
+      const field = rest !== undefined ? LIGHTHOUSE_FIELD[rest] : undefined;
+      return field !== undefined && row[field] !== null;
+    }
+    default:
+      return false;
+  }
+}
+
 /** `--only` for a re-test: a comma list drawn from `RETESTABLE_AUDITS` alone. Blank or
  *  absent is null (use the plan). Anything else throws with exit code 2. */
 export function parseRetestOnly(only: string | undefined): RetestableAudit[] | null {

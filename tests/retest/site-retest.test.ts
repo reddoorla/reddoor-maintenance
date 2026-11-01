@@ -17,6 +17,7 @@ import {
   retestPlanFromItems,
   retestPlanForRow,
   retestMeasured,
+  retestPassed,
   assertRetestSlug,
   SITE_RETEST_WORKFLOW,
 } from "../../src/retest/site-retest.js";
@@ -273,10 +274,24 @@ describe("the command: plan, run one site, read back, report", () => {
     };
     const { output, code } = await runSiteRetestCommand("sonder", {}, blind);
     expect(code).toBe(1);
-    expect(output).toContain("not measured: 2 broken links (browser measured nothing)");
+    expect(output).toContain("not measured: 2 broken links (browser wrote no verdict for it)");
     expect(output).not.toContain("still failing: 2 broken links");
     expect(output).toContain("still failing: TLS certificate expires in 20 days");
     expect(output).toContain("unmeasured=1 write=unmeasured");
+  });
+
+  it("a reason whose verdict came back null is not measured, never cleared (round 2)", async () => {
+    // The browser audit checked no link: it writes linksOk null with a fresh stamp, so
+    // the links reason leaves the list without the row ever showing a pass.
+    const h = harness(
+      [row(linksAndCert)],
+      [row({ ...linksAndCert, linksOk: null, brokenLinks: null })],
+    );
+    const { output, code } = await runSiteRetestCommand("sonder", {}, h.deps);
+    expect(output).not.toContain("cleared: 2 broken links");
+    expect(output).toContain("not measured: 2 broken links (browser wrote no verdict for it)");
+    expect(output).toContain("cleared=0 still=1 unmeasured=1 write=unmeasured");
+    expect(code).toBe(1);
   });
 
   it("a run with no write-back account at all is unmeasured, never ok", async () => {
@@ -488,5 +503,28 @@ describe("retestMeasured reads the write-back's own account", () => {
         "lighthouse",
       ),
     ).toBe(false);
+  });
+});
+
+describe("retestPassed: gone from the list counts only with a measured pass", () => {
+  it.each<[string, Partial<WebsiteRow>, boolean]>([
+    ["links:recS", { linksOk: true }, true],
+    ["links:recS", { linksOk: null }, false],
+    ["uptime:recS", { reachableOk: "pass" }, true],
+    ["uptime:recS", { reachableOk: null }, false],
+    ["titles:recS", { titleMetaOk: null }, false],
+    ["render:recS", { crossbrowserOk: true, mobileOk: null }, false],
+    ["render:recS", { crossbrowserOk: true, mobileOk: true }, true],
+    ["cert:recS", { certDaysRemaining: 80 }, true],
+    ["domain:recS", { certDaysRemaining: null }, false],
+    ["function-health:recS", { functionHealth: "pass" }, true],
+    ["cms:recS", { cmsReachable: null }, false],
+    ["deploy:recS", { deployStatus: "ready" }, true],
+    ["deploy:recS", { deployStatus: null }, false],
+    ["lighthouse:recS:seo", { seoScore: 90 }, true],
+    ["lighthouse:recS:seo", { seoScore: null, pScore: 90 }, false],
+    ["vuln:recS", {}, false],
+  ])("%s with %o is %s", (key, over, want) => {
+    expect(retestPassed(key, row(over))).toBe(want);
   });
 });
