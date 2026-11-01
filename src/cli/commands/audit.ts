@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { Listr } from "listr2";
 import { runOneAudit, ALL_AUDIT_NAMES } from "../../audits/index.js";
 import type { AuditName, AuditResult, Site } from "../../types.js";
+import type { FleetWriteResult } from "../../audits/write-audits.js";
 import { resolveSites } from "../fleet/resolve-sites.js";
 import {
   prepareFleetSites,
@@ -49,7 +50,26 @@ export type AuditCommandOptions = {
   /** Max sites to audit in parallel (fleet mode). Unset = all at once;
    *  `1` = sequential (used by the nightly CI workflow). */
   concurrency?: string;
+  /** Fleet mode: audit only the roster site with this slug (P1-88's per-site re-test).
+   *  The write-back then writes that site's row alone. */
+  site?: string;
+  /** P1-88: this run is a one-site re-test, not a sweep, so it records no
+   *  `fleet_swept` rollup (whose id is one per sweep per DAY: an early re-test would
+   *  take the night's id with a count of 1, and INSERT OR IGNORE would drop the real one). */
+  retest?: boolean;
 };
+
+/** P1-88: keep only the roster sites with this slug. No match is a usage error: a
+ *  re-test of a site that is not on the active roster must not pass as a clean run. */
+export function filterSitesBySlug(sites: Site[], slug: string): Site[] {
+  const kept = sites.filter((s) => s.name === slug);
+  if (kept.length === 0) {
+    throw Object.assign(new Error(`--site ${slug}: no active fleet site has that slug`), {
+      exitCode: 2,
+    });
+  }
+  return kept;
+}
 
 function parseOnly(value: string | undefined): AuditName[] | undefined {
   if (!value) return undefined;
@@ -348,7 +368,13 @@ export function applyDeployedUrl(sites: Site[], url: string | undefined): Site[]
 export async function runAuditCommand(
   site: string | undefined,
   opts: AuditCommandOptions,
-): Promise<{ output: string; code: number }> {
+): Promise<{
+  output: string;
+  code: number;
+  writeBackFailed: boolean;
+  /** The fleet write-back's own account, when one ran (P1-88 reads it per audit). */
+  writeResult?: FleetWriteResult;
+}> {
   const which = parseOnly(opts.only) ?? ALL_AUDIT_NAMES;
   const cwd = opts.cwd ? resolve(opts.cwd) : process.cwd();
 
@@ -379,6 +405,15 @@ export async function runAuditCommand(
     ...(opts.workdir !== undefined ? { workdir: opts.workdir } : {}),
     cwd,
   });
+
+  if (opts.site !== undefined) {
+    if (opts.fleet === undefined) {
+      throw Object.assign(new Error("--site filters the --fleet roster; pass --fleet too"), {
+        exitCode: 2,
+      });
+    }
+    sites = filterSitesBySlug(sites, opts.site);
+  }
 
   sites = applyDeployedUrl(sites, opts.url);
 
@@ -433,10 +468,17 @@ export async function runAuditCommand(
   // would see a clean run. (The single-site writer throws on failure, so it's
   // already non-zero via the propagated error.)
   let writeBackFailed = false;
+  let writeResult: FleetWriteResult | undefined;
   if (opts.writeBack !== undefined) {
     if (opts.fleet !== undefined) {
-      const wb = await runFleetWriteBack({ results, which, expectedSites });
+      const wb = await runFleetWriteBack({
+        results,
+        which,
+        expectedSites,
+        rollup: opts.retest !== true,
+      });
       if (wb.anyFailed) writeBackFailed = true;
+      writeResult = wb.write;
       // Gate on !json: the write-summary is human text; appending it after the
       // results array would corrupt `--json` output (the other notices already
       // guard this way). The write itself still happens regardless of --json.
@@ -484,7 +526,7 @@ export async function runAuditCommand(
     auditExitCode(results, opts.failOnViolations === true),
     writeBackFailed ? 1 : 0,
   );
-  return { output, code };
+  return { output, code, writeBackFailed, ...(writeResult ? { writeResult } : {}) };
 }
 
 /** The fleet `--write-back` step: write every site's audits back to its
@@ -500,6 +542,8 @@ export async function runFleetWriteBack(args: {
   which: AuditName[];
   /** The site labels resolved before prep (#1605); omitted, `missing` is not computed. */
   expectedSites?: string[];
+  /** Record the per-sweep `fleet_swept` rollup. False for a one-site re-test (P1-88). */
+  rollup?: boolean;
   deps?: {
     /** #646 step 4: the rows results are matched against. Defaults to Turso
      *  (`readFleetRoster`); tests inject. */
@@ -507,7 +551,7 @@ export async function runFleetWriteBack(args: {
     makeMirror?: () => Promise<HealthMirror | null>;
     recordEvents?: (events: FleetEvent[], now: Date) => Promise<void>;
   };
-}): Promise<{ summary: string; anyFailed: boolean }> {
+}): Promise<{ summary: string; anyFailed: boolean; write: FleetWriteResult }> {
   const { results, which, deps = {} } = args;
   const { writeFleetAudits, formatFleetWriteSummary, fleetWriteFailed } =
     await import("../../audits/write-audits.js");
@@ -537,7 +581,9 @@ export async function runFleetWriteBack(args: {
   const now = new Date();
   const auditEvents = fleetWrite.events ?? fleetWrite.written.flatMap((w) => w.events ?? []);
   await (deps.recordEvents ?? recordFleetEventsBestEffort)(
-    [...auditEvents, fleetSweptEvent(sweep, fleetWrite.written.length, now.toISOString())],
+    args.rollup === false
+      ? auditEvents
+      : [...auditEvents, fleetSweptEvent(sweep, fleetWrite.written.length, now.toISOString())],
     now,
   );
   // #612: a mirror failure, a missed row, or an absent mirror are all fatal —
@@ -546,5 +592,6 @@ export async function runFleetWriteBack(args: {
   return {
     summary: formatFleetWriteSummary(fleetWrite),
     anyFailed: fleetWriteFailed(fleetWrite),
+    write: fleetWrite,
   };
 }

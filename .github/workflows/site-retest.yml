@@ -1,0 +1,89 @@
+name: site-retest
+
+# P1-88: re-test ONE site's failing checks during the day, so its reasons on the
+# cockpit can clear without a fleet-wide run. Dispatched by the Re-test button on
+# the cockpit's /s/<slug> page, or from a terminal:
+#   gh workflow run site-retest.yml -R reddoorla/reddoor-maintenance -f site=<slug>
+#
+# `reddoor-maint site-retest` reads the site's current reasons from Turso, runs only
+# the audits behind them (browser, domain, function-health, netlify-deploy,
+# lighthouse: all checkout-free), writes that site's row alone, and prints which
+# reasons cleared. A pass clears at once: the cockpit reads the row.
+#
+# Deliberately NOT here (tests/build/site-retest-workflow.test.ts pins each):
+#   - security / deps, and with them `renovate-dispatch`: dispatching fleet-security
+#     fires Renovate in client repos (backlog P0-1). No App token is minted.
+#   - the nightly tracking issues: one site's run must not open or close a fleet issue.
+#   - any GitHub write: `contents: read` is the whole grant.
+on:
+  workflow_dispatch:
+    inputs:
+      site:
+        description: "The site's slug, as in the cockpit's /s/<slug> address"
+        required: true
+        type: string
+      only:
+        description: "Optional comma list of re-testable audits, instead of the site's current reasons"
+        required: false
+        default: ""
+        type: string
+
+# One re-test per site at a time: a second press waits for the first (GitHub keeps one
+# pending run per group, so a third press replaces the second).
+concurrency:
+  group: site-retest-${{ inputs.site }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  retest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      # The browser audit drives chromium/firefox/webkit against the deployed URL.
+      - run: pnpm exec playwright install --with-deps chromium firefox webkit
+
+      - name: Re-test the site and write its row
+        timeout-minutes: 20
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          NETLIFY_PAT: ${{ secrets.NETLIFY_PAT }}
+          # Inputs reach the shell as env vars, never interpolated into the script.
+          SITE: ${{ inputs.site }}
+          ONLY: ${{ inputs.only }}
+        run: |
+          set -o pipefail
+          args=("$SITE" --workdir /tmp/site-retest)
+          [ -n "${ONLY:-}" ] && args+=(--only "$ONLY")
+          # Keep the status so the summary is written on a red run too, then exit with it.
+          status=0
+          node dist/cli/bin.js site-retest "${args[@]}" | tee /tmp/retest.out || status=$?
+          result=$(grep -E "^RETEST_RESULT " /tmp/retest.out | tail -n1 || true)
+          plan=$(grep -E "^RETEST " /tmp/retest.out | tail -n1 || true)
+          {
+            echo "### Re-test: $SITE"
+            echo
+            echo "\`${plan:-no plan line}\`"
+            echo
+            echo "\`${result:-nothing ran}\`"
+            echo
+            grep -E "^  (reason|cleared|still failing|not measured|not re-tested): " /tmp/retest.out | sed 's/^  /- /' || true
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"

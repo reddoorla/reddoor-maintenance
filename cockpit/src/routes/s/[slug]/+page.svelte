@@ -8,6 +8,7 @@
   import OverrideControl from "../../../lib/site/OverrideControl.svelte";
   import CommentaryEditor from "../../../lib/site/CommentaryEditor.svelte";
   import TriggerRenovate from "../../../lib/TriggerRenovate.svelte";
+  import SiteRetest from "../../../lib/SiteRetest.svelte";
   import SetupChecklist from "../../../lib/SetupChecklist.svelte";
   import DetailField from "../../../lib/site/DetailField.svelte";
   import SubmissionRowInner from "../../../lib/submission/SubmissionRowInner.svelte";
@@ -59,6 +60,9 @@
 {#if v.alarm}
   <div class="section alarm">
     <h2>{v.alarm.label}</h2>
+    {#if v.alarm.retest}<div class="retest">
+        <SiteRetest url={v.alarm.retest.url} audits={v.alarm.retest.audits} />
+      </div>{/if}
     <div class="chips">
       {#each v.alarm.chips as chip, i (i)}<span class={chip.cls} title={chip.title ?? undefined}
           >{chip.text}</span

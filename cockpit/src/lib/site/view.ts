@@ -31,6 +31,7 @@ import {
 import { assignTier, type SiteAlarmContext } from "../../../../src/dashboard/fleet-cockpit.js";
 import { chipClass } from "../cockpit/view.js";
 import { buildSubmissionRowView, type SubmissionRowView } from "../submission/view.js";
+import { retestPlanForRow } from "../../../../src/retest/site-retest.js";
 
 /**
  * The `/s/:slug` page as plain data (#582). Every value the old string renderer
@@ -134,7 +135,9 @@ export type SiteView = {
   setup: { score: number; total: number; missing: string[] };
   /** Roster gaps (#672 step 2): the Setup checklist, apart from the alarm. */
   setupGaps: SetupGapView[];
-  alarm: { label: string; chips: Chip[] } | null;
+  /** `retest` (P1-88): the Re-test button, present only when a current reason is one a
+   *  re-test can clear; `audits` names what it will run. */
+  alarm: { label: string; chips: Chip[]; retest: { url: string; audits: string[] } | null } | null;
   pending: PendingView[];
   scores: Tile[] | null;
   health: Tile[] | null;
@@ -380,7 +383,7 @@ function securityTotal(site: WebsiteRow): number | null {
   return parts.reduce<number>((sum, p) => sum + (p ?? 0), 0);
 }
 
-function alarm(a: SiteAlarmContext | null): SiteView["alarm"] {
+function alarm(a: SiteAlarmContext | null, site: WebsiteRow, slug: string): SiteView["alarm"] {
   if (!a) return null;
   const chips: Chip[] = [];
   for (const it of a.items) {
@@ -414,7 +417,10 @@ function alarm(a: SiteAlarmContext | null): SiteView["alarm"] {
         : a.tier === "watch"
           ? "Watch"
           : "Status";
-  return { label, chips };
+  const plan = retestPlanForRow(site, a.items);
+  const retest =
+    plan.audits.length > 0 ? { url: `/api/sites/${slug}/retest`, audits: plan.audits } : null;
+  return { label, chips, retest };
 }
 
 function detailRows(site: WebsiteRow, now: Date): DetailRowView[] {
@@ -592,7 +598,7 @@ export function buildSiteView(
       reason: g.reason,
       acceptKey: g.acceptKey,
     })),
-    alarm: alarm(siteAlarm),
+    alarm: alarm(siteAlarm, site, slug),
     pending: reports.filter(isPendingApproval).map((r) => pendingView(r, site, now)),
     scores: allScoresNull
       ? null

@@ -1217,7 +1217,7 @@ describe("every workflow is YAML that GitHub will load, and the extractor reads 
     expect(extractedRows(misread)).not.toEqual(parsedRows(misread));
   });
 
-  it("finds all nineteen workflows", async () => {
+  it("finds all twenty workflows", async () => {
     expect((await readdir(workflowPath("."))).filter((f) => f.endsWith(".yml")).sort()).toEqual([
       "ci.yml",
       "daily-reports.yml",
@@ -1237,6 +1237,7 @@ describe("every workflow is YAML that GitHub will load, and the extractor reads 
       "release.yml",
       "renovate.yml",
       "report-rerender.yml",
+      "site-retest.yml",
       "time-travel.yml",
     ]);
   });

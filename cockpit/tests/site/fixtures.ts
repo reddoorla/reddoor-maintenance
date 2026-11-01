@@ -377,10 +377,16 @@ export const CASES: Array<[string, SiteInput]> = [
           // P1-78e: a real Broken item, so a Broken site renders a red chip (an
           // uptime fail is Broken on the ladder; the vuln below is Attention).
           { key: "uptime:recS", title: "Site down", severity: "critical", kind: "uptime" },
-          { title: "Critical vuln", severity: "critical", kind: "vuln" },
-          { title: "Stuck PR", severity: "warning", kind: "renovate", autoFixExhausted: true },
-          { title: "Being fixed", severity: "warning", kind: "ci", waiting: true },
-          { title: HOSTILE, severity: "warning", kind: "ci" },
+          { key: "vuln:recS", title: "Critical vuln", severity: "critical", kind: "vuln" },
+          {
+            key: "renovate:recS",
+            title: "Stuck PR",
+            severity: "warning",
+            kind: "renovate",
+            autoFixExhausted: true,
+          },
+          { key: "ci:recS", title: "Being fixed", severity: "warning", kind: "ci", waiting: true },
+          { key: "ci:recS:hostile", title: HOSTILE, severity: "warning", kind: "ci" },
         ],
         watchReasons: ["on *.netlify.app (no custom domain)", "no analytics"],
         watchAcceptKeys: ["no custom domain", ""],

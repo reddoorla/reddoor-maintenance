@@ -141,6 +141,7 @@ cli
     "--concurrency <n>",
     "Max sites to audit in parallel in --fleet mode (default: all at once). Use 1 for sequential (CI).",
   )
+  .option("--site <slug>", "Fleet mode: audit only the roster site with this slug")
   .action(
     async (
       site,
@@ -148,6 +149,7 @@ cli
         only?: string;
         json?: boolean;
         fleet?: string;
+        site?: string;
         workdir?: string;
         cwd?: string;
         verbose?: boolean;
@@ -272,6 +274,25 @@ cli
     ) =>
       runOrExit(
         async () => (await import("./commands/prismic-ci.js")).runPrismicCiCommand(site, opts),
+        opts,
+      ),
+  );
+
+cli
+  .command(
+    "site-retest <slug>",
+    "Re-test one site's failing checks now: only the audits behind its current reasons (P1-88).",
+  )
+  .option("--only <names>", "Run these re-testable audits instead of the plan")
+  .option("--dry-run", "Print the plan; run nothing, write nothing")
+  .option("--workdir <path>", "Clone target (default ~/.reddoor-maint/sites)")
+  .action(
+    async (
+      slug: string,
+      opts: { only?: string; dryRun?: boolean; workdir?: string; verbose?: boolean },
+    ) =>
+      runOrExit(
+        async () => (await import("./commands/site-retest.js")).runSiteRetestCommand(slug, opts),
         opts,
       ),
   );
