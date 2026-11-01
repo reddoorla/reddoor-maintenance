@@ -48,17 +48,37 @@ async function homeLinks(page) {
 function measure(page) {
   return page.evaluate(() => {
     const vw = document.documentElement.clientWidth;
-    const offenders = [];
+    // MSOT's two checks, with its "text past the edge" split in two: text that
+    // straddles the edge is cut off where a visitor can see it (MSOT's w-80);
+    // text wholly past the edge is a carousel slide or an off-canvas menu.
+    const straddle = [], offscreen = [];
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     for (let n = walker.nextNode(); n; n = walker.nextNode()) {
       if (!n.textContent?.trim()) continue;
+      const el = n.parentElement;
+      if (el && el.checkVisibility && !el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
       const range = document.createRange();
       range.selectNodeContents(n);
-      if ([...range.getClientRects()].some((r) => r.width > 0 && r.right > vw + 1)) {
-        offenders.push(`<${n.parentElement?.tagName.toLowerCase()}> "${n.textContent.trim().slice(0, 40)}"`);
+      const rects = [...range.getClientRects()].filter((r) => r.width > 0 && r.right > vw + 1);
+      if (!rects.length) continue;
+      const label = `<${el?.tagName.toLowerCase()}> "${n.textContent.trim().slice(0, 40)}"`;
+      (rects.some((r) => r.left < vw - 1) ? straddle : offscreen).push(label);
+    }
+    // The outermost elements past the right edge: what makes the page scroll.
+    const culprits = [];
+    const sw = document.documentElement.scrollWidth;
+    if (sw > vw) {
+      for (const el of document.body.querySelectorAll("*")) {
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 || r.right <= vw + 1) continue;
+        const p = el.parentElement?.getBoundingClientRect();
+        if (p && p.right > vw + 1) continue;
+        const cls = typeof el.className === "string" ? el.className.trim().split(/\s+/).slice(0, 4).join(".") : "";
+        culprits.push(`${el.tagName.toLowerCase()}${cls ? "." + cls : ""} right=${Math.round(r.right)}`);
+        if (culprits.length >= 4) break;
       }
     }
-    return { scrollWidth: document.documentElement.scrollWidth, clientWidth: vw, offenders };
+    return { scrollWidth: sw, clientWidth: vw, straddle, offscreen, culprits };
   });
 }
 const browser = await chromium.launch();
@@ -77,10 +97,13 @@ for (const width of WIDTHS) {
     try {
       const res = await page.goto(new URL(path, base).href, { waitUntil: "load", timeout: 45000 });
       await page.evaluate(() => document.fonts.ready);
-      const { scrollWidth, clientWidth, offenders } = await measure(page);
-      const bad = scrollWidth > clientWidth || offenders.length > 0;
+      const { scrollWidth, clientWidth, straddle, offscreen, culprits } = await measure(page);
+      const scroll = scrollWidth > clientWidth;
+      const bad = scroll || straddle.length > 0;
       if (bad) hits++;
-      console.log(`P190 ${label} ${bad ? "HIT" : "ok"} ${width} ${path} status=${res?.status()} scroll=${scrollWidth} client=${clientWidth} text=${offenders.length}${offenders.length ? " " + JSON.stringify(offenders.slice(0, 4)) : ""}`);
+      const kind = scroll && straddle.length ? "HIT-scroll+cut" : scroll ? "HIT-scroll" : straddle.length ? "HIT-cut" : offscreen.length ? "ok-offscreen" : "ok";
+      console.log(`P190 ${label} ${kind} ${width} ${path} status=${res?.status()} scroll=${scrollWidth} client=${clientWidth} cut=${straddle.length} off=${offscreen.length}` +
+        (culprits.length ? ` culprits=${JSON.stringify(culprits)}` : "") + (straddle.length ? ` cuttext=${JSON.stringify(straddle.slice(0, 3))}` : ""));
     } catch (e) {
       errors++;
       console.log(`P190 ${label} ERROR ${width} ${path} ${e.message.split("\n")[0]}`);
