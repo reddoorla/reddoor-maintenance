@@ -1,0 +1,56 @@
+# Temporary: the P1-90 overflow census (reddoorla/reddoor-maintenance#1876).
+# Runs only on pushes to its own branch, which is never merged.
+name: p1-90 overflow census
+on:
+  push:
+    branches: [claude/p1-90-overflow-census]
+permissions:
+  contents: read
+jobs:
+  overflow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        site:
+          - "CONTROL-msot-prefix https://deploy-preview-101--msot-landing.netlify.app"
+          - "CONTROL-msot-postfix https://medicalsolutionsoftx.com"
+          - "29-navy https://29navy.com"
+          - "data-dynamiq https://www.datadynamiq.com"
+          - "erp-industrial https://www.erpfunds.com"
+          - "la-homelessness-youth https://la-homelessness-youth.netlify.app"
+          - "hedloc https://hedloc.netlify.app"
+          - "espada https://espadarealestate.com"
+          - "vineyard-custom-homes https://www.vineyardconstruction.com"
+          - "revogen https://revogen.com"
+          - "the-tower-burbank https://the-tower-burbank-rd.netlify.app"
+          - "williamson-homes https://www.williamson-homes.com"
+          - "composition-hospitality https://www.compositionhospitality.com"
+          - "gallerysonder https://gallerysonder.com"
+          - "1836dig https://1836dig.com"
+          - "the-pointe-burbank https://the-pointe-burbank-rd.netlify.app"
+          - "reddoor-website https://reddoorla.com"
+          - "la-homelessness-initiative https://www.lahomelessnessawareness.org"
+          - "alamo-anatomy https://alamo-anatomy.netlify.app"
+          - "beachfront-dentistry https://www.beachfrontdentistry.com"
+          - "caltex-landing https://www.caltexmedical.com"
+          - "williamson-construction-co https://www.williamson-construction.com"
+          - "vida-legacy-foundation https://vidalegacy.org"
+          - "roalson-interests https://roalson.com"
+          - "mantis-landscaping https://mantislandscaping.com"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+      - name: Install Playwright
+        working-directory: census-p1-90
+        run: |
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund playwright@1.59.1
+          npx playwright install --with-deps chromium
+      - name: Measure
+        working-directory: census-p1-90
+        run: node overflow.mjs ${{ matrix.site }}
