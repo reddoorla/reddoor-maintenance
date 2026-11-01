@@ -91,7 +91,12 @@ export async function runSiteRetestCommand(
   const out: string[] = [
     `RETEST site=${slug} audits=${audits.length > 0 ? audits.join(",") : "none"}${forced ? " (--only)" : ""}`,
   ];
-  for (const r of before.reasons) out.push(`  reason: ${r.title} -> ${r.audit}`);
+  for (const r of before.reasons)
+    out.push(
+      (audits as string[]).includes(r.audit)
+        ? `  reason: ${r.title} -> ${r.audit}`
+        : `  not re-tested: ${r.title} (--only left out ${r.audit})`,
+    );
   for (const t of before.untouched) out.push(`  not re-tested: ${t}`);
 
   if (audits.length === 0) {
@@ -131,14 +136,15 @@ export async function runSiteRetestCommand(
   const cleared = gone.filter((r) => passed(r.key));
   const nulled = gone.filter((r) => !passed(r.key));
   const still = after.reasons.filter((r) => ran.has(r.audit));
-  const notMeasured = [
-    ...before.reasons.filter((r) => !ran.has(r.audit) && audits.includes(r.audit)),
-    ...nulled,
-  ];
+  const skipped = before.reasons.filter((r) => !ran.has(r.audit) && audits.includes(r.audit));
+  const notMeasured = [...skipped, ...nulled];
   for (const r of cleared) out.push(`  cleared: ${r.title}`);
   for (const r of still) out.push(`  still failing: ${r.title}`);
-  for (const r of notMeasured)
-    out.push(`  not measured: ${r.title} (${r.audit} wrote no verdict for it)`);
+  for (const r of skipped) out.push(`  not measured: ${r.title} (${r.audit} measured nothing)`);
+  for (const r of nulled)
+    out.push(
+      `  not measured: ${r.title} (${r.audit} wrote no pass: the reason left the list without one)`,
+    );
   for (const a of unmeasured) out.push(`::error::site-retest: ${a} measured nothing for ${slug}`);
   const write = run.writeBackFailed
     ? "failed"

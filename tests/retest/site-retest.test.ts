@@ -276,7 +276,7 @@ describe("the command: plan, run one site, read back, report", () => {
     };
     const { output, code } = await runSiteRetestCommand("sonder", {}, blind);
     expect(code).toBe(1);
-    expect(output).toContain("not measured: 2 broken links (browser wrote no verdict for it)");
+    expect(output).toContain("not measured: 2 broken links (browser measured nothing)");
     expect(output).not.toContain("still failing: 2 broken links");
     expect(output).toContain("still failing: TLS certificate expires in 20 days");
     expect(output).toContain("unmeasured=1 unmeasured_audits=1 write=unmeasured");
@@ -291,7 +291,9 @@ describe("the command: plan, run one site, read back, report", () => {
     );
     const { output, code } = await runSiteRetestCommand("sonder", {}, h.deps);
     expect(output).not.toContain("cleared: 2 broken links");
-    expect(output).toContain("not measured: 2 broken links (browser wrote no verdict for it)");
+    expect(output).toContain(
+      "not measured: 2 broken links (browser wrote no pass: the reason left the list without one)",
+    );
     expect(output).toContain("cleared=0 still=1 unmeasured=1 unmeasured_audits=0 write=unmeasured");
     expect(code).toBe(1);
   });
@@ -368,7 +370,6 @@ describe("the cockpit: button and trigger", () => {
     );
     expect(res).toMatchObject({
       status: "dispatched",
-      audits: ["browser", "domain"],
     });
     expect(dispatched).toEqual([{ workflow: SITE_RETEST_WORKFLOW, inputs: { site: "sonder" } }]);
   });

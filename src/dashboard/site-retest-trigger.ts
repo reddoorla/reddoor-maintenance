@@ -18,7 +18,7 @@ export type TriggerSiteRetestDeps = {
 };
 
 export type TriggerSiteRetestResult =
-  | { status: "dispatched"; slug: string; audits: string[] }
+  | { status: "dispatched"; slug: string }
   | { status: "bad-slug"; slug: string }
   | { status: "not-found"; slug: string }
   | { status: "nothing-to-retest"; slug: string }
@@ -41,7 +41,7 @@ export async function triggerSiteRetest(
   if (plan.audits.length === 0) return { status: "nothing-to-retest", slug };
   try {
     await deps.dispatch(SITE_RETEST_WORKFLOW, { site: target });
-    return { status: "dispatched", slug, audits: plan.audits };
+    return { status: "dispatched", slug };
   } catch (e) {
     return { status: "failed", slug, error: e instanceof Error ? e.message : String(e) };
   }

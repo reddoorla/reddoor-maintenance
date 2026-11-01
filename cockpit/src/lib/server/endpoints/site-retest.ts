@@ -78,7 +78,6 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     return json(
       {
         ok: true,
-        audits: result.audits,
         runsUrl: `https://github.com/${CENTRAL_REPO}/actions/workflows/${SITE_RETEST_WORKFLOW}`,
       },
       200,
