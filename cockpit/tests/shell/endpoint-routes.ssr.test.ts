@@ -88,6 +88,7 @@ describe("the cockpit's endpoint routes", () => {
       "/api/reports/rec1/unapprove",
       "/api/reports/rec1/withdraw",
       "/api/sites/rec1/details",
+      "/api/sites/rec1/retest",
       "/api/sites/rec1/trigger-renovate",
       "/api/submissions/rec1/status",
       "/auth/basic",
