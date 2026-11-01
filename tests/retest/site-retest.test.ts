@@ -255,7 +255,9 @@ describe("the command: plan, run one site, read back, report", () => {
     expect(output).toContain("RETEST site=sonder audits=browser,domain");
     expect(output).toContain("cleared: 2 broken links");
     expect(output).toContain("still failing: TLS certificate expires in 20 days");
-    expect(output).toContain("RETEST_RESULT site=sonder cleared=1 still=1 unmeasured=0 write=ok");
+    expect(output).toContain(
+      "RETEST_RESULT site=sonder cleared=1 still=1 unmeasured=0 unmeasured_audits=0 write=ok",
+    );
   });
 
   it("an audit that measured nothing is reported per reason and reds the run (round 1)", async () => {
@@ -277,7 +279,7 @@ describe("the command: plan, run one site, read back, report", () => {
     expect(output).toContain("not measured: 2 broken links (browser wrote no verdict for it)");
     expect(output).not.toContain("still failing: 2 broken links");
     expect(output).toContain("still failing: TLS certificate expires in 20 days");
-    expect(output).toContain("unmeasured=1 write=unmeasured");
+    expect(output).toContain("unmeasured=1 unmeasured_audits=1 write=unmeasured");
   });
 
   it("a reason whose verdict came back null is not measured, never cleared (round 2)", async () => {
@@ -290,7 +292,7 @@ describe("the command: plan, run one site, read back, report", () => {
     const { output, code } = await runSiteRetestCommand("sonder", {}, h.deps);
     expect(output).not.toContain("cleared: 2 broken links");
     expect(output).toContain("not measured: 2 broken links (browser wrote no verdict for it)");
-    expect(output).toContain("cleared=0 still=1 unmeasured=1 write=unmeasured");
+    expect(output).toContain("cleared=0 still=1 unmeasured=1 unmeasured_audits=0 write=unmeasured");
     expect(code).toBe(1);
   });
 
@@ -521,6 +523,7 @@ describe("retestPassed: gone from the list counts only with a measured pass", ()
     ["cms:recS", { cmsReachable: null }, false],
     ["deploy:recS", { deployStatus: "ready" }, true],
     ["deploy:recS", { deployStatus: null }, false],
+    ["deploy:recS", { deployStatus: "building" }, false],
     ["lighthouse:recS:seo", { seoScore: 90 }, true],
     ["lighthouse:recS:seo", { seoScore: null, pScore: 90 }, false],
     ["vuln:recS", {}, false],

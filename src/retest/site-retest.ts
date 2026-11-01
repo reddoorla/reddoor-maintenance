@@ -18,6 +18,7 @@ import type { AttentionItem } from "../alerts/attention.js";
 import type { WebsiteRow } from "../fleet/site-row.js";
 import type { FleetWriteResult } from "../audits/write-audits.js";
 import { selectFleetSites } from "../inventory/select.js";
+import { isReadyState } from "../audits/netlify-deploy.js";
 
 /** The audits a re-test may run, in the order it runs them. Every one is checkout-free
  *  (deployed URL or API only), as in fleet-lighthouse's own pass. */
@@ -119,7 +120,7 @@ export function retestMeasured(write: FleetWriteResult, slug: string, audit: str
   return true;
 }
 
-const LIGHTHOUSE_FIELD: Readonly<Record<string, keyof WebsiteRow>> = {
+const LIGHTHOUSE_FIELD: Readonly<Record<string, "pScore" | "rScore" | "bpScore" | "seoScore">> = {
   performance: "pScore",
   accessibility: "rScore",
   "best-practices": "bpScore",
@@ -152,7 +153,9 @@ export function retestPassed(key: string, row: WebsiteRow): boolean {
     case "cms":
       return row.cmsReachable === "pass";
     case "deploy":
-      return row.deployStatus !== null;
+      // The audit's own pass rule: only `ready` passes; building or queued is not a pass
+      // (review round 3).
+      return isReadyState(row.deployStatus);
     case "lighthouse": {
       const field = rest !== undefined ? LIGHTHOUSE_FIELD[rest] : undefined;
       return field !== undefined && row[field] !== null;
