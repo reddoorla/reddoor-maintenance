@@ -18,7 +18,7 @@ overrides:
   brace-expansion@<1.1.16: '>=1.1.16 <2'
   brace-expansion@>=2.0.0 <2.1.2: '>=2.1.2 <3'
   brace-expansion@>=3.0.0 <5.0.7: '>=5.0.7 <6'
-  google-auth-library: ^10.6.2
+  google-auth-library: ^11.0.0
   postcss@<=8.5.17: '>=8.5.18 <9'
   nanoid@<3.3.18: '>=3.3.18 <4'
   devalue@<5.9.2: '>=5.9.2 <6'
@@ -123,8 +123,8 @@ importers:
         specifier: ^4.1.8
         version: 4.1.12(vitest@4.1.12)
       google-auth-library:
-        specifier: ^10.6.2
-        version: 10.9.1
+        specifier: ^11.0.0
+        version: 11.3.2
       happy-dom:
         specifier: ^21.0.4
         version: 21.0.4
@@ -2229,13 +2229,13 @@ packages:
   function-bind@1.1.2:
     resolution: {integrity: sha512-7XHNxH7qX9xG5mIwxkhumTox/MIRNcOgDrxWsMt2pAr23WHp6MrRlN7FBSFpCpr+oVO0F744iUgR82nJMfG2SA==}
 
-  gaxios@7.3.1:
-    resolution: {integrity: sha512-kB3rzJV7d9juLZh8/56QTXCwQfxyhdOMdyYk1HdQKFtF8TJTDTZQJtixWIwXdE9Jji91mC41DUNpjleo4L4eAQ==}
-    engines: {node: '>=18'}
+  gaxios@8.3.2:
+    resolution: {integrity: sha512-7VsaTExxjbDv2ZK1YuC4jbgfN33NI/6/7zdYWUHB6mcg51v4tCBZe+xzjqPzOpVzI+C5k1Kk9OQ80WVrXAHOqw==}
+    engines: {node: '>=22'}
 
-  gcp-metadata@8.1.2:
-    resolution: {integrity: sha512-zV/5HKTfCeKWnxG0Dmrw51hEWFGfcF2xiXqcA3+J90WDuP0SvoiSO5ORvcBsifmx/FoIjgQN3oNOGaQ5PhLFkg==}
-    engines: {node: '>=18'}
+  gcp-metadata@9.2.3:
+    resolution: {integrity: sha512-d2OI/dJJ3IIaeOz3c9jvr5j5G5beI5fQzbgilNiWhDKGwvJN9o10Qub70NkbF6PNJSUoNKZ77JKYGz0Fs4+9Lg==}
+    engines: {node: '>=22'}
 
   get-caller-file@2.0.5:
     resolution: {integrity: sha512-DyFP3BM/3YHTQOCUL/w0OZHR0lpKeGrxotcHWcqNEdnltqFwXVfhEBQ94eIo34AfQpo0rGki4cyIiftY06h2Fg==}
@@ -2286,17 +2286,13 @@ packages:
     resolution: {integrity: sha512-RwMTC61u7hrG3ZJMkZQOK4JLJrKS8QtoTii63EmWvFXHqycY9FObBJQCbsLxSO8kjKhWE5kV1GC+Vb1g3RI0Zg==}
     engines: {node: '>=18'}
 
-  google-auth-library@10.9.1:
-    resolution: {integrity: sha512-i1ydyHrqcIxXkWh/uBmVkzCvIuq5yiK2ATndIe5XxKholrG/MTYP9xGYka4sQhrbIAgGjL2B6NOE7rFaiF3fXw==}
-    engines: {node: '>=18'}
+  google-auth-library@11.3.2:
+    resolution: {integrity: sha512-rbm+5boOZzFvDFg2tvCGkgHtG+RrmDqCDi6voK+ILpoCDqGxxc5pcMH6WZzCQXGNqQqZcYJl5WNvb159rkriuA==}
+    engines: {node: '>=22'}
 
   google-gax@6.14.0:
     resolution: {integrity: sha512-C6By4tAdiSoY+4S1Y8phpJkIqELIu0kPtUIcVacScAKhi4LwR6w9dbZI3JHnIfMBvWyvxgPZS2Y7hryBwTNJBQ==}
     engines: {node: '>=22'}
-
-  google-logging-utils@1.1.3:
-    resolution: {integrity: sha512-eAmLkjDjAFCVXg7A1unxHsLf961m6y17QFqXqAXGj/gVkKFrEICfStRfwUlGNfeCEjNRa32JEWOUTlYXPyyKvA==}
-    engines: {node: '>=14'}
 
   google-logging-utils@2.1.1:
     resolution: {integrity: sha512-jYZOPMaRGS3Hldyudft6bdibW9ZWUKBkMdB2TeSETkV1c2T9TR4zxEWZETHv9xJ8KHr2hgkNLaSa8kcEcwlpeQ==}
@@ -6173,7 +6169,7 @@ snapshots:
 
   function-bind@1.1.2: {}
 
-  gaxios@7.3.1:
+  gaxios@8.3.2:
     dependencies:
       extend: 3.0.2
       https-proxy-agent: 7.0.6
@@ -6181,10 +6177,10 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  gcp-metadata@8.1.2:
+  gcp-metadata@9.2.3:
     dependencies:
-      gaxios: 7.3.1
-      google-logging-utils: 1.1.3
+      gaxios: 8.3.2
+      google-logging-utils: 2.1.1
       json-bigint: 1.0.0
     transitivePeerDependencies:
       - supports-color
@@ -6253,13 +6249,13 @@ snapshots:
 
   globals@17.13.0: {}
 
-  google-auth-library@10.9.1:
+  google-auth-library@11.3.2:
     dependencies:
       base64-js: 1.5.1
       ecdsa-sig-formatter: 1.0.11
-      gaxios: 7.3.1
-      gcp-metadata: 8.1.2
-      google-logging-utils: 1.1.3
+      gaxios: 8.3.2
+      gcp-metadata: 9.2.3
+      google-logging-utils: 2.1.1
       jws: 4.0.1
     transitivePeerDependencies:
       - supports-color
@@ -6270,7 +6266,7 @@ snapshots:
       '@grpc/proto-loader': 0.8.1
       '@opentelemetry/api': 1.10.0
       duplexify: 4.1.3
-      google-auth-library: 10.9.1
+      google-auth-library: 11.3.2
       google-logging-utils: 2.1.1
       node-fetch: 3.3.2
       object-hash: 3.0.0
@@ -6279,8 +6275,6 @@ snapshots:
       retry-request: 9.1.0
     transitivePeerDependencies:
       - supports-color
-
-  google-logging-utils@1.1.3: {}
 
   google-logging-utils@2.1.1: {}
 
