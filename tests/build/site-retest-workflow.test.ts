@@ -5,9 +5,9 @@
  * assertion), and the module graph of the command it runs.
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import {
   stepEnv,
   stepRunScript,
@@ -76,5 +76,79 @@ describe("the command it runs imports nothing that dispatches Renovate", () => {
     );
     expect(imports.length).toBeGreaterThan(0);
     for (const i of imports) expect(i).not.toMatch(/renovate/i);
+  });
+
+  /** Every repo module reachable from `starts` by relative static or dynamic import. */
+  function reachable(starts: readonly string[]): string[] {
+    const seen = new Set<string>();
+    const stack = starts.map((f) => resolve(ROOT, f));
+    while (stack.length > 0) {
+      const f = stack.pop()!;
+      if (seen.has(f)) continue;
+      seen.add(f);
+      const text = readFileSync(f, "utf8");
+      for (const m of text.matchAll(/(?:from\s+|import\(\s*)"(\.{1,2}\/[^"]+)"/g)) {
+        const p = resolve(dirname(f), m[1]!);
+        const hit = [p.replace(/\.js$/, ".ts"), p, `${p}.ts`].find(
+          (c) => existsSync(c) && statSync(c).isFile(),
+        );
+        if (hit) stack.push(hit);
+      }
+    }
+    return [...seen].map((f) => relative(ROOT, f));
+  }
+
+  // The renovate classifier is read-only (is this PR Renovate's?), so it may be reached;
+  // anything else under a renovate name is the dispatch side (#1888).
+  const READ_ONLY = new Set(["src/alerts/renovate.ts"]);
+
+  it("nothing reachable from them, transitively, is a renovate module", () => {
+    const graph = reachable(files);
+    // The walk is real: it reaches the audit command the CLI imports dynamically.
+    expect(graph).toContain("src/cli/commands/audit.ts");
+    expect(graph.filter((f) => /renovate/i.test(f) && !READ_ONLY.has(f))).toEqual([]);
+  });
+
+  it("the walk finds a dispatcher when one is reachable (the instrument's control)", () => {
+    expect(reachable(["src/cli/commands/renovate-dispatch.ts"])).toContain(
+      "src/github/renovate-dispatch.ts",
+    );
+  });
+});
+
+describe("the browsers are installed only when the plan runs the browser audit (#1888)", () => {
+  const steps = workflowSteps(SRC);
+  const plan = steps.find((s) => s.label === "Plan the re-test");
+  const install = steps.find((s) => /playwright install/.test(s.source));
+  const run = steps.findIndex((s) => s.label === STEP);
+
+  it("a dry-run plan step runs before the install, which is gated on its output", () => {
+    expect(plan?.source).toMatch(/site-retest "\$\{args\[@\]\}"/);
+    expect(plan?.source).toMatch(/args=\("\$SITE" --dry-run\)/);
+    expect(plan?.source).toMatch(/browser=true" >> "\$GITHUB_OUTPUT"/);
+    expect(install?.if).toBe("steps.plan.outputs.browser == 'true'");
+    expect(steps.indexOf(plan!)).toBeLessThan(steps.indexOf(install!));
+    expect(steps.indexOf(install!)).toBeLessThan(run);
+  });
+
+  it("passes the inputs to the plan as env vars, never interpolated", () => {
+    expect(stepRunScript(SRC, "Plan the re-test")).not.toContain("${{");
+    expect(stepEnv(SRC, "Plan the re-test")).toMatchObject({
+      SITE: "${{ inputs.site }}",
+      ONLY: "${{ inputs.only }}",
+    });
+  });
+
+  it.each([
+    ["RETEST site=acme audits=browser,domain", true],
+    ["RETEST site=acme audits=domain,browser (--only)", true],
+    ["RETEST site=acme audits=browser", true],
+    ["RETEST site=acme audits=domain", false],
+    ["RETEST site=acme audits=none", false],
+    ["RETEST site=browser audits=domain", false],
+  ])("the plan's grep reads %j as browser=%s", (line, want) => {
+    const re = / audits=([a-z-]+,)*browser(,| |$)/;
+    expect(stepRunScript(SRC, "Plan the re-test")).toContain(re.source);
+    expect(re.test(line)).toBe(want);
   });
 });

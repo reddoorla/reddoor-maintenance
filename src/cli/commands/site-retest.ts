@@ -15,9 +15,11 @@ import {
   assertRetestSlug,
   parseRetestOnly,
   RETESTABLE_AUDITS,
+  retestCannotMeasure,
   retestMeasured,
-  retestPassed,
   retestPlanForRow,
+  retestVerdict,
+  SLUG_PATTERN,
   type RetestPlan,
   type RetestableAudit,
 } from "../../retest/site-retest.js";
@@ -34,6 +36,9 @@ export type SiteRetestOptions = {
 
 export type SiteRetestDeps = {
   readRoster?: () => Promise<WebsiteRow[]>;
+  /** Every site's stored `sites.slug`, by id: the cockpit's /s/<slug> address. Defaults to
+   *  Turso; when only `readRoster` is injected, to none (the roster's own slugs alone). */
+  readStoredSlugs?: () => Promise<Array<{ id: string; slug: string }>>;
   runAudit?: (opts: AuditCommandOptions) => Promise<{
     output: string;
     writeBackFailed: boolean;
@@ -78,18 +83,87 @@ export async function runSiteRetestCommand(
       return runAuditCommand(undefined, o);
     });
 
-  const rowsOf = (roster: WebsiteRow[]) => roster.filter((r) => siteSlug(r.name) === slug);
-  const rows = rowsOf(await readRoster());
-  if (rows.length === 0) {
+  const readStoredSlugs =
+    deps.readStoredSlugs ??
+    (deps.readRoster
+      ? async () => []
+      : async () => {
+          const { listSiteSlugs } = await import("../../db/fleet-state.js");
+          const { openDb, readDbConfig } = await import("../../db/client.js");
+          const db = await openDb(readDbConfig());
+          try {
+            return await listSiteSlugs(db);
+          } finally {
+            await db.destroy();
+          }
+        });
+
+  // The slug may be the stored one (the cockpit's /s/<slug> address, which a rename
+  // leaves alone) or the one the roster derives from the Name; either finds the row
+  // (#1887). The stored slug is UNIQUE in Turso, so its match wins; the Name-derived one
+  // is the fallback. Two rows answering to one Name-derived slug would have their plans
+  // unioned and the write-back would pick one of them, so that is refused (#1889).
+  const stored = new Map((await readStoredSlugs()).map((r) => [r.id, r.slug]));
+  const roster = await readRoster();
+  const byStored = roster.filter((r) => stored.get(r.id) === slug);
+  const matches = byStored.length > 0 ? byStored : roster.filter((r) => siteSlug(r.name) === slug);
+  if (matches.length === 0) {
     throw Object.assign(new Error(`site-retest: no fleet site has the slug ${slug}`), {
       exitCode: 2,
     });
   }
+  if (matches.length > 1) {
+    throw Object.assign(
+      new Error(
+        `site-retest: ${matches.length} fleet sites answer to the slug ${slug} (${matches
+          .map((r) => JSON.stringify(r.name))
+          .join(", ")}); re-test refused`,
+      ),
+      { exitCode: 2 },
+    );
+  }
+  const site = matches[0]!;
+  // The audit run and its write-back find the site by the roster's slug, so that slug
+  // must name this row alone too.
+  const runSlug = siteSlug(site.name);
+  const sharing = roster.filter((r) => siteSlug(r.name) === runSlug);
+  if (sharing.length > 1) {
+    throw Object.assign(
+      new Error(
+        `site-retest: ${sharing.length} fleet sites share the roster slug ${runSlug} (${sharing
+          .map((r) => JSON.stringify(r.name))
+          .join(", ")}); re-test refused`,
+      ),
+      { exitCode: 2 },
+    );
+  }
+  if (!SLUG_PATTERN.test(runSlug)) {
+    throw Object.assign(
+      new Error(`site-retest: ${JSON.stringify(site.name)} has no usable roster slug`),
+      { exitCode: 2 },
+    );
+  }
+  // `--only` names audits outright, so it is held to what the run can measure for this
+  // row, as the plan is: anything else is refused with its reason (#1889).
+  if (forced) {
+    const refused = forced.flatMap((a) => {
+      const why = retestCannotMeasure(site, a);
+      return why === null ? [] : [`${a} (${why})`];
+    });
+    if (refused.length > 0) {
+      throw Object.assign(
+        new Error(`site-retest: --only cannot measure ${refused.join(", ")} for ${slug}`),
+        { exitCode: 2 },
+      );
+    }
+  }
+  const rows = [site];
+  const rowsOf = (roster: WebsiteRow[]) => roster.filter((r) => r.id === site.id);
 
   const before = planFor(rows, now());
   const audits: RetestableAudit[] = forced ?? before.audits;
   const out: string[] = [
-    `RETEST site=${slug} audits=${audits.length > 0 ? audits.join(",") : "none"}${forced ? " (--only)" : ""}`,
+    `RETEST site=${runSlug} audits=${audits.length > 0 ? audits.join(",") : "none"}${forced ? " (--only)" : ""}`,
   ];
   for (const r of before.reasons)
     out.push(
@@ -100,7 +174,7 @@ export async function runSiteRetestCommand(
   for (const t of before.untouched) out.push(`  not re-tested: ${t}`);
 
   if (audits.length === 0) {
-    out.push(`nothing to re-test for ${slug}: no current reason a re-test can clear`);
+    out.push(`nothing to re-test for ${runSlug}: no current reason a re-test can clear`);
     return { output: out.join("\n"), code: 0 };
   }
   if (opts.dryRun) {
@@ -110,7 +184,7 @@ export async function runSiteRetestCommand(
 
   const run = await runAudit({
     fleet: "turso",
-    site: slug,
+    site: runSlug,
     only: audits.join(","),
     writeBack: true,
     retest: true,
@@ -122,7 +196,7 @@ export async function runSiteRetestCommand(
   // An audit the write-back did not measure for this site left the old verdict in the
   // row: its reasons were not re-tested, and the run says so and goes red (review round 1).
   const measured = (audit: string): boolean =>
-    run.writeResult !== undefined && retestMeasured(run.writeResult, slug, audit);
+    run.writeResult !== undefined && retestMeasured(run.writeResult, runSlug, audit);
   const unmeasured = audits.filter((a) => !measured(a));
 
   // Read the row back: a reason a measured audit covers is cleared when it is gone.
@@ -131,28 +205,36 @@ export async function runSiteRetestCommand(
   const ran = new Set<string>(audits.filter(measured));
   const stillKeys = new Set(after.reasons.filter((r) => ran.has(r.audit)).map((r) => r.key));
   // Gone from the list is not enough: the row must hold a measured pass for it (round 2).
-  const passed = (key: string) => afterRead.some((r) => retestPassed(key, r));
+  // A measured fail is still failing under another reason (a cert at 8 days read 7, a
+  // function-health fail that is now the CMS), and a null verdict was not measured.
+  const verdict = (key: string) => {
+    const r = afterRead[0];
+    return r === undefined ? null : retestVerdict(key, r);
+  };
   const gone = before.reasons.filter((r) => ran.has(r.audit) && !stillKeys.has(r.key));
-  const cleared = gone.filter((r) => passed(r.key));
-  const nulled = gone.filter((r) => !passed(r.key));
+  const cleared = gone.filter((r) => verdict(r.key) === "pass");
+  const changed = gone.filter((r) => verdict(r.key) === "fail");
+  const nulled = gone.filter((r) => verdict(r.key) === null);
   const still = after.reasons.filter((r) => ran.has(r.audit));
   const skipped = before.reasons.filter((r) => !ran.has(r.audit) && audits.includes(r.audit));
   const notMeasured = [...skipped, ...nulled];
   for (const r of cleared) out.push(`  cleared: ${r.title}`);
+  for (const r of changed) out.push(`  still failing: ${r.title} (it now reads as another reason)`);
   for (const r of still) out.push(`  still failing: ${r.title}`);
   for (const r of skipped) out.push(`  not measured: ${r.title} (${r.audit} measured nothing)`);
   for (const r of nulled)
     out.push(
       `  not measured: ${r.title} (${r.audit} wrote no pass: the reason left the list without one)`,
     );
-  for (const a of unmeasured) out.push(`::error::site-retest: ${a} measured nothing for ${slug}`);
+  for (const a of unmeasured)
+    out.push(`::error::site-retest: ${a} measured nothing for ${runSlug}`);
   const write = run.writeBackFailed
     ? "failed"
     : unmeasured.length > 0 || nulled.length > 0
       ? "unmeasured"
       : "ok";
   out.push(
-    `RETEST_RESULT site=${slug} cleared=${cleared.length} still=${still.length} unmeasured=${notMeasured.length} unmeasured_audits=${unmeasured.length} write=${write}`,
+    `RETEST_RESULT site=${runSlug} cleared=${cleared.length} still=${still.length} unmeasured=${notMeasured.length} unmeasured_audits=${unmeasured.length} write=${write}`,
   );
   // A failing verdict is the answer, not a fault: a failed write, or an audit that
   // measured nothing, reds the run.

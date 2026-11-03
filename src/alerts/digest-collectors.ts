@@ -99,11 +99,11 @@ export function collectVulnAlerts(sites: WebsiteRow[], baseUrl: string): Attenti
 }
 
 /** Absolute floor below which a Lighthouse category is "Needs attention" (Tucker's call). */
-const LIGHTHOUSE_FLOOR = 75;
+export const LIGHTHOUSE_FLOOR = 75;
 
 /** The four Lighthouse categories, each mapped to its WebsiteRow score field, URL slug,
  *  and the human label rendered in the digest title. Order is the operator's reading order. */
-const LIGHTHOUSE_CATEGORIES: ReadonlyArray<{
+export const LIGHTHOUSE_ALERT_CATEGORIES: ReadonlyArray<{
   field: "pScore" | "rScore" | "bpScore" | "seoScore";
   slug: string;
   label: string;
@@ -126,7 +126,7 @@ const LIGHTHOUSE_CATEGORIES: ReadonlyArray<{
 export function collectLighthouseAlerts(sites: WebsiteRow[], baseUrl: string): AttentionItem[] {
   const items: AttentionItem[] = [];
   for (const s of sites) {
-    for (const cat of LIGHTHOUSE_CATEGORIES) {
+    for (const cat of LIGHTHOUSE_ALERT_CATEGORIES) {
       const score = s[cat.field];
       if (score === null || score >= LIGHTHOUSE_FLOOR) continue;
       items.push({

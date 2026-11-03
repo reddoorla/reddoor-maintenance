@@ -29,7 +29,14 @@ import { analyticsOptedOut } from "../fleet/opt-outs.js";
  * The id is carried as `meta.siteId` and never interpreted: a `rec…` id and a
  * `site_<ULID>` id (#646 step 3) select identically.
  */
-export function selectFleetSites(websites: readonly WebsiteRow[], workdir: string): Site[] {
+export function selectFleetSites(
+  websites: readonly WebsiteRow[],
+  workdir: string,
+  opts: { quiet?: boolean } = {},
+): Site[] {
+  // `quiet` is for read paths that only ask what the roster would select (the cockpit's
+  // re-test plan, on every /s/<slug> render): a sweep logs its skips, a page render must not.
+  const warn = opts.quiet ? () => {} : console.warn;
   return websites
     .filter(
       (w) =>
@@ -45,7 +52,7 @@ export function selectFleetSites(websites: readonly WebsiteRow[], workdir: strin
       // every empty-slug site would collapse under the "" key and mis-write or
       // fail. Skip it loudly rather than silently mis-map it.
       if (slug.length === 0) {
-        console.warn(
+        warn(
           `[inventory] skipping "${w.name}" (row ${w.id}): Name has no slug-able characters (empty slug)`,
         );
         return [];
@@ -62,7 +69,7 @@ export function selectFleetSites(websites: readonly WebsiteRow[], workdir: strin
       if (isHttpUrl(w.url)) {
         site.deployedUrl = w.url;
       } else {
-        console.warn(
+        warn(
           `[inventory] skipping deployed audit for "${w.name}": url is not http(s): ${JSON.stringify(w.url)}`,
         );
       }
