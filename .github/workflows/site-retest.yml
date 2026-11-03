@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       site:
-        description: "The site's slug, as in the cockpit's /s/<slug> address"
+        description: "The site's stored slug, as in the cockpit's /s/<slug> address (the Name-derived one also resolves, but runs under another concurrency group)"
         required: true
         type: string
       only:
@@ -70,8 +70,20 @@ jobs:
           set -o pipefail
           args=("$SITE" --dry-run)
           [ -n "${ONLY:-}" ] && args+=(--only "$ONLY")
-          node dist/cli/bin.js site-retest "${args[@]}" | tee /tmp/plan.out
-          if grep -E "^RETEST " /tmp/plan.out | grep -qE " audits=([a-z-]+,)*browser(,| |$)"; then
+          status=0
+          node dist/cli/bin.js site-retest "${args[@]}" 2>&1 | tee /tmp/plan.out || status=$?
+          if [ "$status" -ne 0 ]; then
+            # A refusal ends the job here, so the summary says why (review round 1).
+            {
+              echo "### Re-test: $SITE"
+              echo
+              echo "Refused before any audit ran (exit $status):"
+              echo
+              tail -n 5 /tmp/plan.out | sed 's/^/    /'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit "$status"
+          fi
+          if grep -qE "^RETEST .* audits=([a-z-]+,)*browser(,| |$)" /tmp/plan.out; then
             echo "browser=true" >> "$GITHUB_OUTPUT"
           else
             echo "browser=false" >> "$GITHUB_OUTPUT"

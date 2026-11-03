@@ -199,7 +199,7 @@ export function retestVerdict(key: string, row: WebsiteRow): RetestVerdict {
     }
     default: {
       // Every prefix in RETEST_AUDIT_BY_PREFIX has a case: a new one fails typecheck here,
-      // and tests/retest/site-retest.test.ts reads each key at run time (#1890).
+      // and tests/retest/site-retest-followups.test.ts reads each key at run time (#1890).
       const unhandled: never = prefix;
       void unhandled;
       return null;

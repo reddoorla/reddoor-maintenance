@@ -272,13 +272,17 @@ describe("#1887: a renamed site is found by its stored slug", () => {
     expect(h.calls).toHaveLength(1);
   });
 
-  it("a stored slug that is another row's Name-derived slug is refused", async () => {
+  it("a stored slug that is another row's Name-derived slug finds its own row (it is UNIQUE)", async () => {
+    // Round 1: B, stored `acme-co-inc`, was renamed "Acme Co", which derives `acme-co`.
     const other = row({ id: "recO", name: "Acme Co", linksOk: false, browserCheckedAt: FRESH });
-    const h = harness([renamed, other], [], { readStoredSlugs: storedSlugs });
-    await expect(runSiteRetestCommand("acme-co", {}, h.deps)).rejects.toMatchObject({
-      exitCode: 2,
+    const h = harness([renamed, other], [renamed, other], {
+      readStoredSlugs: async () => [
+        { id: "recR", slug: "acme-co" },
+        { id: "recO", slug: "acme-co-inc" },
+      ],
     });
-    expect(h.calls).toEqual([]);
+    await runSiteRetestCommand("acme-co", {}, h.deps);
+    expect(h.calls.map((c) => c.site)).toEqual(["acme-company"]);
   });
 
   it("the page's action URLs use the stored slug; the submissions link keeps the Name's", () => {

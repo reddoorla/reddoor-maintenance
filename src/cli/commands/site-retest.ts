@@ -100,11 +100,13 @@ export async function runSiteRetestCommand(
 
   // The slug may be the stored one (the cockpit's /s/<slug> address, which a rename
   // leaves alone) or the one the roster derives from the Name; either finds the row
-  // (#1887). Two rows answering to one slug would have their plans unioned and the
-  // write-back would pick one of them, so that is refused (#1889).
+  // (#1887). The stored slug is UNIQUE in Turso, so its match wins; the Name-derived one
+  // is the fallback. Two rows answering to one Name-derived slug would have their plans
+  // unioned and the write-back would pick one of them, so that is refused (#1889).
   const stored = new Map((await readStoredSlugs()).map((r) => [r.id, r.slug]));
   const roster = await readRoster();
-  const matches = roster.filter((r) => siteSlug(r.name) === slug || stored.get(r.id) === slug);
+  const byStored = roster.filter((r) => stored.get(r.id) === slug);
+  const matches = byStored.length > 0 ? byStored : roster.filter((r) => siteSlug(r.name) === slug);
   if (matches.length === 0) {
     throw Object.assign(new Error(`site-retest: no fleet site has the slug ${slug}`), {
       exitCode: 2,

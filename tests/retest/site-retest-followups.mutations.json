@@ -44,8 +44,8 @@
     "edits": [
       {
         "file": "src/cli/commands/site-retest.ts",
-        "find": "siteSlug(r.name) === slug || stored.get(r.id) === slug",
-        "replace": "siteSlug(r.name) === slug"
+        "find": "  const byStored = roster.filter((r) => stored.get(r.id) === slug);",
+        "replace": "  const byStored: WebsiteRow[] = [];"
       }
     ],
     "test": "tests/retest/site-retest-followups.test.ts",
