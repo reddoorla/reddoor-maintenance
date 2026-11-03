@@ -913,9 +913,12 @@ describe("runDigest", () => {
     expect(html).not.toMatch(/critical\/high vuln/);
   });
 
-  it("asks about a transitive-only vuln that outlived its lockfile window", async () => {
+  // Was an ask until the operator's 10-29 rule, "transitives should be watch not
+  // attention": past its window it is Watch, which stays on the cockpit and leaves
+  // the email (P1-78d). A direct vuln past its wait is still mailed (below).
+  it("leaves a transitive-only vuln that outlived its lockfile window out: it is Watch", async () => {
     const html = await digestWithTransitiveVuln("2026-09-27");
-    expect(html).toContain("still present after the 2026-09-28 lockfile window");
+    expect(html).not.toMatch(/critical\/high vuln/);
   });
 
   it("the exhausted flip alone (count unchanged) surfaces the vuln badged WORSE", async () => {
