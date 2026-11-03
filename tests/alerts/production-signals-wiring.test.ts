@@ -227,7 +227,9 @@ describe("edges the main suite leaves open", () => {
 
 describe("the a11y stamp travels with its counts", () => {
   it("written whenever the counts are", () => {
-    const cells = auditFields({ a11y: { violations: 0, routesScanned: 4, routesTotal: 4 } });
+    const cells = auditFields({
+      a11y: { violations: 0, routesScanned: 4, routesTotal: 4, routesSkipped: [] },
+    });
     expect(typeof cells["A11y Checked At"]).toBe("string");
     expect(Number.isFinite(Date.parse(cells["A11y Checked At"] as string))).toBe(true);
   });

@@ -34,6 +34,7 @@ import {
 } from "../alerts/digest-collectors.js";
 import {
   collectA11yAlerts,
+  collectA11yCoverageAlerts,
   collectDepsAlerts,
   collectDomainAlerts,
   collectFunctionHealthAlerts,
@@ -793,6 +794,7 @@ function collectFleetAttentionItems(
     ...collectLinkAlerts(sites, baseUrl, now),
     ...collectTitleMetaAlerts(sites, baseUrl, now),
     ...collectA11yAlerts(sites, baseUrl, now),
+    ...collectA11yCoverageAlerts(sites, baseUrl, now),
     ...depsItems.far,
     ...depsItems.behind,
     ...collectSearchConsoleAlerts(sites, baseUrl, now),

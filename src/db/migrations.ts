@@ -748,4 +748,12 @@ export const MIGRATIONS: Migration[] = [
     id: "0052_site_health_a11y_checked_at",
     sql: `ALTER TABLE site_health ADD COLUMN a11y_checked_at TEXT;`,
   },
+  {
+    // #910: the routes the last a11y run navigated to and did not scan, with why,
+    // as JSON `[{ route, reason, path? }]`. The counts say coverage dropped; this says where.
+    // A skip the site declared leaves the stored total too, so this is the only
+    // column that still names it.
+    id: "0053_site_health_a11y_routes_skipped",
+    sql: `ALTER TABLE site_health ADD COLUMN a11y_routes_skipped TEXT;`,
+  },
 ];
