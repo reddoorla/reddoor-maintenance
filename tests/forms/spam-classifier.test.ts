@@ -766,7 +766,7 @@ describe("classifySpam — threshold 50 and corroborating content families (2026
       ["Please open the attached RFQ before Friday.", "bid-lure"],
       ["The specifications are available for your review online.", "bid-lure"],
       ["I have buyers interested in purchasing businesses nearby.", "broker-template"],
-      ["Have you considered selling the business this year?", "broker-template"],
+      ["Have you ever considered selling the business?", "broker-template"],
       ["Have you considered selling your business this year?", "broker-template"],
       ["If selling has crossed your mind, call me.", "broker-template"],
     ];
@@ -821,7 +821,7 @@ describe("classifySpam — threshold 50 and corroborating content families (2026
       name: "Dana Ortiz",
       email: "dana@ortiz-fabrication.example",
       message:
-        "We are a fabrication shop in San Antonio. Please see the attached RFQ for 40 steel brackets and reply with an invitation to bid timeline and lead time.",
+        "We are a fabrication shop in San Antonio. This is an invitation to bid on 40 steel brackets; please see the attached RFQ and include your lead time.",
     });
     expect(rfq).toEqual({ score: 30, reasons: ["bid-lure"] });
     expect(rfq.score >= SPAM_THRESHOLD).toBe(false);
@@ -846,9 +846,19 @@ describe("classifySpam — threshold 50 and corroborating content families (2026
       "We are interested in selling your products in our store and are actively looking for suppliers. https://store.example",
       "I represent buyers interested in purchasing multifamily assets in Pasadena. Details: https://broker.example/buyers",
       "I have buyers actively looking for industrial land near your parcel. See https://broker.example",
+      "We've considered selling the business in a few years, so we want a refreshed site first. https://owner.example",
     ]) {
       expect(clean({ message }), message).toEqual({ score: 25, reasons: ["links:1"] });
     }
+  });
+
+  it("a family plus two buyer phrases tops up to exactly 50 and buckets", () => {
+    const v = clean({
+      message:
+        "This is an invitation to bid. Do you offer a free consultation? We need it within 24 hours.",
+    });
+    expect(v).toEqual({ score: 50, reasons: ["keywords-buyer:2", "bid-lure"] });
+    expect(v.score >= SPAM_THRESHOLD).toBe(true);
   });
 
   it("a message that hits both families scores both (60)", () => {
@@ -864,8 +874,15 @@ describe("classifySpam — threshold 50 and corroborating content families (2026
         "Does your kit work with primer GCTTCGGCCTTCGGTCCGTT? Saw the protocol on kitprotocols.com",
     });
     expect(v).toEqual({ score: 20, reasons: ["bare-domain"] });
-    // real mash is still caught
+    // lowercase and short primers too
+    expect(clean({ message: "primer gcttcggccttcgg please" })).toEqual({ score: 0, reasons: [] });
+    expect(clean({ message: "primer GCTTCGGCCTTC please" })).toEqual({ score: 0, reasons: [] });
+    // real mash is still caught, beside a primer and when it merely contains A/C/G/T
     expect(clean({ message: "OsDMQohNGefhfCqqQCwr" }).reasons).toContain("gibberish-body");
+    expect(clean({ message: "GATTACAGATTACA OsDMQohNGefhfCqqQCwr" }).reasons).toContain(
+      "gibberish-body",
+    );
+    expect(clean({ message: "GTCAGTCAQXZWKMB" }).reasons).toContain("gibberish-body");
   });
 
   it("a buyer-voice purchase inquiry with one link matches no family", () => {
@@ -880,7 +897,7 @@ describe("classifySpam — threshold 50 and corroborating content families (2026
     expect(clean({ message: "Please review the Attached RFQ today." }).reasons).toEqual([
       "bid-lure",
     ]);
-    expect(clean({ message: "Have you considered-selling-the-business yet?" }).reasons).toEqual([
+    expect(clean({ message: "Have you ever considered-selling-the-business?" }).reasons).toEqual([
       "broker-template",
     ]);
   });

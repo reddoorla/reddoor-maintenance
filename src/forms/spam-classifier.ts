@@ -10,20 +10,19 @@ import { VENDORED_DISPOSABLE_DOMAINS } from "./disposable-domains.snapshot.js";
  * bypass — human-plausible Latin-script cold outreach (SEO / virtual-assistant
  * pitches) with 0-1 links — sums only 25-55 from content signals. 60 lets the
  * high-precision multi-word keyword phrases + the gibberish/bare-domain signals
- * below actually bite. No single content signal buckets alone (each needs
- * corroboration), with deliberate exceptions: lorem-ipsum filler (+60) is
- * machine-generated content with zero genuine use, and the blocked-domain and
- * va-template signals are defined as SPAM_THRESHOLD. `spam_auto` is never emailed, so
- * a false positive is a lead the client does not see until someone reads the record.
+ * below actually bite. No single signal buckets alone (each needs corroboration),
+ * with deliberate exceptions: lorem-ipsum filler (+60) is machine-generated content
+ * with zero genuine use, and the blocked-domain and va-template signals are defined
+ * as SPAM_THRESHOLD. `spam_auto` is recoverable, so a false positive is a nuisance
+ * the operator can undo, not a lost lead.
  *
  * Lowered 60 → 50 (2026-11-03, forms spam review, recommendation 2): three spam
  * notifications reached clients at `links:1,keywords:1` (55). No real lead in the
  * stored record scored above 39, and three scored 20 to 39, so 40 is ruled out.
- * Signals that sat at exactly 50 were trimmed with it so none buckets alone, nor
- * with one link: two links now sum 45, a forged Turnstile token scores 45 (the
- * operator's answer, workspace
- * `decisions/2026-11-03-2036-spam-threshold-50-two-link-invariant.md`), and
- * non-Latin text scores 20.
+ * Two signals that sat at exactly 50 were trimmed so neither buckets alone: two
+ * links now sum 45 and a forged Turnstile token scores 45 (the operator's answer,
+ * workspace `decisions/2026-11-03-2036-spam-threshold-50-two-link-invariant.md`).
+ * Non-Latin text went from 25 to 20, so with one link it sums 45, not 50.
  */
 export const SPAM_THRESHOLD = 50;
 
@@ -272,15 +271,17 @@ const CORROBORATING_FAMILY_WEIGHT = 30;
  * Phrases are the templates' invariants, lowercase and hyphen-free like
  * SPAM_KEYWORDS, and specific enough that a buyer describing their own project
  * ("could you provide an estimate", "scope of work", "lead time") matches none.
- * Buyer-voice lure phrases ("interested in procuring", "interest in purchasing your
- * products", "arrange for a sales representative", "appreciate a quotation",
- * "seeking a qualified company") are deliberately left out: a genuine RFQ to MSOT or
- * Revogen says exactly that and usually carries a link, so family plus link (55)
- * would bucket it (review round 1, 2026-11-03). Round 2 dropped or narrowed the
- * phrases a genuine lead also writes: "proposed unit price" (a distributor's own RFQ),
- * "invite your team to submit" alone (a nonprofit's RFP), "are you interested in
- * selling" (a collector to a gallery), and "buyers interested in purchasing" /
- * "buyers actively looking" (a real-estate broker with a real buyer).
+ * The bid-lure phrases are bid and RFQ wording, so a genuine bid invitation or RFQ
+ * that carries a link (an RFQ to MSOT, an RFP from a nonprofit) buckets at 55: that
+ * is the accepted loss above. What was left out is wording an ordinary purchase
+ * inquiry uses, which is not a bid invitation: "interested in procuring", "interest
+ * in purchasing your products", "arrange for a sales representative", "appreciate a
+ * quotation", "seeking a qualified company" (review round 1), "proposed unit price",
+ * and "invite your team to submit" without "a quote" (round 2). The broker phrases
+ * are second-person and anchored to selling a business, so neither a collector asking
+ * a gallery "are you interested in selling", a broker with "buyers actively looking"
+ * for land, nor an owner who has "considered selling the business" matches (rounds 2
+ * and 3).
  */
 export const CONTENT_FAMILIES: Readonly<Record<string, readonly string[]>> = {
   // Fake "invitation to bid" / RFQ / procurement lures: a project or purchase that
@@ -294,7 +295,7 @@ export const CONTENT_FAMILIES: Readonly<Record<string, readonly string[]>> = {
   // "I have buyers for your business" broker template.
   "broker-template": [
     "buyers interested in purchasing businesses",
-    "considered selling the business",
+    "ever considered selling the business",
     "considered selling your business",
     "if selling has crossed your mind",
   ],

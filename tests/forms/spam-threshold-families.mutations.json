@@ -284,5 +284,44 @@
     ],
     "test": "tests/forms/spam-classifier.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "m23-dna-exempts-whole-body",
+    "why": "One DNA run exempts the whole body, so a bot prepends a primer to its mash and loses +35",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    if (/^[ACGTUacgtu]+$/.test(run)) continue;",
+        "replace": "    if (/^[ACGTUacgtu]+$/.test(run)) return false;"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m24-dna-uppercase-only",
+    "why": "Only an uppercase primer is exempt, so a lowercase one is still scored as gibberish",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    if (/^[ACGTUacgtu]+$/.test(run)) continue;",
+        "replace": "    if (/^[ACGTU]+$/.test(run)) continue;"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m25-first-person-broker",
+    "why": "\"ever considered selling the business\" broadens back, so an owner who has considered selling and wants a new site buckets with a link",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    \"ever considered selling the business\",",
+        "replace": "    \"considered selling the business\","
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
   }
 ]
