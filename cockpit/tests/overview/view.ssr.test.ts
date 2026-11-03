@@ -716,7 +716,36 @@ describe("review round 1: open vulnerabilities name the one wait that applies (O
     });
     // The Monday after Oct 26 closes Nov 2 18:00Z; two days on is Nov 4.
     expect(open(transitive, "2026-10-26")[0]!.text).toBe(
-      "has 2 critical or high vulnerabilities; they sit deeper in the site's packages, so they wait for Monday's weekly package refresh and 2 days after it, until Nov 4; if they are still open then, they come to us",
+      "has 2 critical or high vulnerabilities; they sit deeper in the site's packages, so they wait for Monday's weekly package refresh and 2 days after it, until Nov 4; if they are still open then, they move to Watch",
+    );
+  });
+
+  // The operator, 2026-10-29: "transitives should be watch not attention".
+  const deepSite = () =>
+    vulnSite({
+      securityAdvisories: [
+        {
+          module: "x",
+          severity: "high",
+          title: "t",
+          cves: [],
+          url: null,
+          relationship: "transitive",
+        },
+      ],
+    });
+
+  it("a transitive one past its window: on Watch, with the date it ran out", () => {
+    // First seen Oct 1: the Monday after closes Oct 5 18:00Z; two days on is Oct 7.
+    expect(open(deepSite(), "2026-10-01")[0]!.text).toBe(
+      "has 2 critical or high vulnerabilities; Monday's weekly package refresh did not clear them by Oct 7, so they are on Watch; the weekly refresh keeps trying",
+    );
+  });
+
+  it("a transitive one with no first sighting to read: on Watch, and it says so", () => {
+    const v = overviewFromSnapshot(snapshot({ sites: [deepSite()] }), NOW);
+    expect(v.upkeep.open[0]!.text).toBe(
+      "has 2 critical or high vulnerabilities; we could not confirm when they were first seen, so they are on Watch",
     );
   });
 
@@ -1398,7 +1427,7 @@ describe("review round 4", () => {
       },
     ];
     expect(open({ securityVulnsHigh: 1, securityAdvisories: deep })).toBe(
-      "has 1 critical or high vulnerability; it sits deeper in the site's packages, so it waits for Monday's weekly package refresh and 2 days after it, until Nov 4; if it is still open then, it comes to us",
+      "has 1 critical or high vulnerability; it sits deeper in the site's packages, so it waits for Monday's weekly package refresh and 2 days after it, until Nov 4; if it is still open then, it moves to Watch",
     );
   });
 
