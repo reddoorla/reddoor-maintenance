@@ -35,7 +35,10 @@
         "replace": "const slug = encodeURIComponent(siteSlug(site.name));"
       }
     ],
-    "test": ["tests/retest/site-retest-followups.test.ts", "cockpit/tests/site/site-retest.dom.test.ts"],
+    "test": [
+      "tests/retest/site-retest-followups.test.ts",
+      "cockpit/tests/site/site-retest.dom.test.ts"
+    ],
     "expect": "red"
   },
   {
