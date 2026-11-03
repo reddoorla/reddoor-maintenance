@@ -4,13 +4,13 @@ import { mirrorSiteInsert, mirrorHealthFields, getSiteBySlug } from "../../src/d
 import { writeBackOneSite } from "../../src/audits/write-audits.js";
 import type { AuditResult } from "../../src/types.js";
 
-const a11yRun = (scanned: number, total: number): AuditResult =>
+const a11yRun = (scanned: number, total: number, skipped: unknown[] = []): AuditResult =>
   ({
     audit: "a11y",
     site: "acme",
     status: "pass",
     summary: "ok",
-    details: { totalViolations: 0, byImpact: {}, routes: { scanned, total } },
+    details: { totalViolations: 0, byImpact: {}, skipped, routes: { scanned, total } },
   }) as unknown as AuditResult;
 
 async function roundTrip(results: AuditResult[]) {
@@ -56,5 +56,27 @@ describe("a11y route coverage through Turso (#910)", () => {
     expect(row.a11yViolations).toBe(0);
     expect(row.a11yRoutesScanned).toBeNull();
     expect(row.a11yRoutesTotal).toBeNull();
+  });
+
+  it("the skipped routes are stored beside the counts, route and reason only", async () => {
+    const row = await roundTrip([
+      a11yRun(1, 2, [{ route: "/about", path: "/about", status: 500, reason: "status 500" }]),
+    ]);
+    expect([row.a11yRoutesScanned, row.a11yRoutesTotal]).toEqual([1, 2]);
+    expect(row.a11yRoutesSkipped).toEqual([{ route: "/about", reason: "status 500" }]);
+  });
+
+  it("a run that skipped nothing stores an empty list, not NULL", async () => {
+    const row = await roundTrip([a11yRun(2, 2)]);
+    expect(row.a11yRoutesSkipped).toEqual([]);
+  });
+
+  it("a run whose details carry no skip list clears the stored one", async () => {
+    const legacy = {
+      ...a11yRun(2, 2),
+      details: { totalViolations: 0, byImpact: {}, routes: { scanned: 2, total: 2 } },
+    } as unknown as AuditResult;
+    const row = await roundTrip([legacy]);
+    expect(row.a11yRoutesSkipped).toBeNull();
   });
 });

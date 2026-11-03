@@ -1,0 +1,145 @@
+[
+  {
+    "id": "1-drop-scanned-write",
+    "why": "The write drops the scanned count, so a 1-of-2 run stores no coverage",
+    "edits": [
+      {
+        "file": "src/fleet/site-fields.ts",
+        "find": "    \"A11y Routes Scanned\": counts.routesScanned,\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/audits/a11y-routes-turso.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2-one-of-two-reads-full",
+    "why": "A 1-of-2 run reads as full coverage on the ladder",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "        s.a11yRoutesScanned < s.a11yRoutesTotal &&",
+        "replace": "        s.a11yRoutesScanned < s.a11yRoutesTotal - 1 &&"
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "3-reader-reads-total-as-scanned",
+    "why": "The Turso read takes the total as the scanned count, so 1 of 2 reads back 2 of 2",
+    "edits": [
+      {
+        "file": "src/db/fleet-state.ts",
+        "find": "    a11yRoutesScanned: num(r.a11y_routes_scanned),",
+        "replace": "    a11yRoutesScanned: num(r.a11y_routes_total),"
+      }
+    ],
+    "test": "tests/audits/a11y-routes-turso.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "4-not-on-cockpit",
+    "why": "The coverage collector is not registered on the cockpit (card, Needs-you, site page)",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "    ...collectA11yCoverageAlerts(sites, baseUrl, now),\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "5-not-in-digest",
+    "why": "The coverage collector is not registered in the digest, so the item never ages",
+    "edits": [
+      {
+        "file": "src/reports/digest.ts",
+        "find": "    ...runCollector(\"a11y-coverage\", () =>\n      collectA11yCoverageAlerts(websites, deps.baseUrl, now),\n    ),\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "6-watch-not-attention",
+    "why": "Coverage loss lands at Watch instead of Attention",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "        \"a11y\",\n        \"a11y-coverage\",",
+        "replace": "        \"smoke\",\n        \"a11y-coverage\","
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "7-stale-still-fires",
+    "why": "A coverage reading older than 8 days still claims the present",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "        s.a11yRoutesScanned < s.a11yRoutesTotal &&\n        freshWithin(s.a11yCheckedAt, A11Y_STALE_DAYS, now),",
+        "replace": "        s.a11yRoutesScanned < s.a11yRoutesTotal,"
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "8-skip-list-not-written",
+    "why": "The skipped routes are never written",
+    "edits": [
+      {
+        "file": "src/fleet/site-fields.ts",
+        "find": "      counts.routesSkipped === null ? null : JSON.stringify(counts.routesSkipped),",
+        "replace": "      null,"
+      }
+    ],
+    "test": "tests/audits/a11y-routes-turso.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "9-skip-list-kept-not-cleared",
+    "why": "A run with no skip list keeps the stored one instead of clearing it",
+    "edits": [
+      {
+        "file": "src/audits/a11y-fields.ts",
+        "find": "  if (!Array.isArray(v)) return null;\n  return v.flatMap(",
+        "replace": "  if (!Array.isArray(v)) return [];\n  return v.flatMap("
+      }
+    ],
+    "test": "tests/audits/a11y-routes-turso.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "10-site-page-names-no-skips",
+    "why": "The site page's a11y tile stops naming the skipped routes",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/site/view.ts",
+        "find": "  const skipNote = a11ySkipNote(site.a11yRoutesSkipped);",
+        "replace": "  const skipNote = a11ySkipNote(null);"
+      }
+    ],
+    "test": "cockpit/tests/legacy/render.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "11-cap-off-by-one",
+    "why": "The tile names four skipped routes, not three",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/site/view.ts",
+        "find": "const A11Y_SKIPS_NAMED = 3;",
+        "replace": "const A11Y_SKIPS_NAMED = 4;"
+      }
+    ],
+    "test": "cockpit/tests/legacy/render.ssr.test.ts",
+    "expect": "red"
+  }
+]

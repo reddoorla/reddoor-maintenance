@@ -8,7 +8,7 @@
 //
 // Where each lands is the plan's ladder table (`levelOf` in ladder.ts places the kinds):
 //   Broken    — uptime, domain, cert-expiring, function-health, cms, render, form
-//   Attention — cert, links, titles, a11y, deps-far
+//   Attention — cert, links, titles, a11y, a11y-coverage, deps-far
 //   Watch     — smoke, deps, search-console
 // Broken and Attention collectors are registered in the cockpit's list AND the digest's
 // `collectAttention` (only the digest writes digest_state, so an item the digest lacks
@@ -343,6 +343,42 @@ export function collectA11yAlerts(
         `${n} accessibility finding${n === 1 ? "" : "s"}`,
         "warning",
         n,
+      );
+    });
+}
+
+/** Accessibility coverage lost (#910): a fresh weekly run that scanned fewer routes than it
+ *  was given. Its findings cover only the routes it reached, so `collectA11yAlerts` reads it as
+ *  not measured, and without this item a site could lose half its coverage, or hide real
+ *  findings behind one route that stopped answering, with nothing on the Needs-you feed.
+ *  Attention, not Broken (the P1-78 ladder): coverage loss is the instrument losing its view;
+ *  a page a visitor cannot load is uptime's and render's to call Broken. A skip the site
+ *  declared is out of both counts, so a fixture it never had never fires this. Which routes
+ *  were skipped, and why, is on the site page (`a11yRoutesSkipped`). */
+export function collectA11yCoverageAlerts(
+  sites: WebsiteRow[],
+  baseUrl: string,
+  now: Date = new Date(),
+): AttentionItem[] {
+  return maintained(sites)
+    .filter(
+      (s) =>
+        s.a11yRoutesTotal !== null &&
+        s.a11yRoutesScanned !== null &&
+        s.a11yRoutesScanned < s.a11yRoutesTotal &&
+        freshWithin(s.a11yCheckedAt, A11Y_STALE_DAYS, now),
+    )
+    .map((s) => {
+      const scanned = s.a11yRoutesScanned!;
+      const total = s.a11yRoutesTotal!;
+      return item(
+        s,
+        baseUrl,
+        "a11y",
+        "a11y-coverage",
+        `accessibility scan reached only ${scanned} of ${total} routes`,
+        "warning",
+        total - scanned,
       );
     });
 }

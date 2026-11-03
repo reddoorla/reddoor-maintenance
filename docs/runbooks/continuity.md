@@ -108,11 +108,11 @@ from the cockpit's Re-test button or `gh workflow run site-retest.yml -f site=<s
 
 **The cockpit.** The dashboard served by this repo's Netlify deploy: cockpit at `/`, per-site
 at `/s/:slug`, behind Basic auth (`DASHBOARD_PASSWORD`). It sorts every visible site into five
-tiers — `broken`, `attention`, `watch`, `healthy`, `pre-launch` (`src/dashboard/fleet-cockpit.ts:57`) —
+tiers — `broken`, `attention`, `watch`, `healthy`, `pre-launch` (`src/dashboard/fleet-cockpit.ts:58`) —
 worst-band-wins on the severity ladder (`src/alerts/ladder.ts`, P1-78b), with the watch band being
 the soft zone beneath the alert floor (a Lighthouse score in [75, 85), a check stale past 30 days).
 A watch reason the operator has explicitly accepted is routed to `acceptedReasons` and leaves the
-band rather than raising it (`fleet-cockpit.ts:358`, `:427–429`).
+band rather than raising it (`fleet-cockpit.ts:359`, `:427–429`).
 
 **The "Needs you" feed** is real and is the thing to read first
 (`src/dashboard/fleet-cockpit.ts:603–715`, rendered as the triage page's `needs-you` section,
@@ -356,7 +356,7 @@ bounce/complaint attention items in §3.4.
 **The per-site recipient field.** Who a report actually reaches is configured per site, not per
 message: `Report recipients (To)` and `Report recipients (CC)` in the site details on its console
 page (`/s/<slug>`), stored in Turso as `sites.report_recipients_to` / `report_recipients_cc`
-(`src/dashboard/site-details.ts:90–91`, `src/db/fleet-state.ts:104–105`). Form
+(`src/dashboard/site-details.ts:90–91`, `src/db/fleet-state.ts:106–107`). Form
 notifications have their own per-site routing, including field-value → recipient routes with a
 fallback (`NotifyRouting`, `src/fleet/site-row.ts:23–41`).
 

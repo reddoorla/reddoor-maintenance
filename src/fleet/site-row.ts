@@ -107,6 +107,10 @@ export type WebsiteRow = {
    *  covers only the scanned routes. null = not stored by that run. */
   a11yRoutesScanned: number | null;
   a11yRoutesTotal: number | null;
+  /** The routes that run navigated to and did not scan, each with why (#910). A
+   *  skip the site declared is out of both counts above, so only this names it.
+   *  null = not stored by that run; [] = nothing skipped. */
+  a11yRoutesSkipped: A11ySkippedRoute[] | null;
   /** When the a11y counts were last written (P1-78c). Weekly, so fresh for 8 days. */
   a11yCheckedAt: string | null;
   /** Declared-range drift vs the Reddoor baseline (what package.json asks for). */
@@ -640,6 +644,28 @@ export function parseSecurityLockfileAudit(raw: unknown): SecurityLockfileAudit 
 
 /** Parse the `Security advisories` JSON cell. null when absent/blank/unparseable/not-an-array
  *  (treated as "never audited"); a valid array (possibly empty = audited clean) otherwise. */
+/** One route the a11y run did not scan, as stored (#910). */
+export type A11ySkippedRoute = { route: string; reason: string };
+
+/** The a11y audit's skipped routes as stored: JSON `[{ route, reason }]`. Anything
+ *  else reads null ("not stored"), and an entry without both strings is dropped. */
+export function parseA11ySkippedRoutes(raw: unknown): A11ySkippedRoute[] | null {
+  if (typeof raw !== "string" || raw.trim() === "") return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed)) return null;
+  return parsed.flatMap((e): A11ySkippedRoute[] => {
+    const r = e as { route?: unknown; reason?: unknown } | null;
+    return typeof r?.route === "string" && typeof r.reason === "string"
+      ? [{ route: r.route, reason: r.reason }]
+      : [];
+  });
+}
+
 export function parseSecurityAdvisories(raw: unknown): SecurityAdvisory[] | null {
   if (typeof raw !== "string" || raw.trim() === "") return null;
   let parsed: unknown;

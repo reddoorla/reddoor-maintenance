@@ -1466,7 +1466,9 @@ export async function a11yAudit(ctx: AuditContext): Promise<AuditResult> {
       site: label,
       status,
       summary,
-      details: { ...artifact, routes },
+      // The list the counts were computed from, so the stored skips always agree
+      // with them (an artifact without the key counted as none skipped).
+      details: { ...artifact, skipped: skippedRoutes, routes },
     };
   } finally {
     await rm(specDir, { recursive: true, force: true });

@@ -733,6 +733,44 @@ describe("renderSiteDashboardHtml — site health section", () => {
     expect(none).toMatch(/<div class="tile-sub"[^>]*>only 0 of 2 routes scanned<\/div>/);
   });
 
+  it("names the skipped routes and why beside the counts, capped at three (#910)", () => {
+    const one = renderSiteDashboardHtml(
+      siteRow({
+        a11yViolations: 0,
+        a11yRoutesScanned: 1,
+        a11yRoutesTotal: 2,
+        a11yRoutesSkipped: [{ route: "/about", reason: "status 500" }],
+      }),
+      [],
+    );
+    expect(one).toMatch(
+      /<div class="tile-sub"[^>]*>only 1 of 2 routes scanned; skipped \/about \(status 500\)<\/div>/,
+    );
+    const five = renderSiteDashboardHtml(
+      siteRow({
+        a11yViolations: 0,
+        a11yRoutesScanned: 2,
+        a11yRoutesTotal: 2,
+        a11yRoutesSkipped: ["/a", "/b", "/c", "/d", "/e"].map((route) => ({
+          route,
+          reason: "fixture not in this site's source",
+        })),
+      }),
+      [],
+    );
+    expect(five).toMatch(/skipped \/a \([^)]*\), \/b \([^)]*\), \/c \([^)]*\) \+2 more/);
+    const none = renderSiteDashboardHtml(
+      siteRow({
+        a11yViolations: 0,
+        a11yRoutesScanned: 2,
+        a11yRoutesTotal: 2,
+        a11yRoutesSkipped: [],
+      }),
+      [],
+    );
+    expect(none).not.toMatch(/skipped/);
+  });
+
   it("leaves the a11y tile's route line off when the counts were never stored", () => {
     const html = renderSiteDashboardHtml(siteRow({ a11yViolations: 0 }), []);
     expect(html).not.toMatch(/routes scanned/);

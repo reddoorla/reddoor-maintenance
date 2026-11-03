@@ -48,6 +48,7 @@ describe("a11yCountsFromResult", () => {
       violations: 3,
       routesScanned: null,
       routesTotal: null,
+      routesSkipped: null,
     });
   });
 
@@ -56,6 +57,7 @@ describe("a11yCountsFromResult", () => {
       violations: 0,
       routesScanned: null,
       routesTotal: null,
+      routesSkipped: null,
     });
   });
 
@@ -74,11 +76,13 @@ describe("a11yCountsFromResult", () => {
       violations: 0,
       routesScanned: 1,
       routesTotal: 2,
+      routesSkipped: null,
     });
     expect(a11yCountsFromResult(complete)).toEqual({
       violations: 0,
       routesScanned: 2,
       routesTotal: 2,
+      routesSkipped: null,
     });
   });
 
@@ -92,6 +96,7 @@ describe("a11yCountsFromResult", () => {
       violations: 0,
       routesScanned: null,
       routesTotal: 2,
+      routesSkipped: null,
     });
   });
 
@@ -105,7 +110,24 @@ describe("a11yCountsFromResult", () => {
       violations: 0,
       routesScanned: 0,
       routesTotal: 2,
+      routesSkipped: null,
     });
+  });
+
+  it("keeps each skipped route's route and reason, and drops an entry without both (#910)", () => {
+    const run = a11yResult({
+      totalViolations: 0,
+      byImpact: {},
+      routes: { scanned: 1, total: 2 },
+      skipped: [
+        { route: "/about", path: "/about", status: 500, reason: "status 500" },
+        { route: "/x" },
+        null,
+      ],
+    } as unknown as Parameters<typeof a11yResult>[0]);
+    expect(a11yCountsFromResult(run).routesSkipped).toEqual([
+      { route: "/about", reason: "status 500" },
+    ]);
   });
 
   it("reads a negative or fractional route count as unknown", () => {
@@ -118,6 +140,7 @@ describe("a11yCountsFromResult", () => {
       violations: 0,
       routesScanned: null,
       routesTotal: null,
+      routesSkipped: null,
     });
   });
 

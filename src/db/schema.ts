@@ -143,6 +143,8 @@ export interface SiteHealthTable {
   a11y_violations: number | null;
   a11y_routes_scanned: number | null;
   a11y_routes_total: number | null;
+  /** JSON `[{ route, reason }]` (#910). */
+  a11y_routes_skipped: string | null;
   a11y_checked_at: string | null;
   deps_drifted: number | null;
   deps_major_behind: number | null;

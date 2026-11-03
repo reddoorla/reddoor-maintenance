@@ -8,6 +8,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import {
   collectA11yAlerts,
+  collectA11yCoverageAlerts,
   collectDepsAlerts,
   collectDomainAlerts,
   collectFormTestAlerts,
@@ -22,7 +23,11 @@ import {
 } from "../../src/alerts/production-signals.js";
 import { levelOf } from "../../src/alerts/ladder.js";
 import type { AttentionItem } from "../../src/alerts/attention.js";
-import { buildCockpitModel } from "../../src/dashboard/fleet-cockpit.js";
+import {
+  buildCockpitModel,
+  buildNeedsYouFeed,
+  buildSiteAlarmContext,
+} from "../../src/dashboard/fleet-cockpit.js";
 import { collectAttention } from "../../src/reports/digest.js";
 import { summarizeBrowser } from "../../src/audits/browser.js";
 import { browserFieldsFromAudit } from "../../src/audits/browser-fields.js";
@@ -400,6 +405,84 @@ describe("accessibility (Attention, weekly)", () => {
         NOW,
       ),
     ).toEqual([]);
+  });
+});
+
+describe("accessibility coverage lost (#910, Attention)", () => {
+  const halfScanned = { a11yViolations: 0, a11yRoutesScanned: 1, a11yRoutesTotal: 2 };
+
+  it("a fresh run that scanned 1 of 2 routes is Attention, keyed apart from findings", () => {
+    const [it, ...rest] = collectA11yCoverageAlerts(
+      [site({ ...halfScanned, a11yCheckedAt: ago(5) })],
+      BASE,
+      NOW,
+    );
+    expect(rest).toEqual([]);
+    expect(it!.key).toBe("a11y-coverage:recS");
+    expect(level(it!)).toBe("attention");
+    expect(it!.title).toBe("accessibility scan reached only 1 of 2 routes");
+    expect(it!.metric).toBe(1);
+  });
+
+  it("a run that scanned every route it was given raises nothing", () => {
+    expect(
+      collectA11yCoverageAlerts(
+        [site({ ...halfScanned, a11yRoutesScanned: 2, a11yCheckedAt: FRESH })],
+        BASE,
+        NOW,
+      ),
+    ).toEqual([]);
+  });
+
+  it("0 of 2 is a coverage loss too", () => {
+    expect(
+      keys(
+        collectA11yCoverageAlerts(
+          [site({ ...halfScanned, a11yRoutesScanned: 0, a11yCheckedAt: FRESH })],
+          BASE,
+          NOW,
+        ),
+      ),
+    ).toEqual(["a11y-coverage:recS"]);
+  });
+
+  it("a stale, missing or count-less run claims nothing", () => {
+    for (const over of [
+      { a11yCheckedAt: ago(8.1) },
+      { a11yCheckedAt: null },
+      { a11yCheckedAt: FRESH, a11yRoutesScanned: null },
+      { a11yCheckedAt: FRESH, a11yRoutesTotal: null },
+    ]) {
+      expect(collectA11yCoverageAlerts([site({ ...halfScanned, ...over })], BASE, NOW)).toEqual([]);
+    }
+  });
+
+  it("a partial run's findings are not dropped silently: the coverage item stands in", () => {
+    const partial = site({ ...halfScanned, a11yViolations: 4, a11yCheckedAt: FRESH });
+    expect(collectA11yAlerts([partial], BASE, NOW)).toEqual([]);
+    expect(keys(collectA11yCoverageAlerts([partial], BASE, NOW))).toEqual(["a11y-coverage:recS"]);
+  });
+
+  it("reaches the cockpit card, the Needs-you feed, the site page and the digest", async () => {
+    const partial = site({ ...halfScanned, a11yCheckedAt: FRESH });
+    const m = buildCockpitModel([partial], [], {}, BASE, NOW);
+    expect(keys(m.cards[0]!.items)).toContain("a11y-coverage:recS");
+    expect(m.cards[0]!.tier).toBe("attention");
+    const feed = buildNeedsYouFeed(m).find((f) => f.slug === "sonder");
+    expect(feed?.group).toBe("attention");
+    expect(feed?.reasons).toContain("accessibility scan reached only 1 of 2 routes");
+    expect(keys(buildSiteAlarmContext(partial, [], BASE, NOW).items)).toContain(
+      "a11y-coverage:recS",
+    );
+    const digest = await collectAttention({
+      baseUrl: BASE,
+      websites: [partial],
+      reports: [],
+      now: NOW,
+      notifyBounces: new Map(),
+      deadLetters: new Map(),
+    });
+    expect(keys(digest)).toContain("a11y-coverage:recS");
   });
 });
 

@@ -538,6 +538,17 @@ function spam(
   ];
 }
 
+/** How many skipped routes the a11y tile names before "+N more". */
+const A11Y_SKIPS_NAMED = 3;
+
+/** "skipped /a (reason), /b (reason)", or null when nothing was skipped or nothing stored. */
+export function a11ySkipNote(skipped: WebsiteRow["a11yRoutesSkipped"]): string | null {
+  if (skipped === null || skipped.length === 0) return null;
+  const named = skipped.slice(0, A11Y_SKIPS_NAMED).map((r) => `${r.route} (${r.reason})`);
+  const more = skipped.length - named.length;
+  return `skipped ${named.join(", ")}${more > 0 ? ` +${more} more` : ""}`;
+}
+
 export function buildSiteView(
   site: WebsiteRow,
   reports: ReportRow[],
@@ -553,12 +564,21 @@ export function buildSiteView(
   const allHealthNull =
     site.a11yViolations === null && site.depsDrifted === null && secTotal === null;
   const { a11yRoutesScanned: scanned, a11yRoutesTotal: total } = site;
-  const a11ySub =
+  const a11yCoverage =
     scanned === null || total === null
       ? null
       : scanned < total
         ? `only ${scanned} of ${total} routes scanned`
         : `${scanned} of ${total} routes scanned`;
+  // #910: the counts say coverage dropped; the stored list says where and why. A skip the
+  // site declared is out of both counts, so this is the only place it shows.
+  const skipNote = a11ySkipNote(site.a11yRoutesSkipped);
+  const a11ySub =
+    a11yCoverage === null
+      ? skipNote
+      : skipNote === null
+        ? a11yCoverage
+        : `${a11yCoverage}; ${skipNote}`;
   const depsSub =
     site.depsMajorBehind === null || site.depsMajorBehind === 0
       ? null
