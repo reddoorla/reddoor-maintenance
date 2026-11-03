@@ -81,6 +81,24 @@ export function transitiveVulnEscalatesAt(firstFlaggedDay: string): Date | null 
   return closes ? new Date(closes.getTime() + LOCKFILE_SETTLE_DAYS * MS_PER_DAY) : null;
 }
 
+/** The operator, 2026-11-03 ("After 4 lockfile windows"): a transitive-only vuln is
+ *  Watch once its first window passes (the 10-29 rule), and goes back to Attention when
+ *  it is still present after this many windows, so one no lockfile refresh can fix (an
+ *  upstream pin) reaches him instead of sitting at Watch for good. */
+export const TRANSITIVE_ATTENTION_WINDOWS = 4;
+
+/** When a transitive-only vuln first flagged on `firstFlaggedDay` goes back to Attention:
+ *  the close of its TRANSITIVE_ATTENTION_WINDOWS-th window, plus the settle days. PURE. */
+export function transitiveVulnAttentionAt(firstFlaggedDay: string): Date | null {
+  const closes = lockfileWindowClosesAfter(firstFlaggedDay);
+  return closes
+    ? new Date(
+        closes.getTime() +
+          ((TRANSITIVE_ATTENTION_WINDOWS - 1) * 7 + LOCKFILE_SETTLE_DAYS) * MS_PER_DAY,
+      )
+    : null;
+}
+
 /** When a direct vuln first flagged on `firstFlaggedDay` stops waiting. PURE. */
 export function directVulnEscalatesAt(firstFlaggedDay: string): Date | null {
   const start = dayStartMs(firstFlaggedDay);
@@ -142,6 +160,20 @@ export function markWaiting(
       const at = transitiveVulnEscalatesAt(since);
       if (at === null) return it;
       if (now.getTime() < at.getTime()) return { ...it, waiting: true };
+      const stuckAt = transitiveVulnAttentionAt(since);
+      if (stuckAt !== null && now.getTime() >= stuckAt.getTime()) {
+        const last = new Date(stuckAt.getTime() - LOCKFILE_SETTLE_DAYS * MS_PER_DAY)
+          .toISOString()
+          .slice(0, 10);
+        return {
+          ...escalated(
+            it,
+            stuckAt,
+            `${vulnNoun(it.metric)} — transitive-only, still present after ${TRANSITIVE_ATTENTION_WINDOWS} lockfile windows (the last closed ${last})`,
+          ),
+          transitiveStuck: true,
+        };
+      }
       const window = new Date(at.getTime() - LOCKFILE_SETTLE_DAYS * MS_PER_DAY)
         .toISOString()
         .slice(0, 10);

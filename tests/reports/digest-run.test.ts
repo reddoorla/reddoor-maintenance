@@ -930,6 +930,12 @@ describe("runDigest", () => {
     expect((await store.read())["vuln:rec_site_acme"]?.firstFlaggedAt).toBe("2026-09-27");
   });
 
+  // The operator, 2026-11-03: four windows on, it is Attention again, so it is mailed.
+  it("mails a transitive-only vuln still present after 4 lockfile windows", async () => {
+    const html = await digestWithTransitiveVuln("2026-08-20");
+    expect(html).toContain("still present after 4 lockfile windows");
+  });
+
   it("the exhausted flip alone (count unchanged) surfaces the vuln badged WORSE", async () => {
     // Yesterday: muted, key snapshotted without the flag. Today: attempts hit the
     // threshold → first time the operator hears about it, escalated, not unbadged.

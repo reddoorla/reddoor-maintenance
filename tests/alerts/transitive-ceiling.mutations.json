@@ -1,0 +1,67 @@
+[
+  {
+    "id": "x1-no-ceiling",
+    "why": "A transitive vuln never goes back to Attention, however many windows it outlives",
+    "edits": [
+      {
+        "file": "src/alerts/waiting.ts",
+        "find": "if (stuckAt !== null && now.getTime() >= stuckAt.getTime())",
+        "replace": "if (false)"
+      }
+    ],
+    "test": [
+      "tests/alerts/waiting.test.ts",
+      "tests/dashboard/ladder.test.ts",
+      "tests/reports/digest-run.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "x2-ceiling-after-one-window",
+    "why": "A transitive vuln is back at Attention as soon as its first window passes (the 10-29 rule undone)",
+    "edits": [
+      {
+        "file": "src/alerts/waiting.ts",
+        "find": "(TRANSITIVE_ATTENTION_WINDOWS - 1) * 7",
+        "replace": "0 * 7"
+      }
+    ],
+    "test": ["tests/alerts/waiting.test.ts", "tests/dashboard/ladder.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "x3-off-by-one-window",
+    "why": "The ceiling counts three windows, not four",
+    "edits": [
+      {
+        "file": "src/alerts/waiting.ts",
+        "find": "(TRANSITIVE_ATTENTION_WINDOWS - 1) * 7",
+        "replace": "(TRANSITIVE_ATTENTION_WINDOWS - 2) * 7"
+      }
+    ],
+    "test": "tests/alerts/waiting.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "x4-ladder-ignores-stuck",
+    "why": "markWaiting marks it stuck but the ladder still says Watch, so it is not mailed",
+    "edits": [
+      { "file": "src/alerts/ladder.ts", "find": " && it.transitiveStuck !== true", "replace": "" }
+    ],
+    "test": ["tests/dashboard/ladder.test.ts", "tests/reports/digest-run.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "x5-overview-still-says-watch",
+    "why": "The overview's upkeep line keeps saying Watch for a stuck vuln the card shows at Attention",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "if (deep && item.transitiveStuck === true)",
+        "replace": "if (false)"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  }
+]

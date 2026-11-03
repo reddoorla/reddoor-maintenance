@@ -5,6 +5,8 @@ import {
   markWaiting,
   lockfileWindowClosesAfter,
   transitiveVulnEscalatesAt,
+  transitiveVulnAttentionAt,
+  TRANSITIVE_ATTENTION_WINDOWS,
   directVulnEscalatesAt,
   LOCKFILE_SETTLE_DAYS,
   DIRECT_VULN_WAIT_DAYS,
@@ -54,6 +56,48 @@ describe("lockfileWindowClosesAfter", () => {
   it("is null for a day that does not parse", () => {
     expect(lockfileWindowClosesAfter("not a day")).toBeNull();
     expect(lockfileWindowClosesAfter("2026-10-05T00:00:00Z")).toBeNull();
+  });
+});
+
+// The operator, 2026-11-03 ("After 4 lockfile windows"): a transitive vuln still present
+// after four windows goes back to Attention.
+describe("markWaiting — a transitive vuln still present after 4 lockfile windows", () => {
+  const item = vuln({
+    transitiveOnly: true,
+    title: "3 critical/high vulns — transitive-only, fix rides the weekly lockfile window",
+  });
+  // First flagged Thu 08-20: windows close Mon 08-24, 08-31, 09-07 and 09-14 (18:00Z).
+  const stuckAt = transitiveVulnAttentionAt("2026-08-20")!;
+
+  it("is the fourth window's close plus the settle days", () => {
+    expect(TRANSITIVE_ATTENTION_WINDOWS).toBe(4);
+    expect(stuckAt.toISOString()).toBe("2026-09-16T18:00:00.000Z");
+  });
+
+  it("is still Watch-shaped (not stuck) just before it", () => {
+    const [out] = markWaiting([item], flagged("2026-08-20"), justBefore(stuckAt), true);
+    expect(out!.waiting).toBeUndefined();
+    expect(out!.transitiveStuck).toBeUndefined();
+  });
+
+  it("is stuck from it on, and the title says how many windows it outlived", () => {
+    const [out] = markWaiting([item], flagged("2026-08-20"), stuckAt, true);
+    expect(out!.transitiveStuck).toBe(true);
+    expect(out!.waiting).toBeUndefined();
+    expect(out!.title).toBe(
+      "3 critical/high vulns — transitive-only, still present after 4 lockfile windows (the last closed 2026-09-14)",
+    );
+  });
+
+  it("two windows in, it is not stuck", () => {
+    const twoIn = new Date(Date.parse("2026-09-02T18:00:00Z"));
+    const [out] = markWaiting([item], flagged("2026-08-20"), twoIn, true);
+    expect(out!.transitiveStuck).toBeUndefined();
+  });
+
+  it("an unread snapshot never makes it stuck (no date to count from)", () => {
+    const [out] = markWaiting([item], {}, stuckAt, false);
+    expect(out!.transitiveStuck).toBeUndefined();
   });
 });
 
