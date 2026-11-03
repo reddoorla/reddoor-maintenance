@@ -36,12 +36,28 @@ afterAll(() => {
  * reddoorla/la-homelessness-initiative#65: the feed listed nothing 22 to 24
  * seconds after Renovate created the branch.
  */
-function runGate(feed: string[]) {
+/**
+ * How one read fails before it answers: the first `times` calls exit 1 with
+ * `stderr` (what `gh api` prints on an HTTP error), and later calls answer.
+ * `times: Infinity` never answers.
+ */
+type Failure = { times: number; stderr: string };
+type Read = "commits" | "activity" | "files" | "labels" | "events";
+
+function runGate(
+  feed: string[],
+  opts: { fail?: Partial<Record<Read, Failure>>; labels?: string } = {},
+) {
   const dir = mkdtempSync(join(tmpdir(), "main-gate-"));
   roots.push(dir);
   const log = join(dir, "calls.log");
   const reads = join(dir, "activity-reads");
   feed.forEach((answer, i) => writeFileSync(join(dir, `feed-${i + 1}`), answer));
+  writeFileSync(join(dir, "labels"), opts.labels ?? "fast-track\n");
+  for (const [read, f] of Object.entries(opts.fail ?? {})) {
+    writeFileSync(join(dir, `fail-${read}-times`), String(f.times === Infinity ? 1e9 : f.times));
+    writeFileSync(join(dir, `fail-${read}-stderr`), f.stderr);
+  }
   const stub = (name: string, body: string) => {
     writeFileSync(join(dir, name), `#!/usr/bin/env bash\n${body}\n`);
     chmodSync(join(dir, name), 0o755);
@@ -53,6 +69,23 @@ function runGate(feed: string[]) {
     `path=""
 for a in "$@"; do case "$a" in repos/*) path="$a" ;; esac; done
 case "$path" in
+  */pulls/*/commits) read=commits ;;
+  */activity\\?*) read=activity ;;
+  */pulls/*/files) read=files ;;
+  */issues/*/labels) read=labels ;;
+  */issues/*/events) read=events ;;
+  *) read=other ;;
+esac
+printf 'gh %s\\n' "$read" >> "${log}"
+if [ -f "${dir}/fail-$read-times" ]; then
+  c=$(( $(cat "${dir}/fail-$read-count" 2>/dev/null || echo 0) + 1 ))
+  echo "$c" > "${dir}/fail-$read-count"
+  if [ "$c" -le "$(cat "${dir}/fail-$read-times")" ]; then
+    cat "${dir}/fail-$read-stderr" >&2
+    exit 1
+  fi
+fi
+case "$path" in
   */pulls/*/commits) echo "abc1234 ${BOT} web-flow true" ;;
   */activity\\?*)
     n=$(( $(cat "${reads}" 2>/dev/null || echo 0) + 1 ))
@@ -62,7 +95,7 @@ case "$path" in
     [ -s "${dir}/feed-$i" ] && cat "${dir}/feed-$i" && echo
     ;;
   */pulls/*/files) printf 'package.json\\npnpm-lock.yaml\\n' ;;
-  */issues/*/labels) echo "fast-track" ;;
+  */issues/*/labels) exec cat "${dir}/labels" ;;
   */issues/*/events) echo "${BOT}" ;;
   *) echo "unexpected gh call: $*" >&2; exit 9 ;;
 esac
@@ -91,6 +124,7 @@ exit 0`,
     code: r.status,
     out: r.stdout + r.stderr,
     reads: calls.filter((c) => c.startsWith("gh activity read")).length,
+    calls: (read: Read) => calls.filter((c) => c === `gh ${read}`).length,
     slept: calls
       .filter((c) => c.startsWith("sleep "))
       .reduce((sum, c) => sum + Number(c.slice(6)), 0),
@@ -169,5 +203,120 @@ describe("main-gate — reading who pushed to a fresh Renovate branch", () => {
     // The tests above inject HEAD_SHA; this pins where the workflow gets it.
     const env = stepEnv(readFileSync(TEMPLATE, "utf-8"), STEP);
     expect(env["HEAD_SHA"]).toBe("${{ github.event.pull_request.head.sha }}");
+  });
+});
+
+// reddoorla/reddoor-maintenance#1624. Every `gh api` read in the gate goes
+// through one helper: a failed read names itself and its HTTP status in an
+// ::error:: line, and a 5xx, a 429, a rate-limit 403 or an answer with no
+// HTTP status is read again after 2, 8 and 30 s (four tries, 40 s).
+const READS: [Read, string][] = [
+  ["commits", "the commits of #65"],
+  ["activity", `the activity feed on ${BRANCH}`],
+  ["files", "the files of #65"],
+  ["labels", "the labels of #65"],
+  ["events", "the label events of #65"],
+];
+const E502 = "gh: Server Error (HTTP 502)\n";
+
+describe("main-gate — a failed read says which read and why", () => {
+  for (const [read, name] of READS) {
+    it(`names the ${read} read and its HTTP status when it keeps answering 502`, () => {
+      const r = runGate([created], { fail: { [read]: { times: Infinity, stderr: E502 } } });
+      expect(r.out).toContain(
+        `::error::main-gate: could not read ${name}: HTTP 502 after 4 tries.`,
+      );
+      expect(r.code).toBe(1);
+      expect(r.calls(read)).toBe(4);
+      expect(r.slept).toBe(2 + 8 + 30);
+    });
+
+    it(`passes when the ${read} read answers 502 three times and then answers`, () => {
+      const r = runGate([created], { fail: { [read]: { times: 3, stderr: E502 } } });
+      expect(r.out).toContain(PASS);
+      expect(r.code).toBe(0);
+      expect(r.calls(read)).toBe(4);
+    });
+  }
+
+  it("does not retry a 404, and names it", () => {
+    const r = runGate([created], {
+      fail: { files: { times: Infinity, stderr: "gh: Not Found (HTTP 404)\n" } },
+    });
+    expect(r.out).toContain(
+      "::error::main-gate: could not read the files of #65: HTTP 404 after 1 try.",
+    );
+    expect(r.code).toBe(1);
+    expect(r.calls("files")).toBe(1);
+    expect(r.slept).toBe(0);
+  });
+
+  it("retries a rate-limit 403, but not a plain 403", () => {
+    const limited = runGate([created], {
+      fail: {
+        labels: {
+          times: 1,
+          stderr: "gh: API rate limit exceeded for installation ID 1. (HTTP 403)\n",
+        },
+      },
+    });
+    expect(limited.out).toContain(PASS);
+    expect(limited.calls("labels")).toBe(2);
+
+    const denied = runGate([created], {
+      fail: {
+        labels: {
+          times: Infinity,
+          stderr: "gh: Resource not accessible by integration (HTTP 403)\n",
+        },
+      },
+    });
+    expect(denied.out).toContain(
+      "::error::main-gate: could not read the labels of #65: HTTP 403 after 1 try.",
+    );
+    expect(denied.calls("labels")).toBe(1);
+  });
+
+  it("retries a 429, and a failure with no HTTP status at all", () => {
+    const r429 = runGate([created], {
+      fail: { commits: { times: 2, stderr: "gh: Too Many Requests (HTTP 429)\n" } },
+    });
+    expect(r429.out).toContain(PASS);
+    expect(r429.calls("commits")).toBe(3);
+
+    const reset = runGate([created], {
+      fail: { events: { times: Infinity, stderr: "read tcp: connection reset by peer\n" } },
+    });
+    expect(reset.out).toContain(
+      "::error::main-gate: could not read the label events of #65: no HTTP status after 4 tries.",
+    );
+    expect(reset.calls("events")).toBe(4);
+  });
+
+  it("says what gh said", () => {
+    const r = runGate([created], { fail: { commits: { times: Infinity, stderr: E502 } } });
+    expect(r.out).toContain("gh said: gh: Server Error (HTTP 502)");
+  });
+});
+
+describe("main-gate — the label check", () => {
+  it("reads a long label list without dying of SIGPIPE", () => {
+    // `gh api … | grep -qxF` stops reading at the first match; under pipefail
+    // the writer still writing dies of SIGPIPE and the `if !` reads that as no
+    // label. About 1.2 MB after the match, as in the activity-feed case.
+    const filler = Array.from({ length: 40_000 }, (_, i) => `label-${i}-xxxxxxxxxxxxxxxxxx`).join(
+      "\n",
+    );
+    const r = runGate([created], { labels: `fast-track\n${filler}\n` });
+    expect(r.out).toContain(PASS);
+    expect(r.code).toBe(0);
+  });
+
+  it("still fails a PR without the label", () => {
+    const r = runGate([created], { labels: "dependencies\n" });
+    expect(r.out).toContain(
+      "::error::main-gate: renovate/main-npm-vite-vulnerability has no 'fast-track' label",
+    );
+    expect(r.code).toBe(1);
   });
 });
