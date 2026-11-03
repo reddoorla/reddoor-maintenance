@@ -57,7 +57,7 @@
     "edits": [
       {
         "file": "src/reports/digest.ts",
-        "find": "    ...runCollector(\"a11y-coverage\", () =>\n      collectA11yCoverageAlerts(websites, deps.baseUrl, now),\n    ),\n",
+        "find": "    ...runCollector(\"a11y-coverage\", () => collectA11yCoverageAlerts(websites, deps.baseUrl, now)),\n",
         "replace": ""
       }
     ],
