@@ -1666,6 +1666,7 @@ describe("probeMobile — real Chromium, device-width overflow after styles appl
   let base = "";
   let browser: Browser;
   let dropped = 0;
+  let wideServed = 0;
 
   beforeAll(async () => {
     server = createServer((req, res) => {
@@ -1673,6 +1674,12 @@ describe("probeMobile — real Chromium, device-width overflow after styles appl
       // later ones serve a fitting page. /drop-always: every connection is cut.
       if (req.url === "/drop-always" || (req.url === "/drop-once" && dropped++ === 0)) {
         req.socket.destroy();
+        return;
+      }
+      // /wide-once: too wide on its first load only (as CalTex's / was before hydration).
+      if (req.url === "/wide-once") {
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end(wideServed++ === 0 ? pages["/wide"] : pages["/fits"]);
         return;
       }
       if (req.url === "/drop-once") {
@@ -1752,6 +1759,13 @@ describe("probeMobile — real Chromium, device-width overflow after styles appl
       status: 200,
     });
     expect(dropped).toBe(2);
+  }, 60_000);
+
+  it("only a load that threw is retried: an overflow seen once stands", async () => {
+    wideServed = 0;
+    const r = await probeMobile(browser, `${base}/wide-once`, targets[0]!);
+    expect(r).toMatchObject({ ok: false, reason: "overflow 608px > 412px" });
+    expect(wideServed).toBe(1);
   }, 60_000);
 
   it("a route that never loads still fails, as load failed", async () => {

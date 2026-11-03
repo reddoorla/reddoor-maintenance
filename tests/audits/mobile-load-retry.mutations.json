@@ -27,7 +27,7 @@
   },
   {
     "id": "m3-retry-every-fail",
-    "why": "Retrying an overflow too hides nothing (the second load measures the same page); kept to show the retry scope is not what the tests pin",
+    "why": "Every fail is retried, so an overflow seen on one load (CalTex / before hydration) is hidden by a second load that fits",
     "edits": [
       {
         "file": "src/audits/browser.ts",
@@ -36,6 +36,6 @@
       }
     ],
     "test": "tests/audits/browser.test.ts",
-    "expect": "survives"
+    "expect": "red"
   }
 ]
