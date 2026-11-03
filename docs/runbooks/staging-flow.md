@@ -126,21 +126,49 @@ setting or the order below, so this is a runbook rather than a template there.
 
 ## Promotion, each time
 
-- **Bring `main` into `staging` first.** Fast-tracked patches and minors land on
-  `main` and never pass through `staging`, so `staging` falls behind. Open a
-  PR with head `main` and base `staging`, and merge it on green. Its head is
-  `main`, which `main`'s own ruleset protects from auto-delete. Without this
-  step the promotion PR conflicts on `package.json` and `pnpm-lock.yaml` as
-  soon as both branches have moved. Merge it as a **merge commit**, never a
-  squash: a squash keeps the resolved tree but drops `main` as a parent, so
-  the promotion PR still conflicts. `land-prs.mjs` squashes wherever the base
-  allows it, so merge this one with `PUT pulls/{n}/merge` and
-  `merge_method=merge`, pinned to the green head's `sha`. When the two sides
-  conflict, the head cannot be `main` itself: cut a branch from `staging`,
-  merge `main` into it, and regenerate the lockfile with `pnpm install`
+- **Why `main` has to come into `staging` first.** Fast-tracked patches and
+  minors land on `main` and never pass through `staging`, so `staging` falls
+  behind. Both branches are also scheduled to rewrite `pnpm-lock.yaml` every
+  week: Renovate's non-major group on `main`, and lock-file maintenance and
+  majors on `staging`. Git merges a lockfile as text, so once both have moved,
+  a bring-main PR and the promotion PR conflict on it. On 2026-11-03,
+  caltex-landing (#104 on `main`, #105 on `staging`) conflicted in 51 hunks of
+  the lockfile and nowhere else, and medical-solutions-of-texas (#111; #113 and
+  #117) in 31. GitHub can only resolve that by hand-editing the text.
+- **Bring it with the script, never with a PR whose head is `main`.** From a
+  maintenance checkout, against a full (not shallow) clone of the site:
+  `node scripts/staging-bring-main.mjs --dir <site checkout>`. It cuts a
+  branch from `staging`, merges `main` into it, and has the site's pinned
+  pnpm merge the lockfile (`pnpm install --lockfile-only`, which resolves its
+  own conflict markers), so a lockfile-only conflict needs no hand resolution.
+  A conflict in any other file stops it with exit 2 and makes nothing: that
+  is a real fork, such as a major on `staging` and a minor of the same package
+  on `main`, and a human's.
+- **Merge its PR as a merge commit, while `staging` is still where the script
+  started.** A worker lands it, under AUTONOMY.md's merge authority. Push the branch it names and open its PR into `staging`. Just
+  before merging on green, read `staging`'s live tip
+  (`gh api repos/reddoorla/<repo>/branches/staging --jq .commit.sha`, not the
+  PR's `base.sha`, which is a snapshot from when the PR was opened or last
+  pushed) and merge only if it is still the `staging` sha the script printed.
+  If `staging` has moved, close the PR, delete the local branch
+  (`git branch -D <branch>`, or give the re-run its own `--branch`), and run
+  the script again: `staging`
+  does not require an up-to-date branch, so GitHub would merge the lockfile as
+  text. The merge call cannot pin the base, so a window of seconds remains.
+  Merge it as a **merge commit**, never a squash: a squash keeps the resolved
+  tree but drops `main` as a parent, so the promotion PR still conflicts
   (caltex-landing#88 squashed and had to be redone as #89, 2026-10-19).
-- Open the promotion PR (head `staging`, base `main`). Say what it carries since
-  the last promotion and what was checked on the staging URL.
+  `land-prs.mjs` squashes wherever the base allows it, so merge this one with
+  `PUT pulls/{n}/merge` and `merge_method=merge`, pinned to the green head's
+  `sha`.
+- **Open the promotion PR at once** (head `staging`, base `main`); the
+  operator merges it. Say what it carries since the last promotion and what
+  was checked on the staging URL. `main` requires an up-to-date branch, so if
+  a fast-track PR lands on `main` before the operator merges, the promotion PR
+  reads behind (or dirty). Do not press "Update branch": it would push to
+  `staging`, which only takes PRs. Whenever `main` is no longer an ancestor of
+  `staging`, run the script again and land its new bring-main PR the same way,
+  closing any earlier bring-main PR it supersedes.
 
 ## What the first live Renovate run does
 
