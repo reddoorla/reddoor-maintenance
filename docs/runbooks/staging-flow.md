@@ -41,6 +41,16 @@ is the pilot, and every step below was first done there.
 The label is how the gate tells a patch or minor from anything else. The
 `renovate-staging-flow` preset adds it only to patch and minor updates on `main`.
 
+Each of the gate's five GitHub reads (commits, activity, files, labels, label
+events) goes through one helper. A 5xx, a 429, a rate-limit 403 or a failure
+with no HTTP status is read again after 2, 8 and 30 seconds. Any other failure,
+or a fourth, fails the check with an `::error::` naming the read, its HTTP
+status and what `gh` said (reddoorla/reddoor-maintenance#1624). Before that, a
+failed read ended the step through `set -e` with `gh`'s message in the log but
+no annotation, and a failed labels read was reported as a missing label. A read
+that keeps failing costs 40 seconds, so in the worst case, an activity feed
+that fails on every read, the gate can run about five minutes before it fails.
+
 ## The pieces, and where each lives
 
 | Piece                                                                      | Where                                                                                                                       | Who applies it                                                           |

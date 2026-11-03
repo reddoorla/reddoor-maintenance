@@ -94,6 +94,12 @@ describe("priceRequest", () => {
     expect(priceRequest("claude-opus-5-5", u({ cw5m: 1e6 })).cost).toBeCloseTo(5, 10);
   });
 
+  it("prices Sonnet 5.5 cache reads at 0.05x input, as the server bills them (P1-83e)", () => {
+    // The P1-83e control agent: 129,127 cache reads, billed $0.10/M, not the usual 0.1x's $0.20/M.
+    expect(priceRequest("claude-sonnet-5-5", u({ cr: 129_127 })).cost).toBeCloseTo(0.0129127, 10);
+    expect(priceRequest("claude-opus-5-5", u({ cr: 1e6 })).cost).toBeCloseTo(0.2, 10);
+  });
+
   it("reports an unknown model as unpriced rather than guessing", () => {
     expect(priceRequest("claude-opus-5", u({ in: 1 })).cost).toBeNull();
   });
