@@ -17,6 +17,8 @@ import {
   directVulnEscalatesAt,
   markWaiting,
   transitiveVulnEscalatesAt,
+  transitiveVulnAttentionAt,
+  TRANSITIVE_ATTENTION_WINDOWS,
 } from "../../../../src/alerts/waiting.js";
 import { daysFlagged, levelOf } from "../../../../src/alerts/ladder.js";
 import {
@@ -1208,6 +1210,13 @@ function openText(item: AttentionItem | undefined, waiting: boolean, n: number, 
   if (at === null || now.getTime() < at.getTime())
     return `we could not confirm when ${n === 1 ? "it was" : "they were"} first seen, so ${it} ${deep ? "on Watch" : "ours to look at this week"}`;
   const them = n === 1 ? "it" : "them";
+  // The operator, 2026-11-03: still present after TRANSITIVE_ATTENTION_WINDOWS windows,
+  // a deeper one is Attention again (markWaiting sets transitiveStuck).
+  if (deep && item.transitiveStuck === true) {
+    const stuckAt = since === undefined ? null : transitiveVulnAttentionAt(since);
+    if (stuckAt !== null)
+      return `${TRANSITIVE_ATTENTION_WINDOWS} weekly package refreshes have not cleared ${them} by ${pacificDay(stuckAt)}, so ${it} ours to fix this week`;
+  }
   return deep
     ? `Monday's weekly package refresh did not clear ${them} by ${pacificDay(at)}, so ${it} on Watch; the weekly refresh keeps trying`
     : `the automatic update did not clear ${them} by ${pacificDay(at)}, so ${it} ours to fix this week`;
@@ -1831,7 +1840,7 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Open now",
-    text: `Critical and high vulnerabilities on each site, and what is fixing them. One in a package the site uses directly waits up to ${count(DIRECT_VULN_WAIT_DAYS, "day", "days")} for an automatic update; one deeper in the packages waits for Monday's weekly package refresh, plus ${count(LOCKFILE_SETTLE_DAYS, "day", "days")}. After its date, a direct one comes to us and a deeper one moves to Watch. A count from a security check more than ${count(PRODUCTION_STALE_DAYS, "day", "days")} old reads "not checked lately".`,
+    text: `Critical and high vulnerabilities on each site, and what is fixing them. One in a package the site uses directly waits up to ${count(DIRECT_VULN_WAIT_DAYS, "day", "days")} for an automatic update; one deeper in the packages waits for Monday's weekly package refresh, plus ${count(LOCKFILE_SETTLE_DAYS, "day", "days")}. After its date, a direct one comes to us and a deeper one moves to Watch, and comes back to us once ${TRANSITIVE_ATTENTION_WINDOWS} weekly refreshes have passed with the site still flagged. A count from a security check more than ${count(PRODUCTION_STALE_DAYS, "day", "days")} old reads "not checked lately".`,
   },
   {
     term: "Major-version upgrades waiting",
