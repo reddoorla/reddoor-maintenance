@@ -352,8 +352,7 @@ function hasGibberishToken(text: string, minLen: number): boolean {
 /**
  * Consonant pairs that English, and the common non-English names the fleet's guests
  * carry, actually use. `y` counts as a vowel. A pair of consonants outside this set is
- * an "odd pair". Deliberately absent: `pm` and a `q` not followed by `u`, which two of
- * the seven bot names below depend on.
+ * an "odd pair". Deliberately absent: `pm`, which one of the seven bot names depends on.
  */
 const NAME_CONSONANT_PAIRS: ReadonlySet<string> = new Set(
   (
@@ -366,10 +365,10 @@ const NAME_CONSONANT_PAIRS: ReadonlySet<string> = new Set(
 );
 
 /**
- * True when `name` is ONE all-letter token with at least one odd consonant pair (or a
- * `q` that no `u` follows). The seven bot RSVPs of 2026-10-07 → 10-25 all pass; no
+ * True when `name` is ONE all-letter token with at least one odd consonant pair, or that
+ * ends on a `q`. The seven bot RSVPs of 2026-10-07 → 10-25 all pass; no
  * single-token name among the 190 stored Sonder RSVPs does. It is weak alone by design:
- * plenty of real names have an odd pair (Farooq, Niamh, Krzysztof, Tadhg), which is
+ * plenty of real names trip it (Farooq, Niamh, Krzysztof, Tadhg), which is
  * why `bot-rsvp` requires it together with the other two conditions.
  */
 function isRandomSingleTokenName(name: string): boolean {
@@ -379,7 +378,6 @@ function isRandomSingleTokenName(name: string): boolean {
   for (let i = 1; i < t.length; i++) {
     const a = t[i - 1]!;
     const b = t[i]!;
-    if (a === "q" && b !== "u") return true;
     if (!vowel(a) && !vowel(b) && !NAME_CONSONANT_PAIRS.has(a + b)) return true;
   }
   return t.endsWith("q");

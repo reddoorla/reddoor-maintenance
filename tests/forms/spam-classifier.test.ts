@@ -775,7 +775,7 @@ describe("bot-rsvp: all three of random name, dotted gmail and a party over 10",
   });
 
   it("does not block a real guest with an odd-pair name and a big party on a plain address", () => {
-    // Farooq has an odd pair (q not followed by u): the name signal alone is weak by design.
+    // Farooq ends on a q, so the name signal fires: it is weak alone by design.
     expect(blocked(rsvp("Farooq", "farooq.khan@gmail.com", "12"))).toBe(false);
   });
 });

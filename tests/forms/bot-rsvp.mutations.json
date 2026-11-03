@@ -141,18 +141,5 @@
     ],
     "test": "tests/forms/spam-classifier.test.ts",
     "expect": "red"
-  },
-  {
-    "id": "bot-rsvp-M12-q-any",
-    "why": "a q followed by anything is fine",
-    "edits": [
-      {
-        "file": "src/forms/spam-classifier.ts",
-        "find": "    if (a === \"q\" && b !== \"u\") return true;\n",
-        "replace": ""
-      }
-    ],
-    "test": "tests/forms/spam-classifier.test.ts",
-    "expect": "red"
   }
 ]
