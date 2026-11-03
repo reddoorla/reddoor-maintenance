@@ -14,8 +14,12 @@ import { VENDORED_DISPOSABLE_DOMAINS } from "./disposable-domains.snapshot.js";
  * with ONE deliberate exception: lorem-ipsum filler (+60) is machine-generated
  * content with zero genuine use. `spam_auto` is recoverable, so a false positive
  * is a nuisance the operator can undo, not a lost lead.
+ *
+ * Lowered 60 → 50 (2026-11-03, forms spam review, recommendation 2): three spam
+ * notifications reached clients at `links:1,keywords:1` (55). No real lead in the
+ * stored record scored above 39, and three scored 20 to 39, so 40 is ruled out.
  */
-export const SPAM_THRESHOLD = 60;
+export const SPAM_THRESHOLD = 50;
 
 export type SpamVerdict = { score: number; reasons: string[] };
 
@@ -236,6 +240,55 @@ function countKeywordHits(text: string, keywords: readonly string[]): number {
 }
 
 /**
+ * Weight of a corroborating content family: enough to bucket together with one other
+ * signal (a link +25, a seller keyword +30, a bare domain +20), never alone. Kept
+ * below SPAM_THRESHOLD so a family on its own is delivered (test-pinned).
+ */
+export const CORROBORATING_FAMILY_WEIGHT = 30;
+
+/**
+ * Content families found in the 2026-11-03 forms spam review: polite prose with no
+ * link, every one scoring 0, mostly on ERP Industrials and Espada. Each family adds
+ * CORROBORATING_FAMILY_WEIGHT once, however many of its phrases appear.
+ *
+ * Corroborating only, by the operator's call (2026-11-03): Espada (industrial) and
+ * Vineyard (builder) can receive genuine bid invitations, so a real RFQ that matches
+ * a phrase must still be delivered unless something else about it is spammy. The
+ * classifier has no per-site weighting, so the same weight applies on every site,
+ * including ERP, which gets no product RFQs and could have taken full weight.
+ *
+ * Phrases are the templates' invariants, lowercase and hyphen-free like
+ * SPAM_KEYWORDS, and specific enough that a buyer describing their own project
+ * ("could you provide an estimate", "scope of work", "lead time") matches none.
+ */
+export const CONTENT_FAMILIES: Readonly<Record<string, readonly string[]>> = {
+  // Fake "invitation to bid" / RFQ / procurement lures: a project or purchase that
+  // needs a quote, with the documents "available for review" somewhere else.
+  "bid-lure": [
+    "invitation to bid",
+    "invite your team to submit",
+    "attached rfq",
+    "proposed unit price",
+    "appreciate a quotation",
+    "specifications are available for your review",
+    "interest in purchasing your products",
+    "arrange for a sales representative",
+    "seeking a qualified company",
+    "interested in procuring",
+  ],
+  // "I have buyers for your business" broker template.
+  "broker-template": [
+    "buyers interested in purchasing",
+    "buyers that are interested in purchasing",
+    "considered selling the business",
+    "considered selling your business",
+    "are you interested in selling",
+    "if selling has crossed your mind",
+    "buyers actively looking",
+  ],
+};
+
+/**
  * The virtual-assistant flood's second template (2026-09-24 onward): "a trained VA who
  * runs/operates our custom AI system". 12 live copies across seven sender domains; two
  * reached the inbox with score 0 (vaelitecrew.com 10-06, vasdirect.com 10-08). 9 of the
@@ -444,6 +497,13 @@ export function classifySpam(input: {
   if (countKeywordHits(body, VA_TEMPLATE_PHRASES) === VA_TEMPLATE_PHRASES.length) {
     score += SPAM_THRESHOLD;
     reasons.push("va-template");
+  }
+
+  for (const [family, phrases] of Object.entries(CONTENT_FAMILIES)) {
+    if (countKeywordHits(body, phrases) > 0) {
+      score += CORROBORATING_FAMILY_WEIGHT;
+      reasons.push(family);
+    }
   }
 
   // Body only — a native-script NAME (王小明, Владимир) is not a spam signal.
