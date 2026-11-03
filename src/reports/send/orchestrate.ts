@@ -7,14 +7,20 @@ import { isIdempotencyConflict } from "./idempotency.js";
 import { gatingHealth, isHealthGateClear, isSendOverridden } from "../checklist.js";
 import { recordFleetEventsBestEffort } from "../../audits/fleet-events-writer.js";
 import type { SiteMirror } from "../../db/site-mirror.js";
-import { GLOBAL_REPORT_CC, isProbablyEmail, parseAddresses, withGlobalCc } from "./addresses.js";
+import {
+  GLOBAL_REPORT_CC,
+  REPORT_FROM_ADDRESS,
+  isProbablyEmail,
+  parseAddresses,
+  withGlobalCc,
+} from "./addresses.js";
 
 // Re-exported so existing importers keep working. New code that needs only
 // these should import ./addresses.js: this module pulls in the whole send
 // pipeline (Playwright, Resend's React renderer), about 11 MB in a bundle.
 export { GLOBAL_REPORT_CC, isProbablyEmail, parseAddresses, withGlobalCc };
 
-const FROM_ADDRESS = "Reddoor Reports <reports@reddoorla.com>";
+const FROM_ADDRESS = REPORT_FROM_ADDRESS;
 const REPLY_TO = "info@reddoorla.com";
 
 export type OrchestrateOptions = {

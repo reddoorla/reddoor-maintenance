@@ -40,6 +40,8 @@ const ROW: Record<string, string> = {
   submission_deadletter:
     "INSERT INTO submission_deadletter (id, site_slug, payload, turnstile, error, received_at) VALUES ('dlZ', 'z', '{}', '{}', 'e', '2026-10-21T00:00:00Z')",
   digest_state: "INSERT INTO digest_state (id, snapshot) VALUES ('z', '{}')",
+  report_test_sends:
+    "INSERT INTO report_test_sends (id, report_id, site_id, subject, sent_to, sent_at) VALUES ('tsZ', 'repZ', 'recZ', 's', 'o', '2026-11-03T00:00:00Z')",
   fleet_daily:
     "INSERT INTO fleet_daily (night, counts, written_at) VALUES ('2026-10-25', '{}', '2026-10-26T08:00:00Z')",
   prospect_audits:
