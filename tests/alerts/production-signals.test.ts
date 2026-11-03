@@ -158,15 +158,19 @@ describe("the writer stores null when nothing was sampled", () => {
 });
 
 describe("domain and certificate", () => {
-  it("a certificate at 7 days is Broken, at 8 Attention, at 30 Attention, at 31 nothing", () => {
+  // Netlify renews at about 30 days left (2026-11-03: Data Dynamiq and MSOT read 30 and
+  // renewed that day), so 21 to 30 is renewal's usual lag: no alarm ("just wait").
+  it("a certificate at 7 days is Broken, at 8 Attention, at 20 Attention, at 21 and 30 nothing", () => {
     const at = (days: number) =>
       collectDomainAlerts([site({ certDaysRemaining: days, domainCheckedAt: FRESH })], BASE, NOW);
     expect(at(7).map(level)).toEqual(["broken"]);
     expect(keys(at(7))).toEqual(["cert-expiring:recS"]);
     expect(at(8).map(level)).toEqual(["attention"]);
     expect(keys(at(8))).toEqual(["cert:recS"]);
-    expect(at(30).map(level)).toEqual(["attention"]);
-    expect(at(31)).toEqual([]);
+    expect(at(20).map(level)).toEqual(["attention"]);
+    expect(keys(at(20))).toEqual(["cert:recS"]);
+    expect(at(21)).toEqual([]);
+    expect(at(30)).toEqual([]);
   });
 
   it("an expired certificate is Broken and says so", () => {

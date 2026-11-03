@@ -80,7 +80,7 @@ export function levelOf(
     case "form":
       return "broken";
     case "cert":
-      // Two flavours: 7 days or fewer (or expired) is Broken, 8 to 30 Attention.
+      // Two flavours: 7 days or fewer (or expired) is Broken, 8 to 20 Attention.
       return it.key.startsWith("cert-expiring:") ? "broken" : "attention";
     case "links":
     case "titles":
