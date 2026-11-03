@@ -397,31 +397,35 @@ function jaccard(a: Set<string>, b: Set<string>): number {
  *  or different-sender copies are spray evidence. */
 export type DuplicateMatch = { id: string; status: string; siteId: string; email: string };
 
-/** Options for findRecentDuplicateSubmissions. `againstVisitorText`: also compare
- *  the incoming text with each stored row's `extra_fields.visitorText` — the part
- *  of a site-composed message the visitor actually typed (ingest.ts
- *  `composedOnVerifiedSite`). A row matches when EITHER its message or its
- *  visitorText matches, so a pitch typed into a reddoor answer is caught against
- *  an earlier answer and against a plain message sprayed to another site. */
-export type DuplicateScanOptions = { againstVisitorText?: boolean };
-
-/** `extra_fields.visitorText` of a stored row, or null. A malformed JSON column is
- *  null rather than a throw: one bad row must not blind the whole scan. */
-function storedVisitorText(extraFields: string | null): string | null {
-  if (!extraFields) return null;
-  try {
-    const v = (JSON.parse(extraFields) as Record<string, unknown> | null)?.visitorText;
-    return typeof v === "string" && v.trim() !== "" ? v : null;
-  } catch {
-    return null;
+/** The bodies a stored row is compared by. A row whose site composed its message
+ *  (`extra_fields.composedMessage === true`, ingest.ts `isComposedMessage`) is
+ *  compared ONLY by its stored `visitorText`, never by its message: the message is
+ *  the site's template, identical for every lead, so matching it let any later copy
+ *  of the template — a bot's crafted step, a plain POST to another fleet site —
+ *  mark the row a duplicate and retro-bucket it. With no visitorText it is compared
+ *  by nothing. Every other row is compared by its message, as before. A malformed
+ *  JSON column reads as not composed: one bad row must not blind the whole scan. */
+function storedBodies(message: string | null, extraFields: string | null): string[] {
+  let extra: Record<string, unknown> | null = null;
+  if (extraFields) {
+    try {
+      const parsed: unknown = JSON.parse(extraFields);
+      if (parsed && typeof parsed === "object") extra = parsed as Record<string, unknown>;
+    } catch {
+      extra = null;
+    }
   }
+  if (extra?.composedMessage === true) {
+    const v = extra.visitorText;
+    return typeof v === "string" && v.trim() !== "" ? [v] : [];
+  }
+  return [message ?? ""];
 }
 
 export async function findRecentDuplicateSubmissions(
   db: Db,
   message: string,
   sinceDate: string,
-  opts: DuplicateScanOptions = {},
 ): Promise<{
   exact: DuplicateMatch[];
   similar: DuplicateMatch[];
@@ -445,12 +449,7 @@ export async function findRecentDuplicateSubmissions(
   const exact: DuplicateMatch[] = [];
   const similar: DuplicateMatch[] = [];
   for (const row of rows) {
-    const bodies = [row.message ?? ""];
-    if (opts.againstVisitorText) {
-      const v = storedVisitorText(row.extra_fields);
-      if (v !== null) bodies.push(v);
-    }
-    const stored = bodies.map(normalizeBody);
+    const stored = storedBodies(row.message, row.extra_fields).map(normalizeBody);
     const match: DuplicateMatch = {
       id: row.id,
       status: row.status,

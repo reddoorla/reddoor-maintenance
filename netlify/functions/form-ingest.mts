@@ -254,8 +254,8 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
         // Tier C — structural anti-spray signals: fleet-wide duplicate/near-duplicate
         // body lookup, cross-site repeat-sender lookup, and the retroactive re-bucket
         // that cleans prior still-'new' copies once a later copy identifies a spray.
-        findRecentDuplicates: (message, since, opts) =>
-          findRecentDuplicateSubmissions(db, message, since.toISOString(), opts),
+        findRecentDuplicates: (message, since) =>
+          findRecentDuplicateSubmissions(db, message, since.toISOString()),
         listRecentSubmissionsForEmail: (email, since) =>
           listRecentSubmissionsForEmail(db, email, since.toISOString()),
         retroBucket: (ids, reason) => markSubmissionsSpamRetro(db, ids, reason),

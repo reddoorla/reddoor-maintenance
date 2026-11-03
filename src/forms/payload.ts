@@ -21,9 +21,9 @@ export type SubmissionPayload = {
   utm?: string;
   /** Any additional, site-specific fields. `composedMessage: true` says the site
    *  wrote `message` from its own template, and `visitorText` carries whatever in
-   *  it the visitor typed. On a Turnstile-gated site with a passing token, ingest
-   *  then duplicate-scans `visitorText` instead of the whole message (see
-   *  ingest.ts `composedOnVerifiedSite`). */
+   *  it the visitor typed. On a Turnstile-gated site, ingest then duplicate-scans
+   *  `visitorText` instead of the whole message, and a stored composed row is only
+   *  ever matched by its visitorText (see ingest.ts `scanVisitorText`). */
   extra?: Record<string, unknown>;
   /** Reserved transport envelope (token/IP/UA); stripped by normalizeSubmission, never persisted. */
   _meta?: SubmissionMeta;

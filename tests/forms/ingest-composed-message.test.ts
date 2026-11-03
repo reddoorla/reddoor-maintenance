@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ingestSubmission, type IngestDeps } from "../../src/forms/ingest.js";
+import { classifySpam } from "../../src/forms/spam-classifier.js";
 import type { TurnstileOutcome, TurnstileVerification } from "../../src/forms/turnstile.js";
 import { openDb, type Db } from "../../src/db/client.js";
 import { createSubmission, findRecentDuplicateSubmissions } from "../../src/db/submissions.js";
@@ -43,9 +44,8 @@ function setup(siteOver: { requireTurnstile?: boolean } = {}) {
     requireTurnstile: true,
     ...siteOver,
   });
-  const findRecentDuplicates = vi.fn(
-    (message: string, since: Date, opts?: { againstVisitorText?: boolean }) =>
-      findRecentDuplicateSubmissions(db, message, since.toISOString(), opts),
+  const findRecentDuplicates = vi.fn((message: string, since: Date) =>
+    findRecentDuplicateSubmissions(db, message, since.toISOString()),
   );
   const retroBucket = vi.fn().mockResolvedValue(undefined);
   const d: IngestDeps = {
@@ -127,19 +127,33 @@ describe("ingestSubmission — a site-composed message on a Turnstile-gated site
     expect(retroBucket).not.toHaveBeenCalled();
   });
 
-  it.each<TurnstileOutcome>(["unverifiable", "absent", "fail"])(
-    "still runs the scan for a flagged message whose token is %s, but retro-buckets none of the earlier leads",
+  it.each<TurnstileOutcome>(["absent", "fail"])(
+    "still scans the whole message for a flagged copy whose token is %s, but retro-buckets none of the earlier leads",
     async (outcome) => {
       const { d, findRecentDuplicates, retroBucket } = setup();
       await ingestSubmission(d, "reddoor", payload({ composedMessage: true }), outcome);
-      expect(findRecentDuplicates).toHaveBeenCalledTimes(1);
+      expect(findRecentDuplicates).toHaveBeenCalledWith(STEP_ONE, expect.any(Date));
       expect(retroBucket).not.toHaveBeenCalled();
       expect(stored(d).status).toBe("spam_auto");
-      expect(stored(d).spamReason).toMatch(
-        outcome === "unverifiable" ? /^duplicate-body$/ : /^turnstile-required-/,
-      );
+      expect(stored(d).spamReason).toMatch(/^turnstile-required-/);
     },
   );
+
+  // "unverifiable" is an expired token, a siteverify outage or a missing secret:
+  // turnstile.ts holds it must never punish a possibly-real visitor, so a flagged
+  // copy gets the visitorText scan, and the template never sinks it.
+  it("delivers a flagged step one whose token is unverifiable, scanning only its visitorText", async () => {
+    const { d, findRecentDuplicates, retroBucket } = setup();
+    await ingestSubmission(
+      d,
+      "reddoor",
+      payload({ composedMessage: true, visitorText: "The Diagnosis" }),
+      "unverifiable",
+    );
+    expect(findRecentDuplicates).toHaveBeenCalledWith("The Diagnosis", expect.any(Date));
+    expect(stored(d)).toMatchObject({ status: "new", spamReason: null });
+    expect(retroBucket).not.toHaveBeenCalled();
+  });
 
   it("still runs the scan for a flagged message whose passing token was solved on a foreign host, without retro-bucketing", async () => {
     const { d, findRecentDuplicates, retroBucket } = setup();
@@ -155,6 +169,19 @@ describe("ingestSubmission — a site-composed message on a Turnstile-gated site
       status: "spam_auto",
       spamReason: "turnstile-required-hostname",
     });
+  });
+
+  it("delivers a production-shaped step one (visitorText is the step) as new", async () => {
+    const { d, findRecentDuplicates, retroBucket } = setup();
+    await ingestSubmission(
+      d,
+      "reddoor",
+      payload({ composedMessage: true, visitorText: "The Diagnosis" }),
+      pass(),
+    );
+    expect(findRecentDuplicates).toHaveBeenCalledWith("The Diagnosis", expect.any(Date));
+    expect(stored(d)).toMatchObject({ status: "new", spamReason: null });
+    expect(retroBucket).not.toHaveBeenCalled();
   });
 
   it("skips the scan when the passing token carries no hostname (older responses fail open)", async () => {
@@ -184,6 +211,13 @@ const appMessage = (website: string) =>
     ...APP_TEMPLATE.slice(3),
     "SMS consent: no",
   ].join("\n");
+// Genuine free text, each long enough to clear the lookup's floors, and unrelated.
+const GENUINE_A =
+  "We are a regional orthopedic device maker rebranding after an acquisition, and our sales decks still show the old parent company logo everywhere";
+const GENUINE_B =
+  "Our nonprofit clinic network needs one consistent look across twelve locations before the spring donor campaign and a new patient portal launch";
+const GENUINE_C =
+  "Small surgical robotics startup preparing for a trade show in March, the current website was built by a founder over a weekend and it shows";
 const PITCH =
   "We build ten thousand high authority backlinks for your domain every single month, " +
   "raising organic rankings across competitive keywords quickly while your competitors " +
@@ -212,33 +246,93 @@ const appPayload = (website: string, visitorText: string) => ({
 });
 
 describe("ingestSubmission — a composed application is scanned on what the visitor typed", () => {
-  it("CONTROL: the whole message of two genuine applications is a duplicate", async () => {
+  it("CONTROL: the same two applications, stored WITHOUT the flag, match on the template", async () => {
+    await createSubmission(db, {
+      siteId: SITE_ID,
+      formType: "inquiry",
+      name: "p5",
+      email: "p5@x.com",
+      message: appMessage("https://acme.com"),
+      status: "new",
+      submittedAt: new Date(NOW.getTime() - 3_600_000),
+    });
+    const r = await findRecentDuplicateSubmissions(
+      db,
+      appMessage("https://zenith.io"),
+      "2026-10-01T00:00:00.000Z",
+    );
+    expect(r.exact.length + r.similar.length).toBe(1);
+  });
+
+  it("never matches a stored composed row by its template message, on any scan path", async () => {
     await seedApplication("p5@x.com", "https://acme.com", "The Diagnosis https://acme.com");
     const r = await findRecentDuplicateSubmissions(
       db,
       appMessage("https://zenith.io"),
       "2026-10-01T00:00:00.000Z",
     );
-    expect(r.exact.length + r.similar.length).toBeGreaterThan(0);
+    expect(r).toEqual({ exact: [], similar: [] });
   });
 
-  it("delivers a genuine application although earlier applications share its labels and options", async () => {
-    await seedApplication("p5@x.com", "https://acme.com", "The Diagnosis https://acme.com");
-    await seedApplication("p6@x.com", "https://beta.org", "The Diagnosis https://beta.org");
+  it("delivers a genuine application whose typed text is long, although earlier applications share its template", async () => {
+    await seedApplication("p5@x.com", "https://acme.com", `The Diagnosis\n${GENUINE_A}`);
+    await seedApplication("p6@x.com", "https://beta.org", `The Diagnosis\n${GENUINE_B}`);
     const { d, findRecentDuplicates, retroBucket } = setup();
     await ingestSubmission(
       d,
       "reddoor",
-      appPayload("https://zenith.io", "The Diagnosis https://zenith.io"),
+      appPayload("https://zenith.io", `The Diagnosis\n${GENUINE_C}`),
       pass(),
     );
     expect(findRecentDuplicates).toHaveBeenCalledWith(
-      "The Diagnosis https://zenith.io",
+      `The Diagnosis\n${GENUINE_C}`,
       expect.any(Date),
-      { againstVisitorText: true },
     );
     expect(stored(d)).toMatchObject({ status: "new", spamReason: null });
     expect(retroBucket).not.toHaveBeenCalled();
+  });
+
+  it("a crafted step equal to the template retro-buckets none of the composed step ones", async () => {
+    const ids: string[] = [];
+    for (const email of ["c1@x.com", "c2@x.com"]) {
+      const row = await createSubmission(db, {
+        siteId: SITE_ID,
+        formType: "inquiry",
+        name: email,
+        email,
+        message: STEP_ONE,
+        extraFields: { composedMessage: true, visitorText: "The Diagnosis" },
+        status: "new",
+        submittedAt: new Date(NOW.getTime() - 3_600_000),
+      });
+      ids.push(row.id);
+    }
+    const { d, retroBucket } = setup();
+    await ingestSubmission(
+      d,
+      "reddoor",
+      payload({ composedMessage: true, visitorText: STEP_ONE }),
+      pass(),
+    );
+    const retroed = retroBucket.mock.calls.flatMap((c) => c[0] as string[]);
+    for (const id of ids) expect(retroed).not.toContain(id);
+  });
+
+  it("an unflagged plain copy of the template on another site retro-buckets none of the composed step ones", async () => {
+    const row = await createSubmission(db, {
+      siteId: SITE_ID,
+      formType: "inquiry",
+      name: "c1",
+      email: "c1@x.com",
+      message: STEP_ONE,
+      extraFields: { composedMessage: true, visitorText: "The Diagnosis" },
+      status: "new",
+      submittedAt: new Date(NOW.getTime() - 3_600_000),
+    });
+    const { d, retroBucket } = setup({ requireTurnstile: false });
+    await ingestSubmission(d, "other-site", payload(), "absent");
+    const retroed = retroBucket.mock.calls.flatMap((c) => c[0] as string[]);
+    expect(retroed).not.toContain(row.id);
   });
 
   it("catches a pitch typed into an answer against an earlier answer, and retro-buckets it", async () => {
@@ -263,6 +357,89 @@ describe("ingestSubmission — a composed application is scanned on what the vis
     await ingestSubmission(d, "reddoor", appPayload(PITCH, `The Diagnosis ${PITCH}`), pass());
     expect(stored(d)).toMatchObject({ status: "spam_auto", spamReason: "similar-body" });
     expect(retroBucket).toHaveBeenCalledWith([other.id], "retro:duplicate-body");
+  });
+
+  it("catches a near-copy of a pitch against an earlier answer's visitorText (similar tier)", async () => {
+    const prior = await seedApplication("bot1@spam.example", PITCH, `The Diagnosis ${PITCH}`);
+    const variant = `The Diagnosis ${PITCH.replace("today", "now")}`;
+    const { d, retroBucket } = setup();
+    await ingestSubmission(d, "reddoor", appPayload(PITCH, variant), pass());
+    expect(stored(d)).toMatchObject({ status: "spam_auto", spamReason: "similar-body" });
+    expect(retroBucket).toHaveBeenCalledWith([prior], "retro:duplicate-body");
+  });
+
+  it("matches a plain spray against an earlier reddoor answer that carried the same pitch", async () => {
+    const prior = await seedApplication("bot1@spam.example", PITCH, `The Diagnosis ${PITCH}`);
+    const { d, retroBucket } = setup({ requireTurnstile: false });
+    await ingestSubmission(
+      d,
+      "other-site",
+      { email: "spray@spam.example", message: PITCH },
+      "absent",
+    );
+    expect(stored(d)).toMatchObject({ status: "spam_auto", spamReason: "similar-body" });
+    expect(retroBucket).toHaveBeenCalledWith([prior], "retro:duplicate-body");
+  });
+
+  it("an unverifiable flagged application is still judged on its visitorText, without retro-bucketing", async () => {
+    await seedApplication("bot1@spam.example", PITCH, `The Diagnosis ${PITCH}`);
+    const { d, retroBucket } = setup();
+    await ingestSubmission(
+      d,
+      "reddoor",
+      appPayload(PITCH, `The Diagnosis ${PITCH}`),
+      "unverifiable",
+    );
+    expect(stored(d)).toMatchObject({ status: "spam_auto", spamReason: "duplicate-body" });
+    expect(retroBucket).not.toHaveBeenCalled();
+  });
+
+  it("exempts the same sender's own resend on the same site on the visitorText path", async () => {
+    await seedApplication("applicant@example.com", PITCH, `The Diagnosis ${PITCH}`);
+    const { d, retroBucket } = setup();
+    await ingestSubmission(d, "reddoor", appPayload(PITCH, `The Diagnosis ${PITCH}`), pass());
+    expect(stored(d)).toMatchObject({ status: "new", spamReason: null });
+    expect(retroBucket).not.toHaveBeenCalled();
+  });
+
+  it("a malformed extra_fields column neither throws nor blinds the scan to other rows", async () => {
+    const bad = await seedApplication("p9@x.com", "https://x.com", "irrelevant");
+    await db
+      .updateTable("submissions")
+      .set({ extra_fields: "{not json" })
+      .where("id", "=", bad)
+      .execute();
+    const prior = await seedApplication("bot1@spam.example", PITCH, `The Diagnosis ${PITCH}`);
+    const r = await findRecentDuplicateSubmissions(
+      db,
+      `The Diagnosis ${PITCH}`,
+      "2026-10-01T00:00:00.000Z",
+    );
+    expect(r.exact.map((m) => m.id)).toEqual([prior]);
+  });
+
+  it("scores a pasted URL once, not again through visitorText", async () => {
+    const { d } = setup();
+    // Wired as netlify/functions/form-ingest.mts wires it.
+    d.classifySpam = (n, outcome) =>
+      classifySpam({
+        name: n.name,
+        email: n.email,
+        ...(n.message !== undefined ? { message: n.message } : {}),
+        formType: n.formType,
+        extraFields: n.extraFields,
+        turnstile: outcome,
+      });
+    await ingestSubmission(
+      d,
+      "reddoor",
+      appPayload("https://acmeclinic.com", "The Diagnosis\nhttps://acmeclinic.com"),
+      pass(),
+    );
+    expect(stored(d).spamReason ?? "").not.toMatch(/links:2/);
+    expect(stored(d).extraFields).toMatchObject({
+      visitorText: "The Diagnosis\nhttps://acmeclinic.com",
+    });
   });
 
   it("stores visitorText on the row, so a later copy can be matched against it", async () => {

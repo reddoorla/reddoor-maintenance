@@ -48,7 +48,6 @@ export type IngestDeps = {
   findRecentDuplicates?: (
     message: string,
     since: Date,
-    opts?: { againstVisitorText?: boolean },
   ) => Promise<{
     exact: Array<{ id: string; status: string; siteId: string; email: string }>;
     similar: Array<{ id: string; status: string; siteId: string; email: string }>;
@@ -269,7 +268,7 @@ export async function ingestSubmission(
   let verdict: SpamVerdict = { score: 0, reasons: [] };
   if (spamHandlingEnabled && deps.classifySpam) {
     try {
-      verdict = deps.classifySpam(n, turnstile);
+      verdict = deps.classifySpam(forClassifier(n), turnstile);
     } catch (err) {
       console.error(`[ingest] classifySpam threw: ${String(err)}`);
     }
@@ -346,33 +345,33 @@ export async function ingestSubmission(
   // silently (2026-11-03, sub_4bc17c8e…, whose Turnstile token had PASSED). The
   // site says so with `extra.composedMessage: true`, and puts whatever the
   // visitor DID type (free-text answers, anything not on its own question list)
-  // in `extra.visitorText`. On a site that requires Turnstile, with a token that
-  // passed on the site's own host (a null hostname fails open, as above), the
-  // scan runs on `visitorText` alone — against earlier rows' messages AND their
-  // visitorText — and not at all when there is none. So a pitch typed into an
-  // answer is still caught as a spray, while two leads never match on the
-  // template. Every other path — visitor-typed messages, ungated sites, a failed,
-  // absent or unverifiable token, a foreign-host pass — scans the whole message
-  // and is judged by it, exactly as before.
+  // in `extra.visitorText`.
   //
-  // What a flagged copy that fails the gate may NOT do is retro-bucket: its
-  // whole-message matches are the earlier copies of the same template, i.e. the
-  // verified leads this exists to protect, so one tokenless POST (a bot, or a
-  // visitor whose ad-blocker stopped the widget) would otherwise flip every
-  // untriaged lead of the last 30 days to spam_auto. Only a site's server can set
-  // the flag (a direct POST to ingest needs the site's ingest token), so this
-  // gives a bot nothing. A visitorText match is on visitor text, so it
-  // retro-buckets as usual. Both fields are read from `extra` only:
-  // normalizeSubmission also copies unknown TOP-level keys into extraFields.
+  // Two halves. The STORED half is in findRecentDuplicateSubmissions: a composed
+  // row is only ever matched by its visitorText, on every scan path, so no later
+  // copy of the template can mark it or retro-bucket it. The INCOMING half is
+  // here: on a site that requires Turnstile, a flagged copy whose token passed on
+  // the site's own host, or came back "unverifiable" (an expired token, a
+  // siteverify outage, a missing secret — which turnstile.ts holds must never
+  // punish a possibly-real visitor), is scanned on its visitorText alone, and not
+  // at all when there is none. What a bot controls is in visitorText either way,
+  // so a pitch typed into an answer is still caught as a spray. Every other path
+  // — visitor-typed messages, ungated sites, an absent or failed token, a
+  // foreign-host pass — scans the whole message, exactly as before.
+  //
+  // Retro-bucketing is left to a flagged copy only when its token passed on the
+  // site's own host: an unproven copy may be judged, but may not judge others.
+  // Both fields are read from `extra` only: normalizeSubmission also copies
+  // unknown TOP-level keys into extraFields.
   const composedFlag = isComposedMessage(rawPayload);
-  const composedOnVerifiedSite =
-    composedFlag &&
-    site.requireTurnstile &&
+  const gatedComposed = composedFlag && site.requireTurnstile;
+  const passedOnSiteHost =
     turnstile === "pass" &&
     (verification.hostname === null ||
       turnstileHostnameAcceptable(verification.hostname, site.url));
-  const scanText = composedOnVerifiedSite ? composedVisitorText(rawPayload) : n.message;
-  const mayRetroBucket = !composedFlag || composedOnVerifiedSite;
+  const scanVisitorText = gatedComposed && (passedOnSiteHost || turnstile === "unverifiable");
+  const scanText = scanVisitorText ? composedVisitorText(rawPayload) : n.message;
+  const mayRetroBucket = !composedFlag || (gatedComposed && passedOnSiteHost);
 
   // Duplicate/spray signal: the same pitch blasted across the fleet (or repeated) is
   // a bot tell a lone content scan can't see. An identical body ('exact') OR a
@@ -395,9 +394,7 @@ export async function ingestSubmission(
   ) {
     try {
       const since = new Date(deps.now().getTime() - DUPLICATE_WINDOW_MS);
-      const dupes = composedOnVerifiedSite
-        ? await deps.findRecentDuplicates(scanText, since, { againstVisitorText: true })
-        : await deps.findRecentDuplicates(scanText, since);
+      const dupes = await deps.findRecentDuplicates(scanText, since);
       const senderEmail = n.email.trim().toLowerCase();
       const isOwnResend = (m: { siteId: string; email: string }) =>
         m.siteId === site.id && m.email.trim().toLowerCase() === senderEmail;
@@ -600,7 +597,7 @@ export function isTestMode(rawPayload: unknown): boolean {
 
 /** True when the SITE says it composed `message` itself: `extra.composedMessage`
  *  is literally `true` on the raw payload. Only the `extra` envelope counts (see
- *  the note at `composedOnVerifiedSite`). PURE. */
+ *  the note at `scanVisitorText`). PURE. */
 export function isComposedMessage(rawPayload: unknown): boolean {
   return rawExtra(rawPayload)?.composedMessage === true;
 }
@@ -616,4 +613,15 @@ function rawExtra(rawPayload: unknown): Record<string, unknown> | undefined {
   if (!rawPayload || typeof rawPayload !== "object") return undefined;
   const extra = (rawPayload as Record<string, unknown>).extra;
   return extra && typeof extra === "object" ? (extra as Record<string, unknown>) : undefined;
+}
+
+/** The submission as the content classifier should see it. `visitorText` repeats
+ *  part of the message (see `composedVisitorText`), and the classifier folds every
+ *  string in extraFields into the body it scores, so a pasted URL counted twice:
+ *  a genuine reddoor applicant went from `links:1` (25) to `links:2` (50), ten
+ *  points under the threshold. PURE. */
+function forClassifier(n: NormalizedSubmission): NormalizedSubmission {
+  if (!("visitorText" in n.extraFields)) return n;
+  const { visitorText: _omit, ...extraFields } = n.extraFields;
+  return { ...n, extraFields };
 }
