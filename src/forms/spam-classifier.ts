@@ -12,8 +12,8 @@ import { VENDORED_DISPOSABLE_DOMAINS } from "./disposable-domains.snapshot.js";
  * high-precision multi-word keyword phrases + the gibberish/bare-domain signals
  * below actually bite. No single signal buckets alone (each needs corroboration),
  * with deliberate exceptions: lorem-ipsum filler (+60) is machine-generated content
- * with zero genuine use, and the blocked-domain and va-template signals are defined
- * as SPAM_THRESHOLD. `spam_auto` is recoverable, so a false positive is a nuisance
+ * with zero genuine use, and the blocked-domain, va-template and bot-rsvp signals
+ * are defined as SPAM_THRESHOLD. `spam_auto` is recoverable, so a false positive is a nuisance
  * the operator can undo, not a lost lead.
  *
  * Lowered 60 → 50 (2026-11-03, forms spam review, recommendation 2): three spam
@@ -43,7 +43,7 @@ export type SpamVerdict = { score: number; reasons: string[] };
  * live HERE at full weight (an SEO-help ask through the form is deliberately
  * filtered; `spam_auto` is recoverable and the operator prefers hand-delivering the
  * rare real one over receiving the flood). Each entry is +30, so TWO seller phrases
- * bucket; no single phrase can (apart from lorem-ipsum, blocked-domain and va-template,
+ * bucket; no single phrase can (apart from lorem-ipsum, blocked-domain, va-template and bot-rsvp,
  * no single signal scores above 45).
  *
  * NOTE: entries must not be substrings of each other ("page one" + "page one of
@@ -433,6 +433,60 @@ function hasGibberishToken(text: string, minLen: number): boolean {
   return false;
 }
 
+/**
+ * Consonant pairs that English, and the common non-English names the fleet's guests
+ * carry, actually use. `y` counts as a vowel. A pair of consonants outside this set is
+ * an "odd pair". Deliberately absent: `pm`, which one of the seven bot names depends on.
+ */
+const NAME_CONSONANT_PAIRS: ReadonlySet<string> = new Set(
+  (
+    "bb bh bl br cc ch ck cl cr ct cz dd dg dl dm dr dw dz ff fl fr gd gg gh gl gn gr gw " +
+    "hb hd hj hk hl hm hn hr hs ht kh kj kn ks kw lb lc ld lf lg lk ll lm ln lp ls lt lv " +
+    "mb mm mn mp mr ms nc nd nf ng nh nj nk nl nm nn nq nr ns nt nv nz pf ph pl pp pr ps " +
+    "pt rb rc rd rf rg rk rl rm rn rp rr rs rt rv rz sc sh sj sk sl sm sn sp ss st sv sw " +
+    "sz th tj tl tr ts tt tw tz vl wd wk wl wn wr ws wt xt zh zz"
+  ).split(" "),
+);
+
+/**
+ * True when `name` is ONE all-letter token with at least one odd consonant pair, or that
+ * ends on a `q`. The seven bot RSVPs of 2026-10-07 → 10-25 all pass; no
+ * single-token name among the 190 stored Sonder RSVPs does. It is weak alone by design:
+ * plenty of real names trip it (Farooq, Niamh, Krzysztof, Tadhg), which is
+ * why `bot-rsvp` requires it together with the other two conditions.
+ */
+function isRandomSingleTokenName(name: string): boolean {
+  const t = name.trim().toLowerCase();
+  if (!/^[a-z]+$/.test(t)) return false;
+  const vowel = (c: string) => "aeiouy".includes(c);
+  for (let i = 1; i < t.length; i++) {
+    const a = t[i - 1]!;
+    const b = t[i]!;
+    if (!vowel(a) && !vowel(b) && !NAME_CONSONANT_PAIRS.has(a + b)) return true;
+  }
+  return t.endsWith("q");
+}
+
+/** Gmail and googlemail ignore dots in the local part, so a bot can mint endless
+ *  "different" addresses for one inbox by sprinkling them. */
+function gmailLocalDots(email: string): number {
+  const at = email.lastIndexOf("@");
+  if (at === -1) return 0;
+  const domain = email
+    .slice(at + 1)
+    .trim()
+    .toLowerCase();
+  if (domain !== "gmail.com" && domain !== "googlemail.com") return 0;
+  return (email.slice(0, at).match(/\./g) ?? []).length;
+}
+
+/** The RSVP's `guests` field as a whole number, or 0 when it is missing or not one. */
+function guestCount(extraFields: Record<string, unknown>): number {
+  const raw = extraFields?.guests;
+  const s = typeof raw === "number" ? String(raw) : typeof raw === "string" ? raw.trim() : "";
+  return /^\d+$/.test(s) ? Number(s) : 0;
+}
+
 // A domain-like token with a known TLD but NO scheme/`www` (those are already caught by
 // URL_RE). The leading `(?<![@\w.])` excludes an email's domain (`a@foo.com`), a
 // sub-label continuation, and file-ish `name.ext` runs. Curated TLD set keeps it from
@@ -594,6 +648,22 @@ export function classifySpam(input: {
   if (isAllCaps(body)) {
     score += 15;
     reasons.push("all-caps");
+  }
+
+  // Bot RSVPs (Sonder, 2026-10-07 → 10-25): seven RSVPs, each a one-word random name,
+  // a gmail address with 3 to 8 dots in its local part, and 13 to 161 guests. All
+  // scored 0 and were emailed. Any one of the three is weak alone (a real guest can
+  // have an unusual name, a dotted address or a big party), so this buckets only
+  // when ALL THREE hold, and then alone (reddoor-workspace
+  // reports/2026-11-03-forms-spam-review, recommendation 4).
+  if (
+    input.formType === "rsvp" &&
+    isRandomSingleTokenName(name) &&
+    gmailLocalDots(email) >= 3 &&
+    guestCount(input.extraFields) > 10
+  ) {
+    score += SPAM_THRESHOLD;
+    reasons.push("bot-rsvp");
   }
 
   return { score, reasons };

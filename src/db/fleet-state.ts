@@ -46,6 +46,7 @@ import { canonicalizeStatus } from "../fleet/site-status.js";
 import { toSearchConsoleOutcome } from "../fleet/search-console-evidence.js";
 import {
   parseNotifyRouting,
+  parseA11ySkippedRoutes,
   parseSecurityAdvisories,
   parseSecurityLockfileAudit,
   toFrequency,
@@ -118,6 +119,7 @@ function rowFromJoined(r: JoinedRow): WebsiteRow {
     a11yViolations: num(r.a11y_violations),
     a11yRoutesScanned: num(r.a11y_routes_scanned),
     a11yRoutesTotal: num(r.a11y_routes_total),
+    a11yRoutesSkipped: parseA11ySkippedRoutes(r.a11y_routes_skipped),
     a11yCheckedAt: str(r.a11y_checked_at),
     depsDrifted: num(r.deps_drifted),
     depsMajorBehind: num(r.deps_major_behind),

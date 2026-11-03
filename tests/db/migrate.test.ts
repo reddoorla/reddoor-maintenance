@@ -59,6 +59,7 @@ describe("runMigrations", () => {
       "0050_site_health_deps_behind_packages",
       "0051_site_health_deps_behind_packages_at",
       "0052_site_health_a11y_checked_at",
+      "0053_site_health_a11y_routes_skipped",
     ]);
     const tables = await client.execute(
       "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
@@ -129,6 +130,7 @@ describe("runMigrations", () => {
       "0050_site_health_deps_behind_packages",
       "0051_site_health_deps_behind_packages_at",
       "0052_site_health_a11y_checked_at",
+      "0053_site_health_a11y_routes_skipped",
     ]);
   });
 
@@ -203,6 +205,7 @@ describe("runMigrations", () => {
       "0050_site_health_deps_behind_packages",
       "0051_site_health_deps_behind_packages_at",
       "0052_site_health_a11y_checked_at",
+      "0053_site_health_a11y_routes_skipped",
     ]);
   });
 
@@ -280,6 +283,7 @@ describe("runMigrations", () => {
       "0050_site_health_deps_behind_packages",
       "0051_site_health_deps_behind_packages_at",
       "0052_site_health_a11y_checked_at",
+      "0053_site_health_a11y_routes_skipped",
     ]);
   });
 });

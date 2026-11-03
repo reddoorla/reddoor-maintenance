@@ -1,0 +1,145 @@
+[
+  {
+    "id": "bot-rsvp-M1-no-name",
+    "why": "drop the random-name condition: a real two-word name with a dotted gmail and 14 guests is blocked",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    isRandomSingleTokenName(name) &&\n",
+        "replace": "    true &&\n"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "bot-rsvp-M2-no-dots",
+    "why": "drop the dotted-gmail condition",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    gmailLocalDots(email) >= 3 &&\n",
+        "replace": "    true &&\n"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "bot-rsvp-M3-no-guests",
+    "why": "drop the party-over-10 condition",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    guestCount(input.extraFields) > 10\n",
+        "replace": "    true\n"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "bot-rsvp-M4-any-form",
+    "why": "drop the rsvp gate",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    input.formType === \"rsvp\" &&\n",
+        "replace": "    true &&\n"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "bot-rsvp-M5-two-dots",
+    "why": "dots >= 3 becomes >= 2",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "gmailLocalDots(email) >= 3",
+        "replace": "gmailLocalDots(email) >= 2"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "bot-rsvp-M6-ten-guests",
+    "why": "guests > 10 becomes >= 10",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "guestCount(input.extraFields) > 10",
+        "replace": "guestCount(input.extraFields) >= 10"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "bot-rsvp-M7-any-domain",
+    "why": "dots count on any domain, not only gmail",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "  if (domain !== \"gmail.com\" && domain !== \"googlemail.com\") return 0;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "bot-rsvp-M8-any-token",
+    "why": "any single all-letter token counts as random",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "  if (!/^[a-z]+$/.test(t)) return false;\n",
+        "replace": "  if (!/^[a-z]+$/.test(t)) return false;\n  return true;\n"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "bot-rsvp-M9-no-q-end",
+    "why": "drop the trailing-q check",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "  return t.endsWith(\"q\");\n}",
+        "replace": "  return false;\n}"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "bot-rsvp-M10-under-threshold",
+    "why": "the signal scores one under the threshold",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    score += SPAM_THRESHOLD;\n    reasons.push(\"bot-rsvp\");",
+        "replace": "    score += SPAM_THRESHOLD - 1;\n    reasons.push(\"bot-rsvp\");"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "bot-rsvp-M11-pm-allowed",
+    "why": "pm becomes an allowed pair (the bot name that depends on it passes)",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "\"mb mm mn mp mr",
+        "replace": "\"mb mm mn mp pm mr"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  }
+]

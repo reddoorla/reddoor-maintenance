@@ -1290,7 +1290,9 @@ describe("audits/a11y — a placeholder-repo 404 is the designed answer (#863)",
     expect((result.details as { routes?: unknown }).routes).toEqual({ scanned: 2, total: 2 });
   });
 
-  // P1-78c: the other declared reason, an absent fixture, leaves the total too.
+  // P1-78c: the other declared reason, an absent fixture, leaves the total too. This site has
+  // no src/routes tree, so the audit cannot tell the fixture is absent and holds no undeclared
+  // absence to keep in the total (#910); the spec never writes this reason for such a site.
   it("stores a run that skipped only an absent fixture as complete", async () => {
     const cwd = await tmpSite();
     await writePkg(cwd, { a11yRoutes: ["/"] });
@@ -1591,12 +1593,47 @@ describe("audits/a11y — a fixture the site does not define is not a missing ro
   it("puts the scanned and total route counts on details, a declared skip out of both (#910, P1-78c)", async () => {
     const { result } = await auditSite(
       async (dir) => {
-        await writePkg(dir, {});
+        await writePkg(dir, { absentFixtures: ["/dev/animate-in"] });
         await writeDevFixtures(dir, ["a11y-fixtures"]);
       },
       { totalViolations: 0, byImpact: {}, skipped: [SKIPPED_ANIMATE] },
     );
     expect((result.details as { routes?: unknown }).routes).toEqual({ scanned: 1, total: 1 });
+  });
+
+  // The operator, 2026-11-03 (decision 2026-11-03-1933-910-undeclared-absent-fixture-coverage,
+  // option 1): an absence the site never wrote down is the `warn` case, which cannot tell
+  // "never had it" from "deleted", so it stays in the total and stores as lost coverage.
+  // CalTex, Espada and Revogen read exactly this on 11-02 and stored 1/1.
+  it("keeps an undeclared absent fixture in the total, so it stores 1 of 2 (#910)", async () => {
+    const { result } = await auditSite(
+      async (dir) => {
+        await writePkg(dir, {});
+        await writeDevFixtures(dir, ["a11y-fixtures"]);
+      },
+      { totalViolations: 0, byImpact: {}, skipped: [SKIPPED_ANIMATE] },
+    );
+    expect(result.status).toBe("warn");
+    expect((result.details as { routes?: unknown }).routes).toEqual({ scanned: 1, total: 2 });
+  });
+
+  it("puts the skip list it counted from on details, [] when the artifact has none (#910)", async () => {
+    const { result } = await auditSite(
+      async (dir) => {
+        await writePkg(dir, {});
+        await writeDevFixtures(dir, ["a11y-fixtures", "animate-in"]);
+      },
+      { totalViolations: 0, byImpact: {} },
+    );
+    expect((result.details as { skipped?: unknown }).skipped).toEqual([]);
+    const skipping = await auditSite(
+      async (dir) => {
+        await writePkg(dir, {});
+        await writeDevFixtures(dir, ["a11y-fixtures"]);
+      },
+      { totalViolations: 0, byImpact: {}, skipped: [SKIPPED_ANIMATE] },
+    );
+    expect((skipping.result.details as { skipped?: unknown }).skipped).toEqual([SKIPPED_ANIMATE]);
   });
 
   it("a run that skipped nothing reads every route scanned (#910)", async () => {
@@ -1770,6 +1807,11 @@ describe("audits/a11y — a fixture the site does not define is not a missing ro
         { totalViolations: 0, byImpact: {}, skipped: [SKIPPED_ANIMATE] },
       );
       expect(result.status, `declaration ${JSON.stringify(declaration)}`).toBe("pass");
+      // #910: the count reads the same normalised declaration, so it stores complete.
+      expect(
+        (result.details as { routes?: unknown }).routes,
+        `declaration ${JSON.stringify(declaration)}`,
+      ).toEqual({ scanned: 1, total: 1 });
     }
   });
 
