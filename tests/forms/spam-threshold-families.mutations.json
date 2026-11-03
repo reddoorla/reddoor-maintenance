@@ -1,0 +1,106 @@
+[
+  {
+    "id": "m1-threshold-60",
+    "why": "The threshold goes back to 60, so the one-link-plus-one-keyword pattern (55) reaches clients again",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "export const SPAM_THRESHOLD = 50;",
+        "replace": "export const SPAM_THRESHOLD = 60;"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m2-lure-full-weight",
+    "why": "The bid/RFQ lure blocks alone, so a genuine RFQ to Espada or Vineyard is silently bucketed",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "      score += CORROBORATING_FAMILY_WEIGHT;\n      reasons.push(family);",
+        "replace": "      score += family === \"bid-lure\" ? SPAM_THRESHOLD : CORROBORATING_FAMILY_WEIGHT;\n      reasons.push(family);"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m3-remove-lure",
+    "why": "The bid/RFQ lure family is gone, so a lure with a link (55) is delivered",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    if (countKeywordHits(body, phrases) > 0) {",
+        "replace": "    if (family !== \"bid-lure\" && countKeywordHits(body, phrases) > 0) {"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m4-remove-broker",
+    "why": "The business-broker family is gone, so a broker pitch with a link (55) is delivered",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    if (countKeywordHits(body, phrases) > 0) {",
+        "replace": "    if (family !== \"broker-template\" && countKeywordHits(body, phrases) > 0) {"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m5-family-stacks-per-phrase",
+    "why": "A family adds its weight per phrase, so a genuine RFQ using two lure phrases scores 60 and is bucketed",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    if (countKeywordHits(body, phrases) > 0) {\n      score += CORROBORATING_FAMILY_WEIGHT;",
+        "replace": "    if (countKeywordHits(body, phrases) > 0) {\n      score += CORROBORATING_FAMILY_WEIGHT * countKeywordHits(body, phrases);"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m6-generic-estimate-phrase",
+    "why": "A generic buyer phrase joins the lure family, so a homeowner asking for an estimate with one link scores 55 and is bucketed",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    \"invitation to bid\",",
+        "replace": "    \"invitation to bid\",\n    \"provide an estimate\","
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m7-second-link-25",
+    "why": "The second link goes back to +25, so a genuine site-plus-portfolio lead scores 50 and is bucketed",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    score += urls === 1 ? 25 : 45;",
+        "replace": "    score += Math.min(urls, 2) * 25;"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m8-forged-token-50",
+    "why": "A forged Turnstile token goes back to 50, so it buckets alone with no corroborating signal",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "  if (input.turnstile === \"fail\") {\n    score += 45;",
+        "replace": "  if (input.turnstile === \"fail\") {\n    score += 50;"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  }
+]

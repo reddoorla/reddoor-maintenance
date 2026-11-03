@@ -18,6 +18,9 @@ import { VENDORED_DISPOSABLE_DOMAINS } from "./disposable-domains.snapshot.js";
  * Lowered 60 → 50 (2026-11-03, forms spam review, recommendation 2): three spam
  * notifications reached clients at `links:1,keywords:1` (55). No real lead in the
  * stored record scored above 39, and three scored 20 to 39, so 40 is ruled out.
+ * Two signals that sat at exactly 50 were trimmed with it so neither buckets alone
+ * (Operator decisions, workspace `decisions/2026-11-03-2036-spam-threshold-50-two-link-invariant.md`): two links now sum
+ * 45, and a forged Turnstile token scores 45.
  */
 export const SPAM_THRESHOLD = 50;
 
@@ -38,7 +41,7 @@ export type SpamVerdict = { score: number; reasons: string[] };
  * live HERE at full weight (an SEO-help ask through the form is deliberately
  * filtered; `spam_auto` is recoverable and the operator prefers hand-delivering the
  * rare real one over receiving the flood). Each entry is +30, so TWO seller phrases
- * bucket; no single phrase can (max single non-lorem signal is turnstile-fail's 50).
+ * bucket; no single phrase can (max single non-lorem signal is turnstile-fail's 45).
  *
  * NOTE: entries must not be substrings of each other ("page one" + "page one of
  * google" would double-count one occurrence) and must be written hyphen-free (the
@@ -437,21 +440,21 @@ export function classifySpam(input: {
     .join(" ");
   const body = extraText ? `${message} ${extraText}` : message;
 
-  // 50: post-#400 a "fail" is a FORGED token (invalid-input-response), near-certainly a
-  // bot — but kept below the 60 threshold so a forged token alone still needs one
+  // 45: post-#400 a "fail" is a FORGED token (invalid-input-response), near-certainly a
+  // bot — but kept below the threshold (50) so a forged token alone still needs one
   // corroborating content signal before auto-bucketing (fail-open caution). A benign
   // human never reaches here: expired/duplicate tokens are "unverifiable", not "fail".
   if (input.turnstile === "fail") {
-    score += 50;
+    score += 45;
     reasons.push("turnstile-fail");
   }
 
   const urls = countUrls(body);
   if (urls > 0) {
-    // Capped at 2 (max +50) so a genuine lead pasting two links (site + portfolio) stays
-    // under 60 on URLs alone; a third adds nothing. 25/link keeps one link well shy of a
-    // solo bucket.
-    score += Math.min(urls, 2) * 25;
+    // The first link is +25 and the second +20, capped at two (max +45), so a genuine
+    // lead pasting two links (site + portfolio) stays under the threshold (50) on URLs
+    // alone; a third adds nothing. One link plus one seller keyword (55) buckets.
+    score += urls === 1 ? 25 : 45;
     reasons.push(`links:${urls}`);
   } else if (BARE_DOMAIN_RE.test(body)) {
     // No real http/www URL, but a bare "brand.com" is pasted — the exact dodge spammers
