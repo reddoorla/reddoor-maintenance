@@ -95,7 +95,11 @@ const RICH: RawRecord = {
     "A11y Routes Scanned": 1,
     "A11y Routes Total": 2,
     "A11y Routes Skipped": JSON.stringify([
-      { route: "animate-in demo", reason: "placeholder Prismic repo" },
+      {
+        route: "animate-in demo",
+        reason: "fixture not in this site's source",
+        path: "/dev/animate-in",
+      },
     ]),
     "A11y Checked At": "2026-04-02T06:00:00.000Z",
     "Deps Drifted": 2,

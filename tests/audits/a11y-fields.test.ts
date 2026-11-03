@@ -124,14 +124,18 @@ describe("a11yCountsFromResult", () => {
           route: "animate-in demo",
           path: "/dev/animate-in",
           status: 404,
-          reason: "placeholder Prismic repo",
+          reason: "fixture not in this site's source",
         },
         { route: "/x" },
         null,
       ],
     } as unknown as Parameters<typeof a11yResult>[0]);
     expect(a11yCountsFromResult(run).routesSkipped).toEqual([
-      { route: "animate-in demo", reason: "placeholder Prismic repo" },
+      {
+        route: "animate-in demo",
+        reason: "fixture not in this site's source",
+        path: "/dev/animate-in",
+      },
     ]);
   });
 

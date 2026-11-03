@@ -12,16 +12,21 @@ type A11yDetails = {
 const count = (v: unknown): number | null =>
   typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : null;
 
-/** The artifact's skipped routes as stored: route and reason only (#910). The
+/** The artifact's skipped routes as stored: route, reason and path (#910). The
  *  audit always puts a list on a scanned run's details ([] when none), so null
  *  comes only from a result whose details carry none, and it clears the stored list. */
 function skippedRoutes(v: unknown): A11ySkippedRoute[] | null {
   if (!Array.isArray(v)) return null;
   return v.flatMap((e): A11ySkippedRoute[] => {
-    const r = e as { route?: unknown; reason?: unknown } | null;
-    return typeof r?.route === "string" && typeof r.reason === "string"
-      ? [{ route: r.route, reason: r.reason }]
-      : [];
+    const r = e as { route?: unknown; reason?: unknown; path?: unknown } | null;
+    if (typeof r?.route !== "string" || typeof r.reason !== "string") return [];
+    return [
+      {
+        route: r.route,
+        reason: r.reason,
+        ...(typeof r.path === "string" ? { path: r.path } : {}),
+      },
+    ];
   });
 }
 

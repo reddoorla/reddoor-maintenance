@@ -546,7 +546,15 @@ const A11Y_SKIPS_NAMED = 3;
  *  reads "1 of 1 routes scanned; not scanned: animate-in demo (…)" without contradicting. */
 export function a11ySkipNote(skipped: WebsiteRow["a11yRoutesSkipped"]): string | null {
   if (skipped === null || skipped.length === 0) return null;
-  const named = skipped.slice(0, A11Y_SKIPS_NAMED).map((r) => `${r.route} (${r.reason})`);
+  // The path is what a `reddoor.absentFixtures` declaration names, so the coverage item's ask
+  // can be followed from this line; a route whose name is its path says it once.
+  const named = skipped
+    .slice(0, A11Y_SKIPS_NAMED)
+    .map((r) =>
+      r.path !== undefined && r.path !== r.route
+        ? `${r.route} at ${r.path} (${r.reason})`
+        : `${r.route} (${r.reason})`,
+    );
   const more = skipped.length - named.length;
   return `not scanned: ${named.join(", ")}${more > 0 ? ` +${more} more` : ""}`;
 }

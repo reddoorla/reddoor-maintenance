@@ -733,9 +733,58 @@ describe("renderSiteDashboardHtml — site health section", () => {
     expect(none).toMatch(/<div class="tile-sub"[^>]*>only 0 of 2 routes scanned<\/div>/);
   });
 
-  it("names the routes not scanned and why beside the counts, capped at three (#910)", () => {
-    // The 11-02 sweep's real shape (CalTex): the absent fixture is out of both counts.
-    const one = renderSiteDashboardHtml(
+  it("names the routes not scanned, their path and why beside the counts, capped at three (#910)", () => {
+    const animate = {
+      route: "animate-in demo",
+      path: "/dev/animate-in",
+      reason: "fixture not in this site's source",
+    };
+    // What CalTex, Espada and Revogen store from the 11-08 sweep: the fixture is absent and
+    // undeclared, so it stays in the total (operator, 2026-11-03).
+    const undeclared = renderSiteDashboardHtml(
+      siteRow({
+        a11yViolations: 0,
+        a11yRoutesScanned: 1,
+        a11yRoutesTotal: 2,
+        a11yRoutesSkipped: [animate],
+      }),
+      [],
+    );
+    expect(undeclared).toMatch(
+      /<div class="tile-sub"[^>]*>only 1 of 2 routes scanned; not scanned: animate-in demo at \/dev\/animate-in \(fixture not in this site(&#39;|')s source\)<\/div>/,
+    );
+    // A site that declared the absence: out of both counts, still named.
+    const declared = renderSiteDashboardHtml(
+      siteRow({
+        a11yViolations: 0,
+        a11yRoutesScanned: 1,
+        a11yRoutesTotal: 1,
+        a11yRoutesSkipped: [animate],
+      }),
+      [],
+    );
+    expect(declared).toMatch(
+      /<div class="tile-sub"[^>]*>1 of 1 routes scanned; not scanned: animate-in demo at \/dev\/animate-in/,
+    );
+    // An opted-in route's name is its path, so it is said once; a row stored before the path
+    // was kept names the route alone.
+    const five = renderSiteDashboardHtml(
+      siteRow({
+        a11yViolations: 0,
+        a11yRoutesScanned: 2,
+        a11yRoutesTotal: 2,
+        a11yRoutesSkipped: ["/a", "/b", "/c", "/d", "/e"].map((route) => ({
+          route,
+          path: route,
+          reason: "placeholder Prismic repo",
+        })),
+      }),
+      [],
+    );
+    expect(five).toMatch(
+      /not scanned: \/a \(placeholder Prismic repo\), \/b \([^)]*\), \/c \([^)]*\) \+2 more/,
+    );
+    const legacy = renderSiteDashboardHtml(
       siteRow({
         a11yViolations: 0,
         a11yRoutesScanned: 1,
@@ -746,22 +795,7 @@ describe("renderSiteDashboardHtml — site health section", () => {
       }),
       [],
     );
-    expect(one).toMatch(
-      /<div class="tile-sub"[^>]*>1 of 1 routes scanned; not scanned: animate-in demo \(fixture not in this site(&#39;|')s source\)<\/div>/,
-    );
-    const five = renderSiteDashboardHtml(
-      siteRow({
-        a11yViolations: 0,
-        a11yRoutesScanned: 2,
-        a11yRoutesTotal: 2,
-        a11yRoutesSkipped: ["/a", "/b", "/c", "/d", "/e"].map((route) => ({
-          route,
-          reason: "placeholder Prismic repo",
-        })),
-      }),
-      [],
-    );
-    expect(five).toMatch(/not scanned: \/a \([^)]*\), \/b \([^)]*\), \/c \([^)]*\) \+2 more/);
+    expect(legacy).toMatch(/not scanned: animate-in demo \(fixture/);
     const none = renderSiteDashboardHtml(
       siteRow({
         a11yViolations: 0,
@@ -772,6 +806,12 @@ describe("renderSiteDashboardHtml — site health section", () => {
       [],
     );
     expect(none).not.toMatch(/not scanned/);
+    // A list without counts still names what was not scanned.
+    const countless = renderSiteDashboardHtml(
+      siteRow({ a11yViolations: 0, a11yRoutesSkipped: [animate] }),
+      [],
+    );
+    expect(countless).toMatch(/<div class="tile-sub"[^>]*>not scanned: animate-in demo at/);
   });
 
   it("leaves the a11y tile's route line off when the counts were never stored", () => {

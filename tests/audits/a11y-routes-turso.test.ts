@@ -25,7 +25,7 @@ async function roundTrip(results: AuditResult[]) {
         "A11y Routes Total": 9,
         // Seeded, so a test that says a run clears the list can fail if it keeps it.
         "A11y Routes Skipped": JSON.stringify([
-          { route: "/old", reason: "placeholder Prismic repo" },
+          { route: "/old", reason: "placeholder Prismic repo", path: "/old" },
         ]),
       },
     },
@@ -69,7 +69,7 @@ describe("a11y route coverage through Turso (#910)", () => {
     expect(row.a11yRoutesTotal).toBeNull();
   });
 
-  it("the skipped routes are stored beside the counts, route and reason only", async () => {
+  it("the skipped routes are stored beside the counts: route, reason and path", async () => {
     const row = await roundTrip([
       a11yRun(1, 1, [
         {
@@ -82,7 +82,11 @@ describe("a11y route coverage through Turso (#910)", () => {
     ]);
     expect([row.a11yRoutesScanned, row.a11yRoutesTotal]).toEqual([1, 1]);
     expect(row.a11yRoutesSkipped).toEqual([
-      { route: "animate-in demo", reason: "fixture not in this site's source" },
+      {
+        route: "animate-in demo",
+        reason: "fixture not in this site's source",
+        path: "/dev/animate-in",
+      },
     ]);
   });
 

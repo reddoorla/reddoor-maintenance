@@ -314,8 +314,8 @@ export function collectTitleMetaAlerts(
 }
 
 /** Accessibility findings from a complete weekly run: every route scanned, stamped within
- *  8 days. A run with either count unknown, or fewer scanned than total, is not measured here:
- *  `collectA11yCoverageAlerts` raises it, and names its findings in the title. A skip the site
+ *  8 days. A run with either count unknown raises nothing; a partial run (fewer scanned than
+ *  total) is `collectA11yCoverageAlerts`'s, which raises its coverage loss and its findings. A skip the site
  *  declared (an absent fixture listed in `reddoor.absentFixtures`, or the placeholder Prismic
  *  repo) is out of both counts (`a11yAudit`'s stored `routes`); an undeclared absent fixture
  *  stays in the total, so that run is partial (#910).
@@ -349,21 +349,24 @@ export function collectA11yAlerts(
     });
 }
 
+/** What clears a coverage item. The live cause on 11-02 was a built-in fixture the site's
+ *  source does not have and never declared; the site page names the route, its path and why. */
+export const COVERAGE_ASK =
+  "see which route was not scanned on the site page; for a fixture the site does not have, list its path in package.json reddoor.absentFixtures, or restore it";
+
 /** Accessibility coverage lost (#910): a fresh weekly run that scanned fewer routes than it
- *  was given. Its findings cover only the routes it reached, so `collectA11yAlerts` reads it as
- *  not measured, and without this item a partial run would raise nothing anywhere. Attention,
- *  not Broken (the P1-78 ladder): coverage loss is the instrument losing its view; a route
- *  that answers an error is a `route-missing` finding, which `collectA11yAlerts` raises.
+ *  was given. Attention, not Broken (the P1-78 ladder): coverage loss is the instrument losing
+ *  its view; a route that answers an error is a `route-missing` finding, not a skip.
  *  A skip the site declared (the placeholder Prismic repo, or an absent fixture listed in
  *  `reddoor.absentFixtures`) leaves both counts, so it never fires this. An absent fixture the
  *  site never listed stays in the total (operator, 2026-11-03, workspace decision
- *  2026-11-03-1933-910-undeclared-absent-fixture-coverage): on 11-02 that was CalTex, Espada and
- *  Revogen, each cleared by a one-line declaration. */
-/** What clears a coverage item. The live cause on 11-02 was a built-in fixture the site's
- *  source does not have and never declared; the site page names the route and its reason. */
-export const COVERAGE_ASK =
-  "see which route was not scanned on the site page; for a fixture the site does not have, list it in package.json reddoor.absentFixtures, or restore it";
-
+ *  2026-11-03-1933-910-undeclared-absent-fixture-coverage): from the 11-08 sweep that is CalTex,
+ *  Espada and Revogen, each clearable by a one-line declaration.
+ *
+ *  `collectA11yAlerts` reads complete runs only, so a partial run's findings are raised here,
+ *  as the same `a11y:<site>` item a complete run raises (metric = the count), so a rise reads
+ *  WORSE and a site moving between partial and complete keeps one item (round 3: a count in
+ *  the coverage item's title never reached the NEW/WORSE diff, which reads key and metric). */
 export function collectA11yCoverageAlerts(
   sites: WebsiteRow[],
   baseUrl: string,
@@ -377,25 +380,36 @@ export function collectA11yCoverageAlerts(
         s.a11yRoutesScanned < s.a11yRoutesTotal &&
         freshWithin(s.a11yCheckedAt, A11Y_STALE_DAYS, now),
     )
-    .map((s) => {
+    .flatMap((s) => {
       const scanned = s.a11yRoutesScanned!;
       const total = s.a11yRoutesTotal!;
-      // Findings on the routes that were scanned are real either way, and a partial run is
-      // left out of `collectA11yAlerts`, so this item carries them (round 2).
-      const n = s.a11yViolations ?? 0;
-      const findings = n > 0 ? `, with ${n} finding${n === 1 ? "" : "s"} on those` : "";
-      return {
+      const coverage: AttentionItem = {
         ...item(
           s,
           baseUrl,
           "a11y",
           "a11y-coverage",
-          `accessibility scan reached only ${scanned} of ${total} routes${findings}`,
+          `accessibility scan reached only ${scanned} of ${total} routes`,
           "warning",
           total - scanned,
         ),
         ask: COVERAGE_ASK,
       };
+      const n = s.a11yViolations ?? 0;
+      if (n === 0) return [coverage];
+      const on = scanned === 1 ? "the 1 route scanned" : `the ${scanned} routes scanned`;
+      return [
+        coverage,
+        item(
+          s,
+          baseUrl,
+          "a11y",
+          "a11y",
+          `${n} accessibility finding${n === 1 ? "" : "s"} on ${on}`,
+          "warning",
+          n,
+        ),
+      ];
     });
 }
 

@@ -642,8 +642,10 @@ export function parseSecurityLockfileAudit(raw: unknown): SecurityLockfileAudit 
   };
 }
 
-/** One route the a11y run did not scan, as stored (#910). */
-export type A11ySkippedRoute = { route: string; reason: string };
+/** One route the a11y run did not scan, as stored (#910). `route` is the spec's name for it
+ *  (the path for an opted-in route, a label for a built-in fixture); `path` is what a
+ *  `reddoor.absentFixtures` declaration names. Rows stored before `path` was kept lack it. */
+export type A11ySkippedRoute = { route: string; reason: string; path?: string };
 
 /** The a11y audit's skipped routes as stored: JSON `[{ route, reason }]`. Anything
  *  else reads null ("not stored"), and an entry without both strings is dropped. */
@@ -657,10 +659,15 @@ export function parseA11ySkippedRoutes(raw: unknown): A11ySkippedRoute[] | null 
   }
   if (!Array.isArray(parsed)) return null;
   return parsed.flatMap((e): A11ySkippedRoute[] => {
-    const r = e as { route?: unknown; reason?: unknown } | null;
-    return typeof r?.route === "string" && typeof r.reason === "string"
-      ? [{ route: r.route, reason: r.reason }]
-      : [];
+    const r = e as { route?: unknown; reason?: unknown; path?: unknown } | null;
+    if (typeof r?.route !== "string" || typeof r.reason !== "string") return [];
+    return [
+      {
+        route: r.route,
+        reason: r.reason,
+        ...(typeof r.path === "string" ? { path: r.path } : {}),
+      },
+    ];
   });
 }
 

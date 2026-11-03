@@ -434,16 +434,14 @@ describe("accessibility coverage lost (#910, Attention)", () => {
     ).toEqual([]);
   });
 
-  it("0 of 2 is a coverage loss too", () => {
-    expect(
-      keys(
-        collectA11yCoverageAlerts(
-          [site({ ...halfScanned, a11yRoutesScanned: 0, a11yCheckedAt: FRESH })],
-          BASE,
-          NOW,
-        ),
-      ),
-    ).toEqual(["a11y-coverage:recS"]);
+  it("0 of 2 is a coverage loss too, metric the routes lost", () => {
+    const items = collectA11yCoverageAlerts(
+      [site({ ...halfScanned, a11yRoutesScanned: 0, a11yCheckedAt: FRESH })],
+      BASE,
+      NOW,
+    );
+    expect(keys(items)).toEqual(["a11y-coverage:recS"]);
+    expect(items[0]!.metric).toBe(2);
   });
 
   it("a stale, missing or count-less run claims nothing", () => {
@@ -457,22 +455,51 @@ describe("accessibility coverage lost (#910, Attention)", () => {
     }
   });
 
-  it("a partial run's findings are not dropped silently: the coverage item names them", () => {
+  it("a partial run's findings raise the same a11y item a complete run does, metric the count", () => {
     const partial = site({ ...halfScanned, a11yViolations: 4, a11yCheckedAt: FRESH });
     expect(collectA11yAlerts([partial], BASE, NOW)).toEqual([]);
-    const [it] = collectA11yCoverageAlerts([partial], BASE, NOW);
-    expect(it!.key).toBe("a11y-coverage:recS");
-    expect(it!.title).toBe(
-      "accessibility scan reached only 1 of 2 routes, with 4 findings on those",
-    );
-    const [one] = collectA11yCoverageAlerts(
-      [site({ ...halfScanned, a11yViolations: 1, a11yCheckedAt: FRESH })],
+    const items = collectA11yCoverageAlerts([partial], BASE, NOW);
+    expect(keys(items)).toEqual(["a11y-coverage:recS", "a11y:recS"]);
+    expect(items[0]!.title).toBe("accessibility scan reached only 1 of 2 routes");
+    const findings = items[1]!;
+    expect(findings.title).toBe("4 accessibility findings on the 1 route scanned");
+    expect(findings.metric).toBe(4);
+    expect(level(findings)).toBe("attention");
+    const one = collectA11yCoverageAlerts(
+      [
+        site({
+          a11yViolations: 1,
+          a11yRoutesScanned: 2,
+          a11yRoutesTotal: 3,
+          a11yCheckedAt: FRESH,
+        }),
+      ],
       BASE,
       NOW,
     );
-    expect(one!.title).toBe(
-      "accessibility scan reached only 1 of 2 routes, with 1 finding on those",
-    );
+    expect(one[1]!.title).toBe("1 accessibility finding on the 2 routes scanned");
+  });
+
+  // Round 3: the NEW/WORSE diff reads key and metric, never the title.
+  it("a rise in a partial run's findings reads WORSE, and so does losing another route", () => {
+    const week = (violations: number, scanned: number) =>
+      collectA11yCoverageAlerts(
+        [
+          site({
+            a11yViolations: violations,
+            a11yRoutesScanned: scanned,
+            a11yRoutesTotal: 3,
+            a11yCheckedAt: FRESH,
+          }),
+        ],
+        BASE,
+        NOW,
+      );
+    const byKey = (items: AttentionItem[]) =>
+      Object.fromEntries(items.map((i) => [i.key, i.metric]));
+    expect(byKey(week(0, 2))).toEqual({ "a11y-coverage:recS": 1 });
+    expect(byKey(week(4, 2))).toEqual({ "a11y-coverage:recS": 1, "a11y:recS": 4 });
+    expect(byKey(week(4, 1))).toEqual({ "a11y-coverage:recS": 2, "a11y:recS": 4 });
   });
 
   it("says what clears it", () => {

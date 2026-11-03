@@ -105,7 +105,7 @@
   },
   {
     "id": "9-skip-list-kept-not-cleared",
-    "why": "A run with no skip list keeps the stored one instead of clearing it",
+    "why": "A run with no skip list stores [] ('nothing skipped') instead of null ('cannot say')",
     "edits": [
       {
         "file": "src/audits/a11y-fields.ts",
@@ -222,12 +222,12 @@
   },
   {
     "id": "18-findings-hidden-on-partial",
-    "why": "A partial run's findings are named nowhere",
+    "why": "A partial run's findings raise no item",
     "edits": [
       {
         "file": "src/alerts/production-signals.ts",
-        "find": "      const n = s.a11yViolations ?? 0;",
-        "replace": "      const n = 0;"
+        "find": "      if (n === 0) return [coverage];",
+        "replace": "      return [coverage];"
       }
     ],
     "test": "tests/alerts/production-signals.test.ts",
@@ -244,6 +244,58 @@
       }
     ],
     "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "20-coverage-metric-is-scanned",
+    "why": "The coverage metric is the routes scanned, so losing another route never reads WORSE",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "          total - scanned,\n        ),\n        ask: COVERAGE_ASK,",
+        "replace": "          scanned,\n        ),\n        ask: COVERAGE_ASK,"
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "21-findings-metric-constant",
+    "why": "A partial run's findings item has metric 1, so a rise in findings never reads WORSE",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "          \"warning\",\n          n,\n        ),\n      ];",
+        "replace": "          \"warning\",\n          1,\n        ),\n      ];"
+      }
+    ],
+    "test": "tests/alerts/production-signals.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "22-path-not-stored",
+    "why": "The stored skip list drops the path, so the ask cannot be followed from the site page",
+    "edits": [
+      {
+        "file": "src/audits/a11y-fields.ts",
+        "find": "        ...(typeof r.path === \"string\" ? { path: r.path } : {}),",
+        "replace": ""
+      }
+    ],
+    "test": "tests/audits/a11y-routes-turso.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "23-tile-hides-path",
+    "why": "The site tile names the route but not the path to declare",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/site/view.ts",
+        "find": "        ? `${r.route} at ${r.path} (${r.reason})`",
+        "replace": "        ? `${r.route} (${r.reason})`"
+      }
+    ],
+    "test": "cockpit/tests/legacy/render.ssr.test.ts",
     "expect": "red"
   }
 ]
