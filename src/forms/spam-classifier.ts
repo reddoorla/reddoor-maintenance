@@ -10,9 +10,10 @@ import { VENDORED_DISPOSABLE_DOMAINS } from "./disposable-domains.snapshot.js";
  * bypass — human-plausible Latin-script cold outreach (SEO / virtual-assistant
  * pitches) with 0-1 links — sums only 25-55 from content signals. 60 lets the
  * high-precision multi-word keyword phrases + the gibberish/bare-domain signals
- * below actually bite. No single signal buckets alone (each needs corroboration),
- * with ONE deliberate exception: lorem-ipsum filler (+60) is machine-generated
- * content with zero genuine use. `spam_auto` is recoverable, so a false positive
+ * below actually bite. No single content signal buckets alone (each needs
+ * corroboration), with deliberate exceptions: lorem-ipsum filler (+60) is
+ * machine-generated content with zero genuine use, and the blocked-domain and
+ * va-template signals are defined as SPAM_THRESHOLD. `spam_auto` is recoverable, so a false positive
  * is a nuisance the operator can undo, not a lost lead.
  *
  * Lowered 60 → 50 (2026-11-03, forms spam review, recommendation 2): three spam
@@ -41,7 +42,8 @@ export type SpamVerdict = { score: number; reasons: string[] };
  * live HERE at full weight (an SEO-help ask through the form is deliberately
  * filtered; `spam_auto` is recoverable and the operator prefers hand-delivering the
  * rare real one over receiving the flood). Each entry is +30, so TWO seller phrases
- * bucket; no single phrase can (max single non-lorem signal is turnstile-fail's 45).
+ * bucket; no single phrase can (apart from lorem-ipsum, blocked-domain and va-template,
+ * no single signal scores above 45).
  *
  * NOTE: entries must not be substrings of each other ("page one" + "page one of
  * google" would double-count one occurrence) and must be written hyphen-free (the
@@ -255,14 +257,21 @@ export const CORROBORATING_FAMILY_WEIGHT = 30;
  * CORROBORATING_FAMILY_WEIGHT once, however many of its phrases appear.
  *
  * Corroborating only, by the operator's call (2026-11-03): Espada (industrial) and
- * Vineyard (builder) can receive genuine bid invitations, so a real RFQ that matches
- * a phrase must still be delivered unless something else about it is spammy. The
+ * Vineyard (builder) can receive genuine bid invitations, so a family never buckets
+ * alone. It does bucket with one more signal, a link included ("enough together with a
+ * link or a free-mail sender", the brief): a genuine invitation to bid that links its
+ * plan room scores 55 and goes to `spam_auto`. That is the trade the operator chose. The
  * classifier has no per-site weighting, so the same weight applies on every site,
  * including ERP, which gets no product RFQs and could have taken full weight.
  *
  * Phrases are the templates' invariants, lowercase and hyphen-free like
  * SPAM_KEYWORDS, and specific enough that a buyer describing their own project
  * ("could you provide an estimate", "scope of work", "lead time") matches none.
+ * Buyer-voice lure phrases ("interested in procuring", "interest in purchasing your
+ * products", "arrange for a sales representative", "appreciate a quotation",
+ * "seeking a qualified company") are deliberately left out: a genuine RFQ to MSOT or
+ * Revogen says exactly that and usually carries a link, so family plus link (55)
+ * would bucket it (review round 1, 2026-11-03).
  */
 export const CONTENT_FAMILIES: Readonly<Record<string, readonly string[]>> = {
   // Fake "invitation to bid" / RFQ / procurement lures: a project or purchase that
@@ -272,12 +281,7 @@ export const CONTENT_FAMILIES: Readonly<Record<string, readonly string[]>> = {
     "invite your team to submit",
     "attached rfq",
     "proposed unit price",
-    "appreciate a quotation",
     "specifications are available for your review",
-    "interest in purchasing your products",
-    "arrange for a sales representative",
-    "seeking a qualified company",
-    "interested in procuring",
   ],
   // "I have buyers for your business" broker template.
   "broker-template": [
@@ -510,10 +514,12 @@ export function classifySpam(input: {
   }
 
   // Body only — a native-script NAME (王小明, Владимир) is not a spam signal.
-  // 25 (not 50): non-Latin alone must need corroboration from other signals
-  // before it can reach SPAM_THRESHOLD.
+  // 20: non-Latin alone must need corroboration from other signals before it can
+  // reach SPAM_THRESHOLD, and an international lead pasting its one site link (20 +
+  // 25 = 45) must stay deliverable at the threshold of 50 (2026-07-06 MEDIUM-4; cut
+  // from 25 with the 2026-11-03 threshold change, review round 1).
   if (nonLatinRatio(body) > 0.3) {
-    score += 25;
+    score += 20;
     reasons.push("non-latin");
   }
 

@@ -240,9 +240,9 @@ describe("classifySpam", () => {
     }
   });
 
-  it("flags >30% non-latin script in the message body at 25 (non-latin); the name never scores", () => {
+  it("flags >30% non-latin script in the message body at 20 (non-latin); the name never scores", () => {
     expect(clean({ message: "Привет это спам сообщение" })).toEqual({
-      score: 25,
+      score: 20,
       reasons: ["non-latin"],
     });
     // a native-script name is not a spam signal
@@ -250,18 +250,25 @@ describe("classifySpam", () => {
     expect(clean({ name: "Владимир" })).toEqual({ score: 0, reasons: [] });
   });
 
-  it("non-latin still needs corroboration: native-script name + two links = 45 -> under; non-latin body + two links = 70 -> over (threshold 50)", () => {
+  it("non-latin still needs corroboration: native-script name + two links = 45 -> under; non-latin body + one link = 45 -> under; non-latin body + two links = 65 -> over (threshold 50)", () => {
     const nameCase = clean({ name: "王小明", message: "see http://a.com and http://b.com" });
     expect(nameCase).toEqual({ score: 45, reasons: ["links:2"] });
     expect(nameCase.score >= SPAM_THRESHOLD).toBe(false);
 
-    // A non-latin body PLUS two links crosses the threshold (25 + 45).
+    // An international lead pasting its one site link stays deliverable (20 + 25).
+    const oneLink = clean({
+      message: "Здравствуйте, мы хотим заказать продукцию, наш сайт https://example.ru",
+    });
+    expect(oneLink).toEqual({ score: 45, reasons: ["links:1", "non-latin"] });
+    expect(oneLink.score >= SPAM_THRESHOLD).toBe(false);
+
+    // A non-latin body PLUS two links crosses the threshold (20 + 45).
     // For an LA-fleet creative site a native-script message with multiple pasted links
     // is far more likely a bot than a lead — and spam_auto is recoverable.
     const bodyCase = clean({
       message: "Портфолио: http://a.com http://b.com — жду вашего ответа, спасибо",
     });
-    expect(bodyCase).toEqual({ score: 70, reasons: ["links:2", "non-latin"] });
+    expect(bodyCase).toEqual({ score: 65, reasons: ["links:2", "non-latin"] });
     expect(bodyCase.score >= SPAM_THRESHOLD).toBe(true);
   });
 
@@ -800,6 +807,14 @@ describe("classifySpam — threshold 50 and corroborating content families (2026
         "We just bought a lot in Eagle and would love a quote. Could you provide an estimate? The scope of work is a 3,000 sq ft single story. Listing: https://listing.example/lot-12",
     });
     expect(lead).toEqual({ score: 25, reasons: ["links:1"] });
+  });
+
+  it("a buyer-voice purchase inquiry with one link matches no family", () => {
+    const lab = clean({
+      message:
+        "Our lab is interested in procuring two units of your system and would appreciate a quotation. Could you arrange for a sales representative to call? Institution: https://lab.example",
+    });
+    expect(lab).toEqual({ score: 25, reasons: ["links:1"] });
   });
 
   it("family phrases match case-insensitively and across hyphens", () => {

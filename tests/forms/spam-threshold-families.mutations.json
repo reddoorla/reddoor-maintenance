@@ -102,5 +102,31 @@
     ],
     "test": "tests/forms/spam-classifier.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "m9-buyer-voice-lure-phrase",
+    "why": "A buyer-voice phrase joins the lure family, so a genuine purchase inquiry with a link scores 55 and is bucketed",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    \"invitation to bid\",",
+        "replace": "    \"invitation to bid\",\n    \"interested in procuring\","
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m10-non-latin-25",
+    "why": "Non-Latin goes back to 25, so an international lead with one site link scores 50 and is bucketed",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "  if (nonLatinRatio(body) > 0.3) {\n    score += 20;",
+        "replace": "  if (nonLatinRatio(body) > 0.3) {\n    score += 25;"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
   }
 ]
