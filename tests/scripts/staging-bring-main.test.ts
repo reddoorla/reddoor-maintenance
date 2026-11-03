@@ -113,7 +113,7 @@ describe("staging-bring-main", () => {
       encoding: "utf8",
     });
     expect(r.status).toBe(1);
-    expect(r.stdout.split("\n\n")[0].split("\n").slice(1)).toEqual(["pnpm-lock.yaml"]);
+    expect((r.stdout.split("\n\n")[0] ?? "").split("\n").slice(1)).toEqual(["pnpm-lock.yaml"]);
   });
 
   it("main and staging each changed the lockfile: the result promotes cleanly and carries both changes", () => {
