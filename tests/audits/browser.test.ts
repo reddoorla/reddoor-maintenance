@@ -1665,9 +1665,38 @@ describe("probeMobile — real Chromium, device-width overflow after styles appl
   let server: Server;
   let base = "";
   let browser: Browser;
+  let dropped = 0;
+  let alwaysDropped = 0;
+  const hung: import("node:net").Socket[] = [];
+  const hangAt: number[] = [];
+  let wideServed = 0;
 
   beforeAll(async () => {
     server = createServer((req, res) => {
+      // /drop-once: the first request's connection is cut (a transient network drop),
+      // later ones serve a fitting page. /drop-always: every connection is cut.
+      // /hang: never answers, so the navigation times out.
+      if (req.url === "/hang") {
+        hung.push(req.socket);
+        hangAt.push(Date.now());
+        return;
+      }
+      if (req.url === "/drop-always") alwaysDropped++;
+      if (req.url === "/drop-always" || (req.url === "/drop-once" && dropped++ === 0)) {
+        req.socket.destroy();
+        return;
+      }
+      // /wide-once: too wide on its first load only (as CalTex's / was before hydration).
+      if (req.url === "/wide-once") {
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end(wideServed++ === 0 ? pages["/wide"] : pages["/fits"]);
+        return;
+      }
+      if (req.url === "/drop-once") {
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end(pages["/fits"]);
+        return;
+      }
       if (req.url === "/slow.css") {
         setTimeout(() => {
           res.writeHead(200, { "content-type": "text/css" });
@@ -1730,6 +1759,63 @@ describe("probeMobile — real Chromium, device-width overflow after styles appl
     expect(r.ok).toBe(false);
     expect(r.reason).toMatch(/^overflow 9\d\dpx > 412px$/);
   }, 30_000);
+
+  // 2026-11-03: one dropped connection on one device put Reddoor at Broken.
+  it("a load that fails once and then succeeds is measured on the second load", async () => {
+    dropped = 0;
+    expect(await probeMobile(browser, `${base}/drop-once`, targets[0]!)).toEqual({
+      device: "Pixel 7",
+      ok: true,
+      status: 200,
+    });
+    expect(dropped).toBe(2);
+  }, 60_000);
+
+  it("only a load that threw is retried: an overflow seen once stands", async () => {
+    wideServed = 0;
+    const r = await probeMobile(browser, `${base}/wide-once`, targets[0]!);
+    expect(r).toMatchObject({ ok: false, reason: "overflow 608px > 412px" });
+    expect(wideServed).toBe(1);
+  }, 60_000);
+
+  it("a route that never loads still fails, as load failed, after exactly one retry", async () => {
+    alwaysDropped = 0;
+    expect(await probeMobile(browser, `${base}/drop-always`, targets[0]!)).toMatchObject({
+      device: "Pixel 7",
+      ok: false,
+      reason: "load failed",
+    });
+    // One retry, never more: its cost is what fleet-lighthouse's 75 minutes allow.
+    expect(alwaysDropped).toBe(2);
+  }, 60_000);
+
+  // Review round 2: a crashed browser must not read as every route failing to load.
+  it("a browser that has crashed throws, so the audit names the crash", async () => {
+    const gone = await chromium.launch();
+    await gone.close();
+    await expect(probeMobile(gone, `${base}/fits`, targets[0]!)).rejects.toThrow(/closed/);
+  }, 60_000);
+
+  // Review round 2: the retry's own cap, not the first try's 30 s, bounds a route that
+  // hangs again (the nightly's 75-minute budget), and the first try keeps its 30 s.
+  it("a route that hangs twice costs about 30 s plus 10 s, not 60", async () => {
+    hangAt.length = 0;
+    const t0 = Date.now();
+    try {
+      expect(await probeMobile(browser, `${base}/hang`, targets[0]!)).toMatchObject({
+        ok: false,
+        reason: "load failed",
+      });
+      const took = Date.now() - t0;
+      expect(took).toBeGreaterThan(38_000);
+      expect(took).toBeLessThan(52_000);
+      // The first try waited its full 30 s before the retry asked: the caps are not swapped.
+      expect(hangAt).toHaveLength(2);
+      expect(hangAt[1]! - hangAt[0]!).toBeGreaterThan(28_000);
+    } finally {
+      for (const sock of hung) sock.destroy();
+    }
+  }, 90_000);
 
   it("passes a fitting page, and names a missing page's cause", async () => {
     expect(await probeMobile(browser, `${base}/fits`, targets[0]!)).toEqual({

@@ -205,10 +205,12 @@ describe("ERP Industrials, 2026-10-05 — a transitive-only vuln on the cockpit"
     expect(feedFor(flagged("2026-10-01", "vuln:erp"))).toEqual([]);
   });
 
-  it("is Attention once the window has passed and the vuln is still there (P1-78b)", () => {
+  // Was Attention under P1-78b; the operator, 2026-10-29: "transitives should be
+  // watch not attention".
+  it("is Watch once the window has passed and the vuln is still there, still named", () => {
     const feed = feedFor(flagged("2026-09-27", "vuln:erp"));
     expect(feed).toHaveLength(1);
-    expect(feed[0]!.group).toBe("attention");
+    expect(feed[0]!.group).toBe("watch");
     expect(feed[0]!.reasons).toEqual([
       "3 critical/high vulns — transitive-only, still present after the 2026-09-28 lockfile window",
     ]);
@@ -219,7 +221,7 @@ describe("ERP Industrials, 2026-10-05 — a transitive-only vuln on the cockpit"
   });
 
   it("an unread or empty snapshot never hides it", () => {
-    expect(feedFor({}).map((r) => r.group)).toEqual(["attention"]);
+    expect(feedFor({}).map((r) => r.group)).toEqual(["watch"]);
     const m = buildCockpitModel([erp()], [], {}, BASE, NOW);
     expect(m.cards[0]!.items.map((i) => i.kind)).toEqual(["vuln"]);
   });

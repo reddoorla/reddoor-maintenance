@@ -124,6 +124,15 @@ describe("levelOf places every existing signal", () => {
     expect(levelOf(it_(key, kind), TODAY, NOW)).toBe(level);
   });
 
+  it("a transitive-only vuln is Watch, a direct one Attention (the operator, 10-29)", () => {
+    expect(levelOf({ ...it_("vuln:recS", "vuln"), transitiveOnly: true }, TODAY, NOW)).toBe(
+      "watch",
+    );
+    expect(levelOf({ ...it_("vuln:recS", "vuln"), transitiveOnly: false }, TODAY, NOW)).toBe(
+      "attention",
+    );
+  });
+
   it("a Renovate PR is Watch until it has been red 7 days, then Attention", () => {
     const r = it_("renovate:recS", "renovate");
     expect(RENOVATE_ATTENTION_DAYS).toBe(7);
@@ -176,6 +185,40 @@ describe("one signal per site: tier and Needs-you group", () => {
     const m = model([site({ securityVulnsHigh: 1 })], {
       prior: { "vuln:recS": { metric: 1, firstFlaggedAt: daysAgo(20) } },
     });
+    expect(verdictOf(m)).toEqual({ tier: "attention", group: "attention" });
+  });
+
+  // The operator, 2026-10-29: "transitives should be watch not attention".
+  const transitiveHigh = {
+    module: "source-map-js",
+    severity: "high" as const,
+    title: "t",
+    cves: [],
+    url: null,
+    relationship: "transitive" as const,
+  };
+
+  it("a transitive-only vulnerability past its lockfile window is Watch, still named", () => {
+    const m = model([site({ securityVulnsHigh: 1, securityAdvisories: [transitiveHigh] })], {
+      prior: { "vuln:recS": { metric: 1, firstFlaggedAt: daysAgo(20) } },
+    });
+    expect(verdictOf(m)).toEqual({ tier: "watch", group: "watch" });
+    expect(m.cards[0]!.items.map((i) => [i.key, i.level])).toEqual([["vuln:recS", "watch"]]);
+    expect(buildNeedsYouFeed(m)[0]!.reasons).toEqual([
+      "1 critical/high vuln — transitive-only, still present after the 2026-10-12 lockfile window",
+    ]);
+  });
+
+  it("a vuln with one direct advisory beside a transitive one stays Attention", () => {
+    const m = model(
+      [
+        site({
+          securityVulnsHigh: 2,
+          securityAdvisories: [transitiveHigh, { ...transitiveHigh, relationship: "direct" }],
+        }),
+      ],
+      { prior: { "vuln:recS": { metric: 2, firstFlaggedAt: daysAgo(20) } } },
+    );
     expect(verdictOf(m)).toEqual({ tier: "attention", group: "attention" });
   });
 
@@ -412,18 +455,20 @@ describe("Mon 10-26, replayed", () => {
   };
   const m = model(fleet, { prior });
 
-  it("reads Attention for Reddoor and 29 Navy, Watch for Beachfront and Sonder, and no Broken", () => {
+  // Rescored for the operator's 10-29 rule ("transitives should be watch not
+  // attention"): 29 Navy's transitive-only vuln moved from Attention to Watch.
+  it("reads Attention for Reddoor, Watch for 29 Navy, Beachfront and Sonder, and no Broken", () => {
     const tiers = Object.fromEntries(m.cards.map((c) => [c.site.name, c.tier]));
     expect(tiers).toEqual({
       Reddoor: "attention",
-      "29 Navy": "attention",
+      "29 Navy": "watch",
       Beachfront: "watch",
       Sonder: "watch",
       CalTex: "healthy",
     });
     expect(buildNeedsYouFeed(m).map((r) => [r.siteName, r.group])).toEqual([
-      ["29 Navy", "attention"],
       ["Reddoor", "attention"],
+      ["29 Navy", "watch"],
       ["Beachfront", "watch"],
       ["Sonder", "watch"],
     ]);
@@ -431,7 +476,7 @@ describe("Mon 10-26, replayed", () => {
 
   it("the verdict reads the ladder", () => {
     const v = buildCockpitView(m, NOW).verdict;
-    expect(v.line).toBe("2 need attention · 2 to watch");
+    expect(v.line).toBe("1 needs attention · 3 to watch");
     expect(v.cls).toBe("attention");
   });
 });
