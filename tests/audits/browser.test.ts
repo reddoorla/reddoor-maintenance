@@ -1667,12 +1667,18 @@ describe("probeMobile — real Chromium, device-width overflow after styles appl
   let browser: Browser;
   let dropped = 0;
   let alwaysDropped = 0;
+  const hung: import("node:net").Socket[] = [];
   let wideServed = 0;
 
   beforeAll(async () => {
     server = createServer((req, res) => {
       // /drop-once: the first request's connection is cut (a transient network drop),
       // later ones serve a fitting page. /drop-always: every connection is cut.
+      // /hang: never answers, so the navigation times out.
+      if (req.url === "/hang") {
+        hung.push(req.socket);
+        return;
+      }
       if (req.url === "/drop-always") alwaysDropped++;
       if (req.url === "/drop-always" || (req.url === "/drop-once" && dropped++ === 0)) {
         req.socket.destroy();
@@ -1781,14 +1787,26 @@ describe("probeMobile — real Chromium, device-width overflow after styles appl
     expect(alwaysDropped).toBe(2);
   }, 60_000);
 
-  it("a browser that can no longer make a context is a load failure, not a throw", async () => {
+  // Review round 2: a crashed browser must not read as every route failing to load.
+  it("a browser that has crashed throws, so the audit names the crash", async () => {
     const gone = await chromium.launch();
     await gone.close();
-    expect(await probeMobile(gone, `${base}/fits`, targets[0]!)).toMatchObject({
+    await expect(probeMobile(gone, `${base}/fits`, targets[0]!)).rejects.toThrow(/closed/);
+  }, 60_000);
+
+  // Review round 2: the retry's own cap, not the first try's 30 s, bounds a route that
+  // hangs again (the nightly's 75-minute budget), and the first try keeps its 30 s.
+  it("a route that hangs twice costs about 30 s plus 10 s, not 60", async () => {
+    const t0 = Date.now();
+    expect(await probeMobile(browser, `${base}/hang`, targets[0]!)).toMatchObject({
       ok: false,
       reason: "load failed",
     });
-  }, 60_000);
+    const took = Date.now() - t0;
+    expect(took).toBeGreaterThan(38_000);
+    expect(took).toBeLessThan(52_000);
+    for (const sock of hung) sock.destroy();
+  }, 90_000);
 
   it("passes a fitting page, and names a missing page's cause", async () => {
     expect(await probeMobile(browser, `${base}/fits`, targets[0]!)).toEqual({

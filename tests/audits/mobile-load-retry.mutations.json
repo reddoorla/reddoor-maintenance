@@ -52,13 +52,39 @@
     "expect": "red"
   },
   {
-    "id": "m5-context-outside-try",
-    "why": "Review round 1: a context the browser cannot make throws out of probeMobile",
+    "id": "m5-crash-reads-load-failed",
+    "why": "Review round 2: a crashed browser reads as every route failing to load (Broken) instead of naming the crash",
     "edits": [
       {
         "file": "src/audits/browser.ts",
-        "find": "  let ctx: Awaited<ReturnType<Browser[\"newContext\"]>> | undefined;\n",
-        "replace": "  let ctx: Awaited<ReturnType<Browser[\"newContext\"]>> | undefined = await browser.newContext({ ...descriptor });\n"
+        "find": "  const ctx = await browser.newContext({ ...descriptor });\n",
+        "replace": "  const ctx = await browser.newContext({ ...descriptor }).catch(() => null);\n  if (ctx === null) return { device, ok: false, status: null, reason: \"load failed\" };\n"
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m6-retry-full-cap",
+    "why": "Review round 2: the retry runs at the first try's 30 s cap again (round 1's major)",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "return first.reason === \"load failed\"\n    ? probeMobileOnce(browser, url, target, RETRY_PAGE_TIMEOUT_MS)\n    : first;",
+        "replace": "return first.reason === \"load failed\" ? probeMobileOnce(browser, url, target) : first;"
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m7-first-try-short-cap",
+    "why": "Review round 2: the first try loses its 30 s cap, failing pages that take 10 to 30 s",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "  gotoTimeoutMs: number = PAGE_TIMEOUT_MS,",
+        "replace": "  gotoTimeoutMs: number = RETRY_PAGE_TIMEOUT_MS,"
       }
     ],
     "test": "tests/audits/browser.test.ts",
