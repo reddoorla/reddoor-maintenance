@@ -39,7 +39,7 @@ export function daysFlagged(firstFlaggedAt: string | undefined, now: Date): numb
  * PURE.
  */
 export function levelOf(
-  it: Pick<AttentionItem, "kind" | "key">,
+  it: Pick<AttentionItem, "kind" | "key" | "transitiveOnly">,
   firstFlaggedAt: string | undefined,
   now: Date,
 ): Level {
@@ -54,6 +54,11 @@ export function levelOf(
       // is the probe itself falling behind, which silently stales every one of them.
       return it.key === "url-probe-stale" ? "attention" : "broken";
     case "vuln":
+      // The operator, 2026-10-29: "transitives should be watch not attention". A
+      // transitive-only vuln that outlived its lockfile window is Watch: the weekly
+      // lockfile run is the fix, and nobody outside sees it. A direct vuln past its
+      // wait, or one whose auto-fix is exhausted, needs him this week.
+      return it.transitiveOnly === true ? "watch" : "attention";
     case "preflight":
     case "delivery":
     case "ci":

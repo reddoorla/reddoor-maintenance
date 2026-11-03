@@ -1,0 +1,111 @@
+[
+  {
+    "id": "m1-no-retry",
+    "why": "One thrown navigation fails the route again (the 2026-11-03 Reddoor Broken)",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "return first.reason === \"load failed\"\n    ? probeMobileOnce(browser, url, target, RETRY_PAGE_TIMEOUT_MS)\n    : first;",
+        "replace": "return first;"
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m2-retry-passes-blind",
+    "why": "The retry passes a route without loading it, so a route that never loads reads ok",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "return first.reason === \"load failed\"\n    ? probeMobileOnce(browser, url, target, RETRY_PAGE_TIMEOUT_MS)\n    : first;",
+        "replace": "return first.reason === \"load failed\" ? { device: target.device, ok: true, status: 200 } : first;"
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m3-retry-every-fail",
+    "why": "Every fail is retried, so an overflow seen on one load (CalTex / before hydration) is hidden by a second load that fits",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "return first.reason === \"load failed\"\n    ? probeMobileOnce(browser, url, target, RETRY_PAGE_TIMEOUT_MS)\n    : first;",
+        "replace": "return first.ok ? first : probeMobileOnce(browser, url, target, RETRY_PAGE_TIMEOUT_MS);"
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m4-retries-twice",
+    "why": "Review round 1: a second retry multiplies a hanging site's cost against the 75-minute budget",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "return first.reason === \"load failed\"\n    ? probeMobileOnce(browser, url, target, RETRY_PAGE_TIMEOUT_MS)\n    : first;",
+        "replace": "if (first.reason !== \"load failed\") return first;\n  const second = await probeMobileOnce(browser, url, target, RETRY_PAGE_TIMEOUT_MS);\n  return second.reason === \"load failed\" ? probeMobileOnce(browser, url, target, RETRY_PAGE_TIMEOUT_MS) : second;"
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m5-crash-reads-load-failed",
+    "why": "Review round 2: a crashed browser reads as every route failing to load (Broken) instead of naming the crash",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "  const ctx = await browser.newContext({ ...descriptor });\n",
+        "replace": "  const ctx = await browser.newContext({ ...descriptor }).catch(() => null);\n  if (ctx === null) return { device, ok: false, status: null, reason: \"load failed\" };\n"
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m6-retry-full-cap",
+    "why": "Review round 2: the retry runs at the first try's 30 s cap again (round 1's major)",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "return first.reason === \"load failed\"\n    ? probeMobileOnce(browser, url, target, RETRY_PAGE_TIMEOUT_MS)\n    : first;",
+        "replace": "return first.reason === \"load failed\" ? probeMobileOnce(browser, url, target) : first;"
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m7-first-try-short-cap",
+    "why": "Review round 2: the first try loses its 30 s cap, failing pages that take 10 to 30 s",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "  gotoTimeoutMs: number = PAGE_TIMEOUT_MS,",
+        "replace": "  gotoTimeoutMs: number = RETRY_PAGE_TIMEOUT_MS,"
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m8-caps-swapped",
+    "why": "Review round 3: the first try gets 10 s and the retry 30 s; the total is the same, but pages taking 10 to 30 s fail their first load",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "  gotoTimeoutMs: number = PAGE_TIMEOUT_MS,",
+        "replace": "  gotoTimeoutMs: number = RETRY_PAGE_TIMEOUT_MS,"
+      },
+      {
+        "file": "src/audits/browser.ts",
+        "find": "return first.reason === \"load failed\"\n    ? probeMobileOnce(browser, url, target, RETRY_PAGE_TIMEOUT_MS)\n    : first;",
+        "replace": "return first.reason === \"load failed\"\n    ? probeMobileOnce(browser, url, target, PAGE_TIMEOUT_MS)\n    : first;"
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  }
+]
