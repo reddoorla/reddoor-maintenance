@@ -1668,6 +1668,7 @@ describe("probeMobile — real Chromium, device-width overflow after styles appl
   let dropped = 0;
   let alwaysDropped = 0;
   const hung: import("node:net").Socket[] = [];
+  const hangAt: number[] = [];
   let wideServed = 0;
 
   beforeAll(async () => {
@@ -1677,6 +1678,7 @@ describe("probeMobile — real Chromium, device-width overflow after styles appl
       // /hang: never answers, so the navigation times out.
       if (req.url === "/hang") {
         hung.push(req.socket);
+        hangAt.push(Date.now());
         return;
       }
       if (req.url === "/drop-always") alwaysDropped++;
@@ -1797,15 +1799,22 @@ describe("probeMobile — real Chromium, device-width overflow after styles appl
   // Review round 2: the retry's own cap, not the first try's 30 s, bounds a route that
   // hangs again (the nightly's 75-minute budget), and the first try keeps its 30 s.
   it("a route that hangs twice costs about 30 s plus 10 s, not 60", async () => {
+    hangAt.length = 0;
     const t0 = Date.now();
-    expect(await probeMobile(browser, `${base}/hang`, targets[0]!)).toMatchObject({
-      ok: false,
-      reason: "load failed",
-    });
-    const took = Date.now() - t0;
-    expect(took).toBeGreaterThan(38_000);
-    expect(took).toBeLessThan(52_000);
-    for (const sock of hung) sock.destroy();
+    try {
+      expect(await probeMobile(browser, `${base}/hang`, targets[0]!)).toMatchObject({
+        ok: false,
+        reason: "load failed",
+      });
+      const took = Date.now() - t0;
+      expect(took).toBeGreaterThan(38_000);
+      expect(took).toBeLessThan(52_000);
+      // The first try waited its full 30 s before the retry asked: the caps are not swapped.
+      expect(hangAt).toHaveLength(2);
+      expect(hangAt[1]! - hangAt[0]!).toBeGreaterThan(28_000);
+    } finally {
+      for (const sock of hung) sock.destroy();
+    }
   }, 90_000);
 
   it("passes a fitting page, and names a missing page's cause", async () => {

@@ -89,5 +89,23 @@
     ],
     "test": "tests/audits/browser.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "m8-caps-swapped",
+    "why": "Review round 3: the first try gets 10 s and the retry 30 s; the total is the same, but pages taking 10 to 30 s fail their first load",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "  gotoTimeoutMs: number = PAGE_TIMEOUT_MS,",
+        "replace": "  gotoTimeoutMs: number = RETRY_PAGE_TIMEOUT_MS,"
+      },
+      {
+        "file": "src/audits/browser.ts",
+        "find": "return first.reason === \"load failed\"\n    ? probeMobileOnce(browser, url, target, RETRY_PAGE_TIMEOUT_MS)\n    : first;",
+        "replace": "return first.reason === \"load failed\"\n    ? probeMobileOnce(browser, url, target, PAGE_TIMEOUT_MS)\n    : first;"
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
   }
 ]

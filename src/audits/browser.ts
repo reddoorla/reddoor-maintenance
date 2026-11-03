@@ -939,8 +939,8 @@ export async function probeMobile(
   // desktop engines and the plain-fetch re-check loaded it, and it fit on every later
   // probe. That one throw put Reddoor at Broken. It gets one fresh context, with a
   // shorter navigation cap: a route that hangs again costs RETRY_PAGE_TIMEOUT_MS more
-  // per device, 5 minutes for a site whose 15 routes all hang (fleet-lighthouse has 75
-  // for the fleet); one that loads slowly on the retry can add its load and font waits
+  // per device, 5 minutes for a site whose 15 routes all hang (fleet-lighthouse has a
+  // 75-minute budget for the fleet); one that loads slowly on the retry can add its load and font waits
   // too (STYLE_SETTLE_MS each). A route that fails to load twice stands, as does every
   // fail on a page that did load. A browser that has crashed still throws, so the
   // audit names the crash instead of failing every route as "load failed".
