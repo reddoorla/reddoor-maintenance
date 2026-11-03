@@ -70,7 +70,7 @@
     "edits": [
       {
         "file": "scripts/staging-bring-main.mjs",
-        "find": "    git(o.dir, [\"worktree\", \"remove\", \"--force\", wt]);\n    rmSync(tmp, { recursive: true, force: true });\n    git(o.dir, [\"worktree\", \"prune\"]);\n",
+        "find": "    git(o.dir, [\"worktree\", \"remove\", \"--force\", wt]);\n    rmSync(tmp, { recursive: true, force: true });\n    // Only when this run's own entry survived the remove (a part-way `worktree add`): a bare\n    // prune would also drop other worktrees whose directories are missing for now.\n    if (\n      git(o.dir, [\"worktree\", \"list\", \"--porcelain\"]).stdout.split(\"\\n\").includes(`worktree ${wt}`)\n    )\n      git(o.dir, [\"worktree\", \"prune\"]);\n",
         "replace": ""
       }
     ],
