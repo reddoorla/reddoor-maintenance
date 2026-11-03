@@ -10,6 +10,7 @@ import {
 } from "../../src/audits/form-e2e.js";
 import { stepRunScript, workflowPath, workflowSteps } from "./_helpers/workflow-source.js";
 import { fleetWriteOutput } from "./_helpers/fleet-write-output.js";
+import { decodeAnnotations } from "./_helpers/decode-annotations.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -88,10 +89,13 @@ async function runGate(opts: {
       cwd: dir,
       env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}`, RUNNER_TEMP: dir },
     });
-    return { code: 0, out: stdout + stderr };
+    return { code: 0, out: decodeAnnotations(stdout + stderr) };
   } catch (e) {
     const err = e as { code?: number; stdout?: string; stderr?: string };
-    return { code: err.code ?? 1, out: (err.stdout ?? "") + (err.stderr ?? "") };
+    return {
+      code: err.code ?? 1,
+      out: decodeAnnotations((err.stdout ?? "") + (err.stderr ?? "")),
+    };
   }
 }
 

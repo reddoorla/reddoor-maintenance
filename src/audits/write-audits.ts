@@ -449,6 +449,14 @@ function permanentFailures(result: FleetWriteResult): string[] {
 
 export type FleetWriteGate = { red: boolean; reasons: string[]; warnings: string[] };
 
+/** Escape gate text for a GitHub workflow command's message. GitHub decodes `%25`, `%0D`
+ *  and `%0A` in an annotation, so a literal `%0A` in a site label would show as a line
+ *  break, and a newline would split the `::error::` line. `%` goes first, or the other two
+ *  would be escaped twice. */
+export function annotationText(s: string): string {
+  return s.replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A");
+}
+
 /** The kept sites grouped by what their audits said, each reason once with the
  *  sites that gave it (the first five of them), so a red line names its cause
  *  without repeating it for every site of the fleet. */
@@ -531,7 +539,8 @@ export function fleetWriteGate(result: FleetWriteResult): FleetWriteGate {
  *
  *  Then the gate's own verdict: `FLEET_WRITE_GATE verdict=red|green`, one
  *  `FLEET_WRITE_GATE_REASON` line per reason it is red and one
- *  `FLEET_WRITE_GATE_WARNING` line per thing short of red. Every fleet nightly
+ *  `FLEET_WRITE_GATE_WARNING` line per thing short of red. The REASON and WARNING text is
+ *  escaped for a workflow command (`annotationText`). Every fleet nightly
  *  reds on `verdict=red`, and on the line being absent. `gate: false` leaves the
  *  gate's lines out, for a caller whose workflow step reads no verdict
  *  (github-signals, #1650). */
@@ -576,8 +585,8 @@ export function formatFleetWriteSummary(
   if (!printGate) return out;
   const gate = fleetWriteGate(result);
   out += `\nFLEET_WRITE_GATE verdict=${gate.red ? "red" : "green"}`;
-  for (const r of gate.reasons) out += `\nFLEET_WRITE_GATE_REASON ${r}`;
-  for (const w of gate.warnings) out += `\nFLEET_WRITE_GATE_WARNING ${w}`;
+  for (const r of gate.reasons) out += `\nFLEET_WRITE_GATE_REASON ${annotationText(r)}`;
+  for (const w of gate.warnings) out += `\nFLEET_WRITE_GATE_WARNING ${annotationText(w)}`;
   return out;
 }
 

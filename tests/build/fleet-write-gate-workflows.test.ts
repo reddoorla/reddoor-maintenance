@@ -10,6 +10,7 @@ import { formatUnmeasuredSmokeSummary } from "../../src/audits/smoke.js";
 import type { AuditResult } from "../../src/types.js";
 import { websiteRowsFrom } from "../_helpers/raw-rows.js";
 import { stepRunScript, workflowPath } from "./_helpers/workflow-source.js";
+import { decodeAnnotations } from "./_helpers/decode-annotations.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -89,10 +90,13 @@ async function runStep(
       cwd: dir,
       env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}`, RUNNER_TEMP: dir },
     });
-    return { code: 0, out: o + stderr };
+    return { code: 0, out: decodeAnnotations(o + stderr) };
   } catch (e) {
     const err = e as { code?: number; stdout?: string; stderr?: string };
-    return { code: err.code ?? 1, out: (err.stdout ?? "") + (err.stderr ?? "") };
+    return {
+      code: err.code ?? 1,
+      out: decodeAnnotations((err.stdout ?? "") + (err.stderr ?? "")),
+    };
   }
 }
 
@@ -177,6 +181,22 @@ describe.each(STEPS)("$file reads the write gate's verdict", ({ file, step, exit
     expect(r.out).toContain(`::warning::${label}: 1 of 8 site(s) never reached write-back: site-7`);
   });
 
+  it("a site label with a percent sign reaches the annotation as written", async () => {
+    const r = await runStep(
+      file,
+      step,
+      await cliOutput({
+        results: SLUGS.map(smokeMeasured),
+        expectedSites: [...SLUGS, "site-%0A"],
+      }),
+      exit,
+    );
+    expect(r.code).toBe(0);
+    expect(r.out).toContain(
+      `::warning::${label}: 1 of 9 site(s) never reached write-back: site-%0A`,
+    );
+  });
+
   it("six of eight resolved sites never reached write-back: red", async () => {
     const r = await runStep(
       file,
@@ -216,4 +236,14 @@ describe.each(STEPS)("$file reads the write gate's verdict", ({ file, step, exit
     expect(r.code).toBe(1);
     expect(r.out).toContain("printed no FLEET_WRITE_GATE verdict");
   });
+});
+
+it("every gated step writes its output under RUNNER_TEMP, never a shared /tmp file (#1651)", async () => {
+  for (const { file, step } of STEPS) {
+    const script = stepRunScript(await readFile(workflowPath(file), "utf-8"), step).replaceAll(
+      "${RUNNER_TEMP:-/tmp}",
+      "",
+    );
+    expect(script, file).not.toMatch(/\/tmp\/[\w.-]+\.out\b/);
+  }
 });

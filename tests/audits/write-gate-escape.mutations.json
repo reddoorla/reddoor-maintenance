@@ -1,0 +1,73 @@
+[
+  {
+    "id": "W1-no-percent-escape",
+    "edits": [
+      {
+        "file": "src/audits/write-audits.ts",
+        "find": "return s.replaceAll(\"%\", \"%25\").replaceAll(\"\\r\", \"%0D\").replaceAll(\"\\n\", \"%0A\");",
+        "replace": "return s.replaceAll(\"\\r\", \"%0D\").replaceAll(\"\\n\", \"%0A\");"
+      }
+    ],
+    "test": [
+      "tests/audits/fleet-write-gate.test.ts",
+      "tests/build/fleet-write-gate-workflows.test.ts"
+    ],
+    "expect": "red",
+    "why": "Without the % escape a literal %0A in a site label reaches GitHub raw, and GitHub decodes it to a line break."
+  },
+  {
+    "id": "W2-percent-last",
+    "edits": [
+      {
+        "file": "src/audits/write-audits.ts",
+        "find": "return s.replaceAll(\"%\", \"%25\").replaceAll(\"\\r\", \"%0D\").replaceAll(\"\\n\", \"%0A\");",
+        "replace": "return s.replaceAll(\"\\r\", \"%0D\").replaceAll(\"\\n\", \"%0A\").replaceAll(\"%\", \"%25\");"
+      }
+    ],
+    "test": ["tests/audits/fleet-write-gate.test.ts"],
+    "expect": "red",
+    "why": "With % after the line breaks, the %0D and %0A this function just wrote are escaped again to %250D and %250A."
+  },
+  {
+    "id": "W3-no-newline-escape",
+    "edits": [
+      {
+        "file": "src/audits/write-audits.ts",
+        "find": "return s.replaceAll(\"%\", \"%25\").replaceAll(\"\\r\", \"%0D\").replaceAll(\"\\n\", \"%0A\");",
+        "replace": "return s.replaceAll(\"%\", \"%25\").replaceAll(\"\\r\", \"%0D\");"
+      }
+    ],
+    "test": ["tests/audits/fleet-write-gate.test.ts"],
+    "expect": "red",
+    "why": "A newline in a label splits the ::warning:: or ::error:: line and the rest of the label is lost."
+  },
+  {
+    "id": "W4-warnings-raw",
+    "edits": [
+      {
+        "file": "src/audits/write-audits.ts",
+        "find": "out += `\\nFLEET_WRITE_GATE_WARNING ${annotationText(w)}`;",
+        "replace": "out += `\\nFLEET_WRITE_GATE_WARNING ${w}`;"
+      }
+    ],
+    "test": [
+      "tests/audits/fleet-write-gate.test.ts",
+      "tests/build/fleet-write-gate-workflows.test.ts"
+    ],
+    "expect": "red",
+    "why": "Warnings printed without the escape reach the annotation raw (a literal %0A in a label becomes a line break), while reasons stay escaped."
+  },
+  {
+    "id": "W5-security-shared-tmp",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-security.yml",
+        "find": "tee \"${RUNNER_TEMP:-/tmp}/audit.out\" || true",
+        "replace": "tee /tmp/audit.out || true"
+      }
+    ],
+    "test": "tests/build/fleet-write-gate-workflows.test.ts",
+    "expect": "red",
+    "why": "#1651 item 4: the security gate writes the shared /tmp/audit.out again, so parallel runs race on it."
+  }
+]

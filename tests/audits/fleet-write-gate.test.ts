@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   writeFleetAudits,
+  annotationText,
   formatFleetWriteSummary,
   fleetWriteGate,
   type FleetWriteResult,
@@ -593,5 +594,29 @@ describe("#1698: a site that ran and had nothing new to write kept its verdicts"
     });
     expect(result.notApplicable).toEqual(["site-1"]);
     expect(result.kept).toEqual([]);
+  });
+});
+
+describe("#1651: the REASON and WARNING text is escaped for a workflow command", () => {
+  it("annotationText escapes % first, then the line breaks, and leaves plain text alone", () => {
+    expect(annotationText("50% done\r\nnext %0A")).toBe("50%25 done%0D%0Anext %250A");
+    expect(annotationText("site-3")).toBe("site-3");
+  });
+
+  it("a site label with %41 and one with a newline reach the warning as one escaped line", () => {
+    const result: FleetWriteResult = {
+      written: Array.from({ length: 8 }, (_, i) => ({ siteName: `s${i}`, writes: [] })),
+      failed: [],
+      missing: ["site-%41", "two\nlines"],
+    };
+    const out = formatFleetWriteSummary(result);
+    const lines = out.split("\n");
+    const warnings = lines.filter((l) => l.startsWith("FLEET_WRITE_GATE_WARNING "));
+    expect(warnings).toEqual([
+      "FLEET_WRITE_GATE_WARNING 2 of 10 site(s) never reached write-back: site-%2541, two%0Alines",
+    ]);
+    // The warning is one line: nothing follows it as a bare continuation of the label.
+    expect(lines[lines.indexOf(warnings[0]!) + 1]).toBeUndefined();
+    expect(out).toContain("\nFLEET_WRITE_GATE verdict=green");
   });
 });
