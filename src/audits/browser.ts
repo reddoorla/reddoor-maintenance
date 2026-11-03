@@ -930,6 +930,21 @@ export type MobileTarget = {
 export async function probeMobile(
   browser: Browser,
   url: string,
+  target: MobileTarget,
+): Promise<RouteResult["mobile"][number]> {
+  const first = await probeMobileOnce(browser, url, target);
+  // A navigation that threw (no answer, a dropped connection, a 30 s timeout) is one
+  // observation of the network, not of the page: reddoorla.com/brand-friction-audit read
+  // "load failed" on Pixel 7 on 2026-11-03 while iPhone 14 (the same Chromium), all three
+  // desktop engines and the plain-fetch re-check loaded it, and it fit on every later
+  // probe. That one throw put Reddoor at Broken. It gets one fresh context; a route that
+  // fails to load twice stands, as does every fail on a page that did load.
+  return first.reason === "load failed" ? probeMobileOnce(browser, url, target) : first;
+}
+
+async function probeMobileOnce(
+  browser: Browser,
+  url: string,
   { device, descriptor }: MobileTarget,
 ): Promise<RouteResult["mobile"][number]> {
   const ctx = await browser.newContext({ ...descriptor });

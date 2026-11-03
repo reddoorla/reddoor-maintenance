@@ -1,0 +1,41 @@
+[
+  {
+    "id": "m1-no-retry",
+    "why": "One thrown navigation fails the route again (the 2026-11-03 Reddoor Broken)",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "return first.reason === \"load failed\" ? probeMobileOnce(browser, url, target) : first;",
+        "replace": "return first;"
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m2-retry-passes-blind",
+    "why": "The retry passes a route without loading it, so a route that never loads reads ok",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "return first.reason === \"load failed\" ? probeMobileOnce(browser, url, target) : first;",
+        "replace": "return first.reason === \"load failed\" ? { device: target.device, ok: true, status: 200 } : first;"
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m3-retry-every-fail",
+    "why": "Retrying an overflow too hides nothing (the second load measures the same page); kept to show the retry scope is not what the tests pin",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "return first.reason === \"load failed\" ? probeMobileOnce(browser, url, target) : first;",
+        "replace": "return first.ok ? first : probeMobileOnce(browser, url, target);"
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "survives"
+  }
+]

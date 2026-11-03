@@ -1665,9 +1665,21 @@ describe("probeMobile — real Chromium, device-width overflow after styles appl
   let server: Server;
   let base = "";
   let browser: Browser;
+  let dropped = 0;
 
   beforeAll(async () => {
     server = createServer((req, res) => {
+      // /drop-once: the first request's connection is cut (a transient network drop),
+      // later ones serve a fitting page. /drop-always: every connection is cut.
+      if (req.url === "/drop-always" || (req.url === "/drop-once" && dropped++ === 0)) {
+        req.socket.destroy();
+        return;
+      }
+      if (req.url === "/drop-once") {
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end(pages["/fits"]);
+        return;
+      }
       if (req.url === "/slow.css") {
         setTimeout(() => {
           res.writeHead(200, { "content-type": "text/css" });
@@ -1730,6 +1742,25 @@ describe("probeMobile — real Chromium, device-width overflow after styles appl
     expect(r.ok).toBe(false);
     expect(r.reason).toMatch(/^overflow 9\d\dpx > 412px$/);
   }, 30_000);
+
+  // 2026-11-03: one dropped connection on one device put Reddoor at Broken.
+  it("a load that fails once and then succeeds is measured on the second load", async () => {
+    dropped = 0;
+    expect(await probeMobile(browser, `${base}/drop-once`, targets[0]!)).toEqual({
+      device: "Pixel 7",
+      ok: true,
+      status: 200,
+    });
+    expect(dropped).toBe(2);
+  }, 60_000);
+
+  it("a route that never loads still fails, as load failed", async () => {
+    expect(await probeMobile(browser, `${base}/drop-always`, targets[0]!)).toMatchObject({
+      device: "Pixel 7",
+      ok: false,
+      reason: "load failed",
+    });
+  }, 60_000);
 
   it("passes a fitting page, and names a missing page's cause", async () => {
     expect(await probeMobile(browser, `${base}/fits`, targets[0]!)).toEqual({
