@@ -148,8 +148,8 @@
     "edits": [
       {
         "file": "src/fleet/site-fields.ts",
-        "find": "      counts.routesSkipped === null ? null : JSON.stringify(counts.routesSkipped),",
-        "replace": "      counts.routesSkipped === null ? undefined : JSON.stringify(counts.routesSkipped),"
+        "find": "    \"A11y Routes Skipped\":\n      counts.routesSkipped === null ? null : JSON.stringify(counts.routesSkipped),\n",
+        "replace": "    ...(counts.routesSkipped === null\n      ? {}\n      : { \"A11y Routes Skipped\": JSON.stringify(counts.routesSkipped) }),\n"
       }
     ],
     "test": "tests/audits/a11y-routes-turso.test.ts",
