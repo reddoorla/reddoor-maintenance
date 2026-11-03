@@ -636,7 +636,8 @@ Prices come from `PRICES` in `lib/ledger.mjs`, read on 2026-11-03 from the prici
 are listed. Any other model is reported as unpriced, never estimated.
 
 **Sonnet 5.5 cache reads are $0.10/M, not $0.20/M.** Opus 5.5 and Sonnet 5.5 bill cache reads at
-0.05x input, not the usual 0.1x. Until 2026-11-03 the card read $0.20/M, copied from the
+0.05x input and Fable 5.1 at 0.025x, against the usual 0.1x (Haiku 5.5's). All four cards were
+checked against the page. Until 2026-11-03 the card read $0.20/M, copied from the
 claude-api skill's price list (cached 2026-10-06), which still says so. P1-83e found the server's
 rate in all 163 Sonnet `modelUsage` entries it checked, and one agent's transcript row differed from
 its `modelUsage` by exactly 129,127 cache reads × $0.10/M. Transcript rows priced before the fix
@@ -702,7 +703,9 @@ source's total on its own.
   (`stop_reason` null), and one session read 4,945 output tokens from its events against 307,142 in
   `modelUsage`. So `assistantEventRows` counts every request as unfinished, and its cost is a
   lower bound. A row is keyed by `agent_id` (else `parent_tool_use_id`, else `main`), with the
-  agent's type from `subagent_type`. Nothing calls it yet: feeding it into `ingest` needs a stored
+  agent's type from `subagent_type`. The server's `agent_id` is bare (`ac417f72a17e384bf`), where a
+  `transcript` row's agent is its file's name (`agent-ac417f72a17e384bf`), so join the two only
+  after stripping `agent-`. Nothing calls it yet: feeding it into `ingest` needs a stored
   union of events, as `results.jsonl` is for results.
 
 `mcp` reads the remote-sessions MCP results already in transcripts: every `list_sessions`,

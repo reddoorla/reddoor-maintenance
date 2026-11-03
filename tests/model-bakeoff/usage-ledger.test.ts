@@ -1184,11 +1184,16 @@ describe("ccrPayload", () => {
   });
 
   // A list_events page whose text held a raw U+0007 inside a string lost all its events (P1-83e).
-  const raw = (o: object) => JSON.stringify({ ccr: o }).replace(/\\u0007/g, "\u0007");
+  const raw = (o: object) =>
+    JSON.stringify({ ccr: o })
+      .replace(/\\u0007/g, "\u0007")
+      .replace(/\\n/g, "\n")
+      .replace(/\\t/g, "\t");
 
   it("reads a raw control character inside a string, as json.loads(strict=False) does", () => {
     const text = raw({ data: [{ text: "bell\u0007 tab\t newline\n end" }], has_more: false });
     expect(text).toContain("\u0007");
+    expect(text).toContain("\n");
     expect(() => JSON.parse(text)).toThrow(/control character/);
     expect(ccrPayload(text)).toEqual({
       data: [{ text: "bell\u0007 tab\t newline\n end" }],
