@@ -1,0 +1,67 @@
+[
+  {
+    "id": "t1-transitive-back-at-attention",
+    "why": "A transitive-only vuln past its lockfile window is raised to Attention again",
+    "edits": [
+      {
+        "file": "src/alerts/ladder.ts",
+        "find": "return it.transitiveOnly === true ? \"watch\" : \"attention\";",
+        "replace": "return \"attention\";"
+      }
+    ],
+    "test": ["tests/dashboard/ladder.test.ts", "tests/alerts/waiting.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "t2-direct-vuln-to-watch",
+    "why": "A direct vuln past its wait drops to Watch",
+    "edits": [
+      {
+        "file": "src/alerts/ladder.ts",
+        "find": "return it.transitiveOnly === true ? \"watch\" : \"attention\";",
+        "replace": "return \"watch\";"
+      }
+    ],
+    "test": ["tests/dashboard/ladder.test.ts", "tests/reports/digest-run.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "t3-transitive-hidden",
+    "why": "Moving to Watch hides the signal: a transitive vuln past its window keeps waiting and leaves the cockpit",
+    "edits": [
+      {
+        "file": "src/alerts/waiting.ts",
+        "find": "      if (now.getTime() < at.getTime()) return { ...it, waiting: true };\n      const window",
+        "replace": "      return { ...it, waiting: true };\n      const window"
+      }
+    ],
+    "test": ["tests/dashboard/ladder.test.ts", "tests/alerts/waiting.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "t4-collector-drops-flag",
+    "why": "The collector stops marking transitive-only vulns, so they read as direct (Attention)",
+    "edits": [
+      {
+        "file": "src/alerts/digest-collectors.ts",
+        "find": "      ...(transitiveOnly ? { transitiveOnly: true } : {}),",
+        "replace": ""
+      }
+    ],
+    "test": ["tests/dashboard/ladder.test.ts", "tests/alerts/waiting.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "t5-mixed-reads-transitive",
+    "why": "A vuln with one direct advisory beside a transitive one is treated as transitive-only (Watch)",
+    "edits": [
+      {
+        "file": "src/fleet/site-row.ts",
+        "find": "  return actionable.every((a) => a.relationship === \"transitive\");",
+        "replace": "  return actionable.some((a) => a.relationship === \"transitive\");"
+      }
+    ],
+    "test": "tests/dashboard/ladder.test.ts",
+    "expect": "red"
+  }
+]
