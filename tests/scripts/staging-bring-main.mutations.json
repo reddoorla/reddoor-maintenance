@@ -1,0 +1,67 @@
+[
+  {
+    "id": "M1-no-regenerate",
+    "why": "the lockfile is merged as text again: the regenerate step never runs",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "    if (existsSync(join(wt, LOCKFILE))) {",
+        "replace": "    if (false && existsSync(join(wt, LOCKFILE))) {"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M2-no-main-parent",
+    "why": "the result is committed without MERGE_HEAD, as a squash would: main is not a parent",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "    const how = conflicted.includes(LOCKFILE)",
+        "replace": "    git(wt, [\"update-ref\", \"-d\", \"MERGE_HEAD\"]);\n    const how = conflicted.includes(LOCKFILE)"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M3-no-scope-guard",
+    "why": "a conflict outside pnpm-lock.yaml is taken from staging's side instead of stopping",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "    if (others.length) {\n      git(wt, [\"merge\", \"--abort\"]);\n      return { status: \"conflict\", files: others };\n    }",
+        "replace": "    for (const f of others) { git(wt, [\"checkout\", \"--ours\", \"--\", f]); git(wt, [\"add\", f]); }"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M4-no-marker-check",
+    "why": "the regenerate step's exit code is trusted; markers it left are not looked for",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "      if (MARKER.test(readFileSync(join(wt, LOCKFILE), \"utf8\")))",
+        "replace": "      if (false && MARKER.test(readFileSync(join(wt, LOCKFILE), \"utf8\")))"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M5-no-up-to-date",
+    "why": "no short-circuit when main is already an ancestor of staging",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "  if (git(o.dir, [\"merge-base\", \"--is-ancestor\", main, staging]).code === 0) return { status: \"up-to-date\" };\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  }
+]
