@@ -13,6 +13,7 @@ import {
   ingest,
   listedSessions,
   mcpCalls,
+  resultRecords,
   mergeRows,
   mergeSessions,
   modelUsageRows,
@@ -706,6 +707,34 @@ describe("assistantEventRows", () => {
     expect(rows.every((r) => r.source === "assistant-events")).toBe(true);
   });
 
+  it("owns a message by its agent_id and names the agent's type from subagent_type", () => {
+    const ev = (id: string, agent_id: string, ptu: string) => {
+      const e = asst(id, "claude-sonnet-5-5", 20, ptu, null as unknown as string);
+      Object.assign(e.assistant.internal_anthropic_catchall, {
+        agent_id,
+        subagent_type: "general-purpose",
+        task_description: "Harvest usage",
+      });
+      return e;
+    };
+    // Two tool calls of one agent (a resumed agent) still make one agent's row.
+    const rows = assistantEventRows(S, [ev("m1", "a1", "toolu_x"), ev("m2", "a1", "toolu_y")]);
+    expect(rows.map((r) => [r.agent_id, r.agent_type, r.requests])).toEqual([
+      ["a1", "general-purpose", 2],
+    ]);
+  });
+
+  it("marks every request's output as a floor, since the server holds only stream-start usage", () => {
+    const rows = assistantEventRows(S, [
+      asst("m1", "claude-opus-5-5", 8, null),
+      asst("m2", "claude-opus-5-5", 3, "toolu_agent1", null as unknown as string),
+    ]);
+    for (const r of rows) {
+      expect(r.unfinished_requests).toBe(r.requests);
+      expect(r.cost_basis).toMatch(/lower bound/);
+    }
+  });
+
   it("counts a message once when several events repeat its id, keeping the last", () => {
     const rows = assistantEventRows(S, [
       asst("m1", "claude-opus-5-5", 4, null, null as unknown as string),
@@ -1152,6 +1181,72 @@ describe("ccrPayload", () => {
     expect(ccrPayload(`Output saved to: ${f}\nPreview: {"ccr":{"data":[{"a":`)).toMatchObject({
       from: "file",
     });
+  });
+
+  // A list_events page whose text held a raw U+0007 inside a string lost all its events (P1-83e).
+  const raw = (o: object) =>
+    JSON.stringify({ ccr: o })
+      .replace(/\\u0007/g, "\u0007")
+      .replace(/\\n/g, "\n")
+      .replace(/\\t/g, "\t");
+
+  it("reads a raw control character inside a string, as json.loads(strict=False) does", () => {
+    const text = raw({ data: [{ text: "bell\u0007 tab\t newline\n end" }], has_more: false });
+    expect(text).toContain("\u0007");
+    expect(text).toContain("\n");
+    expect(() => JSON.parse(text)).toThrow(/control character/);
+    expect(ccrPayload(text)).toEqual({
+      data: [{ text: "bell\u0007 tab\t newline\n end" }],
+      has_more: false,
+    });
+  });
+
+  it("still refuses a raw control character outside a string", () => {
+    expect(() => ccrPayload('{"ccr":{"a":1,\u0007"b":2}}')).toThrow();
+  });
+
+  it("keeps the events of a page with a raw control character, through mcpCalls", () => {
+    const root = mkdtempSync(join(tmpdir(), "usage-ctl-"));
+    mkdirSync(join(root, "-proj"));
+    const page = raw({
+      data: [
+        { created_at: "2026-01-01T08:00:00Z", result: { uuid: "r1", total_cost_usd: 1 } },
+        { created_at: "2026-01-01T07:00:00Z", assistant: { message: { content: "x\u0007" } } },
+      ],
+      has_more: false,
+    });
+    writeFileSync(
+      join(root, "-proj", "s.jsonl"),
+      [
+        JSON.stringify({
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                id: "t1",
+                name: "mcp__claude-code-remote__list_events",
+                input: { session_id: "session_A" },
+              },
+            ],
+          },
+        }),
+        JSON.stringify({
+          type: "user",
+          message: {
+            role: "user",
+            content: [
+              { type: "tool_result", tool_use_id: "t1", content: [{ type: "text", text: page }] },
+            ],
+          },
+        }),
+      ].join("\n"),
+    );
+    const [call] = mcpCalls(root);
+    expect(call!.payload).not.toHaveProperty("error");
+    expect(call!.payload!.data).toHaveLength(2);
+    expect(resultRecords([call!]).map((r) => r.uuid)).toEqual(["r1"]);
   });
 
   it("reports a persisted-output pointer it cannot follow, rather than returning nothing", () => {
