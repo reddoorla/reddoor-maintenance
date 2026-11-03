@@ -3,6 +3,14 @@ import type { AuditContext } from "./util/inject.js";
 import { siteLabel } from "../util/site.js";
 import { INGEST_TIMEOUT_MS } from "../forms/client.js";
 import { HYDRATION_TIMEOUT_MS, waitForHydration } from "./util/hydration-wait.js";
+import { defaultDiscoverDeps } from "./browser.js";
+import { discoverRoutes } from "./route-discovery.js";
+import {
+  checkTurnstileCoverage,
+  coverageSummary,
+  uncoveredPaths,
+  type TurnstileCoverage,
+} from "./turnstile-coverage.js";
 
 /** Cloudflare's PUBLIC test sitekey — always issues a passing client token with no
  *  real challenge, so the probe can satisfy a site's Turnstile widget without any
@@ -241,8 +249,42 @@ export type FormRunner = {
     testMode: boolean;
     testSitekey: string;
   }) => Promise<FormSubmitOutcome>;
+  /** Visit each URL and report whether its lead forms carry a Turnstile mount.
+   *  Run only for a site whose row requires Turnstile. Absent (an injected fake
+   *  that does not model it) = no coverage pass. */
+  coverage?: (urls: readonly string[]) => Promise<TurnstileCoverage>;
   close?: () => Promise<void>;
 };
+
+/** How many sitemap pages the coverage pass visits, sampled across path families
+ *  so a CMS template is not crowded out by its forty siblings. reddoorla.com's
+ *  sitemap had 51 URLs on 2026-11-03, 44 of them under /portfolio. */
+export const COVERAGE_ROUTE_CAP = 25;
+
+/**
+ * Fold the coverage pass into the widget verdict. A lead form a browser saw with
+ * no mount is a conclusive FAIL whatever /contact showed; a clean pass changes
+ * nothing, because a mount being present is the widget verdict's own question
+ * (script loaded, no widget error). PURE.
+ */
+export function applyCoverage(
+  verdict: "pass" | "fail" | null,
+  coverage: TurnstileCoverage | undefined,
+): "pass" | "fail" | null {
+  if (coverage && uncoveredPaths(coverage).length > 0) return "fail";
+  return verdict;
+}
+
+/** The URLs a coverage pass visits: the contact routes and a sitemap sample. */
+async function coverageUrls(ctx: AuditContext, deployedUrl: string): Promise<string[]> {
+  const origin = new URL(deployedUrl).origin;
+  const discovered = await discoverRoutes(
+    deployedUrl,
+    ctx.discoverDeps ?? defaultDiscoverDeps(),
+    COVERAGE_ROUTE_CAP,
+  );
+  return [...new Set([...CONTACT_PATHS.map((p) => new URL(p, origin).href), ...discovered.routes])];
+}
 
 /**
  * The site's `/health` `forms` block, read once in the preflight. `testMode` gates
@@ -514,12 +556,33 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
         details: { checkedAt, turnstileWidget: null } satisfies FormE2eDetails,
       };
     }
+    // A gated site's every form page must carry the widget, not only the one the
+    // probe submitted (the 2026-11-03 forms review).
+    // A pass that cannot run (the browser would not launch) says so and judges
+    // nothing; it never throws away the submit outcome the run already earned.
+    let coverage: TurnstileCoverage | undefined;
+    let coverageError: string | undefined;
+    if (site.requireTurnstile && runner.coverage) {
+      try {
+        coverage = await runner.coverage(await coverageUrls(ctx, site.deployedUrl));
+      } catch (err) {
+        coverageError = firstLine(err);
+      }
+    }
+    const coverageNote = coverage
+      ? ` — ${coverageSummary(coverage)}`
+      : coverageError !== undefined
+        ? ` — Turnstile coverage could not run: ${coverageError}`
+        : "";
+    const coverageFailed = coverage !== undefined && uncoveredPaths(coverage).length > 0;
     if (!outcome.formPresent) {
       return {
         audit: "form-e2e",
         site: label,
-        status: "skip",
-        summary: "no contact form (n/a)",
+        // Still a warn when a form page lacks the widget: no CONTACT form says
+        // nothing about a landing page's modal.
+        status: coverageFailed ? "warn" : "skip",
+        summary: `no contact form (n/a)${coverageNote}`,
         // By design, and still written: the "no form" verdict and its stamp land.
         notApplicable: true,
         details: {
@@ -528,9 +591,9 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
           checkedAt,
           // Written here too: this path DOES refresh `Form E2E checked at`, and
           // the verdict must never be older than the stamp that ages it.
-          turnstileWidget: turnstileVerdict(
-            outcome.formsHealth ?? { testMode: true, turnstile: null },
-            undefined,
+          turnstileWidget: applyCoverage(
+            turnstileVerdict(outcome.formsHealth ?? { testMode: true, turnstile: null }, undefined),
+            coverage,
           ),
         } satisfies FormE2eDetails,
       };
@@ -564,9 +627,12 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
     // left in that column — which no writer could correct now that the column has
     // moved — while leaving `Form E2E checked at` alone so a stale form verdict
     // never looks fresh to auto-tick.ts's `formsEvidence`.
-    const turnstileWidget = turnstileVerdict(
-      outcome.formsHealth ?? { testMode: true, turnstile: null },
-      outcome.turnstile,
+    const turnstileWidget = applyCoverage(
+      turnstileVerdict(
+        outcome.formsHealth ?? { testMode: true, turnstile: null },
+        outcome.turnstile,
+      ),
+      coverage,
     );
     const details = { ok, formPresent: true, checkedAt, turnstileWidget } satisfies FormE2eDetails;
     if (!outcome.success) {
@@ -574,7 +640,7 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
         audit: "form-e2e",
         site: label,
         status: "warn",
-        summary: `form-e2e: synthetic submission failed${outcome.detail ? ` — ${outcome.detail}` : ""}${synthesizedNote}`,
+        summary: `form-e2e: synthetic submission failed${outcome.detail ? ` — ${outcome.detail}` : ""}${synthesizedNote}${coverageNote}`,
         details,
       };
     }
@@ -609,10 +675,10 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
     return {
       audit: "form-e2e",
       site: label,
-      status: thin ? "warn" : "pass",
+      status: thin || coverageFailed ? "warn" : "pass",
       summary: thin
-        ? `form-e2e: synthetic submission succeeded — ${thin}${refillNote}`
-        : `form-e2e: synthetic submission succeeded${refillNote}`,
+        ? `form-e2e: synthetic submission succeeded — ${thin}${refillNote}${coverageNote}`
+        : `form-e2e: synthetic submission succeeded${refillNote}${coverageNote}`,
       details,
     };
   } finally {
@@ -1110,6 +1176,7 @@ export async function defaultFormRunner(
   const submitTimeoutMs = opts.submitTimeoutMs ?? PAGE_TIMEOUT_MS;
   const fillTimeoutMs = opts.fillTimeoutMs;
   return {
+    coverage: (urls) => checkTurnstileCoverage(urls, { hydrationTimeoutMs }),
     async submit({ baseUrl, testSitekey }) {
       // Per-site safety preflight — refuse before a browser even launches.
       const formsHealth = await readFormsHealth(baseUrl);

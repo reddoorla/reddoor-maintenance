@@ -80,6 +80,9 @@ export function selectFleetSites(websites: readonly WebsiteRow[], workdir: strin
       // setup check and the cockpit read, so the audit skips exactly the sites
       // the cockpit has stopped asking about.
       if (analyticsOptedOut(w)) site.analyticsOptedOut = true;
+      // Gates form-e2e's per-page Turnstile coverage pass (the 2026-11-03 forms
+      // review: /contact had the widget, the landing pages' modal did not).
+      if (w.requireTurnstile) site.requireTurnstile = true;
       return [site];
     });
 }
