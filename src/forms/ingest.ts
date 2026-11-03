@@ -347,9 +347,19 @@ export async function ingestSubmission(
   // counts only on a site that requires Turnstile, with a token that passed on the
   // site's own host (a null hostname fails open, as above). Every other path —
   // visitor-typed messages, ungated sites, a failed, absent or unverifiable token,
-  // a foreign-host pass — still runs the scan AND its retro-bucketing.
+  // a foreign-host pass — still runs the scan and is judged by it.
+  //
+  // What a flagged copy that fails the gate may NOT do is retro-bucket: its
+  // matches are the earlier copies of the same template, i.e. the verified leads
+  // this exists to protect, so one tokenless POST (a bot, or a visitor whose
+  // ad-blocker stopped the widget) would otherwise flip every untriaged lead of
+  // the last 30 days to spam_auto. Only a site's server can set the flag (a
+  // direct POST to ingest needs the site's ingest token), so this gives a bot
+  // nothing. Read from `extra` only: normalizeSubmission also copies unknown
+  // TOP-level keys into extraFields, and the contract is `extra.composedMessage`.
+  const composedFlag = isComposedMessage(rawPayload);
   const composedOnVerifiedSite =
-    n.extraFields["composedMessage"] === true &&
+    composedFlag &&
     site.requireTurnstile &&
     turnstile === "pass" &&
     (verification.hostname === null ||
@@ -391,7 +401,7 @@ export async function ingestSubmission(
           if (!reasons.includes(reason)) reasons.push(reason);
         }
         const retroIds = [...exact, ...similar].filter((m) => m.status === "new").map((m) => m.id);
-        if (deps.retroBucket && retroIds.length > 0) {
+        if (deps.retroBucket && retroIds.length > 0 && !composedFlag) {
           try {
             await deps.retroBucket(retroIds, "retro:duplicate-body");
           } catch (err) {
@@ -576,4 +586,14 @@ export function turnstileHostnameAcceptable(tokenHostname: string, siteUrl: stri
 export function isTestMode(rawPayload: unknown): boolean {
   if (!rawPayload || typeof rawPayload !== "object") return false;
   return (rawPayload as Record<string, unknown>).testMode === true;
+}
+
+/** True when the SITE says it composed `message` itself: `extra.composedMessage`
+ *  is literally `true` on the raw payload. Only the `extra` envelope counts (see
+ *  the note at `composedOnVerifiedSite`). PURE. */
+export function isComposedMessage(rawPayload: unknown): boolean {
+  if (!rawPayload || typeof rawPayload !== "object") return false;
+  const extra = (rawPayload as Record<string, unknown>).extra;
+  if (!extra || typeof extra !== "object") return false;
+  return (extra as Record<string, unknown>).composedMessage === true;
 }

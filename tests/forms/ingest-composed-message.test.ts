@@ -106,26 +106,33 @@ describe("ingestSubmission — a site-composed message on a Turnstile-gated site
     expect(retroBucket).toHaveBeenCalledTimes(1);
   });
 
+  it("ignores a top-level `composedMessage` key: only the `extra` envelope counts", async () => {
+    const { d, retroBucket } = setup();
+    await ingestSubmission(d, "reddoor", { ...payload(), composedMessage: true }, pass());
+    expect(stored(d)).toMatchObject({ status: "spam_auto", spamReason: "duplicate-body" });
+    expect(retroBucket).toHaveBeenCalledTimes(1);
+  });
+
   it("only a literal `true` counts as the flag", async () => {
     const { d } = setup();
     await ingestSubmission(d, "reddoor", payload({ composedMessage: "true" }), pass());
     expect(stored(d)).toMatchObject({ status: "spam_auto", spamReason: "duplicate-body" });
   });
 
-  it("still buckets a flagged message on a site that does NOT require Turnstile", async () => {
+  it("still buckets a flagged message on a site that does NOT require Turnstile, without retro-bucketing", async () => {
     const { d, retroBucket } = setup({ requireTurnstile: false });
     await ingestSubmission(d, "reddoor", payload({ composedMessage: true }), pass());
     expect(stored(d)).toMatchObject({ status: "spam_auto", spamReason: "duplicate-body" });
-    expect(retroBucket).toHaveBeenCalledTimes(1);
+    expect(retroBucket).not.toHaveBeenCalled();
   });
 
   it.each<TurnstileOutcome>(["unverifiable", "absent", "fail"])(
-    "still runs the scan and its retro-bucketing for a flagged message whose token is %s",
+    "still runs the scan for a flagged message whose token is %s, but retro-buckets none of the earlier leads",
     async (outcome) => {
       const { d, findRecentDuplicates, retroBucket } = setup();
       await ingestSubmission(d, "reddoor", payload({ composedMessage: true }), outcome);
       expect(findRecentDuplicates).toHaveBeenCalledTimes(1);
-      expect(retroBucket).toHaveBeenCalledTimes(1);
+      expect(retroBucket).not.toHaveBeenCalled();
       expect(stored(d).status).toBe("spam_auto");
       expect(stored(d).spamReason).toMatch(
         outcome === "unverifiable" ? /^duplicate-body$/ : /^turnstile-required-/,
@@ -133,7 +140,7 @@ describe("ingestSubmission — a site-composed message on a Turnstile-gated site
     },
   );
 
-  it("still runs the scan for a flagged message whose passing token was solved on a foreign host", async () => {
+  it("still runs the scan for a flagged message whose passing token was solved on a foreign host, without retro-bucketing", async () => {
     const { d, findRecentDuplicates, retroBucket } = setup();
     await ingestSubmission(
       d,
@@ -142,7 +149,7 @@ describe("ingestSubmission — a site-composed message on a Turnstile-gated site
       pass("token-farm.example"),
     );
     expect(findRecentDuplicates).toHaveBeenCalledTimes(1);
-    expect(retroBucket).toHaveBeenCalledTimes(1);
+    expect(retroBucket).not.toHaveBeenCalled();
     expect(stored(d)).toMatchObject({
       status: "spam_auto",
       spamReason: "turnstile-required-hostname",
