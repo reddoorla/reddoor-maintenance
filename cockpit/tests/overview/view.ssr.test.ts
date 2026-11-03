@@ -738,7 +738,7 @@ describe("review round 1: open vulnerabilities name the one wait that applies (O
   it("a transitive one past its window: on Watch, with the date it ran out", () => {
     // First seen Oct 1: the Monday after closes Oct 5 18:00Z; two days on is Oct 7.
     expect(open(deepSite(), "2026-10-01")[0]!.text).toBe(
-      "has 2 critical or high vulnerabilities; Monday's weekly package refresh did not clear them by Oct 7, so they are on Watch until a later refresh clears them",
+      "has 2 critical or high vulnerabilities; Monday's weekly package refresh did not clear them by Oct 7, so they are on Watch; the weekly refresh keeps trying",
     );
   });
 

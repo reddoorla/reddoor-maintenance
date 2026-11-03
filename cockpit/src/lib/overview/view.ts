@@ -723,7 +723,7 @@ export const CHECK_PROOF: Record<string, (n: (file: string) => number) => string
   "Google Indexed": (n) =>
     `Step ${n("daily-reports.yml")} asks Google Search Console (Google's report on which pages it has indexed) when it drafts the report.`,
   "Security Updates": (n) =>
-    `Step ${n("fleet-security.yml")} lists known vulnerabilities. Automatic updates open the fixes, and one that waits too long comes to us.`,
+    `Step ${n("fleet-security.yml")} lists known vulnerabilities. Automatic updates open the fixes; a direct one that waits too long comes to us, and a deeper one moves to Watch.`,
   "Uptime Checked": (n) =>
     `Step ${n(LIGHTHOUSE_STEP)} checks, once a night, that the address resolves and its pages answer. It is not a minute-by-minute monitor.`,
 };
@@ -1204,12 +1204,12 @@ function openText(item: AttentionItem | undefined, waiting: boolean, n: number, 
       ? `${n === 1 ? "it sits" : "they sit"} deeper in the site's packages, so ${n === 1 ? "it waits" : "they wait"} for Monday's weekly package refresh and ${count(LOCKFILE_SETTLE_DAYS, "day", "days")} after it, until ${pacificDay(at)}; ${then}`
       : `we are waiting until ${pacificDay(at)} for an automatic update to fix ${n === 1 ? "it" : "them"}; ${then}`;
   // Not held, yet inside its wait: the digest's first sighting could not be read, and
-  // missing data never mutes (markWaiting), so it is ours to look at.
+  // missing data never mutes (markWaiting), so it is ours to look at (a deeper one: on Watch).
   if (at === null || now.getTime() < at.getTime())
     return `we could not confirm when ${n === 1 ? "it was" : "they were"} first seen, so ${it} ${deep ? "on Watch" : "ours to look at this week"}`;
   const them = n === 1 ? "it" : "them";
   return deep
-    ? `Monday's weekly package refresh did not clear ${them} by ${pacificDay(at)}, so ${it} on Watch until a later refresh clears ${them}`
+    ? `Monday's weekly package refresh did not clear ${them} by ${pacificDay(at)}, so ${it} on Watch; the weekly refresh keeps trying`
     : `the automatic update did not clear ${them} by ${pacificDay(at)}, so ${it} ours to fix this week`;
 }
 
