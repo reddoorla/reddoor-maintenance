@@ -45,7 +45,7 @@ jobs:
               esac
               if [ "$transient" = 0 ] || [ "$wait" = - ]; then
                 [ "$tries" = 1 ] && tries='1 try' || tries="$tries tries"
-                echo "::error::main-gate: could not read $what: ${status:-no HTTP status} after $tries. gh said: $(head -c 300 "$err" | tr '\n' ' ')"
+                echo "::error::main-gate: could not read $what: ${status:-no HTTP status} after $tries. gh said: $(tr '\r\n' '  ' < "$err" | cut -c 1-300)"
                 rm -f "$err"
                 exit 1
               fi
@@ -68,7 +68,7 @@ jobs:
           api "the commits of #$PR" --paginate "repos/$REPO/pulls/$PR/commits" --jq '.[] | "\(.sha[0:7]) \(.author.login // "-") \(.committer.login // "-") \(.commit.verification.verified)"'
           commits="$out"
           if [ -z "$commits" ]; then
-            echo "::error::main-gate: could not read the commits of #$PR."
+            echo "::error::main-gate: the commits of #$PR came back empty."
             exit 1
           fi
           others="$(printf '%s\n' "$commits" | awk -v bot="$BOT" '$2 != bot || $3 != "web-flow" || $4 != "true"')"
@@ -100,7 +100,7 @@ jobs:
           api "the files of #$PR" --paginate "repos/$REPO/pulls/$PR/files" --jq '.[] | .filename, (.previous_filename // empty)'
           files="$out"
           if [ -z "$files" ]; then
-            echo "::error::main-gate: could not read the files of #$PR."
+            echo "::error::main-gate: the files of #$PR came back empty."
             exit 1
           fi
           outside="$(printf '%s\n' "$files" | grep -vxE 'package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|\.nvmrc|\.github/workflows/[^/]+\.ya?ml' || true)"

@@ -303,7 +303,9 @@ describe("main-gate — the label check", () => {
   it("reads a long label list without dying of SIGPIPE", () => {
     // `gh api … | grep -qxF` stops reading at the first match; under pipefail
     // the writer still writing dies of SIGPIPE and the `if !` reads that as no
-    // label. About 1.2 MB after the match, as in the activity-feed case.
+    // label. The labels read is unpaginated (30 at most), so no real answer is
+    // this long: this guards the pattern, as the activity-feed case does, not a
+    // failure seen live.
     const filler = Array.from({ length: 40_000 }, (_, i) => `label-${i}-xxxxxxxxxxxxxxxxxx`).join(
       "\n",
     );
