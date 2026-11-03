@@ -724,3 +724,60 @@ describe("classifySpam — cold-outreach / gibberish / bare-domain tuning (2026-
     expect(v.score).toBeGreaterThanOrEqual(SPAM_THRESHOLD);
   });
 });
+
+// Recommendation 4 of reddoor-workspace reports/2026-11-03-forms-spam-review. Every
+// name and address here is synthetic: the shapes copy the seven bot RSVPs (a one-word
+// random name, a gmail local part with 3+ dots, 13 to 161 guests), not their values.
+describe("bot-rsvp: all three of random name, dotted gmail and a party over 10", () => {
+  function rsvp(name: string, email: string, guests: string | number, formType = "rsvp") {
+    return classifySpam({
+      name,
+      email,
+      formType: formType as FormType,
+      extraFields: { event: "Spring Opening", event_uid: "spring-opening", guests },
+      turnstile: "unverifiable" as TurnstileOutcome,
+    });
+  }
+  const blocked = (v: ReturnType<typeof classifySpam>) =>
+    v.score >= SPAM_THRESHOLD && v.reasons.includes("bot-rsvp");
+
+  it.each([
+    ["Qzvbrta", "q.z.v.brta@gmail.com", "13"], // odd pairs zv, vb
+    ["Xkwdolm", "xk.wd.ol.m@gmail.com", "161"],
+    ["Ulpmar", "u.l.p.m.ar@gmail.com", "26"], // only odd pair: pm
+    ["Owlinq", "o.wl.in.q@gmail.com", "87"], // no odd pair; ends on a q
+    ["Taqrino", "t.a.q.r.i.n.o@googlemail.com", "51"], // q followed by r
+    ["Bgfhte", "bg.f.h.te@GMAIL.com", 20], // a numeric guests field
+  ])("blocks %s", (name, email, guests) => {
+    expect(blocked(rsvp(name, email, guests))).toBe(true);
+  });
+
+  it("blocks at exactly 3 dots and 11 guests, the edges of the rule", () => {
+    expect(blocked(rsvp("Qzvbrta", "q.z.v.brta@gmail.com", "11"))).toBe(true);
+  });
+
+  it.each([
+    // Each of these drops exactly one condition; a mutation that drops that condition
+    // from the rule turns its row red.
+    ["a real guest's two-word name", "Maria Lopez", "m.a.r.i.a.lopez@gmail.com", "14", "rsvp"],
+    ["a real one-word name", "Brianna", "b.r.i.anna@gmail.com", "25", "rsvp"],
+    ["a dotless gmail", "Qzvbrta", "qzvbrta@gmail.com", "40", "rsvp"],
+    ["only 2 dots", "Qzvbrta", "q.zv.brta@gmail.com", "40", "rsvp"],
+    ["a dotted non-gmail address", "Qzvbrta", "q.z.v.brta@outlook.com", "40", "rsvp"],
+    ["a party of 2", "Qzvbrta", "q.z.v.brta@gmail.com", "2", "rsvp"],
+    ["a party of exactly 10", "Qzvbrta", "q.z.v.brta@gmail.com", "10", "rsvp"],
+    ["a guests field that is not a number", "Qzvbrta", "q.z.v.brta@gmail.com", "lots", "rsvp"],
+    ["a contact form, not an RSVP", "Qzvbrta", "q.z.v.brta@gmail.com", "40", "contact"],
+  ])("does not block %s", (_label, name, email, guests, formType) => {
+    const v = rsvp(name, email, guests, formType);
+    expect(v.reasons).not.toContain("bot-rsvp");
+    expect(v.score).toBeLessThan(SPAM_THRESHOLD);
+  });
+
+  it("does not block a real guest with an odd-pair name and a big party on a plain address", () => {
+    // Farooq ends on a q, so the name signal fires, and 12 guests clears the party bar; what
+    // holds this back is the one-dot address alone. A real single-name guest who also used a
+    // 3-dot gmail would be blocked (the disclosed false positive; see the PR body).
+    expect(blocked(rsvp("Farooq", "farooq.khan@gmail.com", "12"))).toBe(false);
+  });
+});
