@@ -56,8 +56,31 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
 
+      # The plan alone (--dry-run runs no audit and writes nothing), to learn whether the
+      # browser audit is in it: a domain-only re-test needs no browsers (#1888). A plan
+      # the command refuses (an unknown slug, an --only it cannot measure) fails here.
+      - name: Plan the re-test
+        id: plan
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          SITE: ${{ inputs.site }}
+          ONLY: ${{ inputs.only }}
+        run: |
+          set -o pipefail
+          args=("$SITE" --dry-run)
+          [ -n "${ONLY:-}" ] && args+=(--only "$ONLY")
+          node dist/cli/bin.js site-retest "${args[@]}" | tee /tmp/plan.out
+          if grep -E "^RETEST " /tmp/plan.out | grep -qE " audits=([a-z-]+,)*browser(,| |$)"; then
+            echo "browser=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "browser=false" >> "$GITHUB_OUTPUT"
+          fi
+
       # The browser audit drives chromium/firefox/webkit against the deployed URL.
-      - run: pnpm exec playwright install --with-deps chromium firefox webkit
+      - name: Install the browsers
+        if: steps.plan.outputs.browser == 'true'
+        run: pnpm exec playwright install --with-deps chromium firefox webkit
 
       - name: Re-test the site and write its row
         timeout-minutes: 20

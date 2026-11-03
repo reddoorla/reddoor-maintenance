@@ -52,6 +52,9 @@ type NormalizedLhciResult = {
   }>;
   failingAudits: FailingAudit[];
   assertionsRead: boolean;
+  /** When the lhci run started: the write-back stamps the scores with it, so a sweep that
+   *  writes at its end cannot pass off an older measurement as a newer one (#1886). */
+  checkedAt: string;
 };
 
 type LhrFile = {
@@ -195,6 +198,7 @@ async function parseLhciResults(
   resultsDir: string,
   label: string,
   raw: SpawnResult,
+  checkedAt: string,
 ): Promise<AuditResult> {
   const manifest = await readLhrEntries(resultsDir);
 
@@ -241,6 +245,7 @@ async function parseLhciResults(
     assertions,
     failingAudits,
     assertionsRead: Array.isArray(assertionFile),
+    checkedAt,
   };
 
   const named = failingAudits
@@ -301,6 +306,7 @@ async function runCheckoutLhci(
   await rm(resultsDir, { recursive: true, force: true });
 
   let raw: SpawnResult;
+  const checkedAt = new Date().toISOString();
   try {
     raw = await spawn("npx", ["--yes", "@lhci/cli", "autorun", `--config=${configPath}`], {
       cwd: site.path,
@@ -323,7 +329,7 @@ async function runCheckoutLhci(
   }
   await rm(configDir, { recursive: true, force: true });
 
-  return { result: await parseLhciResults(resultsDir, label, raw), raw };
+  return { result: await parseLhciResults(resultsDir, label, raw, checkedAt), raw };
 }
 
 /** Deployed mode: audit a production URL directly — no checkout, no dev server.
@@ -370,6 +376,7 @@ async function deployedLighthouse(
   const resultsDir = join(workDir, ".lighthouseci");
 
   let raw: SpawnResult;
+  const checkedAt = new Date().toISOString();
   try {
     raw = await spawn("npx", ["--yes", "@lhci/cli", "autorun", `--config=${configPath}`], {
       cwd: workDir,
@@ -395,7 +402,7 @@ async function deployedLighthouse(
   }
 
   try {
-    return await parseLhciResults(resultsDir, label, raw);
+    return await parseLhciResults(resultsDir, label, raw, checkedAt);
   } finally {
     await rm(workDir, { recursive: true, force: true });
   }

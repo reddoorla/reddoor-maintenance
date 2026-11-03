@@ -1,0 +1,202 @@
+[
+  {
+    "id": "m1-no-stamp-guard",
+    "why": "#1886: the write is a plain UPDATE again; a sweep's older fail lands over a re-test's newer pass",
+    "edits": [
+      {
+        "file": "src/db/fleet-state.ts",
+        "find": "julianday(${stored}) <= julianday(${at}))`;",
+        "replace": "julianday(${stored}) <= julianday(${at}) OR 1)`;"
+      }
+    ],
+    "test": "tests/db/health-stamp-guard.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m2-lighthouse-write-time-stamp",
+    "why": "#1886: Lighthouse scores are stamped at write time, so a sweep's end-of-run write looks newer than the re-test",
+    "edits": [
+      {
+        "file": "src/audits/write-audits.ts",
+        "find": "    if (at !== undefined) audits.lighthouseCheckedAt = at;",
+        "replace": "    void at;"
+      }
+    ],
+    "test": "tests/db/health-stamp-guard.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m3-view-name-slug",
+    "why": "#1887: the page builds its action URLs from siteSlug(name) again; a renamed site's buttons 404",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/site/view.ts",
+        "find": "const slug = encodeURIComponent(storedSlug ?? siteSlug(site.name));",
+        "replace": "const slug = encodeURIComponent(siteSlug(site.name));"
+      }
+    ],
+    "test": ["tests/retest/site-retest-followups.test.ts", "cockpit/tests/site/site-retest.dom.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "m4-cli-name-slug-only",
+    "why": "#1887: the command matches the Name-derived slug only; the stored slug exits 2",
+    "edits": [
+      {
+        "file": "src/cli/commands/site-retest.ts",
+        "find": "siteSlug(r.name) === slug || stored.get(r.id) === slug",
+        "replace": "siteSlug(r.name) === slug"
+      }
+    ],
+    "test": "tests/retest/site-retest-followups.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m5-first-of-two-matches",
+    "why": "#1889.3: two rows answering to one slug run as the first instead of being refused",
+    "edits": [
+      {
+        "file": "src/cli/commands/site-retest.ts",
+        "find": "  if (matches.length > 1) {",
+        "replace": "  if (matches.length > 99) {"
+      },
+      {
+        "file": "src/cli/commands/site-retest.ts",
+        "find": "  if (sharing.length > 1) {",
+        "replace": "  if (sharing.length > 99) {"
+      }
+    ],
+    "test": "tests/retest/site-retest-followups.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m6-cert-verdict-not-null",
+    "why": "#1891.1: a cert reason passes on any stored days, so 8 days re-tested to 7 reads cleared",
+    "edits": [
+      {
+        "file": "src/retest/site-retest.ts",
+        "find": "      return days !== null && days > CERT_ATTENTION_DAYS ? \"pass\" : \"fail\";",
+        "replace": "      return days !== null ? \"pass\" : \"fail\";"
+      }
+    ],
+    "test": "tests/retest/site-retest-followups.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m7-fail-read-as-unmeasured",
+    "why": "#1890.1: a reason that left the list with a fail verdict reads not measured again",
+    "edits": [
+      {
+        "file": "src/cli/commands/site-retest.ts",
+        "find": "  const changed = gone.filter((r) => verdict(r.key) === \"fail\");\n  const nulled = gone.filter((r) => verdict(r.key) === null);",
+        "replace": "  const changed = gone.filter(() => false);\n  const nulled = gone.filter((r) => verdict(r.key) !== \"pass\");"
+      }
+    ],
+    "test": "tests/retest/site-retest-followups.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m8-prefix-without-case",
+    "why": "#1890.2: a mapped prefix (cms) loses its verdict case and reads unmeasured on every run",
+    "edits": [
+      {
+        "file": "src/retest/site-retest.ts",
+        "find": "    case \"cms\":\n      return row.cmsReachable;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/retest/site-retest-followups.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m9-miss-unmeasures-all",
+    "why": "#1889.1: a Lighthouse miss unmeasures every audit of the site again",
+    "edits": [
+      {
+        "file": "src/retest/site-retest.ts",
+        "find": "(f.audit === undefined || f.audit === audit)",
+        "replace": "(f.audit === undefined || f.audit !== undefined)"
+      }
+    ],
+    "test": "tests/retest/site-retest-followups.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m10-only-not-narrowed",
+    "why": "#1889.2: --only skips the row's narrowing; netlify-deploy on a site with no Netlify id runs",
+    "edits": [
+      {
+        "file": "src/cli/commands/site-retest.ts",
+        "find": "    if (refused.length > 0) {",
+        "replace": "    if (refused.length > 99) {"
+      }
+    ],
+    "test": "tests/retest/site-retest-followups.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m11-retest-409-reenables",
+    "why": "#1888.2: a nothing-to-retest refusal re-enables the button",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/SiteRetest.svelte",
+        "find": "        if (body.error !== \"nothing-to-retest\") disabled = false;",
+        "replace": "        disabled = false;"
+      }
+    ],
+    "test": "cockpit/tests/site/site-retest.dom.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m12-renovate-reachable",
+    "why": "#1888.3: the re-test module reaches the Renovate dispatcher transitively (a dynamic import)",
+    "edits": [
+      {
+        "file": "src/retest/site-retest.ts",
+        "find": "export const SITE_RETEST_WORKFLOW = \"site-retest.yml\";",
+        "replace": "export const SITE_RETEST_WORKFLOW = \"site-retest.yml\";\nexport const _never = () => import(\"../cli/commands/renovate-dispatch.js\");"
+      }
+    ],
+    "test": "tests/build/site-retest-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m13-plan-not-quiet",
+    "why": "#1891.2: the plan check logs the roster's skip warnings on every page render",
+    "edits": [
+      {
+        "file": "src/retest/site-retest.ts",
+        "find": "selectFleetSites([row], \"/retest\", { quiet: true })",
+        "replace": "selectFleetSites([row], \"/retest\")"
+      }
+    ],
+    "test": "tests/retest/site-retest-followups.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m14-trigger-sends-name-slug",
+    "why": "#1887: the trigger dispatches the Name-derived slug instead of the stored one it was addressed by",
+    "edits": [
+      {
+        "file": "src/dashboard/site-retest-trigger.ts",
+        "find": "    await deps.dispatch(SITE_RETEST_WORKFLOW, { site: slug });",
+        "replace": "    await deps.dispatch(SITE_RETEST_WORKFLOW, { site: site.name.toLowerCase().replace(/[^a-z0-9]+/g, \"-\") });"
+      }
+    ],
+    "test": "tests/retest/site-retest-followups.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m15-browsers-every-run",
+    "why": "#1888.4: the browsers install on every run again, whatever the plan",
+    "edits": [
+      {
+        "file": ".github/workflows/site-retest.yml",
+        "find": "        if: steps.plan.outputs.browser == 'true'\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/build/site-retest-workflow.test.ts",
+    "expect": "red"
+  }
+]
