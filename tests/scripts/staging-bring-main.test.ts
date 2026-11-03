@@ -164,6 +164,15 @@ describe("staging-bring-main", () => {
     expect(code(dir, "rev-parse", "--verify", "-q", "refs/heads/bring")).not.toBe(0);
   });
 
+  it("a worktree add that fails part-way leaves no worktree behind", () => {
+    const dir = fixture(STAGING, MAIN);
+    writeFileSync(join(dir, ".git", "hooks", "post-checkout"), "#!/bin/sh\nexit 1\n", {
+      mode: 0o755,
+    });
+    expect(() => bringMain(opts(dir))).toThrow(/worktree add/);
+    onlyCheckout(dir);
+  });
+
   it("names a pnpm that cannot run", () => {
     const dir = fixture(STAGING, MAIN);
     expect(() => bringMain(opts(dir, { pnpm: "no-such-pnpm-here" }))).toThrow(

@@ -145,23 +145,28 @@ setting or the order below, so this is a runbook rather than a template there.
   is a real fork, such as a major on `staging` and a minor of the same package
   on `main`, and a human's.
 - **Merge its PR as a merge commit, while `staging` is still where the script
-  started.** Push the branch it names and open its PR into `staging`. Merge
-  it on green only if the PR's `base.sha` is still the `staging` sha the
-  script printed; if `staging` has moved, `staging` does not require an
-  up-to-date branch, so GitHub would merge the lockfile as text again: run the
-  script again instead. Merge it as a **merge commit**, never a squash: a
-  squash keeps the resolved tree but drops `main` as a parent, so the
-  promotion PR still conflicts (caltex-landing#88 squashed and had to be
-  redone as #89, 2026-10-19). `land-prs.mjs` squashes wherever the base allows
-  it, so merge this one with `PUT pulls/{n}/merge` and `merge_method=merge`,
-  pinned to the green head's `sha`.
-- **Then promote straight away.** `main` requires an up-to-date branch, so if
-  a fast-track PR lands on `main` first, the promotion PR reads behind (or
-  dirty). Do not press "Update branch": it would push to `staging`, which only
-  takes PRs. Whenever `main` is no longer an ancestor of `staging`, run the
-  script again.
-- Open the promotion PR (head `staging`, base `main`). Say what it carries since
-  the last promotion and what was checked on the staging URL.
+  started.** Push the branch it names and open its PR into `staging`. Just
+  before merging on green, read `staging`'s live tip
+  (`gh api repos/reddoorla/<repo>/branches/staging --jq .commit.sha`, not the
+  PR's `base.sha`, which is a snapshot from when the PR was opened or last
+  pushed) and merge only if it is still the `staging` sha the script printed.
+  If `staging` has moved, close the PR and run the script again: `staging`
+  does not require an up-to-date branch, so GitHub would merge the lockfile as
+  text. The merge call cannot pin the base, so a window of seconds remains.
+  Merge it as a **merge commit**, never a squash: a squash keeps the resolved
+  tree but drops `main` as a parent, so the promotion PR still conflicts
+  (caltex-landing#88 squashed and had to be redone as #89, 2026-10-19).
+  `land-prs.mjs` squashes wherever the base allows it, so merge this one with
+  `PUT pulls/{n}/merge` and `merge_method=merge`, pinned to the green head's
+  `sha`.
+- **Open the promotion PR at once** (head `staging`, base `main`); the
+  operator merges it. Say what it carries since the last promotion and what
+  was checked on the staging URL. `main` requires an up-to-date branch, so if
+  a fast-track PR lands on `main` before the operator merges, the promotion PR
+  reads behind (or dirty). Do not press "Update branch": it would push to
+  `staging`, which only takes PRs. Whenever `main` is no longer an ancestor of
+  `staging`, run the script again and land its new bring-main PR the same way,
+  closing any earlier bring-main PR it supersedes.
 
 ## What the first live Renovate run does
 

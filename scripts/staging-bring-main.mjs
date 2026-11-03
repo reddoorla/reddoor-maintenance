@@ -35,7 +35,7 @@
 //      left to merge from `main`, and create <branch> at it in the checkout.
 //
 // It changes nothing on GitHub. Push <branch>, open its PR into `staging`, and merge that PR
-// as a merge commit on green, only while `staging` is still the sha printed here
+// as a merge commit on green, only while `staging`'s live tip is still the sha printed here
 // (docs/runbooks/staging-flow.md, "Promotion, each time").
 //
 // Exit codes: 0 the branch was made, or there was nothing to bring; 2 a conflict outside the
@@ -43,7 +43,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { flagValue, isMain } from "./lib/cli.mjs";
 
 export const LOCKFILE = "pnpm-lock.yaml";
@@ -130,16 +130,21 @@ export function bringMain(o) {
       mustGit(o.dir, ["fetch", "-q", rb[0], `+refs/heads/${rb[1]}:refs/remotes/${ref}`]);
     }
   }
-  const main = mustGit(o.dir, ["rev-parse", "--verify", `${o.main}^{commit}`]);
-  const staging = mustGit(o.dir, ["rev-parse", "--verify", `${o.staging}^{commit}`]);
+  // After a fetch, read the remote-tracking ref itself: a local branch named `origin/main` would shadow it.
+  const full = (ref) => (o.fetch ? `refs/remotes/${ref}` : ref);
+  const main = mustGit(o.dir, ["rev-parse", "--verify", `${full(o.main)}^{commit}`]);
+  const staging = mustGit(o.dir, ["rev-parse", "--verify", `${full(o.staging)}^{commit}`]);
   if (git(o.dir, ["merge-base", "--is-ancestor", main, staging]).code === 0)
     return { status: "up-to-date" };
   if (git(o.dir, ["rev-parse", "--verify", "-q", `refs/heads/${o.branch}`]).code === 0)
     throw new Error(`branch ${o.branch} already exists`);
 
-  const wt = join(mkdtempSync(join(tmpdir(), "bring-main-")), "wt");
-  mustGit(o.dir, ["worktree", "add", "-q", "--detach", wt, staging]);
+  const tmp = mkdtempSync(join(tmpdir(), "bring-main-"));
+  const wt = join(tmp, "wt");
   try {
+    // Inside the try: a `worktree add` that fails part-way (a hook, a lazy blob fetch cut off)
+    // still leaves a registered worktree, which the finally removes.
+    mustGit(o.dir, ["worktree", "add", "-q", "--detach", wt, staging]);
     const merged = git(wt, ["merge", "--no-ff", "--no-commit", main]);
     const unmerged = () =>
       git(wt, ["diff", "--name-only", "--diff-filter=U"]).stdout.split("\n").filter(Boolean);
@@ -163,7 +168,13 @@ export function bringMain(o) {
         "--no-frozen-lockfile",
       ];
       const r = spawnSync(cmd, args, { cwd: wt, env, encoding: "utf8" });
-      if (r.error) throw new Error(`${cmd} could not run: ${r.error.message}`);
+      if (r.error)
+        throw new Error(
+          `${cmd} could not run: ${r.error.message}` +
+            (cmd === "corepack"
+              ? `. Node 25 and later ship no corepack: \`npm i -g corepack\`, or pass --pnpm "npx pnpm@${pre[0]?.slice(5)}"`
+              : ""),
+        );
       if (r.status !== 0)
         throw new Error(
           `${[cmd, ...args].join(" ")} failed (${r.status ?? r.signal}):\n${r.stderr || r.stdout}`,
@@ -208,14 +219,17 @@ export function bringMain(o) {
     };
   } finally {
     git(o.dir, ["worktree", "remove", "--force", wt]);
-    rmSync(dirname(wt), { recursive: true, force: true });
+    rmSync(tmp, { recursive: true, force: true });
+    git(o.dir, ["worktree", "prune"]);
   }
 }
 
 if (isMain(import.meta.url)) {
   let code = 1;
   try {
-    const r = bringMain(parseArgs(process.argv.slice(2)));
+    const o = parseArgs(process.argv.slice(2));
+    const remote = o.staging.includes("/") ? o.staging.slice(0, o.staging.indexOf("/")) : "origin";
+    const r = bringMain(o);
     if (r.status === "up-to-date") {
       console.log("nothing to bring: main is already an ancestor of staging");
       code = 0;
@@ -233,8 +247,9 @@ if (isMain(import.meta.url)) {
             : `, ${LOCKFILE} merged as text and passed through pnpm`),
       );
       console.log(
-        `next: git push origin ${r.branch}; open its PR into staging; merge it on green as a merge commit, ` +
-          `never a squash, and only while staging is still ${r.staging}; if staging has moved, run this again`,
+        `next: git push ${remote} ${r.branch}; open its PR into staging; merge it on green as a merge commit, ` +
+          `never a squash, and only while staging's live tip (GET branches/staging) is still ${r.staging}; ` +
+          "if it has moved, close the PR and run this again",
       );
       code = 0;
     }

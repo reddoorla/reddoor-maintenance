@@ -66,11 +66,11 @@
   },
   {
     "id": "M6-no-worktree-cleanup",
-    "why": "the temporary worktree is left registered in the site checkout",
+    "why": "the finally's cleanup is gone (worktree remove, temp dir removal and prune), leaving the temporary worktree registered in the site checkout. Removing `worktree remove` alone survives, because rmSync plus prune cover it",
     "edits": [
       {
         "file": "scripts/staging-bring-main.mjs",
-        "find": "    git(o.dir, [\"worktree\", \"remove\", \"--force\", wt]);\n",
+        "find": "    git(o.dir, [\"worktree\", \"remove\", \"--force\", wt]);\n    rmSync(tmp, { recursive: true, force: true });\n    git(o.dir, [\"worktree\", \"prune\"]);\n",
         "replace": ""
       }
     ],
@@ -111,6 +111,19 @@
         "file": "scripts/staging-bring-main.mjs",
         "find": "  if (!m)\n    throw new Error(",
         "replace": "  if (!m) return [\"pnpm\"];\n  if (!m)\n    throw new Error("
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M10-worktree-add-outside-try",
+    "why": "round 2: `worktree add` runs before the try again, so a part-way failure leaves a registered worktree",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "  try {\n    // Inside the try: a `worktree add` that fails part-way (a hook, a lazy blob fetch cut off)\n    // still leaves a registered worktree, which the finally removes.\n    mustGit(o.dir, [\"worktree\", \"add\", \"-q\", \"--detach\", wt, staging]);\n",
+        "replace": "  mustGit(o.dir, [\"worktree\", \"add\", \"-q\", \"--detach\", wt, staging]);\n  try {\n"
       }
     ],
     "test": "tests/scripts/staging-bring-main.test.ts",
