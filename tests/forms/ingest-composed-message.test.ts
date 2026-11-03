@@ -43,8 +43,9 @@ function setup(siteOver: { requireTurnstile?: boolean } = {}) {
     requireTurnstile: true,
     ...siteOver,
   });
-  const findRecentDuplicates = vi.fn((message: string, since: Date) =>
-    findRecentDuplicateSubmissions(db, message, since.toISOString()),
+  const findRecentDuplicates = vi.fn(
+    (message: string, since: Date, opts?: { againstVisitorText?: boolean }) =>
+      findRecentDuplicateSubmissions(db, message, since.toISOString(), opts),
   );
   const retroBucket = vi.fn().mockResolvedValue(undefined);
   const d: IngestDeps = {
@@ -161,5 +162,123 @@ describe("ingestSubmission — a site-composed message on a Turnstile-gated site
     await ingestSubmission(d, "reddoor", payload({ composedMessage: true }), pass(null));
     expect(findRecentDuplicates).not.toHaveBeenCalled();
     expect(stored(d)).toMatchObject({ status: "new", spamReason: null });
+  });
+});
+
+// The application message repeats the survey's labels and options for everyone,
+// but its free-text answers are typed by the visitor. The site sends those as
+// `extra.visitorText`; on the verified path ingest scans only that, against both
+// earlier messages and earlier visitorText (decision 2026-11-03-2108, option 1).
+const APP_TEMPLATE = [
+  'Landing-page application — opened from "The Diagnosis".',
+  "",
+  "What problems are you experiencing? Outdated sales and marketing materials; Scattered messaging with inconsistent look and feel",
+  "What are your goals for this project? Building brand recognition and trust that converts customers",
+  "Is there anyone else involved in this project? Just myself",
+  "Would you expect to pay $10,000+ to diagnose the problem and rebrand your business if needed? Yes",
+];
+const appMessage = (website: string) =>
+  [
+    ...APP_TEMPLATE.slice(0, 3),
+    `Where can we check out your work? ${website}`,
+    ...APP_TEMPLATE.slice(3),
+    "SMS consent: no",
+  ].join("\n");
+const PITCH =
+  "We build ten thousand high authority backlinks for your domain every single month, " +
+  "raising organic rankings across competitive keywords quickly while your competitors " +
+  "wonder what happened, reply today for a complimentary audit and pricing sheet";
+
+async function seedApplication(email: string, website: string, visitorText: string) {
+  const row = await createSubmission(db, {
+    siteId: SITE_ID,
+    formType: "inquiry",
+    name: email,
+    email,
+    message: appMessage(website),
+    extraFields: { composedMessage: true, visitorText },
+    status: "new",
+    submittedAt: new Date(NOW.getTime() - 3_600_000),
+  });
+  return row.id;
+}
+
+const appPayload = (website: string, visitorText: string) => ({
+  formType: "inquiry",
+  email: "applicant@example.com",
+  name: "Ada Applicant",
+  message: appMessage(website),
+  extra: { composedMessage: true, visitorText },
+});
+
+describe("ingestSubmission — a composed application is scanned on what the visitor typed", () => {
+  it("CONTROL: the whole message of two genuine applications is a duplicate", async () => {
+    await seedApplication("p5@x.com", "https://acme.com", "The Diagnosis https://acme.com");
+    const r = await findRecentDuplicateSubmissions(
+      db,
+      appMessage("https://zenith.io"),
+      "2026-10-01T00:00:00.000Z",
+    );
+    expect(r.exact.length + r.similar.length).toBeGreaterThan(0);
+  });
+
+  it("delivers a genuine application although earlier applications share its labels and options", async () => {
+    await seedApplication("p5@x.com", "https://acme.com", "The Diagnosis https://acme.com");
+    await seedApplication("p6@x.com", "https://beta.org", "The Diagnosis https://beta.org");
+    const { d, findRecentDuplicates, retroBucket } = setup();
+    await ingestSubmission(
+      d,
+      "reddoor",
+      appPayload("https://zenith.io", "The Diagnosis https://zenith.io"),
+      pass(),
+    );
+    expect(findRecentDuplicates).toHaveBeenCalledWith(
+      "The Diagnosis https://zenith.io",
+      expect.any(Date),
+      { againstVisitorText: true },
+    );
+    expect(stored(d)).toMatchObject({ status: "new", spamReason: null });
+    expect(retroBucket).not.toHaveBeenCalled();
+  });
+
+  it("catches a pitch typed into an answer against an earlier answer, and retro-buckets it", async () => {
+    const prior = await seedApplication("bot1@spam.example", PITCH, `The Diagnosis ${PITCH}`);
+    const { d, retroBucket } = setup();
+    await ingestSubmission(d, "reddoor", appPayload(PITCH, `The Diagnosis ${PITCH}`), pass());
+    expect(stored(d)).toMatchObject({ status: "spam_auto", spamReason: "duplicate-body" });
+    expect(retroBucket).toHaveBeenCalledWith([prior], "retro:duplicate-body");
+  });
+
+  it("catches a pitch typed into an answer against the same pitch sprayed to another site", async () => {
+    const other = await createSubmission(db, {
+      siteId: "recOTHER",
+      formType: "contact",
+      name: "Spray",
+      email: "spray@spam.example",
+      message: PITCH,
+      status: "new",
+      submittedAt: new Date(NOW.getTime() - 3_600_000),
+    });
+    const { d, retroBucket } = setup();
+    await ingestSubmission(d, "reddoor", appPayload(PITCH, `The Diagnosis ${PITCH}`), pass());
+    expect(stored(d)).toMatchObject({ status: "spam_auto", spamReason: "similar-body" });
+    expect(retroBucket).toHaveBeenCalledWith([other.id], "retro:duplicate-body");
+  });
+
+  it("stores visitorText on the row, so a later copy can be matched against it", async () => {
+    const { d } = setup();
+    await ingestSubmission(d, "reddoor", appPayload(PITCH, `The Diagnosis ${PITCH}`), pass());
+    expect(stored(d).extraFields).toMatchObject({ visitorText: `The Diagnosis ${PITCH}` });
+  });
+
+  it("ignores a top-level visitorText: a step one with one is still not scanned", async () => {
+    const { d, findRecentDuplicates } = setup();
+    await ingestSubmission(
+      d,
+      "reddoor",
+      { ...payload({ composedMessage: true }), visitorText: PITCH },
+      pass(),
+    );
+    expect(findRecentDuplicates).not.toHaveBeenCalled();
   });
 });

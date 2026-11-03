@@ -48,6 +48,7 @@ export type IngestDeps = {
   findRecentDuplicates?: (
     message: string,
     since: Date,
+    opts?: { againstVisitorText?: boolean },
   ) => Promise<{
     exact: Array<{ id: string; status: string; siteId: string; email: string }>;
     similar: Array<{ id: string; status: string; siteId: string; email: string }>;
@@ -338,25 +339,31 @@ export async function ingestSubmission(
   }
 
   // A message the SITE composed is not visitor text, so the duplicate scans below
-  // must not judge it. reddoor's landing-page modal writes the same sentence for
-  // every visitor's step one and the same question labels for every application,
-  // so the scan read each lead after the first in a 30-day window as a spray and
-  // stored it `duplicate-body`/`similar-body`, silently (2026-11-03,
-  // sub_4bc17c8e…, whose Turnstile token had PASSED). The site says so with
-  // `extra.composedMessage: true`. The flag alone is worth nothing to a bot: it
-  // counts only on a site that requires Turnstile, with a token that passed on the
-  // site's own host (a null hostname fails open, as above). Every other path —
-  // visitor-typed messages, ungated sites, a failed, absent or unverifiable token,
-  // a foreign-host pass — still runs the scan and is judged by it.
+  // must not judge its template. reddoor's landing-page modal writes the same
+  // sentence for every visitor's step one and the same question labels and
+  // options for every application, so the scan read each lead after the first in
+  // a 30-day window as a spray and stored it `duplicate-body`/`similar-body`,
+  // silently (2026-11-03, sub_4bc17c8e…, whose Turnstile token had PASSED). The
+  // site says so with `extra.composedMessage: true`, and puts whatever the
+  // visitor DID type (free-text answers, anything not on its own question list)
+  // in `extra.visitorText`. On a site that requires Turnstile, with a token that
+  // passed on the site's own host (a null hostname fails open, as above), the
+  // scan runs on `visitorText` alone — against earlier rows' messages AND their
+  // visitorText — and not at all when there is none. So a pitch typed into an
+  // answer is still caught as a spray, while two leads never match on the
+  // template. Every other path — visitor-typed messages, ungated sites, a failed,
+  // absent or unverifiable token, a foreign-host pass — scans the whole message
+  // and is judged by it, exactly as before.
   //
   // What a flagged copy that fails the gate may NOT do is retro-bucket: its
-  // matches are the earlier copies of the same template, i.e. the verified leads
-  // this exists to protect, so one tokenless POST (a bot, or a visitor whose
-  // ad-blocker stopped the widget) would otherwise flip every untriaged lead of
-  // the last 30 days to spam_auto. Only a site's server can set the flag (a
-  // direct POST to ingest needs the site's ingest token), so this gives a bot
-  // nothing. Read from `extra` only: normalizeSubmission also copies unknown
-  // TOP-level keys into extraFields, and the contract is `extra.composedMessage`.
+  // whole-message matches are the earlier copies of the same template, i.e. the
+  // verified leads this exists to protect, so one tokenless POST (a bot, or a
+  // visitor whose ad-blocker stopped the widget) would otherwise flip every
+  // untriaged lead of the last 30 days to spam_auto. Only a site's server can set
+  // the flag (a direct POST to ingest needs the site's ingest token), so this
+  // gives a bot nothing. A visitorText match is on visitor text, so it
+  // retro-buckets as usual. Both fields are read from `extra` only:
+  // normalizeSubmission also copies unknown TOP-level keys into extraFields.
   const composedFlag = isComposedMessage(rawPayload);
   const composedOnVerifiedSite =
     composedFlag &&
@@ -364,6 +371,8 @@ export async function ingestSubmission(
     turnstile === "pass" &&
     (verification.hostname === null ||
       turnstileHostnameAcceptable(verification.hostname, site.url));
+  const scanText = composedOnVerifiedSite ? composedVisitorText(rawPayload) : n.message;
+  const mayRetroBucket = !composedFlag || composedOnVerifiedSite;
 
   // Duplicate/spray signal: the same pitch blasted across the fleet (or repeated) is
   // a bot tell a lone content scan can't see. An identical body ('exact') OR a
@@ -381,13 +390,14 @@ export async function ingestSubmission(
   if (
     spamHandlingEnabled &&
     n.formType !== "newsletter" &&
-    n.message !== undefined &&
-    !composedOnVerifiedSite &&
+    scanText !== undefined &&
     deps.findRecentDuplicates
   ) {
     try {
       const since = new Date(deps.now().getTime() - DUPLICATE_WINDOW_MS);
-      const dupes = await deps.findRecentDuplicates(n.message, since);
+      const dupes = composedOnVerifiedSite
+        ? await deps.findRecentDuplicates(scanText, since, { againstVisitorText: true })
+        : await deps.findRecentDuplicates(scanText, since);
       const senderEmail = n.email.trim().toLowerCase();
       const isOwnResend = (m: { siteId: string; email: string }) =>
         m.siteId === site.id && m.email.trim().toLowerCase() === senderEmail;
@@ -401,7 +411,7 @@ export async function ingestSubmission(
           if (!reasons.includes(reason)) reasons.push(reason);
         }
         const retroIds = [...exact, ...similar].filter((m) => m.status === "new").map((m) => m.id);
-        if (deps.retroBucket && retroIds.length > 0 && !composedFlag) {
+        if (deps.retroBucket && retroIds.length > 0 && mayRetroBucket) {
           try {
             await deps.retroBucket(retroIds, "retro:duplicate-body");
           } catch (err) {
@@ -592,8 +602,18 @@ export function isTestMode(rawPayload: unknown): boolean {
  *  is literally `true` on the raw payload. Only the `extra` envelope counts (see
  *  the note at `composedOnVerifiedSite`). PURE. */
 export function isComposedMessage(rawPayload: unknown): boolean {
-  if (!rawPayload || typeof rawPayload !== "object") return false;
+  return rawExtra(rawPayload)?.composedMessage === true;
+}
+
+/** The visitor-typed part of a site-composed message: `extra.visitorText` when it
+ *  is a non-blank string, else undefined (nothing to scan). PURE. */
+export function composedVisitorText(rawPayload: unknown): string | undefined {
+  const v = rawExtra(rawPayload)?.visitorText;
+  return typeof v === "string" && v.trim() !== "" ? v.trim() : undefined;
+}
+
+function rawExtra(rawPayload: unknown): Record<string, unknown> | undefined {
+  if (!rawPayload || typeof rawPayload !== "object") return undefined;
   const extra = (rawPayload as Record<string, unknown>).extra;
-  if (!extra || typeof extra !== "object") return false;
-  return (extra as Record<string, unknown>).composedMessage === true;
+  return extra && typeof extra === "object" ? (extra as Record<string, unknown>) : undefined;
 }

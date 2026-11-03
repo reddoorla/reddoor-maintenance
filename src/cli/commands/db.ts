@@ -143,8 +143,8 @@ export async function runDbCommand(
           extraFields: n.extraFields,
           turnstile: outcome,
         }),
-      findRecentDuplicates: (message, since) =>
-        findRecentDuplicateSubmissions(db, message, since.toISOString()),
+      findRecentDuplicates: (message, since, opts) =>
+        findRecentDuplicateSubmissions(db, message, since.toISOString(), opts),
       listRecentSubmissionsForEmail: (email, since) =>
         listRecentSubmissionsForEmail(db, email, since.toISOString()),
       retroBucket: (ids, reason) => markSubmissionsSpamRetro(db, ids, reason),

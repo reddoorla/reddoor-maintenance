@@ -397,10 +397,31 @@ function jaccard(a: Set<string>, b: Set<string>): number {
  *  or different-sender copies are spray evidence. */
 export type DuplicateMatch = { id: string; status: string; siteId: string; email: string };
 
+/** Options for findRecentDuplicateSubmissions. `againstVisitorText`: also compare
+ *  the incoming text with each stored row's `extra_fields.visitorText` — the part
+ *  of a site-composed message the visitor actually typed (ingest.ts
+ *  `composedOnVerifiedSite`). A row matches when EITHER its message or its
+ *  visitorText matches, so a pitch typed into a reddoor answer is caught against
+ *  an earlier answer and against a plain message sprayed to another site. */
+export type DuplicateScanOptions = { againstVisitorText?: boolean };
+
+/** `extra_fields.visitorText` of a stored row, or null. A malformed JSON column is
+ *  null rather than a throw: one bad row must not blind the whole scan. */
+function storedVisitorText(extraFields: string | null): string | null {
+  if (!extraFields) return null;
+  try {
+    const v = (JSON.parse(extraFields) as Record<string, unknown> | null)?.visitorText;
+    return typeof v === "string" && v.trim() !== "" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function findRecentDuplicateSubmissions(
   db: Db,
   message: string,
   sinceDate: string,
+  opts: DuplicateScanOptions = {},
 ): Promise<{
   exact: DuplicateMatch[];
   similar: DuplicateMatch[];
@@ -414,7 +435,7 @@ export async function findRecentDuplicateSubmissions(
 
   const rows = await db
     .selectFrom("submissions")
-    .select(["id", "status", "message", "site_id", "email"])
+    .select(["id", "status", "message", "site_id", "email", "extra_fields"])
     .where("message", "is not", null)
     .where("submitted_at", ">=", sinceDate)
     .orderBy("submitted_at", "desc")
@@ -424,23 +445,31 @@ export async function findRecentDuplicateSubmissions(
   const exact: DuplicateMatch[] = [];
   const similar: DuplicateMatch[] = [];
   for (const row of rows) {
-    const stored = normalizeBody(row.message ?? "");
+    const bodies = [row.message ?? ""];
+    if (opts.againstVisitorText) {
+      const v = storedVisitorText(row.extra_fields);
+      if (v !== null) bodies.push(v);
+    }
+    const stored = bodies.map(normalizeBody);
     const match: DuplicateMatch = {
       id: row.id,
       status: row.status,
       siteId: row.site_id,
       email: row.email,
     };
-    if (exactEligible && stored === incoming) {
+    if (exactEligible && stored.includes(incoming)) {
       exact.push(match);
       continue; // an exact match must not also appear in similar
     }
     if (!similarEligible) continue;
-    const storedTokens = tokenSet(stored);
-    if (storedTokens.size < MIN_SIMILAR_TOKENS) continue;
-    if (jaccard(incomingTokens, storedTokens) >= SIMILARITY_THRESHOLD) {
-      similar.push(match);
-    }
+    const isSimilar = stored.some((body) => {
+      const storedTokens = tokenSet(body);
+      return (
+        storedTokens.size >= MIN_SIMILAR_TOKENS &&
+        jaccard(incomingTokens, storedTokens) >= SIMILARITY_THRESHOLD
+      );
+    });
+    if (isSimilar) similar.push(match);
   }
   return { exact, similar };
 }
