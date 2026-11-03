@@ -270,10 +270,14 @@ export async function ingestSubmission(
   // row is only ever matched by its visitorText, on every scan path, so no later
   // copy of the template can mark it or retro-bucket it. The INCOMING half is
   // here: on a site that requires Turnstile, a flagged copy whose token passed on
-  // the site's own host, or came back "unverifiable" (an expired token, a
-  // siteverify outage, a missing secret — which turnstile.ts holds must never
-  // punish a possibly-real visitor), is scanned on its visitorText alone, and not
-  // at all when there is none. What a bot controls is in visitorText either way,
+  // the site's own host, or came back "unverifiable" (a siteverify outage, a
+  // Cloudflare internal error, a missing or wrong secret — which turnstile.ts
+  // holds must never punish a possibly-real visitor), is scanned on its
+  // visitorText alone, and not at all when there is none. A REPLAYED token
+  // (`timeout-or-duplicate`, also "unverifiable") is not let through this way:
+  // one solved token, replayed, would deliver every flagged copy, each with an
+  // autoresponder to an address the sender picks (review round 4). A genuine
+  // double-submit is covered by the own-resend exemption on any scan path. What a bot controls is in visitorText either way,
   // so a pitch typed into an answer is still caught as a spray. Every other path
   // — visitor-typed messages, ungated sites, an absent or failed token, a
   // foreign-host pass — scans the whole message, exactly as before.
@@ -297,12 +301,14 @@ export async function ingestSubmission(
     turnstile === "pass" &&
     (verification.hostname === null ||
       turnstileHostnameAcceptable(verification.hostname, site.url));
-  const scanVisitorText = gatedComposed && (passedOnSiteHost || turnstile === "unverifiable");
+  const scanVisitorText =
+    gatedComposed &&
+    (passedOnSiteHost || (turnstile === "unverifiable" && verification.replayed !== true));
   const scanText = scanVisitorText ? composedVisitorText(rawPayload) : n.message;
   const mayRetroBucket = !composedFlag || (gatedComposed && passedOnSiteHost);
   const stored: NormalizedSubmission = {
     ...n,
-    extraFields: storedExtraFields(n.extraFields, scanVisitorText, rawPayload),
+    extraFields: storedExtraFields(n.extraFields, composedFlag, scanVisitorText, rawPayload),
   };
 
   // Fold the content signals + the Turnstile verdict into ONE spam decision.
@@ -632,13 +638,20 @@ function rawExtra(rawPayload: unknown): Record<string, unknown> | undefined {
  *  `composedMessage` dropped, then set — with `visitorText` taken from `extra` —
  *  only when this copy was scanned on its visitorText. So the stored half's
  *  "composed" is always ingest's own verdict (see the note at `scanVisitorText`).
- *  PURE. */
+ *  A flagged copy that failed the gate also loses its `visitorText`: it is a copy
+ *  of message text, and left in an unflagged row the classifier scores it twice
+ *  (review round 4: an absent-token reddoor application, 35 → 60). PURE. */
 function storedExtraFields(
   extraFields: Record<string, unknown>,
+  flagged: boolean,
   composed: boolean,
   rawPayload: unknown,
 ): Record<string, unknown> {
   const { composedMessage: _drop, ...rest } = extraFields;
-  if (!composed) return rest;
+  if (!composed) {
+    if (!flagged) return rest;
+    const { visitorText: _copy, ...unflagged } = rest;
+    return unflagged;
+  }
   return { ...rest, composedMessage: true, visitorText: composedVisitorText(rawPayload) ?? "" };
 }

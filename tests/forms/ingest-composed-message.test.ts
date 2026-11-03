@@ -496,24 +496,82 @@ describe("ingestSubmission — only ingest decides what is stored as composed", 
     },
   );
 
-  it("scores the visitorText of a flagged copy that failed the gate (the classifier sees the stored fields)", async () => {
+  // Review round 4: a flagged copy that fails the gate is stored unflagged, so a
+  // visitorText left on it was folded into the classifier's body a second time —
+  // an absent-token reddoor application scored 60 (links:2) instead of 35.
+  it.each<TurnstileOutcome>(["absent", "fail"])(
+    "drops visitorText from a flagged copy whose token is %s, so a pasted URL scores once",
+    async (outcome) => {
+      const { d } = setup();
+      d.classifySpam = (n, o) =>
+        classifySpam({
+          name: n.name,
+          email: n.email,
+          ...(n.message !== undefined ? { message: n.message } : {}),
+          formType: n.formType,
+          extraFields: n.extraFields,
+          turnstile: o,
+        });
+      await ingestSubmission(
+        d,
+        "reddoor",
+        appPayload("https://ada-clinic.example", "https://ada-clinic.example"),
+        outcome,
+      );
+      expect(stored(d).extraFields).not.toHaveProperty("visitorText");
+      expect(stored(d).extraFields).not.toHaveProperty("composedMessage");
+      expect(stored(d).spamReason ?? "").toMatch(/links:1/);
+    },
+  );
+
+  // The classifier skips visitorText on a row marked composed, so it must see the
+  // fields ingest stores, never the caller's: a caller-set flag would otherwise
+  // hide a pitch in a `visitorText` key from content scoring.
+  it("scores a pitch in visitorText when the caller, not ingest, set the flag", async () => {
     const { d } = setup({ requireTurnstile: false });
-    d.classifySpam = (n, outcome) =>
+    d.classifySpam = (n, o) =>
       classifySpam({
         name: n.name,
         email: n.email,
         ...(n.message !== undefined ? { message: n.message } : {}),
         formType: n.formType,
         extraFields: n.extraFields,
-        turnstile: outcome,
+        turnstile: o,
       });
     await ingestSubmission(
       d,
       "reddoor",
-      payload({ composedMessage: true, visitorText: "https://cheap-links.example" }),
-      pass(),
+      {
+        ...payload(),
+        composedMessage: true,
+        extra: { visitorText: "https://cheap-links.example" },
+      },
+      "absent",
     );
     expect(stored(d).spamReason ?? "").toMatch(/links:1/);
+  });
+
+  it("keeps a visitorText key on an unflagged submission as an ordinary field", async () => {
+    const { d } = setup({ requireTurnstile: false });
+    await ingestSubmission(
+      d,
+      "reddoor",
+      { ...payload(), extra: { visitorText: "hello" } },
+      "absent",
+    );
+    expect(stored(d).extraFields).toMatchObject({ visitorText: "hello" });
+  });
+
+  it("does not give a REPLAYED token (timeout-or-duplicate) the visitorText scan", async () => {
+    const { d, findRecentDuplicates } = setup();
+    await ingestSubmission(d, "reddoor", payload({ composedMessage: true, visitorText: "" }), {
+      outcome: "unverifiable",
+      hostname: null,
+      replayed: true,
+    });
+    expect(findRecentDuplicates).toHaveBeenCalledWith(STEP_ONE, expect.any(Date));
+    expect(stored(d)).toMatchObject({ status: "spam_auto", spamReason: "duplicate-body" });
+    expect(stored(d).extraFields).not.toHaveProperty("composedMessage");
   });
 
   it("stores a gated flagged copy whose token failed as not composed", async () => {
@@ -597,6 +655,15 @@ describe("classifySpam — visitorText on a stored composed row", () => {
       ...base,
       message: `Where can we check out your work? ${url}`,
       extraFields: { composedMessage: true, visitorText: url },
+    });
+    expect(v.reasons).toContain("links:1");
+  });
+
+  it("still scores the other string fields of a composed row", () => {
+    const v = classifySpam({
+      ...base,
+      message: "hello",
+      extraFields: { composedMessage: true, visitorText: "", company: url },
     });
     expect(v.reasons).toContain("links:1");
   });

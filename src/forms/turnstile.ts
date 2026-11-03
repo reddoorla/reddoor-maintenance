@@ -35,6 +35,13 @@ export type TurnstileVerification = {
    *  2026-07-28: such an attempt does NOT consume the single-use token), so
    *  `verifyTurnstileWithSecrets` can safely retry with the next widget's secret. */
   wrongSecret?: boolean;
+  /** Set on an `"unverifiable"` caused by `timeout-or-duplicate`: this token was
+   *  already redeemed. A genuine double-submit is the same sender on the same
+   *  site, which ingest's own-resend exemption covers anyway, so ingest's
+   *  composed-message gate does not treat a replay like an outage (one solved
+   *  token, replayed, would otherwise deliver unlimited flagged copies). Still
+   *  fail-open everywhere else. */
+  replayed?: boolean;
 };
 
 const SITEVERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
@@ -106,6 +113,7 @@ export async function verifyTurnstile(opts: {
       // the token's. Exposed so the multi-widget wrapper can retry; on its own
       // it stays fail-open exactly as before.
       ...(codes.includes("invalid-input-secret") ? { wrongSecret: true } : {}),
+      ...(codes.includes("timeout-or-duplicate") ? { replayed: true } : {}),
     };
   } catch {
     // Network error or aborted (timeout) — fail open, distinct from a "fail".
