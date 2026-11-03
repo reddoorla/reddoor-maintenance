@@ -171,7 +171,7 @@ export function bringMain(o) {
       if (r.error)
         throw new Error(
           `${cmd} could not run: ${r.error.message}` +
-            (cmd === "corepack"
+            (r.error.code === "ENOENT" && cmd === "corepack" && pre[0]?.startsWith("pnpm@")
               ? `. Node 25 and later ship no corepack: \`npm i -g corepack\`, or pass --pnpm "npx pnpm@${pre[0]?.slice(5)}"`
               : ""),
         );
@@ -220,7 +220,12 @@ export function bringMain(o) {
   } finally {
     git(o.dir, ["worktree", "remove", "--force", wt]);
     rmSync(tmp, { recursive: true, force: true });
-    git(o.dir, ["worktree", "prune"]);
+    // Only when this run's own entry survived the remove (a part-way `worktree add`): a bare
+    // prune would also drop other worktrees whose directories are missing for now.
+    if (
+      git(o.dir, ["worktree", "list", "--porcelain"]).stdout.split("\n").includes(`worktree ${wt}`)
+    )
+      git(o.dir, ["worktree", "prune"]);
   }
 }
 
@@ -228,7 +233,8 @@ if (isMain(import.meta.url)) {
   let code = 1;
   try {
     const o = parseArgs(process.argv.slice(2));
-    const remote = o.staging.includes("/") ? o.staging.slice(0, o.staging.indexOf("/")) : "origin";
+    const short = o.staging.replace(/^refs\/remotes\//, "");
+    const remote = short.includes("/") ? short.slice(0, short.indexOf("/")) : "origin";
     const r = bringMain(o);
     if (r.status === "up-to-date") {
       console.log("nothing to bring: main is already an ancestor of staging");

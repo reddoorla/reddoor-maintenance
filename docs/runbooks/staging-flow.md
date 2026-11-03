@@ -145,12 +145,14 @@ setting or the order below, so this is a runbook rather than a template there.
   is a real fork, such as a major on `staging` and a minor of the same package
   on `main`, and a human's.
 - **Merge its PR as a merge commit, while `staging` is still where the script
-  started.** Push the branch it names and open its PR into `staging`. Just
+  started.** A worker lands it, under AUTONOMY.md's merge authority. Push the branch it names and open its PR into `staging`. Just
   before merging on green, read `staging`'s live tip
   (`gh api repos/reddoorla/<repo>/branches/staging --jq .commit.sha`, not the
   PR's `base.sha`, which is a snapshot from when the PR was opened or last
   pushed) and merge only if it is still the `staging` sha the script printed.
-  If `staging` has moved, close the PR and run the script again: `staging`
+  If `staging` has moved, close the PR, delete the local branch
+  (`git branch -D <branch>`, or give the re-run its own `--branch`), and run
+  the script again: `staging`
   does not require an up-to-date branch, so GitHub would merge the lockfile as
   text. The merge call cannot pin the base, so a window of seconds remains.
   Merge it as a **merge commit**, never a squash: a squash keeps the resolved
