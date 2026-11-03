@@ -372,10 +372,13 @@ export function transcriptRows(session, t, as_of = "", seen = new Set()) {
 }
 
 /**
- * Rows per agent and model from a session's server `assistant` events. A message whose
- * `parent_tool_use_id` is set belongs to the agent that tool call started, never to the main
- * thread. Probe (a), 2026-10-27: the server receives none of a subagent's own messages, so in
- * practice this yields the main thread only; the split is kept for the day it does.
+ * Rows per agent and model from a session's server `assistant` events. Since at least 2026-10-27
+ * every subagent request arrives as one of these, carrying `agent_id`, `subagent_type`,
+ * `task_description` and `parent_tool_use_id` beside its message (P1-83e, which overturned probe
+ * (a)). A message with `agent_id` belongs to that agent; one with only `parent_tool_use_id`, to
+ * the agent that tool call started; any other, to the main thread. Input and cache tokens match
+ * the transcript exactly, but every event holds the stream-start usage (`stop_reason` null), so
+ * output is a floor: every request is counted as unfinished, and the cost is a lower bound.
  */
 export function assistantEventRows(session, events) {
   const lines = [];
@@ -385,27 +388,25 @@ export function assistantEventRows(session, events) {
     const body = ev?.assistant?.internal_anthropic_catchall ?? ev?.assistant;
     const m = body?.message;
     if (!m?.id || !m.usage) continue;
-    owner.set(m.id, body.parent_tool_use_id || "main");
+    owner.set(m.id, {
+      agent: body.agent_id || body.parent_tool_use_id || "main",
+      type: body.agent_id || body.parent_tool_use_id ? (body.subagent_type ?? "(unknown)") : "main",
+    });
     if (ev.created_at > as_of) as_of = ev.created_at;
     lines.push(JSON.stringify({ message: m }));
   }
   const rows = new Map();
   for (const r of records(lines.join("\n"))) {
-    const agent = owner.get(r.id);
+    const { agent, type } = owner.get(r.id);
     groupInto(
       rows,
       `${agent}\u0000${r.model}`,
-      () =>
-        agentRow(
-          session,
-          "assistant-events",
-          agent,
-          agent === "main" ? "main" : "(unknown)",
-          "",
-          r.model,
-          as_of,
-        ),
-      r,
+      () => ({
+        ...agentRow(session, "assistant-events", agent, type, "", r.model, as_of),
+        cost_basis: `list-computed (${PRICE_SOURCE}); output is the stream-start count, a lower bound`,
+      }),
+      // The server sends only the stream-start usage, whatever its stop_reason says.
+      { ...r, unfinished: true },
     );
   }
   return [...rows.values()];
@@ -484,21 +485,33 @@ export function ccrPayload(text) {
   }
 }
 
+/**
+ * The first `{"ccr": …}` object in `text`. A list_events page can hold a raw control character
+ * (U+0000 to U+001F) inside a string, which JSON.parse refuses ("Bad control character in string
+ * literal") and which lost every event on the page (P1-83e). Inside a string it is read as its
+ * `\u00XX` escape, as Python's `json.loads(strict=False)` reads it; anywhere else it still throws.
+ */
 function scanCcr(text) {
   const start = text.indexOf('{"ccr"');
   if (start < 0) return null;
   let depth = 0;
   let inString = false;
   let escaped = false;
+  let out = "";
   for (let i = start; i < text.length; i++) {
     const c = text[i];
     if (inString) {
       if (escaped) escaped = false;
       else if (c === "\\") escaped = true;
       else if (c === '"') inString = false;
+      else if (c < " ") {
+        out += `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`;
+        continue;
+      }
     } else if (c === '"') inString = true;
     else if (c === "{") depth++;
-    else if (c === "}" && --depth === 0) return JSON.parse(text.slice(start, i + 1)).ccr;
+    else if (c === "}" && --depth === 0) return JSON.parse(out + c).ccr;
+    out += c;
   }
   throw new Error("unterminated ccr payload");
 }
