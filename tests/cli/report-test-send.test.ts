@@ -166,6 +166,27 @@ describe("report --test-verdict and --test-streak", () => {
     expect(streak.output).toContain(`${ids[0]} report=report_1 problem: header is blank`);
   });
 
+  it("refuses an unquoted problem rather than keep its first word or read `clean except …` as clean", async () => {
+    await seed();
+    const out = await runReportCommand(undefined, { testSend: "report_1" });
+    const id = /send=(\S+)/.exec(out.output)![1]!;
+    for (const words of [
+      ["header", "is", "broken"],
+      ["clean", "except", "the", "footer"],
+    ]) {
+      await expect(
+        runReportCommand(words[0], { testVerdict: id, positionals: words }),
+      ).rejects.toMatchObject({ exitCode: 2, message: expect.stringContaining("quote") });
+    }
+    expect((await runReportCommand(undefined, { testStreak: true })).output).toMatch(/awaiting=1/);
+    // One quoted argument is one positional, and is recorded whole.
+    const ok = await runReportCommand("header is broken", {
+      testVerdict: id,
+      positionals: ["header is broken"],
+    });
+    expect(ok.output).toBe(`TEST_SEND_VERDICT send=${id} problem: header is broken`);
+  });
+
   it("refuses a blank verdict and names an unknown send", async () => {
     await seed();
     await expect(runReportCommand("  ", { testVerdict: "ts_x" })).rejects.toMatchObject({
@@ -182,5 +203,10 @@ describe("report --test-verdict and --test-streak", () => {
     await expect(
       runReportCommand(undefined, { testSend: "report_1", testStreak: true }),
     ).rejects.toMatchObject({ exitCode: 2 });
+    for (const other of [{ preview: true }, { type: "Testing" }, { enrich: true }]) {
+      await expect(
+        runReportCommand(undefined, { testSend: "report_1", ...other }),
+      ).rejects.toMatchObject({ exitCode: 2 });
+    }
   });
 });

@@ -32,9 +32,13 @@ export type ReportCommandOptions = {
   testStreak?: boolean;
   type?: string;
   cwd?: string;
-  /** Never accepted: present only so `--test-send` can refuse it by name. The
-   *  CLI parser passes unknown flags through, so without this check a `--to`
-   *  would be silently ignored rather than refused. */
+  /** Every positional word cac parsed (`cli.args`). The `[site]` argument keeps
+   *  only the first, so an unquoted `--test-verdict ts_x header is broken` would
+   *  record "header"; the test modes refuse more than one word instead. */
+  positionals?: string[];
+  /** Never accepted: present only so `--test-send` can refuse it by name. cac
+   *  already rejects these as unknown options; this guards direct callers of
+   *  `runReportCommand`, which bypass the parser. */
   to?: unknown;
   cc?: unknown;
   bcc?: unknown;
@@ -262,9 +266,23 @@ async function runTestCommand(
     opts.testVerdict !== undefined,
     Boolean(opts.testStreak),
   ];
-  const others = [opts.due, opts.sendReady, opts.digest, opts.rerender !== undefined, opts.preview];
+  const others = [
+    opts.due,
+    opts.sendReady,
+    opts.digest,
+    opts.rerender !== undefined,
+    opts.preview,
+    opts.enrich,
+    opts.type !== undefined,
+  ];
   if (modes.filter(Boolean).length > 1 || others.some(Boolean)) {
     usage("--test-send, --test-verdict and --test-streak each run alone");
+  }
+  if ((opts.positionals?.length ?? 0) > 1) {
+    usage(
+      `got ${opts.positionals!.length} words (${opts.positionals!.join(" ")}): quote the verdict, ` +
+        `e.g. report --test-verdict <sendId> "header is broken"`,
+    );
   }
   for (const flag of ["to", "cc", "bcc"] as const) {
     if (opts[flag] !== undefined) {

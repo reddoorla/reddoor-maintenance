@@ -27,7 +27,13 @@ const report = (over: Partial<ReportRow>): ReportRow =>
     withdrawnAt: null,
     ...over,
   }) as ReportRow;
-const RENDERED = { html: "<p>body</p>", attachments: [], subject: "Your October report" };
+const RENDERED = {
+  html: '<p>Acme October body <img src="cid:acme-co-header"></p>',
+  attachments: [
+    { filename: "acme-co-header.png", content: "aGVhZGVy", inlineContentId: "acme-co-header" },
+  ],
+  subject: "Your October report",
+};
 
 function deps(over: Partial<TestSendDeps> = {}) {
   const { client, captured } = captureClient("re_1");
@@ -37,10 +43,12 @@ function deps(over: Partial<TestSendDeps> = {}) {
     getReport: async (id) => (id === "report_1" ? report({}) : null),
     getSite: async (id) => (id === "site_1" ? SITE : null),
     getSiteBySlug: async (s) => (s === "acme-co" ? SITE : null),
+    // Newest first, as listReportsForSite orders it (period_start desc).
     listReportsForSite: async () => [
-      report({ id: "report_sent", sentAt: "2026-10-01T00:00:00Z" }),
-      report({ id: "report_withdrawn", withdrawnAt: "2026-10-02T00:00:00Z" }),
+      report({ id: "report_withdrawn", withdrawnAt: "2026-11-02T00:00:00Z" }),
       report({ id: "report_pending" }),
+      report({ id: "report_sent", sentAt: "2026-10-01T00:00:00Z" }),
+      report({ id: "report_older_pending" }),
     ],
     loadHeaderPlate: async () => new Uint8Array([1]),
     render,
@@ -81,6 +89,11 @@ describe("testSendReport (mocked transport)", () => {
       expect.objectContaining({ id: "report_1" }),
       new Uint8Array([1]),
     );
+    // The email IS the render: its body and its inline header image, unchanged.
+    expect(captured[0]!.html).toBe(RENDERED.html);
+    expect(captured[0]!.attachments).toEqual(RENDERED.attachments);
+    // Per send, so a second test send of the same report is a second email.
+    expect(captured[0]!.idempotencyKey).toBe("report-test-send:ts_1");
     expect(r).toMatchObject({
       sendId: "ts_1",
       to: OPERATOR,

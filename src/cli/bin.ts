@@ -887,7 +887,11 @@ cli
       },
     ) =>
       runOrExit(
-        async () => (await import("./commands/report.js")).runReportCommand(site, opts),
+        async () =>
+          (await import("./commands/report.js")).runReportCommand(site, {
+            ...opts,
+            positionals: cli.args.map(String),
+          }),
         opts,
       ),
   );

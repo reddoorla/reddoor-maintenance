@@ -1,7 +1,7 @@
 [
   {
     "id": "R1-to-let-through",
-    "why": "--to is no longer refused (the CLI parser passes unknown flags through, so it would be silently ignored)",
+    "why": "--to is no longer refused by runReportCommand (cac also rejects it as an unknown option; this guards direct callers)",
     "edits": [
       {
         "file": "src/cli/commands/report.ts",
@@ -140,6 +140,84 @@
       }
     ],
     "test": ["tests/db/test-sends.test.ts", "tests/cli/report-test-send.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "V2-unquoted-verdict",
+    "why": "An unquoted multi-word verdict keeps only its first word (round 1, major)",
+    "edits": [
+      {
+        "file": "src/cli/commands/report.ts",
+        "find": "  if ((opts.positionals?.length ?? 0) > 1) {",
+        "replace": "  if ((opts.positionals?.length ?? 0) > 99) {"
+      }
+    ],
+    "test": "tests/cli/report-test-send.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "X1-other-html",
+    "why": "The sent body is not the render's (round 1, major)",
+    "edits": [
+      {
+        "file": "src/reports/send/test-send.ts",
+        "find": "    html: rendered.html,",
+        "replace": "    html: \"<p>other</p>\","
+      }
+    ],
+    "test": "tests/reports/send/test-send.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "X2-no-attachments",
+    "why": "The inline header image is dropped (round 1, major)",
+    "edits": [
+      {
+        "file": "src/reports/send/test-send.ts",
+        "find": "    attachments: rendered.attachments,",
+        "replace": "    attachments: [],"
+      }
+    ],
+    "test": "tests/reports/send/test-send.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "X3-oldest-unsent",
+    "why": "A slug picks the site's oldest unsent report (round 1, minor)",
+    "edits": [
+      {
+        "file": "src/reports/send/test-send.ts",
+        "find": "const pending = reports.find(",
+        "replace": "const pending = [...reports].reverse().find("
+      }
+    ],
+    "test": "tests/reports/send/test-send.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "X4-per-report-key",
+    "why": "The idempotency key is per report, so Resend dedupes a second test send (round 1, minor)",
+    "edits": [
+      {
+        "file": "src/reports/send/test-send.ts",
+        "find": "const payload = testSendPayload(rendered, to, sendId);",
+        "replace": "const payload = testSendPayload(rendered, to, report.id);"
+      }
+    ],
+    "test": "tests/reports/send/test-send.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "X5-preview-allowed",
+    "why": "--preview is not refused alongside a test mode (round 1, nit)",
+    "edits": [
+      {
+        "file": "src/cli/commands/report.ts",
+        "find": "    opts.preview,\n    opts.enrich,",
+        "replace": "    opts.enrich,"
+      }
+    ],
+    "test": "tests/cli/report-test-send.test.ts",
     "expect": "red"
   }
 ]
