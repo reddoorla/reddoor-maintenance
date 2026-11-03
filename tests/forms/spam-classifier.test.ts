@@ -775,7 +775,9 @@ describe("bot-rsvp: all three of random name, dotted gmail and a party over 10",
   });
 
   it("does not block a real guest with an odd-pair name and a big party on a plain address", () => {
-    // Farooq ends on a q, so the name signal fires: it is weak alone by design.
+    // Farooq ends on a q, so the name signal fires, and 12 guests clears the party bar; what
+    // holds this back is the one-dot address alone. A real single-name guest who also used a
+    // 3-dot gmail would be blocked (the disclosed false positive; see the PR body).
     expect(blocked(rsvp("Farooq", "farooq.khan@gmail.com", "12"))).toBe(false);
   });
 });
