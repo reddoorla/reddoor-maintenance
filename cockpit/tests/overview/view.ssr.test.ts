@@ -744,6 +744,14 @@ describe("review round 1: open vulnerabilities name the one wait that applies (O
     );
   });
 
+  // The operator, 2026-11-03: still present after 4 lockfile windows, ours again.
+  it("a transitive one still present after 4 windows: ours this week, with the date", () => {
+    // First seen Aug 20: its fourth window closes Sep 14 18:00Z; two days on is Sep 16.
+    expect(open(deepSite(), "2026-08-20")[0]!.text).toBe(
+      "has 2 critical or high vulnerabilities; 4 weekly package refreshes have not cleared them by Sep 16, so they are ours to fix this week",
+    );
+  });
+
   it("a transitive one with no first sighting to read: on Watch, and it says so", () => {
     const v = overviewFromSnapshot(snapshot({ sites: [deepSite()] }), NOW);
     expect(v.upkeep.open[0]!.text).toBe(
