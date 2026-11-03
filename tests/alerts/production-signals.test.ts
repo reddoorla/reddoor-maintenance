@@ -462,7 +462,7 @@ describe("accessibility coverage lost (#910, Attention)", () => {
     expect(keys(items)).toEqual(["a11y-coverage:recS", "a11y:recS"]);
     expect(items[0]!.title).toBe("accessibility scan reached only 1 of 2 routes");
     const findings = items[1]!;
-    expect(findings.title).toBe("4 accessibility findings on the 1 route scanned");
+    expect(findings.title).toBe("4 accessibility findings from a partial scan");
     expect(findings.metric).toBe(4);
     expect(level(findings)).toBe("attention");
     const one = collectA11yCoverageAlerts(
@@ -477,7 +477,7 @@ describe("accessibility coverage lost (#910, Attention)", () => {
       BASE,
       NOW,
     );
-    expect(one[1]!.title).toBe("1 accessibility finding on the 2 routes scanned");
+    expect(one[1]!.title).toBe("1 accessibility finding from a partial scan");
   });
 
   // Round 3: the NEW/WORSE diff reads key and metric, never the title.

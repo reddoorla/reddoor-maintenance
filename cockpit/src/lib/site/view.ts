@@ -541,9 +541,9 @@ function spam(
 /** How many skipped routes the a11y tile names before "+N more". */
 const A11Y_SKIPS_NAMED = 3;
 
-/** "not scanned: a (reason), b (reason)", or null when nothing was skipped or nothing stored.
+/** "not scanned: animate-in demo at /dev/animate-in (reason), /b (reason)", or null when nothing was skipped or nothing stored.
  *  Worded "not scanned", not "skipped": a declared skip is out of the counts, so the tile
- *  reads "1 of 1 routes scanned; not scanned: animate-in demo (…)" without contradicting. */
+ *  reads "1 of 1 routes scanned; not scanned: animate-in demo at /dev/animate-in (…)" without contradicting. */
 export function a11ySkipNote(skipped: WebsiteRow["a11yRoutesSkipped"]): string | null {
   if (skipped === null || skipped.length === 0) return null;
   // The path is what a `reddoor.absentFixtures` declaration names, so the coverage item's ask

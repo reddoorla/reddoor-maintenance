@@ -109,8 +109,8 @@
     "edits": [
       {
         "file": "src/audits/a11y-fields.ts",
-        "find": "  if (!Array.isArray(v)) return null;\n  return v.flatMap(",
-        "replace": "  if (!Array.isArray(v)) return [];\n  return v.flatMap("
+        "find": "  return Array.isArray(v) ? toA11ySkippedRoutes(v) : null;",
+        "replace": "  return Array.isArray(v) ? toA11ySkippedRoutes(v) : [];"
       }
     ],
     "test": "tests/audits/a11y-routes-turso.test.ts",
@@ -277,7 +277,7 @@
     "why": "The stored skip list drops the path, so the ask cannot be followed from the site page",
     "edits": [
       {
-        "file": "src/audits/a11y-fields.ts",
+        "file": "src/fleet/site-row.ts",
         "find": "        ...(typeof r.path === \"string\" ? { path: r.path } : {}),",
         "replace": ""
       }

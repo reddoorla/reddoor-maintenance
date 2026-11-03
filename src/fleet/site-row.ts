@@ -647,7 +647,7 @@ export function parseSecurityLockfileAudit(raw: unknown): SecurityLockfileAudit 
  *  `reddoor.absentFixtures` declaration names. Rows stored before `path` was kept lack it. */
 export type A11ySkippedRoute = { route: string; reason: string; path?: string };
 
-/** The a11y audit's skipped routes as stored: JSON `[{ route, reason }]`. Anything
+/** The a11y audit's skipped routes as stored: JSON `[{ route, reason, path? }]`. Anything
  *  else reads null ("not stored"), and an entry without both strings is dropped. */
 export function parseA11ySkippedRoutes(raw: unknown): A11ySkippedRoute[] | null {
   if (typeof raw !== "string" || raw.trim() === "") return null;
@@ -657,8 +657,13 @@ export function parseA11ySkippedRoutes(raw: unknown): A11ySkippedRoute[] | null 
   } catch {
     return null;
   }
-  if (!Array.isArray(parsed)) return null;
-  return parsed.flatMap((e): A11ySkippedRoute[] => {
+  return Array.isArray(parsed) ? toA11ySkippedRoutes(parsed) : null;
+}
+
+/** Each entry with string `route` and `reason` (and `path` when it is a string); the rest is
+ *  dropped. Shared by the audit's write side (`a11y-fields.ts`) and this read side. */
+export function toA11ySkippedRoutes(entries: unknown[]): A11ySkippedRoute[] {
+  return entries.flatMap((e): A11ySkippedRoute[] => {
     const r = e as { route?: unknown; reason?: unknown; path?: unknown } | null;
     if (typeof r?.route !== "string" || typeof r.reason !== "string") return [];
     return [

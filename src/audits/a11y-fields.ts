@@ -1,6 +1,6 @@
 import type { AuditResult } from "../types.js";
 import type { A11yCounts } from "../fleet/site-fields.js";
-import type { A11ySkippedRoute } from "../fleet/site-row.js";
+import { toA11ySkippedRoutes, type A11ySkippedRoute } from "../fleet/site-row.js";
 
 type A11yDetails = {
   totalViolations: number;
@@ -16,18 +16,7 @@ const count = (v: unknown): number | null =>
  *  audit always puts a list on a scanned run's details ([] when none), so null
  *  comes only from a result whose details carry none, and it clears the stored list. */
 function skippedRoutes(v: unknown): A11ySkippedRoute[] | null {
-  if (!Array.isArray(v)) return null;
-  return v.flatMap((e): A11ySkippedRoute[] => {
-    const r = e as { route?: unknown; reason?: unknown; path?: unknown } | null;
-    if (typeof r?.route !== "string" || typeof r.reason !== "string") return [];
-    return [
-      {
-        route: r.route,
-        reason: r.reason,
-        ...(typeof r.path === "string" ? { path: r.path } : {}),
-      },
-    ];
-  });
+  return Array.isArray(v) ? toA11ySkippedRoutes(v) : null;
 }
 
 /** True when an a11y AuditResult carries real counts worth persisting.

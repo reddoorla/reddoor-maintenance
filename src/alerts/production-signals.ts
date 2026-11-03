@@ -397,7 +397,6 @@ export function collectA11yCoverageAlerts(
       };
       const n = s.a11yViolations ?? 0;
       if (n === 0) return [coverage];
-      const on = scanned === 1 ? "the 1 route scanned" : `the ${scanned} routes scanned`;
       return [
         coverage,
         item(
@@ -405,7 +404,7 @@ export function collectA11yCoverageAlerts(
           baseUrl,
           "a11y",
           "a11y",
-          `${n} accessibility finding${n === 1 ? "" : "s"} on ${on}`,
+          `${n} accessibility finding${n === 1 ? "" : "s"} from a partial scan`,
           "warning",
           n,
         ),
