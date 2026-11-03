@@ -33,9 +33,14 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 export const PRODUCTION_STALE_DAYS = 3;
 /** Accessibility runs weekly (`fleet-a11y.yml`, Sunday night), so its verdict holds 8 days. */
 export const A11Y_STALE_DAYS = 8;
-/** A certificate this close to expiry (or past it) is Broken; within 30 days, Attention. */
+/** A certificate this close to expiry (or past it) is Broken; within 20 days, Attention.
+ *  Netlify renews its Let's Encrypt certificates at about 30 days left: Data Dynamiq and
+ *  MSOT read 30 days on 2026-11-03's nightly and both carried new certificates (notBefore
+ *  2026-11-03 15:33Z and 05:43Z) within the day, as Sonder and 1836dig did on 09-29. At
+ *  30 the alarm fired on the renewal day itself, a "just wait" the operator ruled is not
+ *  an ask (2026-10-05). 20 is renewal ten days overdue, with 13 more before Broken. */
 export const CERT_BROKEN_DAYS = 7;
-export const CERT_ATTENTION_DAYS = 30;
+export const CERT_ATTENTION_DAYS = 20;
 /** A package a major behind for longer than this many calendar days is Attention. */
 export const DEPS_FAR_DAYS = 90;
 
@@ -115,7 +120,7 @@ export function collectUptimeAlerts(
 }
 
 /** A certificate item's metric: it rises as expiry nears (the cockpit sorts a higher metric
- *  first, and the digest reads a rise as WORSE), so it is the days used of the 30-day window,
+ *  first, and the digest reads a rise as WORSE), so it is the days used of the Attention window,
  *  not the days left (review round 5). */
 export function certUrgency(days: number): number {
   return CERT_ATTENTION_DAYS + 1 - days;
@@ -133,7 +138,7 @@ export function certDaysNow(stored: number | null, checkedAt: string, now: Date)
 
 /** The domain audit's certificate verdict. A fresh run that stored no certificate days did
  *  not resolve or found no usable TLS: the domain is dead. Otherwise the days left decide:
- *  7 or fewer (or expired) is Broken, 8 to 30 is Attention. */
+ *  7 or fewer (or expired) is Broken, 8 to 20 is Attention. */
 export function collectDomainAlerts(
   sites: WebsiteRow[],
   baseUrl: string,

@@ -71,7 +71,7 @@ export type AttentionItem = {
     /** P1-78c, the production signals the nightly audits store. Broken: `uptime:`
      *  (site down), `domain:` (no resolve or no usable TLS), `cert-expiring:` (7 days
      *  or fewer), `function-health:`, `cms:`, `render:`, `form:`. Attention: `cert:`
-     *  (8 to 30 days), `links:`, `titles:`, `a11y:`, `deps-far:` (a package behind for
+     *  (8 to 20 days), `links:`, `titles:`, `a11y:`, `deps-far:` (a package behind for
      *  over 90 days). Watch: `deps:`, `smoke:`, `search-console:`. */
     | "uptime"
     | "domain"

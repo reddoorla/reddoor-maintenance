@@ -632,14 +632,16 @@ describe("review round 1: the counts behind every shown number", () => {
     );
   });
 
-  it("the domain cell flags 30 days or fewer (O8)", () => {
+  // 20 since 2026-11-03: renewal runs at about 30 days left, so 21 to 30 is its usual lag.
+  it("the domain cell flags 20 days or fewer (O8), not a cert inside its renewal window", () => {
     const cell = (d: number) =>
       overviewFromSnapshot(
         snapshot({ sites: [healthy({ id: "recA", name: "Acme", certDaysRemaining: d })] }),
         NOW,
       ).live[0]!.domain;
-    expect(cell(31)).toEqual({ ok: true, text: "31 days left" });
-    expect(cell(30)).toEqual({ ok: false, text: "30 days left" });
+    expect(cell(30)).toEqual({ ok: true, text: "30 days left" });
+    expect(cell(21)).toEqual({ ok: true, text: "21 days left" });
+    expect(cell(20)).toEqual({ ok: false, text: "20 days left" });
   });
 
   it("a fresh stamp with no verdict says the test may have skipped it (O17)", () => {
@@ -1239,15 +1241,18 @@ describe("review round 3", () => {
     const line = (t: string) => HOW_WE_COUNT.find((h) => h.term === t)!.text;
     expect(line("Broken, attention, watch")).toContain("These are the Triage page's counts");
     expect(line("Certificate")).toContain(
-      "30 days or fewer is shown in bold and puts the site at Attention",
+      "20 days or fewer is shown in bold and puts the site at Attention",
     );
     expect(line("Certificate")).not.toContain("only matters");
     expect(line("Live")).not.toContain("uptime check");
-    const v = overviewFromSnapshot(
-      snapshot({ sites: [healthy({ id: "recA", name: "Acme", certDaysRemaining: 28 })] }),
-      NOW,
-    );
-    expect(v.live[0]!.level.tier).toBe("attention");
+    const tier = (d: number) =>
+      overviewFromSnapshot(
+        snapshot({ sites: [healthy({ id: "recA", name: "Acme", certDaysRemaining: d })] }),
+        NOW,
+      ).live[0]!.level.tier;
+    expect(tier(18)).toBe("attention");
+    // Inside the renewal window: not yet due, no alarm.
+    expect(tier(28)).toBe("healthy");
   });
 
   it("glosses Prismic where the steps name it (O6)", () => {
@@ -1433,9 +1438,7 @@ describe("review round 4", () => {
 
   it("the copy says what each count is, in plain words (O4-O7, O9-O11)", () => {
     const line = (t: string) => HOW_WE_COUNT.find((h) => h.term === t)!.text;
-    expect(line("Certificate")).toContain(
-      "At Attention we confirm it renews; we act only if it does not.",
-    );
+    expect(line("Certificate")).toContain("at Attention renewal is late, and we find out why.");
     expect(line("Accepted as real")).toBe(
       "Leads, signups and RSVPs kept as real: new, read or archived. Only contact, inquiry and reservation forms bring leads; a newsletter signup or an RSVP is not one.",
     );
