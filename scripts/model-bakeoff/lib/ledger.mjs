@@ -1,9 +1,10 @@
 export const PRICE_SOURCE =
-  "claude-api skill price list (cached 2026-10-06), confirmed 2026-10-19; $ per million tokens";
+  "platform.claude.com pricing page, read 2026-11-03; $ per million tokens";
 
 export const PRICES = Object.freeze({
   "claude-opus-5-5": { in: 4, out: 20, cr: 0.2, cw5m: 5, cw1h: 8 },
-  "claude-sonnet-5-5": { in: 2, out: 10, cr: 0.2, cw5m: 2.5, cw1h: 4 },
+  // Cache reads on Opus 5.5 and Sonnet 5.5 are 0.05x input, not the usual 0.1x (P1-83e).
+  "claude-sonnet-5-5": { in: 2, out: 10, cr: 0.1, cw5m: 2.5, cw1h: 4 },
   "claude-haiku-5-5": {
     in: 0.1,
     out: 0.5,
