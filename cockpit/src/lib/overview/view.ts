@@ -1745,7 +1745,7 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Certificate",
-    text: `Days left on the site's security certificate (the padlock), from the nightly domain check: the days it counted, less the whole days since it ran. Not the domain registration. ${CERT_ATTENTION_DAYS} days or fewer is shown in bold and puts the site at Attention; ${CERT_BROKEN_DAYS} or fewer is Broken. Certificates renew on their own at about 30 days left, so a count between that and Attention is renewal not yet due, not an alarm; at Attention renewal is ten days late, and we find out why. "Domain does not answer, or no working certificate" means a fresh check found no address or no working certificate: Broken.`,
+    text: `Days left on the site's security certificate (the padlock), from the nightly domain check: the days it counted, less the whole days since it ran. Not the domain registration. ${CERT_ATTENTION_DAYS} days or fewer is shown in bold and puts the site at Attention; ${CERT_BROKEN_DAYS} or fewer is Broken. Certificates renew on their own at about 30 days left, sometimes a few days later, so a count above Attention is renewal within its usual lag, not an alarm; at Attention renewal is late, and we find out why. "Domain does not answer, or no working certificate" means a fresh check found no address or no working certificate: Broken.`,
   },
   {
     term: "Deploy",

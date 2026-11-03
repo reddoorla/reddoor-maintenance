@@ -632,7 +632,7 @@ describe("review round 1: the counts behind every shown number", () => {
     );
   });
 
-  // 20 since 2026-11-03: renewal runs at about 30 days left, so 21 to 30 is not due yet.
+  // 20 since 2026-11-03: renewal runs at about 30 days left, so 21 to 30 is its usual lag.
   it("the domain cell flags 20 days or fewer (O8), not a cert inside its renewal window", () => {
     const cell = (d: number) =>
       overviewFromSnapshot(
@@ -1409,9 +1409,7 @@ describe("review round 4", () => {
 
   it("the copy says what each count is, in plain words (O4-O7, O9-O11)", () => {
     const line = (t: string) => HOW_WE_COUNT.find((h) => h.term === t)!.text;
-    expect(line("Certificate")).toContain(
-      "at Attention renewal is ten days late, and we find out why.",
-    );
+    expect(line("Certificate")).toContain("at Attention renewal is late, and we find out why.");
     expect(line("Accepted as real")).toBe(
       "Leads, signups and RSVPs kept as real: new, read or archived. Only contact, inquiry and reservation forms bring leads; a newsletter signup or an RSVP is not one.",
     );

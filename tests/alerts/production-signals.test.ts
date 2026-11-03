@@ -154,7 +154,7 @@ describe("the writer stores null when nothing was sampled", () => {
 
 describe("domain and certificate", () => {
   // Netlify renews at about 30 days left (2026-11-03: Data Dynamiq and MSOT read 30 and
-  // renewed that day), so 21 to 30 is renewal not yet due: no alarm ("just wait").
+  // renewed that day), so 21 to 30 is renewal's usual lag: no alarm ("just wait").
   it("a certificate at 7 days is Broken, at 8 Attention, at 20 Attention, at 21 and 30 nothing", () => {
     const at = (days: number) =>
       collectDomainAlerts([site({ certDaysRemaining: days, domainCheckedAt: FRESH })], BASE, NOW);
