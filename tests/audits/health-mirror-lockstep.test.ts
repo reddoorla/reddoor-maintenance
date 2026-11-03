@@ -33,7 +33,18 @@ describe("every audit-writer column is importer-claimed (dual-write lockstep)", 
     const fields = auditFields({
       scores: { performance: 98, accessibility: null, bestPractices: 96, seo: 92 },
       lighthouseFailingAudits: "best-practices/deprecations:w5:3/3",
-      a11y: { violations: 0, routesScanned: 1, routesTotal: 2 },
+      a11y: {
+        violations: 0,
+        routesScanned: 1,
+        routesTotal: 2,
+        routesSkipped: [
+          {
+            route: "animate-in demo",
+            reason: "fixture not in this site's source",
+            path: "/dev/animate-in",
+          },
+        ],
+      },
       deps: { drifted: 2, majorBehind: 1, outdated: 3, majorOutdated: 0 },
       security: { critical: 0, high: 0, moderate: 1, low: 2 },
       securityAdvisories: [

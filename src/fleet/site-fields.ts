@@ -9,11 +9,13 @@ import {
   toVerdict,
   toPrismicModelsVerdict,
   SEVERITY_RANK,
+  parseA11ySkippedRoutes,
   parseSecurityAdvisories,
   parseSecurityLockfileAudit,
   type WebsiteRow,
   type PrismicModelsVerdict,
   type SecurityAdvisory,
+  type A11ySkippedRoute,
   type SecurityLockfileAudit,
 } from "./site-row.js";
 
@@ -114,6 +116,7 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     a11yViolations: (f["A11y Violations"] as number | undefined) ?? null,
     a11yRoutesScanned: (f["A11y Routes Scanned"] as number | undefined) ?? null,
     a11yRoutesTotal: (f["A11y Routes Total"] as number | undefined) ?? null,
+    a11yRoutesSkipped: parseA11ySkippedRoutes(f["A11y Routes Skipped"]),
     a11yCheckedAt: (f["A11y Checked At"] as string | undefined) ?? null,
     depsDrifted: (f["Deps Drifted"] as number | undefined) ?? null,
     depsMajorBehind: (f["Deps Major Behind"] as number | undefined) ?? null,
@@ -194,6 +197,8 @@ export type A11yCounts = {
   violations: number;
   routesScanned: number | null;
   routesTotal: number | null;
+  /** The routes the run did not scan, with why; null when the details carry no list. */
+  routesSkipped: A11ySkippedRoute[] | null;
 };
 export type DepsCounts = {
   drifted: number;
@@ -279,6 +284,10 @@ function a11yFields(counts: A11yCounts): FieldSet {
     "A11y Violations": counts.violations,
     "A11y Routes Scanned": counts.routesScanned,
     "A11y Routes Total": counts.routesTotal,
+    // #910: written beside the counts every run, so a run that cannot say what it
+    // skipped clears the last run's list rather than keeping it.
+    "A11y Routes Skipped":
+      counts.routesSkipped === null ? null : JSON.stringify(counts.routesSkipped),
     // P1-78c: the counts and their stamp travel together.
     "A11y Checked At": new Date().toISOString(),
   };

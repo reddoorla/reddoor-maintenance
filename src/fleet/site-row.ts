@@ -107,6 +107,10 @@ export type WebsiteRow = {
    *  covers only the scanned routes. null = not stored by that run. */
   a11yRoutesScanned: number | null;
   a11yRoutesTotal: number | null;
+  /** The routes that run navigated to and did not scan, each with why (#910). A
+   *  skip the site declared is out of both counts above, so only this names it.
+   *  null = not stored by that run; [] = nothing skipped. */
+  a11yRoutesSkipped: A11ySkippedRoute[] | null;
   /** When the a11y counts were last written (P1-78c). Weekly, so fresh for 8 days. */
   a11yCheckedAt: string | null;
   /** Declared-range drift vs the Reddoor baseline (what package.json asks for). */
@@ -636,6 +640,40 @@ export function parseSecurityLockfileAudit(raw: unknown): SecurityLockfileAudit 
       .filter((a): a is SecurityAdvisory => a !== null),
     truncated: p["truncated"] === true,
   };
+}
+
+/** One route the a11y run did not scan, as stored (#910). `route` is the spec's name for it
+ *  (the path for an opted-in route, a label for a built-in fixture); `path` is what a
+ *  `reddoor.absentFixtures` declaration names. Rows stored before `path` was kept lack it. */
+export type A11ySkippedRoute = { route: string; reason: string; path?: string };
+
+/** The a11y audit's skipped routes as stored: JSON `[{ route, reason, path? }]`. Anything
+ *  else reads null ("not stored"), and an entry without both strings is dropped. */
+export function parseA11ySkippedRoutes(raw: unknown): A11ySkippedRoute[] | null {
+  if (typeof raw !== "string" || raw.trim() === "") return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  return Array.isArray(parsed) ? toA11ySkippedRoutes(parsed) : null;
+}
+
+/** Each entry with string `route` and `reason` (and `path` when it is a string); the rest is
+ *  dropped. Shared by the audit's write side (`a11y-fields.ts`) and this read side. */
+export function toA11ySkippedRoutes(entries: unknown[]): A11ySkippedRoute[] {
+  return entries.flatMap((e): A11ySkippedRoute[] => {
+    const r = e as { route?: unknown; reason?: unknown; path?: unknown } | null;
+    if (typeof r?.route !== "string" || typeof r.reason !== "string") return [];
+    return [
+      {
+        route: r.route,
+        reason: r.reason,
+        ...(typeof r.path === "string" ? { path: r.path } : {}),
+      },
+    ];
+  });
 }
 
 /** Parse the `Security advisories` JSON cell. null when absent/blank/unparseable/not-an-array
