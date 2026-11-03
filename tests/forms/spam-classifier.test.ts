@@ -5,8 +5,8 @@ import {
   BLOCKED_EMAIL_DOMAINS,
   DISPOSABLE_EMAIL_DOMAINS,
   CONTENT_FAMILIES,
-  CORROBORATING_FAMILY_WEIGHT,
   SPAM_KEYWORDS,
+  BUYER_KEYWORDS,
 } from "../../src/forms/spam-classifier.js";
 import {
   VENDORED_DISPOSABLE_DOMAINS,
@@ -455,6 +455,7 @@ describe("classifySpam", () => {
     // A forged token alone still needs one corroborating signal (Operator decisions,
     // 2026-11-03: trimmed 50 -> 45 when the threshold dropped to 50).
     const failAlone = clean({ turnstile: "fail" as TurnstileOutcome });
+    expect(failAlone).toEqual({ score: 45, reasons: ["turnstile-fail"] });
     expect(failAlone.score >= SPAM_THRESHOLD).toBe(false);
 
     // The URL cap protects a genuine lead pasting their site + portfolio: two links
@@ -750,9 +751,24 @@ describe("classifySpam — threshold 50 and corroborating content families (2026
     expect(v.score >= SPAM_THRESHOLD).toBe(true);
   });
 
-  it("a family weighs less than the threshold, and a family plus one link reaches it", () => {
-    expect(CORROBORATING_FAMILY_WEIGHT).toBeLessThan(SPAM_THRESHOLD);
-    expect(CORROBORATING_FAMILY_WEIGHT + 25).toBeGreaterThanOrEqual(SPAM_THRESHOLD);
+  it("exactly 50 buckets: one seller keyword plus a bare domain (30 + 20)", () => {
+    const v = clean({ message: "Would you be open to a call next week? I run pitchdesk.co" });
+    expect(v).toEqual({ score: 50, reasons: ["bare-domain", "keywords:1"] });
+    expect(v.score >= SPAM_THRESHOLD).toBe(true);
+  });
+
+  it("every family phrase fires on its own, as its family, once", () => {
+    for (const [family, phrases] of Object.entries(CONTENT_FAMILIES)) {
+      for (const phrase of phrases) {
+        const v = clean({ message: `Hello. Writing because of this: ${phrase}. Thanks.` });
+        expect(v, phrase).toEqual({ score: 30, reasons: [family] });
+      }
+    }
+  });
+
+  it("a family phrase in an extra free-text field scores like one in the message", () => {
+    const v = clean({ message: "", extraFields: { details: "Please review the attached RFQ." } });
+    expect(v).toEqual({ score: 30, reasons: ["bid-lure"] });
   });
 
   it("a bid/RFQ lure alone scores 30 and is delivered; with a link it buckets", () => {
@@ -804,7 +820,7 @@ describe("classifySpam — threshold 50 and corroborating content families (2026
   it("a homeowner asking for an estimate with one link matches no family", () => {
     const lead = clean({
       message:
-        "We just bought a lot in Eagle and would love a quote. Could you provide an estimate? The scope of work is a 3,000 sq ft single story. Listing: https://listing.example/lot-12",
+        "We just bought a lot in Eagle and would love a quote. Could you provide an estimate and a lead time? The scope of work is a 3,000 sq ft single story. Listing: https://listing.example/lot-12",
     });
     expect(lead).toEqual({ score: 25, reasons: ["links:1"] });
   });
@@ -826,12 +842,13 @@ describe("classifySpam — threshold 50 and corroborating content families (2026
     ]);
   });
 
-  it("family phrases are lowercase, hyphen-free, distinct, and never overlap a seller keyword", () => {
+  it("family phrases are lowercase, hyphen-free, distinct, and never overlap another phrase list", () => {
     const all = Object.values(CONTENT_FAMILIES).flat();
     for (const phrase of all) {
       expect(phrase, phrase).toBe(phrase.toLowerCase());
       expect(phrase, phrase).not.toMatch(/[-–—]/);
-      for (const kw of SPAM_KEYWORDS) {
+      const others = [...SPAM_KEYWORDS, ...BUYER_KEYWORDS, ...all.filter((p) => p !== phrase)];
+      for (const kw of others) {
         expect(phrase.includes(kw) || kw.includes(phrase), `${phrase} / ${kw}`).toBe(false);
       }
     }

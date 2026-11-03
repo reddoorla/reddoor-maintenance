@@ -128,5 +128,70 @@
     ],
     "test": "tests/forms/spam-classifier.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "m11-drop-invitation-to-bid",
+    "why": "A lure phrase is dropped from its family, so that lure no longer corroborates",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    \"invitation to bid\",\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m12-typo-in-phrase",
+    "why": "A family phrase carries a typo and can never match",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    \"proposed unit price\",",
+        "replace": "    \"proposed unit prise\","
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m13-lead-time-joins-lure",
+    "why": "A buyer phrase (lead time) joins the lure family, so a homeowner with a link is bucketed",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    \"invitation to bid\",",
+        "replace": "    \"invitation to bid\",\n    \"lead time\","
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m14-families-scan-message-only",
+    "why": "Families ignore extra free-text fields, so a lure in a custom field is invisible",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    if (countKeywordHits(body, phrases) > 0) {",
+        "replace": "    if (countKeywordHits(message, phrases) > 0) {"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m15-threshold-55",
+    "why": "The threshold moves to 55, so a score of exactly 50 is delivered",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "export const SPAM_THRESHOLD = 50;",
+        "replace": "export const SPAM_THRESHOLD = 55;"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
   }
 ]

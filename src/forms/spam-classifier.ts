@@ -249,7 +249,7 @@ function countKeywordHits(text: string, keywords: readonly string[]): number {
  * signal (a link +25, a seller keyword +30, a bare domain +20), never alone. Kept
  * below SPAM_THRESHOLD so a family on its own is delivered (test-pinned).
  */
-export const CORROBORATING_FAMILY_WEIGHT = 30;
+const CORROBORATING_FAMILY_WEIGHT = 30;
 
 /**
  * Content families found in the 2026-11-03 forms spam review: polite prose with no
