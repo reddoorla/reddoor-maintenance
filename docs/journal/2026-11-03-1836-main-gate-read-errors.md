@@ -10,20 +10,22 @@
 
 **Measured.** 25 tests: 9 old, 16 new. On the unfixed template, 14 of the new tests failed (after the stub fix, 15); the "no label" case passed. On the fix, 25 of 25 passed five runs out of five. Every one of the twelve named mutations turned at least one test red:
 
-| Mutation                                           | Tests red |
-| -------------------------------------------------- | --------- |
-| Drop the read-failure `::error::` line             | 9 of 25   |
-| No retry (one try)                                 | 12 of 25  |
-| Retry runs once (two tries)                        | 11 of 25  |
-| `grep -q` pipe restored on the labels read         | 3 of 25   |
-| Every failure retried (404 too)                    | 1 of 25   |
-| A rate-limit 403 not retried                       | 1 of 25   |
-| A 5xx not retried                                  | 10 of 25  |
-| No-status failure not retried                      | 1 of 25   |
-| HTTP status left out of the message                | 8 of 25   |
-| `local wait` dropped (clobbers the activity loop)  | 2 of 25   |
-| Events read back to a bare `gh api \| tail` pipe   | 1 of 25   |
-| gh's own message left out                          | 1 of 25   |
+| Mutation                                          | Tests red |
+| ------------------------------------------------- | --------- |
+| Drop the read-failure `::error::` line            | 9 of 25   |
+| No retry (one try)                                | 12 of 25  |
+| Retry runs once (two tries)                       | 11 of 25  |
+| `grep -q` pipe restored on the labels read        | 3 of 25   |
+| Every failure retried (404 too)                   | 1 of 25   |
+| A rate-limit 403 not retried                      | 1 of 25   |
+| A 5xx not retried                                 | 10 of 25  |
+| No-status failure not retried                     | 1 of 25   |
+| HTTP status left out of the message               | 8 of 25   |
+| `local wait` dropped (clobbers the activity loop) | 2 of 25   |
+| Events read back to a bare `gh api \| tail` pipe  | 1 of 25   |
+| gh's own message left out                         | 1 of 25   |
+
+**Against live data.** I ran the fixed step's `run:` block with the real `gh`, through the cloud proxy, against reddoorla/la-homelessness-initiative#71, an open Renovate patch on `main`. It printed the pass line on the first read and exited 0. As a negative control, the same run with `PR=999999` printed `::error::main-gate: could not read the commits of #999999: HTTP 404 after 1 try. gh said: gh: Not Found (HTTP 404)` and exited 1 without retrying. So real `gh` output has the `HTTP nnn` shape the helper parses.
 
 **Review.** Round 1 (Opus) found minors only, so the round counted as clean. Folded into this PR:
 
