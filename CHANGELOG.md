@@ -1,5 +1,15 @@
 # @reddoorla/maintenance
 
+## 0.112.0
+
+### Minor Changes
+
+- 3009ae6: `reddoor-maint site-retest <slug>` re-tests one site during the day (P1-88). It reads the site's current reasons from Turso, the same list its `/s/<slug>` page shows, runs only the audits behind them, writes that site's row alone, and prints which reasons cleared (`RETEST_RESULT site=… cleared=N still=M write=ok`). The audits it may run are browser (uptime, render, links, titles), domain (domain, certificate), function-health (function, CMS), netlify-deploy and lighthouse. `--only` takes a subset of those and refuses anything else, so security, deps and a11y are never re-tested. `--dry-run` prints the plan. `audit --fleet turso` gains `--site <slug>` to audit one roster site.
+
+### Patch Changes
+
+- 8f6c325: The browser audit's mobile check reads overflow only after the page has loaded, and against the device's width (#1871). Before, it read `scrollWidth > innerWidth + 2` right after `domcontentloaded`. A stylesheet that had not applied yet left images at their natural widths, which failed fitting pages. And Chromium's mobile emulation, which runs both devices, widens `innerWidth` with the page up to 4× the device width, so a 600px-wide page read as fitting. The probe now waits for `load` and `document.fonts.ready` (10 s cap each; the font wait is skipped when `load` never fires) and compares `scrollWidth` with the descriptor's `viewport.width` (412 for the Pixel 7, 390 for the iPhone 14), keeping the 2px rounding tolerance. A failing device now says why in the offender string: `(overflow 441px > 412px)`, `(no visible <main>)`, `(js error)`, `(width not measured)` or `(load failed)`. Expect pages that really are too wide on a phone to be flagged where they used to pass. So is a page with no `<meta name="viewport">`: a phone lays it out at about 980px and shows it zoomed out.
+
 ## 0.111.3
 
 ### Patch Changes
