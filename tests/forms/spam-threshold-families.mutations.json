@@ -317,7 +317,7 @@
     "edits": [
       {
         "file": "src/forms/spam-classifier.ts",
-        "find": "    \"ever considered selling the business\",",
+        "find": "    \"have you ever considered selling the business\",",
         "replace": "    \"considered selling the business\","
       }
     ],
@@ -330,8 +330,8 @@
     "edits": [
       {
         "file": "src/forms/spam-classifier.ts",
-        "find": "  return phrases.filter((p) => new RegExp(`\\\\b${p}\\\\b`).test(lower)).length;",
-        "replace": "  return phrases.filter((p) => lower.includes(p)).length;"
+        "find": "    return new RegExp(`\\\\b${escaped}\\\\b`).test(lower);",
+        "replace": "    return lower.includes(p);"
       }
     ],
     "test": "tests/forms/spam-classifier.test.ts",
@@ -358,6 +358,45 @@
         "file": "src/forms/spam-classifier.ts",
         "find": "    if (/^[ACGTUNacgtun]+$/.test(run)) continue;",
         "replace": "    if (/^[ACGTNacgtn]+$/.test(run)) continue;"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m29-iupac-exempt",
+    "why": "The whole IUPAC set is exempt, so a mash run of consonant codes loses its +35",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    if (/^[ACGTUNacgtun]+$/.test(run)) continue;",
+        "replace": "    if (/^[ACGTURYSWKMBDHVNacgturyswkmbdhvn]+$/.test(run)) continue;"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m30-no-trailing-boundary",
+    "why": "The trailing word boundary is dropped, so \"considered selling your businesses\" matches the broker family",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    return new RegExp(`\\\\b${escaped}\\\\b`).test(lower);",
+        "replace": "    return new RegExp(`\\\\b${escaped}`).test(lower);"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m31-reported-speech-broker",
+    "why": "The broker phrase loses \"have you\", so a lead reporting that someone asked if they'd ever considered selling buckets with a link",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    \"have you ever considered selling the business\",",
+        "replace": "    \"ever considered selling the business\","
       }
     ],
     "test": "tests/forms/spam-classifier.test.ts",

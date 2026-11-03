@@ -250,7 +250,10 @@ function countKeywordHits(text: string, keywords: readonly string[]): number {
  *  for CONTENT_FAMILIES only (phrases are plain words, no regex metacharacters). */
 function countPhraseHits(text: string, phrases: readonly string[]): number {
   const lower = text.toLowerCase().replace(/[-–—]/g, " ");
-  return phrases.filter((p) => new RegExp(`\\b${p}\\b`).test(lower)).length;
+  return phrases.filter((p) => {
+    const escaped = p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`\\b${escaped}\\b`).test(lower);
+  }).length;
 }
 
 /**
@@ -291,8 +294,9 @@ const CORROBORATING_FAMILY_WEIGHT = 30;
  * boundaries. The broker phrases
  * are second-person and anchored to selling a business, so neither a collector asking
  * a gallery "are you interested in selling", a broker with "buyers actively looking"
- * for land, nor an owner who has "considered selling the business" matches (rounds 2
- * and 3).
+ * for land, nor an owner who has "considered selling the business", nor one reporting
+ * that someone asked "if I'd ever considered selling the business" matches (rounds 2
+ * to 5).
  */
 export const CONTENT_FAMILIES: Readonly<Record<string, readonly string[]>> = {
   // Fake RFQ / procurement lures: a project or purchase that needs a quote, with the
@@ -302,7 +306,7 @@ export const CONTENT_FAMILIES: Readonly<Record<string, readonly string[]>> = {
   // "I have buyers for your business" broker template.
   "broker-template": [
     "buyers interested in purchasing businesses",
-    "ever considered selling the business",
+    "have you ever considered selling the business",
     "considered selling your business",
     "if selling has crossed your mind",
   ],
@@ -413,8 +417,9 @@ function hasGibberishToken(text: string, minLen: number): boolean {
     // A DNA or RNA sequence (a primer quoted to a genomics site) is all A/C/G/T/U (N is
     // the "any base" code; the rest of the IUPAC set is all consonants, so it stays
     // out, or real mash would be exempt) and
-    // is not keyboard mash: at the threshold of 50 it would otherwise bucket a real
-    // inquiry with one link or a bare domain (review round 2, 2026-11-03).
+    // is not keyboard mash. Scored as gibberish (+35) it bucketed a real inquiry with
+    // one link even at 60, and at 50 with a bare domain too (review round 2,
+    // 2026-11-03).
     if (/^[ACGTUNacgtun]+$/.test(run)) continue;
     if (/[^aeiouyAEIOUY]{7,}/.test(run)) return true;
     let flips = 0;
@@ -513,8 +518,8 @@ export function classifySpam(input: {
   }
 
   // Lorem-ipsum form-tester bots: >=2 distinct filler stems is machine-generated
-  // content with zero genuine use, so this is the one signal allowed to bucket
-  // alone (+60) — the bodies are too short for the velocity signal and are real
+  // content with zero genuine use, so it may bucket alone (+60), as blocked-domain and
+  // va-template do — the bodies are too short for the velocity signal and are real
   // Latin words, invisible to the gibberish detector.
   if (countLoremStems(body) >= 2) {
     score += 60;

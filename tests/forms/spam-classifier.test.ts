@@ -845,6 +845,9 @@ describe("classifySpam — threshold 50 and corroborating content families (2026
       "I have buyers actively looking for industrial land near your parcel. See https://broker.example",
       "We've considered selling the business in a few years, so we want a refreshed site first. https://owner.example",
       "We had never considered selling the business until my partner retired. Can you value it? https://owner.example",
+      "My accountant asked if I'd ever considered selling the business along with our building. https://owner.example",
+      "If you ever considered selling the business, would the lease transfer? We are a tenant at https://tenant.example",
+      "Have you considered selling your businesses to a REIT? We are comparing advisors. https://advisor.example",
       "Thanks for the invitation to bid on the Elm St remodel. Our numbers: https://sub.example/elm",
       "Thanks for the attached RFQ; our quote is at https://sub.example/q/1",
       "We would like to invite your team to submit a quote for a kitchen remodel. Photos: https://photos.example/abc",
@@ -885,8 +888,13 @@ describe("classifySpam — threshold 50 and corroborating content families (2026
     );
     expect(clean({ message: "GTCAGTCAQXZWKMB" }).reasons).toContain("gibberish-body");
     expect(clean({ message: "OsDMQohNGefhfCqqQCwt" }).reasons).toContain("gibberish-body");
+    // the other IUPAC codes are all consonants: a run of them is still mash
+    expect(clean({ message: "KMRWSYBDHVKMRW" }).reasons).toContain("gibberish-body");
     // RNA, and the N "any base" code
-    expect(clean({ message: "primer GCUUCGGCCUUCGG please" })).toEqual({ score: 0, reasons: [] });
+    expect(clean({ message: "primer GCCGCGGCCUGCGGCCGCG please" })).toEqual({
+      score: 0,
+      reasons: [],
+    });
     expect(clean({ message: "primer ATGCGTCCTGGATCCNNNNACGT please" })).toEqual({
       score: 0,
       reasons: [],
@@ -905,7 +913,7 @@ describe("classifySpam — threshold 50 and corroborating content families (2026
     expect(clean({ message: "Please review the Attached RFQ today." }).reasons).toEqual([
       "bid-lure",
     ]);
-    expect(clean({ message: "Have you ever considered-selling-the-business?" }).reasons).toEqual([
+    expect(clean({ message: "Have you ever considered–selling–the-business?" }).reasons).toEqual([
       "broker-template",
     ]);
   });
