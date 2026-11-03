@@ -57,7 +57,7 @@
     "edits": [
       {
         "file": "scripts/staging-bring-main.mjs",
-        "find": "  if (git(o.dir, [\"merge-base\", \"--is-ancestor\", main, staging]).code === 0) return { status: \"up-to-date\" };\n",
+        "find": "  if (git(o.dir, [\"merge-base\", \"--is-ancestor\", main, staging]).code === 0)\n    return { status: \"up-to-date\" };\n",
         "replace": ""
       }
     ],
