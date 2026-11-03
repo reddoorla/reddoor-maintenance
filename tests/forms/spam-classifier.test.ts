@@ -758,11 +758,25 @@ describe("classifySpam — threshold 50 and corroborating content families (2026
   });
 
   it("every family phrase fires on its own, as its family, once", () => {
-    for (const [family, phrases] of Object.entries(CONTENT_FAMILIES)) {
-      for (const phrase of phrases) {
-        const v = clean({ message: `Hello. Writing because of this: ${phrase}. Thanks.` });
-        expect(v, phrase).toEqual({ score: 30, reasons: [family] });
-      }
+    // Literal sentences, one per phrase, so dropping or misspelling a phrase in the
+    // source goes red (a table built from CONTENT_FAMILIES itself could not).
+    const cases: ReadonlyArray<[string, string]> = [
+      ["You are receiving this invitation to bid on a warehouse job.", "bid-lure"],
+      ["We would like to invite your team to submit pricing.", "bid-lure"],
+      ["Please open the attached RFQ before Friday.", "bid-lure"],
+      ["Reply with your proposed unit price.", "bid-lure"],
+      ["The specifications are available for your review online.", "bid-lure"],
+      ["I have buyers interested in purchasing firms nearby.", "broker-template"],
+      ["Two buyers that are interested in purchasing called me.", "broker-template"],
+      ["Have you considered selling the business this year?", "broker-template"],
+      ["Have you considered selling your business this year?", "broker-template"],
+      ["Are you interested in selling at the right price?", "broker-template"],
+      ["If selling has crossed your mind, call me.", "broker-template"],
+      ["We have buyers actively looking in your region.", "broker-template"],
+    ];
+    expect(cases.length).toBe(Object.values(CONTENT_FAMILIES).flat().length);
+    for (const [message, family] of cases) {
+      expect(clean({ message }), message).toEqual({ score: 30, reasons: [family] });
     }
   });
 
