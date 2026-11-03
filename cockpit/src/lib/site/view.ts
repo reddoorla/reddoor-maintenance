@@ -566,6 +566,10 @@ export function buildSiteView(
   spamTotals: ScreenOutTotals | null,
   now: Date,
   siteAlarm: SiteAlarmContext | null,
+  /** The stored `sites.slug` the page was addressed by. The action endpoints look the
+   *  site up by it (`getSiteBySlug`), and a rename leaves it while the Name-derived slug
+   *  moves, so the URLs must use it (#1887). Absent only where no stored slug was read. */
+  storedSlug?: string,
 ): SiteView {
   const allScoresNull =
     site.pScore === null && site.rScore === null && site.bpScore === null && site.seoScore === null;
@@ -599,7 +603,10 @@ export function buildSiteView(
       : `${site.securityVulnsCritical ?? 0}C / ${site.securityVulnsHigh ?? 0}H / ${site.securityVulnsModerate ?? 0}M / ${site.securityVulnsLow ?? 0}L`;
 
   const { score, total: setupTotal } = onboardingStatus(site, now);
-  const slug = siteSlug(site.name);
+  // The /api/sites/:slug endpoints resolve the stored slug; /submissions filters by the
+  // Name-derived one. Encoded although the endpoints refuse any non-slug (#1889).
+  const slug = encodeURIComponent(storedSlug ?? siteSlug(site.name));
+  const nameSlug = encodeURIComponent(siteSlug(site.name));
 
   // The report-history table is the only place the "recent 6" slice belongs;
   // the pending list sees the FULL set, so an old pending report stays approvable.
@@ -661,7 +668,7 @@ export function buildSiteView(
         : {
             total: visible.length,
             shown: shown.map((s) => buildSubmissionRowView(s, now)),
-            viewAllHref: `/submissions?site=${slug}`,
+            viewAllHref: `/submissions?site=${nameSlug}`,
           },
   };
 }
