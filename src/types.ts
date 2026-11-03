@@ -26,6 +26,10 @@ export type Site = {
    *  an alias cannot mute one and not the other. The analytics audit skips such
    *  a site. Absent = not opted out. */
   analyticsOptedOut?: boolean;
+  /** The row's `Require Turnstile`: central ingest stores a tokenless submission
+   *  from this site as spam. form-e2e then checks every form page for the widget
+   *  (`turnstile-coverage.ts`). Absent = off, or no row was read. */
+  requireTurnstile?: boolean;
   meta?: Record<string, unknown>;
 };
 

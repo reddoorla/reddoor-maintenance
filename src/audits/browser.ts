@@ -930,7 +930,33 @@ export type MobileTarget = {
 export async function probeMobile(
   browser: Browser,
   url: string,
+  target: MobileTarget,
+): Promise<RouteResult["mobile"][number]> {
+  const first = await probeMobileOnce(browser, url, target);
+  // A navigation that threw (no answer, a dropped connection, a 30 s timeout) is one
+  // observation of the network, not of the page: reddoorla.com/brand-friction-audit read
+  // "load failed" on Pixel 7 on 2026-11-03 while iPhone 14 (the same Chromium), all three
+  // desktop engines and the plain-fetch re-check loaded it, and it fit on every later
+  // probe. That one throw put Reddoor at Broken. It gets one fresh context, with a
+  // shorter navigation cap: a route that hangs again costs RETRY_PAGE_TIMEOUT_MS more
+  // per device, 5 minutes for a site whose 15 routes all hang (fleet-lighthouse has a
+  // 75-minute budget for the fleet); one that loads slowly on the retry can add its load and font waits
+  // too (STYLE_SETTLE_MS each). A route that fails to load twice stands, as does every
+  // fail on a page that did load. A browser that has crashed still throws, so the
+  // audit names the crash instead of failing every route as "load failed".
+  return first.reason === "load failed"
+    ? probeMobileOnce(browser, url, target, RETRY_PAGE_TIMEOUT_MS)
+    : first;
+}
+
+/** The retry's navigation cap: shorter than the first try's, to bound what it costs. */
+const RETRY_PAGE_TIMEOUT_MS = 10_000;
+
+async function probeMobileOnce(
+  browser: Browser,
+  url: string,
   { device, descriptor }: MobileTarget,
+  gotoTimeoutMs: number = PAGE_TIMEOUT_MS,
 ): Promise<RouteResult["mobile"][number]> {
   const ctx = await browser.newContext({ ...descriptor });
   const page = await ctx.newPage();
@@ -938,7 +964,7 @@ export async function probeMobile(
   page.on("pageerror", (e) => errors.push(String(e)));
   let status: number | null = null;
   try {
-    const resp = await page.goto(url, { waitUntil: "domcontentloaded", timeout: PAGE_TIMEOUT_MS });
+    const resp = await page.goto(url, { waitUntil: "domcontentloaded", timeout: gotoTimeoutMs });
     status = resp ? resp.status() : null;
     if (!resp || !resp.ok()) return { device, ok: false, status };
     // One cap, not two: a page whose `load` never fires is measured as it stands, with no font wait.

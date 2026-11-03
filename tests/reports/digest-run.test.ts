@@ -886,10 +886,13 @@ describe("runDigest", () => {
   ]);
   const DIGEST_NOW = new Date("2026-10-05T09:23:00Z");
 
-  async function digestWithTransitiveVuln(firstFlaggedAt: string) {
+  async function digestWithTransitiveVuln(
+    firstFlaggedAt: string,
+    store = memoryDigestState({ "vuln:rec_site_acme": { metric: 1, firstFlaggedAt } }),
+  ) {
     const { client, captured } = captureClient();
     await runDigest({
-      digestState: memoryDigestState({ "vuln:rec_site_acme": { metric: 1, firstFlaggedAt } }),
+      digestState: store,
       ...io({
         Reports: [bouncedReport()],
         Websites: [
@@ -913,9 +916,18 @@ describe("runDigest", () => {
     expect(html).not.toMatch(/critical\/high vuln/);
   });
 
-  it("asks about a transitive-only vuln that outlived its lockfile window", async () => {
-    const html = await digestWithTransitiveVuln("2026-09-27");
-    expect(html).toContain("still present after the 2026-09-28 lockfile window");
+  // Was an ask until the operator's 10-29 rule, "transitives should be watch not
+  // attention": past its window it is Watch, which stays on the cockpit and leaves
+  // the email (P1-78d). A direct vuln past its wait is still mailed (above).
+  it("leaves a transitive-only vuln that outlived its lockfile window out: it is Watch", async () => {
+    const store = memoryDigestState({
+      "vuln:rec_site_acme": { metric: 1, firstFlaggedAt: "2026-09-27" },
+    });
+    const html = await digestWithTransitiveVuln("2026-09-27", store);
+    expect(html).not.toMatch(/critical\/high vuln/);
+    // Moved, not dropped: the snapshot keeps the key and its first sighting, so its
+    // age keeps counting on the cockpit.
+    expect((await store.read())["vuln:rec_site_acme"]?.firstFlaggedAt).toBe("2026-09-27");
   });
 
   it("the exhausted flip alone (count unchanged) surfaces the vuln badged WORSE", async () => {
