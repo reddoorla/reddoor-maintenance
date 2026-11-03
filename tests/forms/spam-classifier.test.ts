@@ -761,9 +761,7 @@ describe("classifySpam — threshold 50 and corroborating content families (2026
     // Literal sentences, one per phrase, so dropping or misspelling a phrase in the
     // source goes red (a table built from CONTENT_FAMILIES itself could not).
     const cases: ReadonlyArray<[string, string]> = [
-      ["You are receiving this invitation to bid on a warehouse job.", "bid-lure"],
-      ["We would like to invite your team to submit a quote by Friday.", "bid-lure"],
-      ["Please open the attached RFQ before Friday.", "bid-lure"],
+      ["Please review the attached RFQ before Friday.", "bid-lure"],
       ["The specifications are available for your review online.", "bid-lure"],
       ["I have buyers interested in purchasing businesses nearby.", "broker-template"],
       ["Have you ever considered selling the business?", "broker-template"],
@@ -784,14 +782,13 @@ describe("classifySpam — threshold 50 and corroborating content families (2026
   it("a bid/RFQ lure alone scores 30 and is delivered; with a link it buckets", () => {
     const alone = clean({
       message:
-        "Hello, we would like to invite your team to submit a quote for our new project. Please reply if interested.",
+        "Hello, we have a new project. Please review the attached RFQ and reply if interested.",
     });
     expect(alone).toEqual({ score: 30, reasons: ["bid-lure"] });
     expect(alone.score >= SPAM_THRESHOLD).toBe(false);
 
     const withLink = clean({
-      message:
-        "Hello, we would like to invite your team to submit a quote. Project files: https://files.example/bid",
+      message: "Hello, please review the attached RFQ. Project files: https://files.example/bid",
     });
     expect(withLink).toEqual({ score: 55, reasons: ["links:1", "bid-lure"] });
     expect(withLink.score >= SPAM_THRESHOLD).toBe(true);
@@ -821,7 +818,7 @@ describe("classifySpam — threshold 50 and corroborating content families (2026
       name: "Dana Ortiz",
       email: "dana@ortiz-fabrication.example",
       message:
-        "We are a fabrication shop in San Antonio. This is an invitation to bid on 40 steel brackets; please see the attached RFQ and include your lead time.",
+        "We are a fabrication shop in San Antonio. Please review the attached RFQ for 40 steel brackets; the specifications are available for your review at our office. Include your lead time.",
     });
     expect(rfq).toEqual({ score: 30, reasons: ["bid-lure"] });
     expect(rfq.score >= SPAM_THRESHOLD).toBe(false);
@@ -847,6 +844,10 @@ describe("classifySpam — threshold 50 and corroborating content families (2026
       "I represent buyers interested in purchasing multifamily assets in Pasadena. Details: https://broker.example/buyers",
       "I have buyers actively looking for industrial land near your parcel. See https://broker.example",
       "We've considered selling the business in a few years, so we want a refreshed site first. https://owner.example",
+      "We had never considered selling the business until my partner retired. Can you value it? https://owner.example",
+      "Thanks for the invitation to bid on the Elm St remodel. Our numbers: https://sub.example/elm",
+      "Thanks for the attached RFQ; our quote is at https://sub.example/q/1",
+      "We would like to invite your team to submit a quote for a kitchen remodel. Photos: https://photos.example/abc",
     ]) {
       expect(clean({ message }), message).toEqual({ score: 25, reasons: ["links:1"] });
     }
@@ -855,7 +856,7 @@ describe("classifySpam — threshold 50 and corroborating content families (2026
   it("a family plus two buyer phrases tops up to exactly 50 and buckets", () => {
     const v = clean({
       message:
-        "This is an invitation to bid. Do you offer a free consultation? We need it within 24 hours.",
+        "Please review the attached RFQ. Do you offer a free consultation? We need it within 24 hours.",
     });
     expect(v).toEqual({ score: 50, reasons: ["keywords-buyer:2", "bid-lure"] });
     expect(v.score >= SPAM_THRESHOLD).toBe(true);
@@ -863,7 +864,7 @@ describe("classifySpam — threshold 50 and corroborating content families (2026
 
   it("a message that hits both families scores both (60)", () => {
     const v = clean({
-      message: "If selling has crossed your mind, see the attached RFQ from our acquirer.",
+      message: "If selling has crossed your mind, review the attached RFQ from our acquirer.",
     });
     expect(v).toEqual({ score: 60, reasons: ["bid-lure", "broker-template"] });
   });
@@ -883,6 +884,13 @@ describe("classifySpam — threshold 50 and corroborating content families (2026
       "gibberish-body",
     );
     expect(clean({ message: "GTCAGTCAQXZWKMB" }).reasons).toContain("gibberish-body");
+    expect(clean({ message: "OsDMQohNGefhfCqqQCwt" }).reasons).toContain("gibberish-body");
+    // RNA, and the N "any base" code
+    expect(clean({ message: "primer GCUUCGGCCUUCGG please" })).toEqual({ score: 0, reasons: [] });
+    expect(clean({ message: "primer ATGCGTCCTGGATCCNNNNACGT please" })).toEqual({
+      score: 0,
+      reasons: [],
+    });
   });
 
   it("a buyer-voice purchase inquiry with one link matches no family", () => {

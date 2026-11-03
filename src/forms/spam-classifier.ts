@@ -245,6 +245,14 @@ function countKeywordHits(text: string, keywords: readonly string[]): number {
   return keywords.filter((kw) => lower.includes(kw)).length;
 }
 
+/** Like countKeywordHits, but each phrase must start and end on a word boundary, so
+ *  "ever considered selling" does not match inside "never considered selling". Used
+ *  for CONTENT_FAMILIES only (phrases are plain words, no regex metacharacters). */
+function countPhraseHits(text: string, phrases: readonly string[]): number {
+  const lower = text.toLowerCase().replace(/[-–—]/g, " ");
+  return phrases.filter((p) => new RegExp(`\\b${p}\\b`).test(lower)).length;
+}
+
 /**
  * Weight of a corroborating content family: enough to bucket together with one other
  * signal (a link +25, a seller keyword +30, a bare domain +20), never alone. Kept
@@ -260,8 +268,8 @@ const CORROBORATING_FAMILY_WEIGHT = 30;
  * Corroborating only, by the operator's call (2026-11-03): Espada (industrial) and
  * Vineyard (builder) can receive genuine bid invitations, so a family never buckets
  * alone. It does bucket with one more signal, a link included (the brief: "enough
- * together with a link or a free-mail sender"): a genuine invitation to bid that links
- * its plan room scores 55 and goes to `spam_auto`. That is the trade the operator
+ * together with a link or a free-mail sender"): a genuine RFQ that points at an
+ * attachment and links its documents scores 55 and goes to `spam_auto`. That is the trade the operator
  * chose. There is no free-mail signal (shared mailbox providers are deliberately
  * never scored), so the free-mail half of that sentence does not apply: a family from
  * a gmail sender with nothing else scores 30 and is delivered. The
@@ -271,27 +279,26 @@ const CORROBORATING_FAMILY_WEIGHT = 30;
  * Phrases are the templates' invariants, lowercase and hyphen-free like
  * SPAM_KEYWORDS, and specific enough that a buyer describing their own project
  * ("could you provide an estimate", "scope of work", "lead time") matches none.
- * The bid-lure phrases are bid and RFQ wording, so a genuine bid invitation or RFQ
- * that carries a link (an RFQ to MSOT, an RFP from a nonprofit) buckets at 55: that
- * is the accepted loss above. What was left out is wording an ordinary purchase
- * inquiry uses, which is not a bid invitation: "interested in procuring", "interest
- * in purchasing your products", "arrange for a sales representative", "appreciate a
- * quotation", "seeking a qualified company" (review round 1), "proposed unit price",
- * and "invite your team to submit" without "a quote" (round 2). The broker phrases
+ * The bid-lure phrases point at documents the form cannot carry, so a genuine RFQ that
+ * says the same and carries a link buckets at 55: that is the accepted loss above.
+ * Everything a genuine lead or a reply to one also writes was left out: "interested
+ * in procuring", "interest in purchasing your products", "arrange for a sales
+ * representative", "appreciate a quotation", "seeking a qualified company" (review
+ * round 1), "proposed unit price", "invite your team to submit" (round 2), and, in
+ * round 4, "invitation to bid" and a bare "attached rfq" (a subcontractor replying
+ * "thanks for the invitation to bid / the attached RFQ") and "invite your team to
+ * submit a quote" (a homeowner asking a builder for a quote). Phrases match on word
+ * boundaries. The broker phrases
  * are second-person and anchored to selling a business, so neither a collector asking
  * a gallery "are you interested in selling", a broker with "buyers actively looking"
  * for land, nor an owner who has "considered selling the business" matches (rounds 2
  * and 3).
  */
 export const CONTENT_FAMILIES: Readonly<Record<string, readonly string[]>> = {
-  // Fake "invitation to bid" / RFQ / procurement lures: a project or purchase that
-  // needs a quote, with the documents "available for review" somewhere else.
-  "bid-lure": [
-    "invitation to bid",
-    "invite your team to submit a quote",
-    "attached rfq",
-    "specifications are available for your review",
-  ],
+  // Fake RFQ / procurement lures: a project or purchase that needs a quote, with the
+  // documents "attached" or "available for review" somewhere else (the form takes no
+  // attachments).
+  "bid-lure": ["review the attached rfq", "specifications are available for your review"],
   // "I have buyers for your business" broker template.
   "broker-template": [
     "buyers interested in purchasing businesses",
@@ -403,10 +410,12 @@ function isAllCaps(text: string): boolean {
 function hasGibberishToken(text: string, minLen: number): boolean {
   for (const run of text.match(/[A-Za-z]+/g) ?? []) {
     if (run.length < minLen) continue;
-    // A DNA or RNA sequence (a primer quoted to a genomics site) is all A/C/G/T/U and
+    // A DNA or RNA sequence (a primer quoted to a genomics site) is all A/C/G/T/U (N is
+    // the "any base" code; the rest of the IUPAC set is all consonants, so it stays
+    // out, or real mash would be exempt) and
     // is not keyboard mash: at the threshold of 50 it would otherwise bucket a real
     // inquiry with one link or a bare domain (review round 2, 2026-11-03).
-    if (/^[ACGTUacgtu]+$/.test(run)) continue;
+    if (/^[ACGTUNacgtun]+$/.test(run)) continue;
     if (/[^aeiouyAEIOUY]{7,}/.test(run)) return true;
     let flips = 0;
     for (let i = 1; i < run.length; i++) {
@@ -518,7 +527,7 @@ export function classifySpam(input: {
   }
 
   for (const [family, phrases] of Object.entries(CONTENT_FAMILIES)) {
-    if (countKeywordHits(body, phrases) > 0) {
+    if (countPhraseHits(body, phrases) > 0) {
       score += CORROBORATING_FAMILY_WEIGHT;
       reasons.push(family);
     }

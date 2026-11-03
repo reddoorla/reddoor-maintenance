@@ -31,8 +31,8 @@
     "edits": [
       {
         "file": "src/forms/spam-classifier.ts",
-        "find": "    if (countKeywordHits(body, phrases) > 0) {",
-        "replace": "    if (family !== \"bid-lure\" && countKeywordHits(body, phrases) > 0) {"
+        "find": "    if (countPhraseHits(body, phrases) > 0) {",
+        "replace": "    if (family !== \"bid-lure\" && countPhraseHits(body, phrases) > 0) {"
       }
     ],
     "test": "tests/forms/spam-classifier.test.ts",
@@ -44,8 +44,8 @@
     "edits": [
       {
         "file": "src/forms/spam-classifier.ts",
-        "find": "    if (countKeywordHits(body, phrases) > 0) {",
-        "replace": "    if (family !== \"broker-template\" && countKeywordHits(body, phrases) > 0) {"
+        "find": "    if (countPhraseHits(body, phrases) > 0) {",
+        "replace": "    if (family !== \"broker-template\" && countPhraseHits(body, phrases) > 0) {"
       }
     ],
     "test": "tests/forms/spam-classifier.test.ts",
@@ -57,8 +57,8 @@
     "edits": [
       {
         "file": "src/forms/spam-classifier.ts",
-        "find": "    if (countKeywordHits(body, phrases) > 0) {\n      score += CORROBORATING_FAMILY_WEIGHT;",
-        "replace": "    if (countKeywordHits(body, phrases) > 0) {\n      score += CORROBORATING_FAMILY_WEIGHT * countKeywordHits(body, phrases);"
+        "find": "    if (countPhraseHits(body, phrases) > 0) {\n      score += CORROBORATING_FAMILY_WEIGHT;",
+        "replace": "    if (countPhraseHits(body, phrases) > 0) {\n      score += CORROBORATING_FAMILY_WEIGHT * countPhraseHits(body, phrases);"
       }
     ],
     "test": "tests/forms/spam-classifier.test.ts",
@@ -70,8 +70,8 @@
     "edits": [
       {
         "file": "src/forms/spam-classifier.ts",
-        "find": "    \"invitation to bid\",",
-        "replace": "    \"invitation to bid\",\n    \"provide an estimate\","
+        "find": "  \"bid-lure\": [\"review the attached rfq\", \"specifications are available for your review\"],",
+        "replace": "  \"bid-lure\": [\"review the attached rfq\", \"specifications are available for your review\", \"provide an estimate\"],"
       }
     ],
     "test": "tests/forms/spam-classifier.test.ts",
@@ -109,8 +109,8 @@
     "edits": [
       {
         "file": "src/forms/spam-classifier.ts",
-        "find": "    \"invitation to bid\",",
-        "replace": "    \"invitation to bid\",\n    \"interested in procuring\","
+        "find": "  \"bid-lure\": [\"review the attached rfq\", \"specifications are available for your review\"],",
+        "replace": "  \"bid-lure\": [\"review the attached rfq\", \"specifications are available for your review\", \"interested in procuring\"],"
       }
     ],
     "test": "tests/forms/spam-classifier.test.ts",
@@ -130,13 +130,13 @@
     "expect": "red"
   },
   {
-    "id": "m11-drop-invitation-to-bid",
+    "id": "m11-drop-specifications",
     "why": "A lure phrase is dropped from its family, so that lure no longer corroborates",
     "edits": [
       {
         "file": "src/forms/spam-classifier.ts",
-        "find": "    \"invitation to bid\",\n",
-        "replace": ""
+        "find": "  \"bid-lure\": [\"review the attached rfq\", \"specifications are available for your review\"],",
+        "replace": "  \"bid-lure\": [\"review the attached rfq\"],"
       }
     ],
     "test": "tests/forms/spam-classifier.test.ts",
@@ -148,8 +148,8 @@
     "edits": [
       {
         "file": "src/forms/spam-classifier.ts",
-        "find": "    \"attached rfq\",",
-        "replace": "    \"attached rqf\","
+        "find": "  \"bid-lure\": [\"review the attached rfq\", \"specifications are available for your review\"],",
+        "replace": "  \"bid-lure\": [\"review the attached rqf\", \"specifications are available for your review\"],"
       }
     ],
     "test": "tests/forms/spam-classifier.test.ts",
@@ -161,8 +161,8 @@
     "edits": [
       {
         "file": "src/forms/spam-classifier.ts",
-        "find": "    \"invitation to bid\",",
-        "replace": "    \"invitation to bid\",\n    \"lead time\","
+        "find": "  \"bid-lure\": [\"review the attached rfq\", \"specifications are available for your review\"],",
+        "replace": "  \"bid-lure\": [\"review the attached rfq\", \"specifications are available for your review\", \"lead time\"],"
       }
     ],
     "test": "tests/forms/spam-classifier.test.ts",
@@ -174,8 +174,8 @@
     "edits": [
       {
         "file": "src/forms/spam-classifier.ts",
-        "find": "    if (countKeywordHits(body, phrases) > 0) {",
-        "replace": "    if (countKeywordHits(message, phrases) > 0) {"
+        "find": "    if (countPhraseHits(body, phrases) > 0) {",
+        "replace": "    if (countPhraseHits(message, phrases) > 0) {"
       }
     ],
     "test": "tests/forms/spam-classifier.test.ts",
@@ -195,39 +195,39 @@
     "expect": "red"
   },
   {
-    "id": "m16-broaden-rfq",
-    "why": "\"attached rfq\" broadens to \"rfq\", so a genuine purchase order with an RFQ number and a link buckets",
+    "id": "m16-broaden-attached-rfq",
+    "why": "\"review the attached rfq\" broadens to \"attached rfq\", so a subcontractor thanking a client for its RFQ, with a link, buckets",
     "edits": [
       {
         "file": "src/forms/spam-classifier.ts",
-        "find": "    \"attached rfq\",",
-        "replace": "    \"rfq\","
+        "find": "  \"bid-lure\": [\"review the attached rfq\", \"specifications are available for your review\"],",
+        "replace": "  \"bid-lure\": [\"attached rfq\", \"specifications are available for your review\"],"
       }
     ],
     "test": "tests/forms/spam-classifier.test.ts",
     "expect": "red"
   },
   {
-    "id": "m17-broaden-to-bid",
-    "why": "\"invitation to bid\" broadens to \"to bid\", so a buyer who plans to bid on a contract and links its site buckets",
+    "id": "m17-readd-invitation-to-bid",
+    "why": "\"invitation to bid\" is added back, so a subcontractor thanking a client for the invitation, with a link, buckets",
     "edits": [
       {
         "file": "src/forms/spam-classifier.ts",
-        "find": "    \"invitation to bid\",",
-        "replace": "    \"to bid\","
+        "find": "  \"bid-lure\": [\"review the attached rfq\", \"specifications are available for your review\"],",
+        "replace": "  \"bid-lure\": [\"review the attached rfq\", \"specifications are available for your review\", \"invitation to bid\"],"
       }
     ],
     "test": "tests/forms/spam-classifier.test.ts",
     "expect": "red"
   },
   {
-    "id": "m18-broaden-submit",
-    "why": "\"invite your team to submit a quote\" broadens to \"invite your team to submit\", so a nonprofit's real RFP with a link buckets",
+    "id": "m18-readd-invite-to-quote",
+    "why": "\"invite your team to submit a quote\" is added back, so a homeowner asking a builder for a quote with a photo link buckets",
     "edits": [
       {
         "file": "src/forms/spam-classifier.ts",
-        "find": "    \"invite your team to submit a quote\",",
-        "replace": "    \"invite your team to submit\","
+        "find": "  \"bid-lure\": [\"review the attached rfq\", \"specifications are available for your review\"],",
+        "replace": "  \"bid-lure\": [\"review the attached rfq\", \"specifications are available for your review\", \"invite your team to submit a quote\"],"
       }
     ],
     "test": "tests/forms/spam-classifier.test.ts",
@@ -278,7 +278,7 @@
     "edits": [
       {
         "file": "src/forms/spam-classifier.ts",
-        "find": "    if (/^[ACGTUacgtu]+$/.test(run)) continue;\n",
+        "find": "    if (/^[ACGTUNacgtun]+$/.test(run)) continue;\n",
         "replace": ""
       }
     ],
@@ -291,7 +291,7 @@
     "edits": [
       {
         "file": "src/forms/spam-classifier.ts",
-        "find": "    if (/^[ACGTUacgtu]+$/.test(run)) continue;",
+        "find": "    if (/^[ACGTUNacgtun]+$/.test(run)) continue;",
         "replace": "    if (/^[ACGTUacgtu]+$/.test(run)) return false;"
       }
     ],
@@ -304,7 +304,7 @@
     "edits": [
       {
         "file": "src/forms/spam-classifier.ts",
-        "find": "    if (/^[ACGTUacgtu]+$/.test(run)) continue;",
+        "find": "    if (/^[ACGTUNacgtun]+$/.test(run)) continue;",
         "replace": "    if (/^[ACGTU]+$/.test(run)) continue;"
       }
     ],
@@ -319,6 +319,45 @@
         "file": "src/forms/spam-classifier.ts",
         "find": "    \"ever considered selling the business\",",
         "replace": "    \"considered selling the business\","
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m26-substring-match",
+    "why": "Family phrases match as substrings, so \"never considered selling the business\" hits the broker family",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "  return phrases.filter((p) => new RegExp(`\\\\b${p}\\\\b`).test(lower)).length;",
+        "replace": "  return phrases.filter((p) => lower.includes(p)).length;"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m27-dna-no-start-anchor",
+    "why": "The DNA test loses its start anchor, so any mash ending in A/C/G/T/U is exempt",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    if (/^[ACGTUNacgtun]+$/.test(run)) continue;",
+        "replace": "    if (/[ACGTUNacgtun]+$/.test(run)) continue;"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m28-dna-no-rna",
+    "why": "U is dropped, so an RNA primer is scored as gibberish",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    if (/^[ACGTUNacgtun]+$/.test(run)) continue;",
+        "replace": "    if (/^[ACGTNacgtn]+$/.test(run)) continue;"
       }
     ],
     "test": "tests/forms/spam-classifier.test.ts",
