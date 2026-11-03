@@ -85,8 +85,19 @@ describe("markWaiting — a transitive vuln still present after 4 lockfile windo
     expect(out!.transitiveStuck).toBe(true);
     expect(out!.waiting).toBeUndefined();
     expect(out!.title).toBe(
-      "3 critical/high vulns — transitive-only, still present after 4 lockfile windows (the last closed 2026-09-14)",
+      "3 critical/high vulns — transitive-only, flagged since 2026-08-20 and through 4 lockfile windows (the last closed 2026-09-14)",
     );
+  });
+
+  // Review round 1: the rise arrives badged WORSE that day, then stands.
+  it("a standing item is WORSE on the day it rises, and standing a day later", () => {
+    const standing = { ...item, status: "standing" as const };
+    const [onDay] = markWaiting([standing], flagged("2026-08-20"), stuckAt, true);
+    expect(onDay!.status).toBe("worse");
+    const dayAfter = new Date(stuckAt.getTime() + MS_PER_DAY);
+    const [later] = markWaiting([standing], flagged("2026-08-20"), dayAfter, true);
+    expect(later!.status).toBe("standing");
+    expect(later!.transitiveStuck).toBe(true);
   });
 
   it("two windows in, it is not stuck", () => {

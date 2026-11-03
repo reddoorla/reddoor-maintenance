@@ -46,7 +46,11 @@
     "id": "x4-ladder-ignores-stuck",
     "why": "markWaiting marks it stuck but the ladder still says Watch, so it is not mailed",
     "edits": [
-      { "file": "src/alerts/ladder.ts", "find": " && it.transitiveStuck !== true", "replace": "" }
+      {
+        "file": "src/alerts/ladder.ts",
+        "find": " && it.transitiveStuck !== true",
+        "replace": ""
+      }
     ],
     "test": ["tests/dashboard/ladder.test.ts", "tests/reports/digest-run.test.ts"],
     "expect": "red"
@@ -62,6 +66,19 @@
       }
     ],
     "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "x6-rise-not-badged",
+    "why": "Review round 1: the rise day arrives with no WORSE badge",
+    "edits": [
+      {
+        "file": "src/alerts/waiting.ts",
+        "find": "          ...escalated(\n            it,\n            stuckAt,",
+        "replace": "          ...((x: AttentionItem, _a: Date, title: string) => ({ ...x, title }))(\n            it,\n            stuckAt,"
+      }
+    ],
+    "test": "tests/alerts/waiting.test.ts",
     "expect": "red"
   }
 ]

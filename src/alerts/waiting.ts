@@ -88,7 +88,10 @@ export function transitiveVulnEscalatesAt(firstFlaggedDay: string): Date | null 
 export const TRANSITIVE_ATTENTION_WINDOWS = 4;
 
 /** When a transitive-only vuln first flagged on `firstFlaggedDay` goes back to Attention:
- *  the close of its TRANSITIVE_ATTENTION_WINDOWS-th window, plus the settle days. PURE. */
+ *  the close of its TRANSITIVE_ATTENTION_WINDOWS-th window, plus the settle days. The day
+ *  is the site's `vuln:` key's first sighting, so it counts the site's critical/high vulns,
+ *  not one advisory: a site that went transitive-only last week after a month of a direct
+ *  vuln rises on the month. The title says "flagged since", which is what is measured. PURE. */
 export function transitiveVulnAttentionAt(firstFlaggedDay: string): Date | null {
   const closes = lockfileWindowClosesAfter(firstFlaggedDay);
   return closes
@@ -169,7 +172,7 @@ export function markWaiting(
           ...escalated(
             it,
             stuckAt,
-            `${vulnNoun(it.metric)} — transitive-only, still present after ${TRANSITIVE_ATTENTION_WINDOWS} lockfile windows (the last closed ${last})`,
+            `${vulnNoun(it.metric)} — transitive-only, flagged since ${since} and through ${TRANSITIVE_ATTENTION_WINDOWS} lockfile windows (the last closed ${last})`,
           ),
           transitiveStuck: true,
         };

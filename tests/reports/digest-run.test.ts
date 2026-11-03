@@ -933,7 +933,7 @@ describe("runDigest", () => {
   // The operator, 2026-11-03: four windows on, it is Attention again, so it is mailed.
   it("mails a transitive-only vuln still present after 4 lockfile windows", async () => {
     const html = await digestWithTransitiveVuln("2026-08-20");
-    expect(html).toContain("still present after 4 lockfile windows");
+    expect(html).toContain("flagged since 2026-08-20 and through 4 lockfile windows");
   });
 
   it("the exhausted flip alone (count unchanged) surfaces the vuln badged WORSE", async () => {

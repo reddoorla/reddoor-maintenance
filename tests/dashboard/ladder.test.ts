@@ -224,7 +224,7 @@ describe("one signal per site: tier and Needs-you group", () => {
     });
     expect(verdictOf(m)).toEqual({ tier: "attention", group: "attention" });
     expect(buildNeedsYouFeed(m)[0]!.reasons).toEqual([
-      "1 critical/high vuln — transitive-only, still present after 4 lockfile windows (the last closed 2026-10-05)",
+      "1 critical/high vuln — transitive-only, flagged since 2026-09-10 and through 4 lockfile windows (the last closed 2026-10-05)",
     ]);
   });
 
