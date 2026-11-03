@@ -558,11 +558,22 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
     }
     // A gated site's every form page must carry the widget, not only the one the
     // probe submitted (the 2026-11-03 forms review).
-    const coverage =
-      site.requireTurnstile && runner.coverage
-        ? await runner.coverage(await coverageUrls(ctx, site.deployedUrl))
-        : undefined;
-    const coverageNote = coverage ? ` — ${coverageSummary(coverage)}` : "";
+    // A pass that cannot run (the browser would not launch) says so and judges
+    // nothing; it never throws away the submit outcome the run already earned.
+    let coverage: TurnstileCoverage | undefined;
+    let coverageError: string | undefined;
+    if (site.requireTurnstile && runner.coverage) {
+      try {
+        coverage = await runner.coverage(await coverageUrls(ctx, site.deployedUrl));
+      } catch (err) {
+        coverageError = firstLine(err);
+      }
+    }
+    const coverageNote = coverage
+      ? ` — ${coverageSummary(coverage)}`
+      : coverageError !== undefined
+        ? ` — Turnstile coverage could not run: ${coverageError}`
+        : "";
     const coverageFailed = coverage !== undefined && uncoveredPaths(coverage).length > 0;
     if (!outcome.formPresent) {
       return {

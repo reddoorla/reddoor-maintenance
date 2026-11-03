@@ -5,33 +5,37 @@ import {
   checkTurnstileCoverage,
   coverageSummary,
   uncoveredPaths,
+  type PageCoverage,
   type TurnstileCoverage,
 } from "../../src/audits/turnstile-coverage.js";
 import { applyCoverage, formE2eAudit, type FormRunner } from "../../src/audits/form-e2e.js";
+import { selectFleetSites } from "../../src/inventory/select.js";
 
 // The 2026-11-03 forms review: reddoorla.com's /contact carried the Turnstile
 // widget, so form-e2e scored the site's widget "pass", while the inquiry modal on
 // /medtech and /boise rendered none and every submission from it was stored as
 // spam. These pages model each shape the coverage pass must tell apart.
 
+const HYDRATED = `<script>document.documentElement.setAttribute("data-hydrated","")</script>`;
 const NAV = `<nav><a href="/contact#inquire">Let's talk</a></nav>`;
 
 /** The InquiryModal convention: a document-level capture listener turns any
  *  `#inquire` click into an open dialog holding an email form. */
-const modal = (withMount: boolean) => `
+const modal = (withMount: boolean, hydrated = true) => `
 <script>
   document.addEventListener("click", (e) => {
     const t = e.target.closest('[data-inquire], a[href$="#inquire"]');
     if (!t) return;
     e.preventDefault();
-    if (document.querySelector('[role="dialog"]')) return;
+    if (document.querySelector(".inquiry")) return;
     const d = document.createElement("div");
+    d.className = "inquiry";
     d.setAttribute("role", "dialog");
     d.innerHTML = '<form><input type="email" name="email"><button>Inquire Now</button></form>'
       + ${withMount ? `'<div class="cf-turnstile"></div>'` : "''"};
     document.body.appendChild(d);
   }, true);
-  document.documentElement.setAttribute("data-hydrated", "");
+  ${hydrated ? `document.documentElement.setAttribute("data-hydrated", "");` : ""}
 </script>`;
 
 const page = (body: string) =>
@@ -47,14 +51,10 @@ const PAGES: Record<string, string> = {
   // The fix: the same modal with a mount.
   "/fixed": page(`${NAV}<h1>Fixed</h1>${modal(true)}`),
   // No modal on this page: the nav CTA navigates to /contact. Not a form page.
-  "/about": page(
-    `${NAV}<h1>About</h1><script>document.documentElement.setAttribute("data-hydrated","")</script>`,
-  ),
-  // A page whose CTA navigates to ANOTHER page that shows a dialog form with no
-  // widget: that form is the other page's, judged on its own visit, never this one's.
-  "/team": page(
-    `<a href="/landing#inquire">Talk to us</a><script>document.documentElement.setAttribute("data-hydrated","")</script>`,
-  ),
+  "/about": page(`${NAV}<h1>About</h1>${HYDRATED}`),
+  // A CTA that navigates to ANOTHER page showing a dialog form with no widget:
+  // that form is the other page's, judged on its own visit, never this one's.
+  "/team": page(`<a href="/landing#inquire">Talk to us</a>${HYDRATED}`),
   "/landing": page(`<div role="dialog"><form><input type="email" name="email"></form></div>`),
   // An offer hero: a hand-off form (action ends #inquire, its button is a trigger)
   // that opens the modal. The hand-off form itself must not read as a bare form.
@@ -67,6 +67,24 @@ const PAGES: Record<string, string> = {
   "/newsletter": page(
     `<form method="POST"><input type="email" name="email"><button>Join</button></form>`,
   ),
+  // Two lead forms, one widget: the second form has no widget of its own.
+  "/two-forms": page(
+    `<form method="POST"><input type="email" name="email"><div class="cf-turnstile"></div></form>` +
+      `<footer><form method="POST"><input type="email" name="email"><button>Join</button></form></footer>`,
+  ),
+  // A form that posts somewhere other than ingest, marked so: not judged.
+  "/preferences": page(
+    `<form method="POST" action="/api/email-preferences" data-turnstile-exempt><input type="email" name="email"></form>`,
+  ),
+  // A dialog already open before the click, holding a covered form, ahead of an
+  // inquiry modal with no widget: only the dialog the click opened is judged, so
+  // the popup's widget cannot hide the modal's gap.
+  "/popup": page(
+    `<div role="dialog" class="popup"><form><input type="email" name="email"><div class="cf-turnstile"></div></form></div>${NAV}${modal(false)}`,
+  ),
+  // The same modal on a page that never says it hydrated: a click that opens
+  // nothing cannot be told from a plain link, so the modal is not judged.
+  "/no-marker": page(`<a href="/contact#inquire">Let's talk</a>`),
 };
 
 let server: Server;
@@ -90,22 +108,26 @@ afterAll(async () => {
   await new Promise<void>((r) => server.close(() => r()));
 });
 
-const run = (paths: string[]) =>
+const run = (paths: string[], budgetMs?: number) =>
   checkTurnstileCoverage(
     paths.map((p) => base + p),
-    { hydrationTimeoutMs: 1000, openTimeoutMs: 1000 },
+    {
+      hydrationTimeoutMs: 1000,
+      openTimeoutMs: 1000,
+      ...(budgetMs !== undefined ? { budgetMs } : {}),
+    },
   );
 
 describe("turnstile coverage, in a real browser", () => {
   it("passes the known-good page: a form with its widget", async () => {
     const c = await run(["/contact"]);
-    expect(c.pages[0]).toMatchObject({ pageForm: true, pageMount: true });
+    expect(c.pages[0]).toMatchObject({ pageForm: true, pageCovered: true });
     expect(uncoveredPaths(c)).toEqual([]);
   });
 
   it("fails a page whose modal opens a form with no widget", async () => {
     const c = await run(["/contact", "/medtech"]);
-    expect(c.pages[1]).toMatchObject({ pageForm: false, modalForm: true, modalMount: false });
+    expect(c.pages[1]).toMatchObject({ pageForm: false, modalForm: true, modalCovered: false });
     expect(uncoveredPaths(c)).toEqual(["/medtech"]);
   });
 
@@ -117,12 +139,13 @@ describe("turnstile coverage, in a real browser", () => {
     const c = await run(["/about", "/team"]);
     expect(c.pages[0]).toMatchObject({ pageForm: false, modalForm: false });
     expect(c.pages[1]).toMatchObject({ pageForm: false, modalForm: false });
+    expect(c.pages.every((p) => p.unjudged === undefined)).toBe(true);
     expect(uncoveredPaths(c)).toEqual([]);
   });
 
   it("judges an offer hero by the modal it opens, not as a bare form", async () => {
     const c = await run(["/offer"]);
-    expect(c.pages[0]).toMatchObject({ pageForm: false, modalForm: true, modalMount: true });
+    expect(c.pages[0]).toMatchObject({ pageForm: false, modalForm: true, modalCovered: true });
     expect(uncoveredPaths(c)).toEqual([]);
   });
 
@@ -132,23 +155,52 @@ describe("turnstile coverage, in a real browser", () => {
     expect(uncoveredPaths(c)).toEqual(["/newsletter"]);
   });
 
-  it("judges nothing on a page that does not load", async () => {
+  it("fails a second form that has no widget of its own, though the page has one", async () => {
+    expect(uncoveredPaths(await run(["/two-forms"]))).toEqual(["/two-forms"]);
+  });
+
+  it("leaves out a form marked as not posting to ingest", async () => {
+    const c = await run(["/preferences"]);
+    expect(c.pages[0]?.pageForm).toBe(false);
+  });
+
+  it("judges the dialog the click opened, not a popup that was already open", async () => {
+    const c = await run(["/popup"]);
+    expect(c.pages[0]).toMatchObject({ pageCovered: true, modalForm: true, modalCovered: false });
+    expect(uncoveredPaths(c)).toEqual(["/popup"]);
+  });
+
+  it("names a page whose hydration it could not confirm instead of passing it", async () => {
+    const c = await run(["/no-marker"]);
+    expect(c.pages[0]?.unjudged).toBe("hydration");
+    expect(coverageSummary(c)).toMatch(/modal not judged: \/no-marker/);
+  });
+
+  it("judges nothing on a page that does not load, and says so", async () => {
     const c = await run(["/missing"]);
     expect(c.pages[0]?.unreachable).toBe(true);
+    expect(uncoveredPaths(c)).toEqual([]);
+    expect(coverageSummary(c)).toMatch(/not checked: no page loaded; did not load: \/missing/);
+  });
+
+  it("stops at its time budget and names what it did not reach", async () => {
+    const c = await run(["/medtech", "/contact"], 0);
+    expect(c.pages.map((p) => p.unjudged)).toEqual(["deadline", "deadline"]);
     expect(uncoveredPaths(c)).toEqual([]);
   });
 });
 
-const covered: TurnstileCoverage = {
-  pages: [
-    { path: "/contact", pageForm: true, pageMount: true, modalForm: false, modalMount: false },
-  ],
-};
+const p = (path: string, over: Partial<PageCoverage> = {}): PageCoverage => ({
+  path,
+  pageForm: false,
+  pageCovered: true,
+  modalForm: false,
+  modalCovered: true,
+  ...over,
+});
+const covered: TurnstileCoverage = { pages: [p("/contact", { pageForm: true })] };
 const gap: TurnstileCoverage = {
-  pages: [
-    ...covered.pages,
-    { path: "/medtech", pageForm: false, pageMount: false, modalForm: true, modalMount: false },
-  ],
+  pages: [...covered.pages, p("/medtech", { modalForm: true, modalCovered: false })],
 };
 
 describe("folding coverage into the widget verdict", () => {
@@ -172,39 +224,43 @@ describe("folding coverage into the widget verdict", () => {
 describe("form-e2e runs the coverage pass only on a gated site", () => {
   const NOW = new Date("2026-11-03T00:00:00.000Z");
   const discoverDeps = { fetchText: async () => null };
+  const gated = {
+    path: "/tmp/r",
+    name: "reddoor",
+    deployedUrl: "https://r.example",
+    requireTurnstile: true,
+  };
+  const passingSubmit = async () => ({
+    formPresent: true as const,
+    success: true,
+    formsHealth: { testMode: true, turnstile: true },
+    turnstile: {
+      containerPresent: true,
+      scriptLoaded: true,
+      hostnameRejected: false,
+      initFailed: false,
+      widgetError: false,
+    },
+  });
   const runnerWith = (coverage: TurnstileCoverage, seen: string[][]): FormRunner => ({
-    submit: async () => ({
-      formPresent: true,
-      success: true,
-      formsHealth: { testMode: true, turnstile: true },
-      turnstile: {
-        containerPresent: true,
-        scriptLoaded: true,
-        hostnameRejected: false,
-        initFailed: false,
-        widgetError: false,
-      },
-    }),
+    submit: passingSubmit,
     coverage: async (urls) => {
       seen.push([...urls]);
       return coverage;
     },
   });
+  const verdict = (r: { details?: unknown }) =>
+    (r.details as { turnstileWidget: unknown }).turnstileWidget;
 
   it("turns a passing widget verdict to fail when a form page has no widget", async () => {
     const seen: string[][] = [];
     const r = await formE2eAudit({
-      site: {
-        path: "/tmp/r",
-        name: "reddoor",
-        deployedUrl: "https://r.example",
-        requireTurnstile: true,
-      },
+      site: gated,
       now: NOW,
       discoverDeps,
       formRunner: runnerWith(gap, seen),
     });
-    expect((r.details as { turnstileWidget: unknown }).turnstileWidget).toBe("fail");
+    expect(verdict(r)).toBe("fail");
     expect(r.status).toBe("warn");
     expect(r.summary).toMatch(/no widget on \/medtech/);
     expect(seen[0]).toContain("https://r.example/contact");
@@ -212,17 +268,12 @@ describe("form-e2e runs the coverage pass only on a gated site", () => {
 
   it("keeps the pass when every form page has the widget", async () => {
     const r = await formE2eAudit({
-      site: {
-        path: "/tmp/r",
-        name: "reddoor",
-        deployedUrl: "https://r.example",
-        requireTurnstile: true,
-      },
+      site: gated,
       now: NOW,
       discoverDeps,
       formRunner: runnerWith(covered, []),
     });
-    expect((r.details as { turnstileWidget: unknown }).turnstileWidget).toBe("pass");
+    expect(verdict(r)).toBe("pass");
     expect(r.status).toBe("pass");
   });
 
@@ -235,6 +286,71 @@ describe("form-e2e runs the coverage pass only on a gated site", () => {
       formRunner: runnerWith(gap, seen),
     });
     expect(seen).toEqual([]);
-    expect((r.details as { turnstileWidget: unknown }).turnstileWidget).toBe("pass");
+    expect(verdict(r)).toBe("pass");
+  });
+
+  it("warns a gated site with no CONTACT form when a landing page lacks the widget", async () => {
+    const r = await formE2eAudit({
+      site: gated,
+      now: NOW,
+      discoverDeps,
+      formRunner: {
+        submit: async () => ({
+          formPresent: false,
+          formsHealth: { testMode: true, turnstile: true },
+        }),
+        coverage: async () => gap,
+      },
+    });
+    expect(r.status).toBe("warn");
+    expect(verdict(r)).toBe("fail");
+  });
+
+  it("never runs it when the site refused the probe (testMode undeclared)", async () => {
+    const seen: string[][] = [];
+    await formE2eAudit({
+      site: gated,
+      now: NOW,
+      discoverDeps,
+      formRunner: {
+        submit: async () => ({ testModeUndeclared: true }),
+        coverage: async (u) => (seen.push([...u]), gap),
+      },
+    });
+    expect(seen).toEqual([]);
+  });
+
+  it("keeps the submit's result when the coverage pass itself throws", async () => {
+    const r = await formE2eAudit({
+      site: gated,
+      now: NOW,
+      discoverDeps,
+      formRunner: {
+        submit: passingSubmit,
+        coverage: async () => {
+          throw new Error("browserType.launch: boom");
+        },
+      },
+    });
+    expect(verdict(r)).toBe("pass");
+    expect(r.summary).toMatch(
+      /Turnstile coverage could not run: (Error: )?browserType\.launch: boom/,
+    );
+  });
+});
+
+describe("the fleet row carries Require Turnstile to the audit", () => {
+  it("sets requireTurnstile on the Site only when the row has it", () => {
+    const row = (name: string, requireTurnstile: boolean) =>
+      ({
+        name,
+        url: `https://${name}.example`,
+        status: "maintained",
+        acceptedWatchConditions: [],
+        requireTurnstile,
+      }) as never;
+    const sites = selectFleetSites([row("gated", true), row("open", false)], "/tmp/w");
+    expect(sites.find((s) => s.name === "gated")?.requireTurnstile).toBe(true);
+    expect(sites.find((s) => s.name === "open")?.requireTurnstile).toBeUndefined();
   });
 });
