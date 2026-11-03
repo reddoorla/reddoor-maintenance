@@ -63,5 +63,57 @@
     ],
     "test": "tests/scripts/staging-bring-main.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "M6-no-worktree-cleanup",
+    "why": "the temporary worktree is left registered in the site checkout",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "    git(o.dir, [\"worktree\", \"remove\", \"--force\", wt]);\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M7-no-shallow-refusal",
+    "why": "a shallow clone is merged anyway",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "  if (mustGit(o.dir, [\"rev-parse\", \"--is-shallow-repository\"]) === \"true\")",
+        "replace": "  if (false)"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M8-no-stray-check",
+    "why": "files pnpm wrote besides the lockfile are dropped without a word",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "      if (stray.length)",
+        "replace": "      if (false)"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M9-guess-pnpm",
+    "why": "with no packageManager pin the pnpm on PATH is used",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "  if (!m)\n    throw new Error(",
+        "replace": "  if (!m) return [\"pnpm\"];\n  if (!m)\n    throw new Error("
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
   }
 ]

@@ -40,6 +40,13 @@ function sh(cwd: string, cmd: string, args: string[]) {
 }
 const git = (cwd: string, ...args: string[]) => sh(cwd, "git", args);
 const code = (cwd: string, ...args: string[]) => spawnSync("git", args, { cwd, env: ENV }).status;
+/** The script cleaned up after itself: the checkout is its repo's only worktree. */
+const onlyCheckout = (dir: string) =>
+  expect(
+    git(dir, "worktree", "list", "--porcelain")
+      .split("\n")
+      .filter((l) => l.startsWith("worktree ")),
+  ).toHaveLength(1);
 
 /** package.json lines kept apart so git merges package.json cleanly; the lockfile sorts them together. */
 function writePkg(dir: string, deps: Record<string, string>) {
@@ -124,11 +131,12 @@ describe("staging-bring-main", () => {
     expect(lock).toContain("link:vendor/a2");
     expect(lock).toContain("link:vendor/aa");
     expect(lock).not.toContain("link:vendor/a1");
-    // the regenerated lockfile is the one pnpm itself would write: a frozen install accepts it
+    onlyCheckout(dir);
+    // the lockfile satisfies the merged package.json: a frozen install accepts it and writes nothing
     const check = join(dir, "..", "check");
     git(dir, "worktree", "add", "-q", check, "bring");
     sh(check, "pnpm", ["install", "--lockfile-only", "--frozen-lockfile", "--ignore-scripts"]);
-    expect(git(dir, "status", "--porcelain")).toBe("");
+    expect(git(check, "status", "--porcelain")).toBe("");
   });
 
   it("a conflict outside the lockfile stops with nothing made", () => {
@@ -136,12 +144,69 @@ describe("staging-bring-main", () => {
     const r = bringMain(opts(dir));
     expect(r).toEqual({ status: "conflict", files: ["package.json"] });
     expect(code(dir, "rev-parse", "--verify", "-q", "refs/heads/bring")).not.toBe(0);
+    onlyCheckout(dir);
   });
 
   it("refuses a lockfile the regenerate step left conflicted", () => {
     const dir = fixture(STAGING, MAIN);
     expect(() => bringMain(opts(dir, { pnpm: "true" }))).toThrow(/conflict markers/);
     expect(code(dir, "rev-parse", "--verify", "-q", "refs/heads/bring")).not.toBe(0);
+    onlyCheckout(dir);
+  });
+
+  it("refuses when pnpm changed a file besides the lockfile", () => {
+    const dir = fixture(STAGING, MAIN);
+    const stub = join(dir, "..", "stub.sh");
+    writeFileSync(stub, 'pnpm "$@" && echo x > stray.txt\n');
+    expect(() => bringMain(opts(dir, { pnpm: `sh ${stub}` }))).toThrow(
+      /besides pnpm-lock.yaml: stray.txt/,
+    );
+    expect(code(dir, "rev-parse", "--verify", "-q", "refs/heads/bring")).not.toBe(0);
+  });
+
+  it("names a pnpm that cannot run", () => {
+    const dir = fixture(STAGING, MAIN);
+    expect(() => bringMain(opts(dir, { pnpm: "no-such-pnpm-here" }))).toThrow(
+      /no-such-pnpm-here could not run/,
+    );
+  });
+
+  it("refuses a shallow clone, whose merge base may be missing", () => {
+    const dir = fixture(STAGING, MAIN);
+    const shallow = join(dir, "..", "shallow");
+    git(
+      join(dir, ".."),
+      "clone",
+      "-q",
+      "--depth",
+      "1",
+      "--no-single-branch",
+      `file://${dir}`,
+      shallow,
+    );
+    expect(() =>
+      bringMain(opts(shallow, { main: "origin/main", staging: "origin/staging" })),
+    ).toThrow(/shallow clone/);
+  });
+
+  it("fetches <remote>/<branch> refs before merging, and refuses to fetch any other ref", () => {
+    const dir = fixture(STAGING, MAIN);
+    const clone = join(dir, "..", "clone");
+    git(join(dir, ".."), "clone", "-q", dir, clone);
+    // staging moves on the remote after the clone: the script must merge into the moved staging
+    git(dir, "checkout", "-q", "staging");
+    writeFileSync(join(dir, "later.txt"), "x");
+    git(dir, "add", "-A");
+    git(dir, "commit", "-q", "-m", "staging moves");
+    const moved = git(dir, "rev-parse", "HEAD");
+    git(dir, "checkout", "-q", "main");
+    const r = bringMain(
+      opts(clone, { main: "origin/main", staging: "origin/staging", fetch: true }),
+    );
+    expect(r.status === "made" && r.staging).toBe(moved);
+    expect(() => bringMain(opts(clone, { branch: "other", fetch: true }))).toThrow(
+      /cannot fetch main/,
+    );
   });
 
   it("nothing to bring when main is already in staging", () => {
@@ -152,7 +217,7 @@ describe("staging-bring-main", () => {
     expect(code(dir, "rev-parse", "--verify", "-q", "refs/heads/again")).not.toBe(0);
   });
 
-  it("uses the site's pinned pnpm through corepack, and --pnpm over it", () => {
+  it("uses the site's pinned pnpm through corepack, --pnpm over it, and refuses to guess", () => {
     const root = mkdtempSync(join(tmpdir(), "bring-main-pm-"));
     roots.push(root);
     writeFileSync(
@@ -161,7 +226,7 @@ describe("staging-bring-main", () => {
     );
     expect(pnpmCommand(root, undefined)).toEqual(["corepack", "pnpm@12.5.1"]);
     expect(pnpmCommand(root, "pnpm")).toEqual(["pnpm"]);
-    expect(pnpmCommand(join(root, "missing"), undefined)).toEqual(["pnpm"]);
+    expect(() => pnpmCommand(join(root, "missing"), undefined)).toThrow(/pins no pnpm/);
   });
 
   it("parses its flags", () => {

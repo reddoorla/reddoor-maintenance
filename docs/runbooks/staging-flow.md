@@ -126,29 +126,40 @@ setting or the order below, so this is a runbook rather than a template there.
 
 ## Promotion, each time
 
-- **Bring `main` into `staging` first, with
-  `node scripts/staging-bring-main.mjs --dir <site checkout>`**, never with a
-  PR whose head is `main`. Fast-tracked patches and minors land on `main` and
-  never pass through `staging`, so `staging` falls behind. Both branches also
-  rewrite `pnpm-lock.yaml` every week: Renovate's non-major group on `main`,
-  lock-file maintenance and majors on `staging`. Git merges a lockfile as
-  text, so once both have moved the bring-main PR and the promotion PR
-  conflict on it, and GitHub cannot resolve that (on 2026-11-03,
-  caltex-landing #104 against #105, 51 hunks, and medical-solutions-of-texas
-  #111 against #113). The script cuts a branch from `staging`, merges `main`
-  into it, and has the site's pinned pnpm regenerate the lockfile
-  (`pnpm install --lockfile-only`, which resolves its own conflict markers),
-  so the lockfile race never blocks a promotion. A conflict in any other file
-  stops it with exit 2 and makes nothing: that is a real fork, such as a major
-  on `staging` and a minor of the same package on `main`, and a human's. Push
-  the branch it names, open its PR into `staging`, and merge that PR on green
-  as a **merge commit**, never a squash: a squash keeps the resolved tree but
-  drops `main` as a parent, so the promotion PR still conflicts
-  (caltex-landing#88 squashed and had to be redone as #89, 2026-10-19).
-  `land-prs.mjs` squashes wherever the base allows it, so merge this one with
-  `PUT pulls/{n}/merge` and `merge_method=merge`, pinned to the green head's
-  `sha`. If `main` moves again before the promotion merges and the promotion
-  turns dirty, run the script again.
+- **Why `main` has to come into `staging` first.** Fast-tracked patches and
+  minors land on `main` and never pass through `staging`, so `staging` falls
+  behind. Both branches are also scheduled to rewrite `pnpm-lock.yaml` every
+  week: Renovate's non-major group on `main`, and lock-file maintenance and
+  majors on `staging`. Git merges a lockfile as text, so once both have moved,
+  a bring-main PR and the promotion PR conflict on it. On 2026-11-03,
+  caltex-landing (#104 on `main`, #105 on `staging`) conflicted in 51 hunks of
+  the lockfile and nowhere else, and medical-solutions-of-texas (#111; #113 and
+  #117) in 31. GitHub can only resolve that by hand-editing the text.
+- **Bring it with the script, never with a PR whose head is `main`.** From a
+  maintenance checkout, against a full (not shallow) clone of the site:
+  `node scripts/staging-bring-main.mjs --dir <site checkout>`. It cuts a
+  branch from `staging`, merges `main` into it, and has the site's pinned
+  pnpm merge the lockfile (`pnpm install --lockfile-only`, which resolves its
+  own conflict markers), so a lockfile-only conflict needs no hand resolution.
+  A conflict in any other file stops it with exit 2 and makes nothing: that
+  is a real fork, such as a major on `staging` and a minor of the same package
+  on `main`, and a human's.
+- **Merge its PR as a merge commit, while `staging` is still where the script
+  started.** Push the branch it names and open its PR into `staging`. Merge
+  it on green only if the PR's `base.sha` is still the `staging` sha the
+  script printed; if `staging` has moved, `staging` does not require an
+  up-to-date branch, so GitHub would merge the lockfile as text again: run the
+  script again instead. Merge it as a **merge commit**, never a squash: a
+  squash keeps the resolved tree but drops `main` as a parent, so the
+  promotion PR still conflicts (caltex-landing#88 squashed and had to be
+  redone as #89, 2026-10-19). `land-prs.mjs` squashes wherever the base allows
+  it, so merge this one with `PUT pulls/{n}/merge` and `merge_method=merge`,
+  pinned to the green head's `sha`.
+- **Then promote straight away.** `main` requires an up-to-date branch, so if
+  a fast-track PR lands on `main` first, the promotion PR reads behind (or
+  dirty). Do not press "Update branch": it would push to `staging`, which only
+  takes PRs. Whenever `main` is no longer an ancestor of `staging`, run the
+  script again.
 - Open the promotion PR (head `staging`, base `main`). Say what it carries since
   the last promotion and what was checked on the staging URL.
 
