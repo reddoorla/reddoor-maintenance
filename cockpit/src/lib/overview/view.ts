@@ -1190,8 +1190,15 @@ function openText(item: AttentionItem | undefined, waiting: boolean, n: number, 
       : item.transitiveOnly === true
         ? transitiveVulnEscalatesAt(since)
         : directVulnEscalatesAt(since);
-  // A claim about our wait, never a promise that the update will clear it.
-  const then = `if ${n === 1 ? "it is" : "they are"} still open then, ${n === 1 ? "it comes" : "they come"} to us`;
+  // A claim about our wait, never a promise that the update will clear it. A deeper
+  // (transitive) one moves to Watch, not to us (the operator, 2026-10-29:
+  // "transitives should be watch not attention").
+  const deep = item.transitiveOnly === true;
+  const then = `if ${n === 1 ? "it is" : "they are"} still open then, ${
+    deep
+      ? `${n === 1 ? "it moves" : "they move"} to Watch`
+      : `${n === 1 ? "it comes" : "they come"} to us`
+  }`;
   if (waiting && at !== null)
     return item.transitiveOnly === true
       ? `${n === 1 ? "it sits" : "they sit"} deeper in the site's packages, so ${n === 1 ? "it waits" : "they wait"} for Monday's weekly package refresh and ${count(LOCKFILE_SETTLE_DAYS, "day", "days")} after it, until ${pacificDay(at)}; ${then}`
@@ -1199,10 +1206,10 @@ function openText(item: AttentionItem | undefined, waiting: boolean, n: number, 
   // Not held, yet inside its wait: the digest's first sighting could not be read, and
   // missing data never mutes (markWaiting), so it is ours to look at.
   if (at === null || now.getTime() < at.getTime())
-    return `we could not confirm when ${n === 1 ? "it was" : "they were"} first seen, so ${it} ours to look at this week`;
+    return `we could not confirm when ${n === 1 ? "it was" : "they were"} first seen, so ${it} ${deep ? "on Watch" : "ours to look at this week"}`;
   const them = n === 1 ? "it" : "them";
-  return item.transitiveOnly === true
-    ? `Monday's weekly package refresh did not clear ${them} by ${pacificDay(at)}, so ${it} ours to fix this week`
+  return deep
+    ? `Monday's weekly package refresh did not clear ${them} by ${pacificDay(at)}, so ${it} on Watch until a later refresh clears ${them}`
     : `the automatic update did not clear ${them} by ${pacificDay(at)}, so ${it} ours to fix this week`;
 }
 
@@ -1824,7 +1831,7 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Open now",
-    text: `Critical and high vulnerabilities on each site, and what is fixing them. One in a package the site uses directly waits up to ${count(DIRECT_VULN_WAIT_DAYS, "day", "days")} for an automatic update; one deeper in the packages waits for Monday's weekly package refresh, plus ${count(LOCKFILE_SETTLE_DAYS, "day", "days")}. After its date, it comes to us. A count from a security check more than ${count(PRODUCTION_STALE_DAYS, "day", "days")} old reads "not checked lately".`,
+    text: `Critical and high vulnerabilities on each site, and what is fixing them. One in a package the site uses directly waits up to ${count(DIRECT_VULN_WAIT_DAYS, "day", "days")} for an automatic update; one deeper in the packages waits for Monday's weekly package refresh, plus ${count(LOCKFILE_SETTLE_DAYS, "day", "days")}. After its date, a direct one comes to us and a deeper one moves to Watch. A count from a security check more than ${count(PRODUCTION_STALE_DAYS, "day", "days")} old reads "not checked lately".`,
   },
   {
     term: "Major-version upgrades waiting",
