@@ -733,18 +733,21 @@ describe("renderSiteDashboardHtml — site health section", () => {
     expect(none).toMatch(/<div class="tile-sub"[^>]*>only 0 of 2 routes scanned<\/div>/);
   });
 
-  it("names the skipped routes and why beside the counts, capped at three (#910)", () => {
+  it("names the routes not scanned and why beside the counts, capped at three (#910)", () => {
+    // The 11-02 sweep's real shape (CalTex): the absent fixture is out of both counts.
     const one = renderSiteDashboardHtml(
       siteRow({
         a11yViolations: 0,
         a11yRoutesScanned: 1,
-        a11yRoutesTotal: 2,
-        a11yRoutesSkipped: [{ route: "/about", reason: "status 500" }],
+        a11yRoutesTotal: 1,
+        a11yRoutesSkipped: [
+          { route: "animate-in demo", reason: "fixture not in this site's source" },
+        ],
       }),
       [],
     );
     expect(one).toMatch(
-      /<div class="tile-sub"[^>]*>only 1 of 2 routes scanned; skipped \/about \(status 500\)<\/div>/,
+      /<div class="tile-sub"[^>]*>1 of 1 routes scanned; not scanned: animate-in demo \(fixture not in this site(&#39;|')s source\)<\/div>/,
     );
     const five = renderSiteDashboardHtml(
       siteRow({
@@ -753,12 +756,12 @@ describe("renderSiteDashboardHtml — site health section", () => {
         a11yRoutesTotal: 2,
         a11yRoutesSkipped: ["/a", "/b", "/c", "/d", "/e"].map((route) => ({
           route,
-          reason: "fixture not in this site's source",
+          reason: "placeholder Prismic repo",
         })),
       }),
       [],
     );
-    expect(five).toMatch(/skipped \/a \([^)]*\), \/b \([^)]*\), \/c \([^)]*\) \+2 more/);
+    expect(five).toMatch(/not scanned: \/a \([^)]*\), \/b \([^)]*\), \/c \([^)]*\) \+2 more/);
     const none = renderSiteDashboardHtml(
       siteRow({
         a11yViolations: 0,
@@ -768,7 +771,7 @@ describe("renderSiteDashboardHtml — site health section", () => {
       }),
       [],
     );
-    expect(none).not.toMatch(/skipped/);
+    expect(none).not.toMatch(/not scanned/);
   });
 
   it("leaves the a11y tile's route line off when the counts were never stored", () => {

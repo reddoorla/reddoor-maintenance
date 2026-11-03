@@ -642,8 +642,6 @@ export function parseSecurityLockfileAudit(raw: unknown): SecurityLockfileAudit 
   };
 }
 
-/** Parse the `Security advisories` JSON cell. null when absent/blank/unparseable/not-an-array
- *  (treated as "never audited"); a valid array (possibly empty = audited clean) otherwise. */
 /** One route the a11y run did not scan, as stored (#910). */
 export type A11ySkippedRoute = { route: string; reason: string };
 
@@ -666,6 +664,8 @@ export function parseA11ySkippedRoutes(raw: unknown): A11ySkippedRoute[] | null 
   });
 }
 
+/** Parse the `Security advisories` JSON cell. null when absent/blank/unparseable/not-an-array
+ *  (treated as "never audited"); a valid array (possibly empty = audited clean) otherwise. */
 export function parseSecurityAdvisories(raw: unknown): SecurityAdvisory[] | null {
   if (typeof raw !== "string" || raw.trim() === "") return null;
   let parsed: unknown;

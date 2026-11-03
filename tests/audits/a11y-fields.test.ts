@@ -120,13 +120,18 @@ describe("a11yCountsFromResult", () => {
       byImpact: {},
       routes: { scanned: 1, total: 2 },
       skipped: [
-        { route: "/about", path: "/about", status: 500, reason: "status 500" },
+        {
+          route: "animate-in demo",
+          path: "/dev/animate-in",
+          status: 404,
+          reason: "placeholder Prismic repo",
+        },
         { route: "/x" },
         null,
       ],
     } as unknown as Parameters<typeof a11yResult>[0]);
     expect(a11yCountsFromResult(run).routesSkipped).toEqual([
-      { route: "/about", reason: "status 500" },
+      { route: "animate-in demo", reason: "placeholder Prismic repo" },
     ]);
   });
 

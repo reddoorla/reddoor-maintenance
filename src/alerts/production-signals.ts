@@ -349,12 +349,12 @@ export function collectA11yAlerts(
 
 /** Accessibility coverage lost (#910): a fresh weekly run that scanned fewer routes than it
  *  was given. Its findings cover only the routes it reached, so `collectA11yAlerts` reads it as
- *  not measured, and without this item a site could lose half its coverage, or hide real
- *  findings behind one route that stopped answering, with nothing on the Needs-you feed.
- *  Attention, not Broken (the P1-78 ladder): coverage loss is the instrument losing its view;
- *  a page a visitor cannot load is uptime's and render's to call Broken. A skip the site
- *  declared is out of both counts, so a fixture it never had never fires this. Which routes
- *  were skipped, and why, is on the site page (`a11yRoutesSkipped`). */
+ *  not measured, and without this item a partial run would raise nothing anywhere. Attention,
+ *  not Broken (the P1-78 ladder): coverage loss is the instrument losing its view; a route
+ *  that answers an error is a `route-missing` finding, which `collectA11yAlerts` raises.
+ *  TODAY THIS CANNOT FIRE: every skip the spec writes has a declared reason, and a declared
+ *  skip leaves both counts (`a11yAudit`'s `routes`), so stored scanned equals total. It fires
+ *  for a skip with any other reason, and is the item a narrower "declared" would reach. */
 export function collectA11yCoverageAlerts(
   sites: WebsiteRow[],
   baseUrl: string,

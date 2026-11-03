@@ -541,12 +541,14 @@ function spam(
 /** How many skipped routes the a11y tile names before "+N more". */
 const A11Y_SKIPS_NAMED = 3;
 
-/** "skipped /a (reason), /b (reason)", or null when nothing was skipped or nothing stored. */
+/** "not scanned: a (reason), b (reason)", or null when nothing was skipped or nothing stored.
+ *  Worded "not scanned", not "skipped": a declared skip is out of the counts, so the tile
+ *  reads "1 of 1 routes scanned; not scanned: animate-in demo (…)" without contradicting. */
 export function a11ySkipNote(skipped: WebsiteRow["a11yRoutesSkipped"]): string | null {
   if (skipped === null || skipped.length === 0) return null;
   const named = skipped.slice(0, A11Y_SKIPS_NAMED).map((r) => `${r.route} (${r.reason})`);
   const more = skipped.length - named.length;
-  return `skipped ${named.join(", ")}${more > 0 ? ` +${more} more` : ""}`;
+  return `not scanned: ${named.join(", ")}${more > 0 ? ` +${more} more` : ""}`;
 }
 
 export function buildSiteView(

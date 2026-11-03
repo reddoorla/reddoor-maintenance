@@ -1599,6 +1599,25 @@ describe("audits/a11y — a fixture the site does not define is not a missing ro
     expect((result.details as { routes?: unknown }).routes).toEqual({ scanned: 1, total: 1 });
   });
 
+  it("puts the skip list it counted from on details, [] when the artifact has none (#910)", async () => {
+    const { result } = await auditSite(
+      async (dir) => {
+        await writePkg(dir, {});
+        await writeDevFixtures(dir, ["a11y-fixtures", "animate-in"]);
+      },
+      { totalViolations: 0, byImpact: {} },
+    );
+    expect((result.details as { skipped?: unknown }).skipped).toEqual([]);
+    const declared = await auditSite(
+      async (dir) => {
+        await writePkg(dir, {});
+        await writeDevFixtures(dir, ["a11y-fixtures"]);
+      },
+      { totalViolations: 0, byImpact: {}, skipped: [SKIPPED_ANIMATE] },
+    );
+    expect((declared.result.details as { skipped?: unknown }).skipped).toEqual([SKIPPED_ANIMATE]);
+  });
+
   it("a run that skipped nothing reads every route scanned (#910)", async () => {
     const { result } = await auditSite(
       async (dir) => {
