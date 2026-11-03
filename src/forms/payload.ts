@@ -19,7 +19,10 @@ export type SubmissionPayload = {
   message?: string;
   sourceUrl?: string;
   utm?: string;
-  /** Any additional, site-specific fields. */
+  /** Any additional, site-specific fields. `composedMessage: true` says the site
+   *  wrote `message` itself (a template, not visitor text); ingest then skips the
+   *  duplicate-body scans, but only on a Turnstile-gated site with a passing
+   *  token (see ingest.ts `composedOnVerifiedSite`). */
   extra?: Record<string, unknown>;
   /** Reserved transport envelope (token/IP/UA); stripped by normalizeSubmission, never persisted. */
   _meta?: SubmissionMeta;

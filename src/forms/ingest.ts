@@ -337,6 +337,24 @@ export async function ingestSubmission(
     }
   }
 
+  // A message the SITE composed is not visitor text, so the duplicate scans below
+  // must not judge it. reddoor's landing-page modal writes the same sentence for
+  // every visitor's step one and the same question labels for every application,
+  // so the scan read each lead after the first in a 30-day window as a spray and
+  // stored it `duplicate-body`/`similar-body`, silently (2026-11-03,
+  // sub_4bc17c8e…, whose Turnstile token had PASSED). The site says so with
+  // `extra.composedMessage: true`. The flag alone is worth nothing to a bot: it
+  // counts only on a site that requires Turnstile, with a token that passed on the
+  // site's own host (a null hostname fails open, as above). Every other path —
+  // visitor-typed messages, ungated sites, a failed, absent or unverifiable token,
+  // a foreign-host pass — still runs the scan AND its retro-bucketing.
+  const composedOnVerifiedSite =
+    n.extraFields["composedMessage"] === true &&
+    site.requireTurnstile &&
+    turnstile === "pass" &&
+    (verification.hostname === null ||
+      turnstileHostnameAcceptable(verification.hostname, site.url));
+
   // Duplicate/spray signal: the same pitch blasted across the fleet (or repeated) is
   // a bot tell a lone content scan can't see. An identical body ('exact') OR a
   // template-substituted near-copy ('similar' — the live dog-harness spray differed
@@ -354,6 +372,7 @@ export async function ingestSubmission(
     spamHandlingEnabled &&
     n.formType !== "newsletter" &&
     n.message !== undefined &&
+    !composedOnVerifiedSite &&
     deps.findRecentDuplicates
   ) {
     try {
