@@ -1,0 +1,41 @@
+[
+  {
+    "id": "c1-alarm-at-renewal-day",
+    "why": "The Attention threshold goes back to 30: a cert on its renewal day alarms (Data Dynamiq and MSOT, 2026-11-03)",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "export const CERT_ATTENTION_DAYS = 20;",
+        "replace": "export const CERT_ATTENTION_DAYS = 30;"
+      }
+    ],
+    "test": ["tests/alerts/production-signals.test.ts", "cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "c2-no-attention-before-broken",
+    "why": "A renewal ten days overdue raises nothing until Broken at 7",
+    "edits": [
+      {
+        "file": "src/alerts/production-signals.ts",
+        "find": "export const CERT_ATTENTION_DAYS = 20;",
+        "replace": "export const CERT_ATTENTION_DAYS = 7;"
+      }
+    ],
+    "test": ["tests/alerts/production-signals.test.ts", "cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "c3-cell-disagrees",
+    "why": "The overview's certificate cell keeps bolding at 30 while the ladder says 20",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "return { ok: d > CERT_ATTENTION_DAYS, text:",
+        "replace": "return { ok: d > 30, text:"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  }
+]

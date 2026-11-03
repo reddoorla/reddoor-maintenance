@@ -404,7 +404,7 @@ describe("review round 5 (P1-78c)", () => {
     const at = (id: string, name: string, days: number) =>
       site({ id, name, certDaysRemaining: days, domainCheckedAt: FRESH });
     const m = buildCockpitModel(
-      [at("recZ", "Zulu", 29), at("recA", "Alpha", 9)],
+      [at("recZ", "Zulu", 19), at("recA", "Alpha", 9)],
       [],
       {},
       BASE,
