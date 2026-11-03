@@ -762,17 +762,13 @@ describe("classifySpam — threshold 50 and corroborating content families (2026
     // source goes red (a table built from CONTENT_FAMILIES itself could not).
     const cases: ReadonlyArray<[string, string]> = [
       ["You are receiving this invitation to bid on a warehouse job.", "bid-lure"],
-      ["We would like to invite your team to submit pricing.", "bid-lure"],
+      ["We would like to invite your team to submit a quote by Friday.", "bid-lure"],
       ["Please open the attached RFQ before Friday.", "bid-lure"],
-      ["Reply with your proposed unit price.", "bid-lure"],
       ["The specifications are available for your review online.", "bid-lure"],
-      ["I have buyers interested in purchasing firms nearby.", "broker-template"],
-      ["Two buyers that are interested in purchasing called me.", "broker-template"],
+      ["I have buyers interested in purchasing businesses nearby.", "broker-template"],
       ["Have you considered selling the business this year?", "broker-template"],
       ["Have you considered selling your business this year?", "broker-template"],
-      ["Are you interested in selling at the right price?", "broker-template"],
       ["If selling has crossed your mind, call me.", "broker-template"],
-      ["We have buyers actively looking in your region.", "broker-template"],
     ];
     expect(cases.length).toBe(Object.values(CONTENT_FAMILIES).flat().length);
     for (const [message, family] of cases) {
@@ -788,14 +784,14 @@ describe("classifySpam — threshold 50 and corroborating content families (2026
   it("a bid/RFQ lure alone scores 30 and is delivered; with a link it buckets", () => {
     const alone = clean({
       message:
-        "Hello, we would like to invite your team to submit a proposal for our new project. Please reply if interested.",
+        "Hello, we would like to invite your team to submit a quote for our new project. Please reply if interested.",
     });
     expect(alone).toEqual({ score: 30, reasons: ["bid-lure"] });
     expect(alone.score >= SPAM_THRESHOLD).toBe(false);
 
     const withLink = clean({
       message:
-        "Hello, we would like to invite your team to submit a proposal. Project files: https://files.example/bid",
+        "Hello, we would like to invite your team to submit a quote. Project files: https://files.example/bid",
     });
     expect(withLink).toEqual({ score: 55, reasons: ["links:1", "bid-lure"] });
     expect(withLink.score >= SPAM_THRESHOLD).toBe(true);
@@ -804,7 +800,7 @@ describe("classifySpam — threshold 50 and corroborating content families (2026
   it("a business-broker template alone scores 30 and is delivered; with a link it buckets", () => {
     const alone = clean({
       message:
-        "Hi, I represent several buyers interested in purchasing companies like yours. Are you interested in selling?",
+        "Hi, I represent several buyers interested in purchasing businesses in your area. Would selling suit you?",
     });
     expect(alone).toEqual({ score: 30, reasons: ["broker-template"] });
     expect(alone.score >= SPAM_THRESHOLD).toBe(false);
@@ -825,7 +821,7 @@ describe("classifySpam — threshold 50 and corroborating content families (2026
       name: "Dana Ortiz",
       email: "dana@ortiz-fabrication.example",
       message:
-        "We are a fabrication shop in San Antonio. Please see the attached RFQ for 40 steel brackets and reply with your proposed unit price and lead time.",
+        "We are a fabrication shop in San Antonio. Please see the attached RFQ for 40 steel brackets and reply with an invitation to bid timeline and lead time.",
     });
     expect(rfq).toEqual({ score: 30, reasons: ["bid-lure"] });
     expect(rfq.score >= SPAM_THRESHOLD).toBe(false);
@@ -837,6 +833,39 @@ describe("classifySpam — threshold 50 and corroborating content families (2026
         "We just bought a lot in Eagle and would love a quote. Could you provide an estimate and a lead time? The scope of work is a 3,000 sq ft single story. Listing: https://listing.example/lot-12",
     });
     expect(lead).toEqual({ score: 25, reasons: ["links:1"] });
+  });
+
+  it("genuine buyer, seller and broker messages with one link match no family", () => {
+    // Each is how a real lead to this fleet writes, and each sits one word away from a
+    // family phrase, so a broadened phrase goes red here.
+    for (const message of [
+      "Please quote 200 units; we need a unit price and an RFQ number for our PO. We plan to bid on the city contract. https://co.example",
+      "Please send your proposed unit price for 2,000 machined brackets per the drawing at https://mfg.example/rfq/123",
+      "Our foundation would like to invite your team to submit a proposal. The RFP is here: https://foundation.example/rfp",
+      "I saw the large print in your window. Are you interested in selling it? My collection: https://collector.example",
+      "We are interested in selling your products in our store and are actively looking for suppliers. https://store.example",
+      "I represent buyers interested in purchasing multifamily assets in Pasadena. Details: https://broker.example/buyers",
+      "I have buyers actively looking for industrial land near your parcel. See https://broker.example",
+    ]) {
+      expect(clean({ message }), message).toEqual({ score: 25, reasons: ["links:1"] });
+    }
+  });
+
+  it("a message that hits both families scores both (60)", () => {
+    const v = clean({
+      message: "If selling has crossed your mind, see the attached RFQ from our acquirer.",
+    });
+    expect(v).toEqual({ score: 60, reasons: ["bid-lure", "broker-template"] });
+  });
+
+  it("a DNA primer quoted to a genomics site is not gibberish", () => {
+    const v = clean({
+      message:
+        "Does your kit work with primer GCTTCGGCCTTCGGTCCGTT? Saw the protocol on kitprotocols.com",
+    });
+    expect(v).toEqual({ score: 20, reasons: ["bare-domain"] });
+    // real mash is still caught
+    expect(clean({ message: "OsDMQohNGefhfCqqQCwr" }).reasons).toContain("gibberish-body");
   });
 
   it("a buyer-voice purchase inquiry with one link matches no family", () => {
@@ -851,7 +880,7 @@ describe("classifySpam — threshold 50 and corroborating content families (2026
     expect(clean({ message: "Please review the Attached RFQ today." }).reasons).toEqual([
       "bid-lure",
     ]);
-    expect(clean({ message: "Our buyers-actively-looking list is long." }).reasons).toEqual([
+    expect(clean({ message: "Have you considered-selling-the-business yet?" }).reasons).toEqual([
       "broker-template",
     ]);
   });

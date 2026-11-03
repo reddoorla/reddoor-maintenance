@@ -148,8 +148,8 @@
     "edits": [
       {
         "file": "src/forms/spam-classifier.ts",
-        "find": "    \"proposed unit price\",",
-        "replace": "    \"proposed unit prise\","
+        "find": "    \"attached rfq\",",
+        "replace": "    \"attached rqf\","
       }
     ],
     "test": "tests/forms/spam-classifier.test.ts",
@@ -189,6 +189,97 @@
         "file": "src/forms/spam-classifier.ts",
         "find": "export const SPAM_THRESHOLD = 50;",
         "replace": "export const SPAM_THRESHOLD = 55;"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m16-broaden-rfq",
+    "why": "\"attached rfq\" broadens to \"rfq\", so a genuine purchase order with an RFQ number and a link buckets",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    \"attached rfq\",",
+        "replace": "    \"rfq\","
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m17-broaden-to-bid",
+    "why": "\"invitation to bid\" broadens to \"to bid\", so a buyer who plans to bid on a contract and links its site buckets",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    \"invitation to bid\",",
+        "replace": "    \"to bid\","
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m18-broaden-submit",
+    "why": "\"invite your team to submit a quote\" broadens to \"invite your team to submit\", so a nonprofit's real RFP with a link buckets",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    \"invite your team to submit a quote\",",
+        "replace": "    \"invite your team to submit\","
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m19-broaden-broker-buyers",
+    "why": "\"buyers interested in purchasing businesses\" broadens to \"buyers interested in purchasing\", so a real-estate broker with a real buyer and a link buckets",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    \"buyers interested in purchasing businesses\",",
+        "replace": "    \"buyers interested in purchasing\","
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m20-readd-interested-in-selling",
+    "why": "\"are you interested in selling\" is added back, so a collector asking a gallery to sell a print buckets with a link",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    \"if selling has crossed your mind\",",
+        "replace": "    \"if selling has crossed your mind\",\n    \"are you interested in selling\","
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m21-first-family-only",
+    "why": "Only the first family that matches scores, so a message hitting both scores 30, not 60",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "      reasons.push(family);\n",
+        "replace": "      reasons.push(family);\n      break;\n"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m22-dna-is-gibberish",
+    "why": "DNA sequences count as gibberish again, so a genomics inquiry quoting a primer with a bare domain scores 55 and buckets",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    if (/^[ACGTUacgtu]+$/.test(run)) continue;\n",
+        "replace": ""
       }
     ],
     "test": "tests/forms/spam-classifier.test.ts",

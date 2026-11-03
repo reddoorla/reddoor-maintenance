@@ -13,15 +13,17 @@ import { VENDORED_DISPOSABLE_DOMAINS } from "./disposable-domains.snapshot.js";
  * below actually bite. No single content signal buckets alone (each needs
  * corroboration), with deliberate exceptions: lorem-ipsum filler (+60) is
  * machine-generated content with zero genuine use, and the blocked-domain and
- * va-template signals are defined as SPAM_THRESHOLD. `spam_auto` is recoverable, so a false positive
- * is a nuisance the operator can undo, not a lost lead.
+ * va-template signals are defined as SPAM_THRESHOLD. `spam_auto` is never emailed, so
+ * a false positive is a lead the client does not see until someone reads the record.
  *
  * Lowered 60 → 50 (2026-11-03, forms spam review, recommendation 2): three spam
  * notifications reached clients at `links:1,keywords:1` (55). No real lead in the
  * stored record scored above 39, and three scored 20 to 39, so 40 is ruled out.
- * Two signals that sat at exactly 50 were trimmed with it so neither buckets alone
- * (Operator decisions, workspace `decisions/2026-11-03-2036-spam-threshold-50-two-link-invariant.md`): two links now sum
- * 45, and a forged Turnstile token scores 45.
+ * Signals that sat at exactly 50 were trimmed with it so none buckets alone, nor
+ * with one link: two links now sum 45, a forged Turnstile token scores 45 (the
+ * operator's answer, workspace
+ * `decisions/2026-11-03-2036-spam-threshold-50-two-link-invariant.md`), and
+ * non-Latin text scores 20.
  */
 export const SPAM_THRESHOLD = 50;
 
@@ -258,9 +260,12 @@ const CORROBORATING_FAMILY_WEIGHT = 30;
  *
  * Corroborating only, by the operator's call (2026-11-03): Espada (industrial) and
  * Vineyard (builder) can receive genuine bid invitations, so a family never buckets
- * alone. It does bucket with one more signal, a link included ("enough together with a
- * link or a free-mail sender", the brief): a genuine invitation to bid that links its
- * plan room scores 55 and goes to `spam_auto`. That is the trade the operator chose. The
+ * alone. It does bucket with one more signal, a link included (the brief: "enough
+ * together with a link or a free-mail sender"): a genuine invitation to bid that links
+ * its plan room scores 55 and goes to `spam_auto`. That is the trade the operator
+ * chose. There is no free-mail signal (shared mailbox providers are deliberately
+ * never scored), so the free-mail half of that sentence does not apply: a family from
+ * a gmail sender with nothing else scores 30 and is delivered. The
  * classifier has no per-site weighting, so the same weight applies on every site,
  * including ERP, which gets no product RFQs and could have taken full weight.
  *
@@ -271,27 +276,27 @@ const CORROBORATING_FAMILY_WEIGHT = 30;
  * products", "arrange for a sales representative", "appreciate a quotation",
  * "seeking a qualified company") are deliberately left out: a genuine RFQ to MSOT or
  * Revogen says exactly that and usually carries a link, so family plus link (55)
- * would bucket it (review round 1, 2026-11-03).
+ * would bucket it (review round 1, 2026-11-03). Round 2 dropped or narrowed the
+ * phrases a genuine lead also writes: "proposed unit price" (a distributor's own RFQ),
+ * "invite your team to submit" alone (a nonprofit's RFP), "are you interested in
+ * selling" (a collector to a gallery), and "buyers interested in purchasing" /
+ * "buyers actively looking" (a real-estate broker with a real buyer).
  */
 export const CONTENT_FAMILIES: Readonly<Record<string, readonly string[]>> = {
   // Fake "invitation to bid" / RFQ / procurement lures: a project or purchase that
   // needs a quote, with the documents "available for review" somewhere else.
   "bid-lure": [
     "invitation to bid",
-    "invite your team to submit",
+    "invite your team to submit a quote",
     "attached rfq",
-    "proposed unit price",
     "specifications are available for your review",
   ],
   // "I have buyers for your business" broker template.
   "broker-template": [
-    "buyers interested in purchasing",
-    "buyers that are interested in purchasing",
+    "buyers interested in purchasing businesses",
     "considered selling the business",
     "considered selling your business",
-    "are you interested in selling",
     "if selling has crossed your mind",
-    "buyers actively looking",
   ],
 };
 
@@ -397,6 +402,10 @@ function isAllCaps(text: string): boolean {
 function hasGibberishToken(text: string, minLen: number): boolean {
   for (const run of text.match(/[A-Za-z]+/g) ?? []) {
     if (run.length < minLen) continue;
+    // A DNA or RNA sequence (a primer quoted to a genomics site) is all A/C/G/T/U and
+    // is not keyboard mash: at the threshold of 50 it would otherwise bucket a real
+    // inquiry with one link or a bare domain (review round 2, 2026-11-03).
+    if (/^[ACGTUacgtu]+$/.test(run)) continue;
     if (/[^aeiouyAEIOUY]{7,}/.test(run)) return true;
     let flips = 0;
     for (let i = 1; i < run.length; i++) {
@@ -480,7 +489,8 @@ export function classifySpam(input: {
   // buyer-compatible phrases in the same message to full weight — a pitch that says
   // "would you be interested" AND "within 24 hours" is corroborating itself.
   // WITHOUT a seller-voice phrase, buyer-compatible hits alone score a weak +10
-  // capped at +20, never enough to carry a message toward the threshold.
+  // capped at +20, never enough on their own; they can still top up another signal
+  // (a disposable sender 45 + 10, a content family 30 + 20) to the threshold.
   const seller = countKeywordHits(body, SPAM_KEYWORDS);
   const buyer = countKeywordHits(body, BUYER_KEYWORDS);
   if (seller > 0) {
