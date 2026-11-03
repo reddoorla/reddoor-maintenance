@@ -70,8 +70,8 @@
     "edits": [
       {
         "file": "src/alerts/production-signals.ts",
-        "find": "        \"a11y\",\n        \"a11y-coverage\",",
-        "replace": "        \"smoke\",\n        \"a11y-coverage\","
+        "find": "          \"a11y\",\n          \"a11y-coverage\",",
+        "replace": "          \"smoke\",\n          \"a11y-coverage\","
       }
     ],
     "test": "tests/alerts/production-signals.test.ts",
