@@ -108,6 +108,11 @@ const OPEN_TIMEOUT_MS = 5_000;
 /** The whole pass, so a slow gated site cannot eat the nightly's 30-minute step. */
 export const COVERAGE_BUDGET_MS = 180_000;
 
+// The browser-side code below spells each selector out literally rather than
+// interpolating the constants above (CodeQL js/bad-code-sanitization flagged the
+// JSON.stringify interpolation, 2026-11-03). `turnstile-coverage.test.ts` holds
+// the literals and the constants in step.
+
 /**
  * Whether every judged lead form inside `root` has its own mount: inside the form,
  * or inside the dialog that holds it. A hand-off form (its action ends `#inquire`,
@@ -115,40 +120,40 @@ export const COVERAGE_BUDGET_MS = 180_000;
  * not judged at all. Browser-side, so it is a string: this package does not
  * compile against the DOM lib.
  */
-const JUDGE_FN = `(root) => {
-  const forms = [...root.querySelectorAll(${JSON.stringify(LEAD_FORM)})].filter(
+export const JUDGE_FN = `(root) => {
+  const forms = [...root.querySelectorAll('form:has(input[type="email"], input[name="email"])')].filter(
     (f) =>
-      !f.hasAttribute(${JSON.stringify(EXEMPT_ATTR)}) &&
+      !f.hasAttribute('data-turnstile-exempt') &&
       !(f.getAttribute("action") || "").endsWith("#inquire") &&
       !f.querySelector("[data-inquire]"),
   );
   const own = (f) => {
-    if (f.querySelector(${JSON.stringify(TURNSTILE_MOUNT)})) return true;
+    if (f.querySelector('.cf-turnstile')) return true;
     const d = f.closest('[role="dialog"], dialog');
-    return !!d && d.querySelector(${JSON.stringify(TURNSTILE_MOUNT)}) !== null;
+    return !!d && d.querySelector('.cf-turnstile') !== null;
   };
   return { form: forms.length > 0, covered: forms.every(own) };
 }`;
 
-const SEEN_ATTR = "data-turnstile-coverage-seen";
+export const SEEN_ATTR = "data-turnstile-coverage-seen";
 const DIALOGS = `[...document.querySelectorAll('[role="dialog"], dialog')]`;
 
 /** The page as loaded; also marks every dialog already present, so a popup that
  *  was there before the click is never mistaken for the one the click opened. */
-const PAGE_STATE_EXPR = `(() => {
-  ${DIALOGS}.forEach((d) => d.setAttribute(${JSON.stringify(SEEN_ATTR)}, ""));
+export const PAGE_STATE_EXPR = `(() => {
+  ${DIALOGS}.forEach((d) => d.setAttribute('data-turnstile-coverage-seen', ""));
   const judged = (${JUDGE_FN})(document);
   return {
     pageForm: judged.form,
     pageCovered: judged.covered,
-    hasTrigger: document.querySelector(${JSON.stringify(FORM_TRIGGER)}) !== null,
+    hasTrigger: document.querySelector('[data-inquire], a[href$="#inquire"]') !== null,
   };
 })()`;
 
 /** Click the first inquiry trigger with a real click event, visible or not (the
  *  modal listens on `document` in the capture phase). */
-const CLICK_TRIGGER_EXPR = `(() => {
-  const t = document.querySelector(${JSON.stringify(FORM_TRIGGER)});
+export const CLICK_TRIGGER_EXPR = `(() => {
+  const t = document.querySelector('[data-inquire], a[href$="#inquire"]');
   if (!t) return false;
   t.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 }));
   return true;
@@ -156,7 +161,7 @@ const CLICK_TRIGGER_EXPR = `(() => {
 
 /** A dialog the click opened (unmarked) holding a lead form, judged; null while
  *  none has appeared. */
-const DIALOG_STATE_EXPR = `(() => {
+export const DIALOG_STATE_EXPR = `(() => {
   const judge = ${JUDGE_FN};
   let found = false;
   let covered = true;
@@ -164,7 +169,7 @@ const DIALOG_STATE_EXPR = `(() => {
   // framework re-created after marking carries no mark, and must not stand in
   // for the modal (a covered copy would hide its gap).
   for (const d of ${DIALOGS}) {
-    if (d.hasAttribute(${JSON.stringify(SEEN_ATTR)})) continue;
+    if (d.hasAttribute('data-turnstile-coverage-seen')) continue;
     const j = judge(d);
     if (j.form) {
       found = true;

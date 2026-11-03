@@ -354,3 +354,17 @@ describe("the fleet row carries Require Turnstile to the audit", () => {
     expect(sites.find((s) => s.name === "open")?.requireTurnstile).toBeUndefined();
   });
 });
+
+describe("the browser-side code spells the selectors exactly as the constants do", () => {
+  it("every constant appears verbatim in the code that uses it", async () => {
+    const m = await import("../../src/audits/turnstile-coverage.js");
+    const q = (v: string) => `'${v}'`;
+    expect(m.JUDGE_FN).toContain(q(m.LEAD_FORM));
+    expect(m.JUDGE_FN).toContain(q(m.EXEMPT_ATTR));
+    expect(m.JUDGE_FN).toContain(q(m.TURNSTILE_MOUNT));
+    expect(m.PAGE_STATE_EXPR).toContain(q(m.SEEN_ATTR));
+    expect(m.PAGE_STATE_EXPR).toContain(q(m.FORM_TRIGGER));
+    expect(m.CLICK_TRIGGER_EXPR).toContain(q(m.FORM_TRIGGER));
+    expect(m.DIALOG_STATE_EXPR).toContain(q(m.SEEN_ATTR));
+  });
+});
