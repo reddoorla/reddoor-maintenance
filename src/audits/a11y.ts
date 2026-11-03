@@ -128,7 +128,9 @@ const PLACEHOLDER_SKIP_REASON = "placeholder Prismic repo";
  *  the spec and reproduced verbatim in the summary, exactly as the reason
  *  above, so an operator reading a skip always learns WHY. */
 const ABSENT_FIXTURE_SKIP_REASON = "fixture not in this site's source";
-/** The skips a site declared on purpose; they leave the stored route total. */
+/** The reasons a declared skip can carry. A placeholder-Prismic skip always leaves the stored
+ *  route total; an absent fixture leaves it only when the site lists it in
+ *  `reddoor.absentFixtures` (#910, operator 2026-11-03). */
 const DECLARED_SKIP_REASONS: ReadonlySet<string> = new Set([
   PLACEHOLDER_SKIP_REASON,
   ABSENT_FIXTURE_SKIP_REASON,

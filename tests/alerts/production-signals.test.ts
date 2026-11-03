@@ -457,10 +457,31 @@ describe("accessibility coverage lost (#910, Attention)", () => {
     }
   });
 
-  it("a partial run's findings are not dropped silently: the coverage item stands in", () => {
+  it("a partial run's findings are not dropped silently: the coverage item names them", () => {
     const partial = site({ ...halfScanned, a11yViolations: 4, a11yCheckedAt: FRESH });
     expect(collectA11yAlerts([partial], BASE, NOW)).toEqual([]);
-    expect(keys(collectA11yCoverageAlerts([partial], BASE, NOW))).toEqual(["a11y-coverage:recS"]);
+    const [it] = collectA11yCoverageAlerts([partial], BASE, NOW);
+    expect(it!.key).toBe("a11y-coverage:recS");
+    expect(it!.title).toBe(
+      "accessibility scan reached only 1 of 2 routes, with 4 findings on those",
+    );
+    const [one] = collectA11yCoverageAlerts(
+      [site({ ...halfScanned, a11yViolations: 1, a11yCheckedAt: FRESH })],
+      BASE,
+      NOW,
+    );
+    expect(one!.title).toBe(
+      "accessibility scan reached only 1 of 2 routes, with 1 finding on those",
+    );
+  });
+
+  it("says what clears it", () => {
+    const [it] = collectA11yCoverageAlerts(
+      [site({ ...halfScanned, a11yCheckedAt: FRESH })],
+      BASE,
+      NOW,
+    );
+    expect(it!.ask).toContain("reddoor.absentFixtures");
   });
 
   it("reaches the cockpit card, the Needs-you feed, the site page and the digest", async () => {

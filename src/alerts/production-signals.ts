@@ -8,7 +8,7 @@
 //
 // Where each lands is the plan's ladder table (`levelOf` in ladder.ts places the kinds):
 //   Broken    — uptime, domain, cert-expiring, function-health, cms, render, form
-//   Attention — cert, links, titles, a11y, a11y-coverage, deps-far
+//   Attention — cert, links, titles, a11y (and its a11y-coverage: items), deps-far
 //   Watch     — smoke, deps, search-console
 // Broken and Attention collectors are registered in the cockpit's list AND the digest's
 // `collectAttention` (only the digest writes digest_state, so an item the digest lacks
@@ -314,9 +314,11 @@ export function collectTitleMetaAlerts(
 }
 
 /** Accessibility findings from a complete weekly run: every route scanned, stamped within
- *  8 days. A run with either count unknown, or fewer scanned than total, is not measured. A
- *  skip the site declared (an absent fixture, the placeholder Prismic repo) is out of both
- *  counts (`a11yAudit`'s stored `routes`), and those are the only skips the audit makes today.
+ *  8 days. A run with either count unknown, or fewer scanned than total, is not measured here:
+ *  `collectA11yCoverageAlerts` raises it, and names its findings in the title. A skip the site
+ *  declared (an absent fixture listed in `reddoor.absentFixtures`, or the placeholder Prismic
+ *  repo) is out of both counts (`a11yAudit`'s stored `routes`); an undeclared absent fixture
+ *  stays in the total, so that run is partial (#910).
  *  The count is every entry of the artifact's list: axe violations, plus client errors,
  *  missing fixture routes and rules axe could not measure, so the title says "findings". */
 export function collectA11yAlerts(
@@ -357,6 +359,11 @@ export function collectA11yAlerts(
  *  site never listed stays in the total (operator, 2026-11-03, workspace decision
  *  2026-11-03-1933-910-undeclared-absent-fixture-coverage): on 11-02 that was CalTex, Espada and
  *  Revogen, each cleared by a one-line declaration. */
+/** What clears a coverage item. The live cause on 11-02 was a built-in fixture the site's
+ *  source does not have and never declared; the site page names the route and its reason. */
+export const COVERAGE_ASK =
+  "see which route was not scanned on the site page; for a fixture the site does not have, list it in package.json reddoor.absentFixtures, or restore it";
+
 export function collectA11yCoverageAlerts(
   sites: WebsiteRow[],
   baseUrl: string,
@@ -373,15 +380,22 @@ export function collectA11yCoverageAlerts(
     .map((s) => {
       const scanned = s.a11yRoutesScanned!;
       const total = s.a11yRoutesTotal!;
-      return item(
-        s,
-        baseUrl,
-        "a11y",
-        "a11y-coverage",
-        `accessibility scan reached only ${scanned} of ${total} routes`,
-        "warning",
-        total - scanned,
-      );
+      // Findings on the routes that were scanned are real either way, and a partial run is
+      // left out of `collectA11yAlerts`, so this item carries them (round 2).
+      const n = s.a11yViolations ?? 0;
+      const findings = n > 0 ? `, with ${n} finding${n === 1 ? "" : "s"} on those` : "";
+      return {
+        ...item(
+          s,
+          baseUrl,
+          "a11y",
+          "a11y-coverage",
+          `accessibility scan reached only ${scanned} of ${total} routes${findings}`,
+          "warning",
+          total - scanned,
+        ),
+        ask: COVERAGE_ASK,
+      };
     });
 }
 

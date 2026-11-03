@@ -13,8 +13,8 @@ const count = (v: unknown): number | null =>
   typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : null;
 
 /** The artifact's skipped routes as stored: route and reason only (#910). The
- *  spec always writes the list, so a missing one is a run that cannot say (null),
- *  never "nothing skipped". */
+ *  audit always puts a list on a scanned run's details ([] when none), so null
+ *  comes only from a result whose details carry none, and it clears the stored list. */
 function skippedRoutes(v: unknown): A11ySkippedRoute[] | null {
   if (!Array.isArray(v)) return null;
   return v.flatMap((e): A11ySkippedRoute[] => {
