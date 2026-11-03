@@ -2164,6 +2164,105 @@ describe("land-prs: test changes", () => {
     });
   });
 
+  describe("P1-82: renamed skips and block-comment wraps (#1617)", () => {
+    const one = (patch: string) => testChangeFlags([file(T, "modified", patch)]);
+
+    it("a skip only renamed is not an added skip", () => {
+      expect(
+        one(
+          '@@ -1,2 +1,2 @@\n-it.skip("old name", () => {\n+it.skip("new name", () => {\n   body();',
+        ),
+      ).toEqual([]);
+    });
+
+    it("a swap of a skip and an un-skip in one block flags only the new skip", () => {
+      expect(
+        one(
+          '@@ -1,2 +1,2 @@\n-it.skip("a", () => {});\n-it("b", () => {});\n+it("a", () => {});\n+it.skip("b", () => {});',
+        ),
+      ).toEqual([{ file: T, reasons: ['added skip: it.skip("b", () => {});'] }]);
+    });
+
+    it("a swap of a skip and an un-skip in two blocks flags only the new skip", () => {
+      expect(
+        one(
+          '@@ -1,3 +1,3 @@\n-it.skip("a", () => {});\n+it("a", () => {});\n keep();\n-it("b", () => {});\n+it.skip("b", () => {});',
+        ),
+      ).toEqual([{ file: T, reasons: ['added skip: it.skip("b", () => {});'] }]);
+    });
+
+    it("a test skip widened to a describe skip is flagged", () => {
+      expect(one('@@ -1 +1 @@\n-it.skip("a", () => {\n+describe.skip("a", () => {')).toEqual([
+        { file: T, reasons: ['added skip: describe.skip("a", () => {'] },
+      ]);
+    });
+
+    it("a skip renamed into an only is flagged as an only", () => {
+      expect(one('@@ -1 +1 @@\n-it.skip("a", () => {});\n+it.only("b", () => {});')).toEqual([
+        { file: T, reasons: ['added .only: it.only("b", () => {});'] },
+      ]);
+    });
+
+    it("a removal and an addition in different hunks do not pair", () => {
+      expect(
+        one(
+          '@@ -1,2 +1,1 @@\n keep();\n-it.skip("a", () => {});\n@@ -9,1 +8,2 @@\n+it.skip("b", () => {});\n more();',
+        ),
+      ).toEqual([{ file: T, reasons: ['added skip: it.skip("b", () => {});'] }]);
+    });
+
+    it("a comment opened around existing lines is flagged, and its closer may be out of the patch", () => {
+      expect(
+        one(
+          '@@ -1,3 +1,5 @@\n it("a", () => {\n+  /*\n   expect(a).toBe(1);\n   expect(b).toBe(2);\n+  */',
+        ),
+      ).toEqual([
+        { file: T, reasons: ["existing line now inside a block comment: expect(a).toBe(1);"] },
+      ]);
+      expect(
+        one(
+          '@@ -1,4 +1,5 @@\n it("a", () => {\n+  /*\n   expect(a).toBe(1);\n   expect(b).toBe(2);\n   expect(c).toBe(3);',
+        ),
+      ).toEqual([
+        { file: T, reasons: ["existing line now inside a block comment: expect(a).toBe(1);"] },
+      ]);
+    });
+
+    it("a closer taken off a comment that stays open flags the line it now hides", () => {
+      expect(one("@@ -1,3 +1,3 @@\n-/* note */\n+/* note\n expect(a).toBe(1);\n done();")).toEqual([
+        { file: T, reasons: ["existing line now inside a block comment: expect(a).toBe(1);"] },
+      ]);
+    });
+
+    it("a new JSDoc block is not a wrap", () => {
+      expect(
+        one("@@ -1,2 +1,6 @@\n keep();\n+/**\n+ * helper\n+ */\n+function h() {}\n more();"),
+      ).toEqual([]);
+    });
+
+    it("an unchanged comment around context lines is not a wrap", () => {
+      expect(one("@@ -1,4 +1,4 @@\n /*\n  old note\n-a();\n+b();\n */")).toEqual([]);
+    });
+
+    it("an assertion re-added only inside a comment does not count as re-added", () => {
+      expect(
+        one("@@ -1,2 +1,4 @@\n-expect(a).toBe(1);\n+/*\n+expect(a).toBe(1);\n+*/\n keep();"),
+      ).toEqual([{ file: T, reasons: ["removed assertion not re-added: expect(a).toBe(1);"] }]);
+    });
+
+    it("a /* inside a string is not a comment", () => {
+      expect(one('@@ -1,2 +1,3 @@\n keep();\n+const glob = "src/*";\n expect(a).toBe(1);')).toEqual(
+        [],
+      );
+    });
+
+    it("a one-line comment in front of code is not a wrap", () => {
+      expect(
+        one("@@ -1,2 +1,3 @@\n keep();\n+/* flaky on CI */ go();\n expect(a).toBe(1);"),
+      ).toEqual([]);
+    });
+  });
+
   describe("round-2 review findings", () => {
     const one = (patch: string) => testChangeFlags([file(T, "modified", patch)]);
 

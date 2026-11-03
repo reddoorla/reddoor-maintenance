@@ -980,6 +980,115 @@ function valueLines(patch) {
   return out;
 }
 
+/** The added lines that rename a skip or an only (#1617). A change block is a maximal run of
+ *  `-` lines followed by a maximal run of `+` lines; any other line, or a `@@`, ends one. Within
+ *  a block the i-th removed line pairs with the i-th added line. A pair is a rename when the
+ *  added line is a skip or an only, its code (string contents blanked) equals the removed
+ *  line's, and that code is not empty: `it.skip("a", …)` → `it.skip("b", …)` is a rename;
+ *  `it("b", …)` → `it.skip("b", …)` is not. */
+function renamedSkips(patch) {
+  const out = [];
+  let removed = [];
+  let added = [];
+  const pair = () => {
+    const n = Math.min(removed.length, added.length);
+    for (let i = 0; i < n; i++) {
+      const r = removed[i];
+      const a = added[i];
+      if (r.length > MAX_LINE || a.length > MAX_LINE) continue;
+      const code = codeOf(a).code;
+      if (
+        r !== a &&
+        code !== "" &&
+        codeOf(r).code === code &&
+        (hasCall(a, ONLY) || hasCall(a, SKIP))
+      ) {
+        out.push(a);
+      }
+    }
+    removed = [];
+    added = [];
+  };
+  for (const raw of String(patch).split("\n")) {
+    if (raw.startsWith("@@")) pair();
+    else if (raw.startsWith("-")) {
+      if (added.length > 0) pair();
+      removed.push(raw.slice(1).trim());
+    } else if (raw.startsWith("+")) added.push(raw.slice(1).trim());
+    else pair();
+  }
+  pair();
+  return out;
+}
+
+/** Whether a line ends inside a block comment, given whether it starts inside one (#1617).
+ *  One pass: a comment ends at the first `*\/`; a string (`"`, `'` or `` ` ``, with a `\`
+ *  skipping the next character) is passed whole, and an unclosed one ends the line out of a
+ *  comment; `//` ends the line; a `/*` not preceded by `\` opens a comment. */
+function commentScan(line, inComment) {
+  let inC = inComment;
+  let i = 0;
+  while (i < line.length) {
+    if (inC) {
+      const end = line.indexOf("*/", i);
+      if (end < 0) return true;
+      inC = false;
+      i = end + 2;
+      continue;
+    }
+    const c = line[i];
+    if (/["'`]/.test(c)) {
+      let j = i + 1;
+      while (j < line.length && line[j] !== c) j += line[j] === "\\" ? 2 : 1;
+      if (j >= line.length) return false;
+      i = j + 1;
+    } else if (c === "/" && line[i + 1] === "/") {
+      return false;
+    } else if (c === "/" && line[i + 1] === "*" && line[i - 1] !== "\\") {
+      inC = true;
+      i += 2;
+    } else i++;
+  }
+  return inC;
+}
+
+/** The block-comment shifts of a patch (#1617). `wrapped`: the first context line of each hunk
+ *  that the PR's change puts inside a block comment, a comment opened by an added line above
+ *  it in the hunk (and not open on the old side). `commented`: each added line wholly inside a
+ *  block comment. Each hunk starts outside any comment, so a comment opened before it is not seen. */
+function blockCommentShifts(patch) {
+  const wrapped = [];
+  const commented = [];
+  let oldIn = false;
+  let newIn = false;
+  let hunkWrapped = false;
+  for (const raw of String(patch).split("\n")) {
+    if (raw.startsWith("@@")) {
+      oldIn = false;
+      newIn = false;
+      hunkWrapped = false;
+      continue;
+    }
+    if (raw === "" || raw.startsWith("\\")) continue;
+    const text = raw.slice(1);
+    if (raw.startsWith(" ")) {
+      if (newIn && !oldIn && !hunkWrapped) {
+        wrapped.push(text.trim());
+        hunkWrapped = true;
+      }
+      oldIn = commentScan(text, oldIn);
+      newIn = commentScan(text, newIn);
+    } else if (raw.startsWith("-")) {
+      oldIn = commentScan(text, oldIn);
+    } else if (raw.startsWith("+")) {
+      const endsIn = commentScan(text, newIn);
+      if (newIn && endsIn) commented.push(text.trim());
+      newIn = endsIn;
+    }
+  }
+  return { wrapped, commented };
+}
+
 /** How many times each line occurs: a removed line is matched by one added copy, so
  *  removing an assertion twice and adding it back once still loses one. */
 function lineCounts(lines) {
@@ -1016,7 +1125,12 @@ function renamedAway(before, after) {
  *  assertion is not); an added skip (see `SKIP`) that was not there before; a changed line
  *  too long to scan; and a changed test file whose patch GitHub left out (it does for a
  *  large diff), because nothing here can read it. Only a line's code counts: a
- *  commented-out call is neither (see `codeOf`). */
+ *  commented-out call is neither (see `codeOf`). A skip whose line changed only inside its
+ *  strings, paired by position in its change block, is a rename, not an added skip (see
+ *  `renamedSkips`). A context line that the PR's change puts inside a block comment is flagged
+ *  (the hunk's comment state is assumed closed at its first line, so a comment opened before
+ *  the hunk is not seen), and an added line wholly inside a block comment does not re-add a
+ *  removed assertion (see `blockCommentShifts`). */
 export function testChangeFlags(files) {
   const out = [];
   for (const f of Array.isArray(files) ? files : []) {
@@ -1083,6 +1197,9 @@ export function testChangeFlags(files) {
     const addedLeft = lineCounts(added.map(matchKey));
     const removedLeft = lineCounts(removed.map(matchKey));
     const valueLeft = lineCounts(valueLines(f.patch));
+    const renamed = lineCounts(renamedSkips(f.patch));
+    const shifts = blockCommentShifts(f.patch);
+    for (const c of shifts.commented) takeOne(addedLeft, matchKey(c));
     const reasons = away ? [away] : [];
     const tooLong = (t) => `a changed line of ${t.length} characters, too long to scan: read it`;
     for (const t of removed) {
@@ -1102,10 +1219,11 @@ export function testChangeFlags(files) {
       }
       const only = hasCall(t, ONLY);
       if (!only && !hasCall(t, SKIP) && !SKIP_BRACKET.test(t)) continue;
-      if (!takeOne(removedLeft, matchKey(t))) {
+      if (!takeOne(removedLeft, matchKey(t)) && !takeOne(renamed, t)) {
         reasons.push(only ? `added .only: ${t}` : `added skip: ${t}`);
       }
     }
+    for (const w of shifts.wrapped) reasons.push(`existing line now inside a block comment: ${w}`);
     if (reasons.length > 0) out.push({ file, reasons });
   }
   return out;

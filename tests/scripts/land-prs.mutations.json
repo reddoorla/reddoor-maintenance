@@ -193,5 +193,96 @@
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
     "why": "#1812 r3: a regex quote or a JSX apostrophe on the matcher line would hide the expected value again."
+  },
+  {
+    "id": "M-P182-1-rename-any-code",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "codeOf(r).code === code &&",
+        "replace": "true &&"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617: any skip paired with any line counts as a rename, so a test skip widened to a describe skip (R4) passes unflagged."
+  },
+  {
+    "id": "M-P182-2-rename-multiset",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "const r = removed[i];",
+        "replace": "const r = removed.find((x) => codeOf(x).code === codeOf(added[i]).code) ?? \"\";"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617: the removed line is chosen by code anywhere in the block, not by position, so a swap in one block (R2) passes as two renames."
+  },
+  {
+    "id": "M-P182-3-rename-no-hunk-reset",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "if (raw.startsWith(\"@@\")) pair();",
+        "replace": "if (raw.startsWith(\"@@\")) continue;"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617: a hunk boundary does not end a change block, so a removal in one hunk pairs with an addition in the next (R6)."
+  },
+  {
+    "id": "M-P182-4-wrap-new-side-only",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "if (newIn && !oldIn && !hunkWrapped) {",
+        "replace": "if (newIn && !hunkWrapped) {"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617: an unchanged comment around context lines (`/*` on both sides) is flagged as a wrap (B5)."
+  },
+  {
+    "id": "M-P182-5-commented-readds",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "for (const c of shifts.commented) takeOne(addedLeft, matchKey(c));",
+        "replace": "void shifts;"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617: an assertion re-added inside a block comment counts as re-added, so commenting out an assertion passes (B6)."
+  },
+  {
+    "id": "M-P182-6-no-strings",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "if (/[\"'`]/.test(c)) {",
+        "replace": "if (false) {"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617: a `/*` inside a string opens a comment, so a string literal that holds `src/*` hides the line after it (B7)."
+  },
+  {
+    "id": "M-P182-7-no-wrap-reason",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "for (const w of shifts.wrapped) reasons.push(",
+        "replace": "for (const w of []) reasons.push("
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617: a comment opened around existing lines is not flagged at all (B1)."
   }
 ]
