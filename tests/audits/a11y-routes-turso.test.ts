@@ -4,20 +4,31 @@ import { mirrorSiteInsert, mirrorHealthFields, getSiteBySlug } from "../../src/d
 import { writeBackOneSite } from "../../src/audits/write-audits.js";
 import type { AuditResult } from "../../src/types.js";
 
-const a11yRun = (scanned: number, total: number): AuditResult =>
+const a11yRun = (scanned: number, total: number, skipped: unknown[] = []): AuditResult =>
   ({
     audit: "a11y",
     site: "acme",
     status: "pass",
     summary: "ok",
-    details: { totalViolations: 0, byImpact: {}, routes: { scanned, total } },
+    details: { totalViolations: 0, byImpact: {}, skipped, routes: { scanned, total } },
   }) as unknown as AuditResult;
 
 async function roundTrip(results: AuditResult[]) {
   const db = await openDb({ url: ":memory:" });
   await mirrorSiteInsert(
     db,
-    { id: "recACME", fields: { Name: "Acme", "A11y Routes Scanned": 9, "A11y Routes Total": 9 } },
+    {
+      id: "recACME",
+      fields: {
+        Name: "Acme",
+        "A11y Routes Scanned": 9,
+        "A11y Routes Total": 9,
+        // Seeded, so a test that says a run clears the list can fail if it keeps it.
+        "A11y Routes Skipped": JSON.stringify([
+          { route: "/old", reason: "placeholder Prismic repo", path: "/old" },
+        ]),
+      },
+    },
     "2026-09-29T00:00:00.000Z",
   );
   const before = await getSiteBySlug(db, "acme");
@@ -56,5 +67,40 @@ describe("a11y route coverage through Turso (#910)", () => {
     expect(row.a11yViolations).toBe(0);
     expect(row.a11yRoutesScanned).toBeNull();
     expect(row.a11yRoutesTotal).toBeNull();
+  });
+
+  it("the skipped routes are stored beside the counts: route, reason and path", async () => {
+    const row = await roundTrip([
+      a11yRun(1, 1, [
+        {
+          route: "animate-in demo",
+          path: "/dev/animate-in",
+          status: 404,
+          reason: "fixture not in this site's source",
+        },
+      ]),
+    ]);
+    expect([row.a11yRoutesScanned, row.a11yRoutesTotal]).toEqual([1, 1]);
+    expect(row.a11yRoutesSkipped).toEqual([
+      {
+        route: "animate-in demo",
+        reason: "fixture not in this site's source",
+        path: "/dev/animate-in",
+      },
+    ]);
+  });
+
+  it("a run that skipped nothing stores an empty list, not NULL", async () => {
+    const row = await roundTrip([a11yRun(2, 2)]);
+    expect(row.a11yRoutesSkipped).toEqual([]);
+  });
+
+  it("a run whose details carry no skip list clears the stored one", async () => {
+    const legacy = {
+      ...a11yRun(2, 2),
+      details: { totalViolations: 0, byImpact: {}, routes: { scanned: 2, total: 2 } },
+    } as unknown as AuditResult;
+    const row = await roundTrip([legacy]);
+    expect(row.a11yRoutesSkipped).toBeNull();
   });
 });
