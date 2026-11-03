@@ -86,10 +86,12 @@ export function coverageSummary(coverage: TurnstileCoverage): string {
   const withForm = formPaths(coverage);
   const looked = coverage.pages.filter((p) => !p.unreachable && p.unjudged !== "deadline");
   const unreachable = coverage.pages.filter((p) => p.unreachable).map((p) => p.path);
-  const unjudged = coverage.pages.filter((p) => p.unjudged).map((p) => p.path);
+  const unjudged = coverage.pages.filter((p) => p.unjudged === "hydration").map((p) => p.path);
+  const unreached = coverage.pages.filter((p) => p.unjudged === "deadline").map((p) => p.path);
   const caveats =
     (unreachable.length ? `; did not load: ${unreachable.join(", ")}` : "") +
-    (unjudged.length ? `; modal not judged: ${unjudged.join(", ")}` : "");
+    (unjudged.length ? `; modal not judged: ${unjudged.join(", ")}` : "") +
+    (unreached.length ? `; not reached (time budget): ${unreached.join(", ")}` : "");
   if (missing.length > 0) {
     return `Require Turnstile on, but no widget on ${missing.join(", ")}: every submission from there is stored as spam and emailed to nobody${caveats}`;
   }
@@ -98,6 +100,8 @@ export function coverageSummary(coverage: TurnstileCoverage): string {
 }
 
 const GOTO_TIMEOUT_MS = 15_000;
+/** The most one page may take, load and click included. */
+const PAGE_TIMEOUT_MS = 45_000;
 /** How long a clicked trigger has to open its form. The modal opens on the click;
  *  this is headroom for a cold page, not an animation window. */
 const OPEN_TIMEOUT_MS = 5_000;
@@ -154,12 +158,20 @@ const CLICK_TRIGGER_EXPR = `(() => {
  *  none has appeared. */
 const DIALOG_STATE_EXPR = `(() => {
   const judge = ${JUDGE_FN};
+  let found = false;
+  let covered = true;
+  // Every new dialog with a lead form, not the first: a marked dialog the
+  // framework re-created after marking carries no mark, and must not stand in
+  // for the modal (a covered copy would hide its gap).
   for (const d of ${DIALOGS}) {
     if (d.hasAttribute(${JSON.stringify(SEEN_ATTR)})) continue;
     const j = judge(d);
-    if (j.form) return { modalCovered: j.covered };
+    if (j.form) {
+      found = true;
+      covered = covered && j.covered;
+    }
   }
-  return null;
+  return found ? { modalCovered: covered } : null;
 })()`;
 
 /** The slice of a Playwright Page this pass uses. */
@@ -190,6 +202,10 @@ export async function inspectPage(
 ): Promise<PageCoverage> {
   const path = new URL(url).pathname;
   const none = { pageForm: false, pageCovered: true, modalForm: false, modalCovered: true };
+  // Set once the page itself was judged, so a throw after the click (a late
+  // navigation destroying the context) keeps that verdict instead of
+  // reporting the page as never loaded.
+  let judged: PageCoverage | undefined;
   try {
     const resp = await page.goto(url, { waitUntil: "domcontentloaded", timeout: GOTO_TIMEOUT_MS });
     if (!resp || !resp.ok()) return { path, ...none, unreachable: true };
@@ -209,6 +225,7 @@ export async function inspectPage(
       pageForm: own.pageForm,
       pageCovered: own.pageCovered,
     };
+    judged = result;
     if (!own.hasTrigger) return result;
 
     const before = new URL(page.url()).pathname;
@@ -231,7 +248,7 @@ export async function inspectPage(
     if (!dialog) return result;
     return { ...result, modalForm: true, modalCovered: dialog.modalCovered };
   } catch {
-    return { path, ...none, unreachable: true };
+    return judged ? { ...judged, unjudged: "hydration" } : { path, ...none, unreachable: true };
   }
 }
 
@@ -266,7 +283,24 @@ export async function checkTurnstileCoverage(
         if (attempt > 0 && Date.now() >= deadline) break;
         const page = await ctx.newPage();
         try {
-          result = await inspectPage(page as unknown as CoveragePage, url, opts);
+          // Bounded even if an evaluate hangs on a busy page, so the budget holds.
+          result = await Promise.race([
+            inspectPage(page as unknown as CoveragePage, url, opts),
+            new Promise<PageCoverage>((resolve) =>
+              setTimeout(
+                () =>
+                  resolve({
+                    path: new URL(url).pathname,
+                    pageForm: false,
+                    pageCovered: true,
+                    modalForm: false,
+                    modalCovered: true,
+                    unreachable: true,
+                  }),
+                PAGE_TIMEOUT_MS,
+              ).unref?.(),
+            ),
+          ]);
         } finally {
           await page.close().catch(() => {});
         }
