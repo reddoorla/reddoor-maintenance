@@ -631,9 +631,17 @@ A cost that counts a request with no `stop_reason` on its last line prints as
 `≥$x (n of m unfinished)`, with a note under the table: that request's transcript kept only its
 stream-start usage (#1435, recipe step 8).
 
-Prices come from `PRICES` in `lib/ledger.mjs`, confirmed on 2026-10-19 against the claude-api
-skill's price list (cached 2026-10-06). Opus 5.5, Sonnet 5.5, Haiku 5.5 and Fable 5.1 are listed.
-Any other model is reported as unpriced, never estimated.
+Prices come from `PRICES` in `lib/ledger.mjs`, read on 2026-11-03 from the pricing page
+(`platform.claude.com/docs/en/about-claude/pricing`). Opus 5.5, Sonnet 5.5, Haiku 5.5 and Fable 5.1
+are listed. Any other model is reported as unpriced, never estimated.
+
+**Sonnet 5.5 cache reads are $0.10/M, not $0.20/M.** Opus 5.5 and Sonnet 5.5 bill cache reads at
+0.05x input and Fable 5.1 at 0.025x, against the usual 0.1x (Haiku 5.5's). All four cards were
+checked against the page. Until 2026-11-03 the card read $0.20/M, copied from the
+claude-api skill's price list (cached 2026-10-06), which still says so. P1-83e found the server's
+rate in all 163 Sonnet `modelUsage` entries it checked, and one agent's transcript row differed from
+its `modelUsage` by exactly 129,127 cache reads × $0.10/M. Transcript rows priced before the fix
+overstate Sonnet. They are rebuilt from `messages.jsonl` on the next write.
 
 **Cache writes are priced by TTL, which #2's `ledger.js` did not do.** Usage splits
 `cache_creation_input_tokens` into `ephemeral_5m_input_tokens` and `ephemeral_1h_input_tokens`.
@@ -685,16 +693,28 @@ source's total on its own.
   session's files, as in `ledger.mjs`, and a sidechain line in a main file with no agent file of its
   own is kept under agent `sidechain`. It dies with a cloud container. On the laptop it covers
   every local session.
-- **`assistant-events`**: a session's server `assistant` events, grouped by `parent_tool_use_id`.
-  Probe (a) found that the server receives none of a subagent's own messages: an Agent call
-  leaves only its prompt, a `task_started` event and the tool result with the subagent's
-  `resolvedModel`, `totalTokens` and its last message's `usage`. So this source yields the main
-  thread only, and nothing calls it yet.
+- **`assistant-events`**: a session's server `assistant` events, grouped by agent. Probe (a)
+  (2026-10-27) found that the server received none of a subagent's own messages. That is no longer
+  true (P1-83e, 2026-11-03): every subagent request arrives as an `assistant` event carrying its
+  `agent_id`, `subagent_type`, `task_description` and `parent_tool_use_id` beside the message, with
+  its model and `usage`. So the per-agent split no longer dies with the container. The input and
+  cache tokens are exact: 1,773 of 1,780 transcript messages in six sessions were in the events,
+  each with the same tokens and agent. **Output is not.** Every event holds the stream-start usage
+  (`stop_reason` null), and one session read 4,945 output tokens from its events against 307,142 in
+  `modelUsage`. So `assistantEventRows` counts every request as unfinished, and its cost is a
+  lower bound. A row is keyed by `agent_id` (else `parent_tool_use_id`, else `main`), with the
+  agent's type from `subagent_type`. The server's `agent_id` is bare (`ac417f72a17e384bf`), where a
+  `transcript` row's agent is its file's name (`agent-ac417f72a17e384bf`), so join the two only
+  after stripping `agent-`. Nothing calls it yet: feeding it into `ingest` needs a stored
+  union of events, as `results.jsonl` is for results.
 
 `mcp` reads the remote-sessions MCP results already in transcripts: every `list_sessions`,
 `get_session` and `list_events` call that this session or its subagents made, including results
 the harness persisted to a file. An agent can make those calls in parallel; the script reads them
-afterwards, so no number is retyped. A session's history is `complete` only when the chain of
+afterwards, so no number is retyped. A page whose text holds a raw control character inside a
+string (which `JSON.parse` refuses) is read as Python's `json.loads(strict=False)` reads it;
+before P1-83e it lost every event on the page. A result that still cannot be parsed is printed
+as `unparsed tool result` on stderr. A session's history is `complete` only when the chain of
 pages read backwards from its newest page (each `before_id` the previous page's `first_id`)
 reaches a page with no `has_more`.
 
