@@ -102,8 +102,7 @@ export function collectVulnAlerts(sites: WebsiteRow[], baseUrl: string): Attenti
 export const LIGHTHOUSE_FLOOR = 75;
 
 /** The four Lighthouse categories, each mapped to its WebsiteRow score field, URL slug,
- *  and the human label rendered in the digest title. Order is the operator's reading order.
- *  The site re-test reads its score fields from here too (src/retest/site-retest.ts). */
+ *  and the human label rendered in the digest title. Order is the operator's reading order. */
 export const LIGHTHOUSE_ALERT_CATEGORIES: ReadonlyArray<{
   field: "pScore" | "rScore" | "bpScore" | "seoScore";
   slug: string;

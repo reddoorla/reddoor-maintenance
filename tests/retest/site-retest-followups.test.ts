@@ -318,8 +318,16 @@ describe("#1887: a renamed site is found by its stored slug", () => {
 describe("#1891: the plan check is quiet on read paths", () => {
   it("a row whose url is not http(s) plans nothing and logs nothing", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const r = row({ url: "ftp://acme.example.com", linksOk: false, browserCheckedAt: FRESH });
-    expect(retestPlanForRow(r, itemsOf(r)).audits).toEqual([]);
+    const r = row({
+      url: "ftp://acme.example.com",
+      linksOk: false,
+      brokenLinks: 2,
+      browserCheckedAt: FRESH,
+    });
+    const plan = retestPlanForRow(r, itemsOf(r));
+    expect(plan.audits).toEqual([]);
+    // The reason was planned and then dropped by the roster check, so the check ran.
+    expect(plan.untouched).toContain("2 broken links");
     expect(warn).not.toHaveBeenCalled();
   });
 });
