@@ -352,11 +352,11 @@ export function collectA11yAlerts(
  *  not measured, and without this item a partial run would raise nothing anywhere. Attention,
  *  not Broken (the P1-78 ladder): coverage loss is the instrument losing its view; a route
  *  that answers an error is a `route-missing` finding, which `collectA11yAlerts` raises.
- *  TODAY THIS CANNOT FIRE: every skip the spec writes has a declared reason, and a declared
- *  skip leaves both counts (`a11yAudit`'s `routes`), so stored scanned equals total. It is the
- *  guard for a skip with any other reason (workspace decision
- *  2026-11-03-1933-910-undeclared-absent-fixture-coverage asks whether an undeclared absent
- *  fixture should be one). */
+ *  A skip the site declared (the placeholder Prismic repo, or an absent fixture listed in
+ *  `reddoor.absentFixtures`) leaves both counts, so it never fires this. An absent fixture the
+ *  site never listed stays in the total (operator, 2026-11-03, workspace decision
+ *  2026-11-03-1933-910-undeclared-absent-fixture-coverage): on 11-02 that was CalTex, Espada and
+ *  Revogen, each cleared by a one-line declaration. */
 export function collectA11yCoverageAlerts(
   sites: WebsiteRow[],
   baseUrl: string,

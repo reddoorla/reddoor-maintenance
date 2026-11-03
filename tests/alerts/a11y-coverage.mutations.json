@@ -180,5 +180,31 @@
     ],
     "test": "tests/alerts/production-signals.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "15-undeclared-absence-leaves-total",
+    "why": "An absent fixture the site never declared leaves the total, so it stores 1 of 1 (the 11-02 CalTex row)",
+    "edits": [
+      {
+        "file": "src/audits/a11y.ts",
+        "find": "(r) => DECLARED_SKIP_REASONS.has(r.reason) && !undeclaredSkip(r),",
+        "replace": "(r) => DECLARED_SKIP_REASONS.has(r.reason),"
+      }
+    ],
+    "test": "tests/audits/a11y.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "16-declared-absence-stays-in-total",
+    "why": "A declared absent fixture stays in the total, so a site that wrote it down reads partial every week",
+    "edits": [
+      {
+        "file": "src/audits/a11y.ts",
+        "find": "r.reason === ABSENT_FIXTURE_SKIP_REASON && undeclaredAbsent.includes(r.path);",
+        "replace": "r.reason === ABSENT_FIXTURE_SKIP_REASON;"
+      }
+    ],
+    "test": "tests/audits/a11y.test.ts",
+    "expect": "red"
   }
 ]
