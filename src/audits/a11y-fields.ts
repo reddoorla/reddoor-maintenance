@@ -1,14 +1,23 @@
 import type { AuditResult } from "../types.js";
 import type { A11yCounts } from "../fleet/site-fields.js";
+import { toA11ySkippedRoutes, type A11ySkippedRoute } from "../fleet/site-row.js";
 
 type A11yDetails = {
   totalViolations: number;
   byImpact: Partial<Record<"minor" | "moderate" | "serious" | "critical", number>>;
   routes?: { scanned?: unknown; total?: unknown };
+  skipped?: unknown;
 };
 
 const count = (v: unknown): number | null =>
   typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : null;
+
+/** The artifact's skipped routes as stored: route, reason and path (#910). The
+ *  audit always puts a list on a scanned run's details ([] when none), so null
+ *  comes only from a result whose details carry none, and it clears the stored list. */
+function skippedRoutes(v: unknown): A11ySkippedRoute[] | null {
+  return Array.isArray(v) ? toA11ySkippedRoutes(v) : null;
+}
 
 /** True when an a11y AuditResult carries real counts worth persisting.
  *  Mirrors the `hasRealScores` policy on lighthouse: write whenever real
@@ -33,5 +42,6 @@ export function a11yCountsFromResult(result: AuditResult): A11yCounts {
     violations: details?.totalViolations ?? 0,
     routesScanned: count(details?.routes?.scanned),
     routesTotal: count(details?.routes?.total),
+    routesSkipped: skippedRoutes(details?.skipped),
   };
 }

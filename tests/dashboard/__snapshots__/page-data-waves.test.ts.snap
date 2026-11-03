@@ -59,6 +59,7 @@ exports[`/ : a failed read degrades as the sequential loader did > countAutoSpam
       "site": {
         "a11yCheckedAt": null,
         "a11yRoutesScanned": null,
+        "a11yRoutesSkipped": null,
         "a11yRoutesTotal": null,
         "a11yViolations": null,
         "acceptedWatchConditions": [],
@@ -217,6 +218,7 @@ exports[`/ : a failed read degrades as the sequential loader did > countAutoSpam
       "site": {
         "a11yCheckedAt": null,
         "a11yRoutesScanned": null,
+        "a11yRoutesSkipped": null,
         "a11yRoutesTotal": null,
         "a11yViolations": null,
         "acceptedWatchConditions": [],
@@ -451,6 +453,7 @@ exports[`/ : a failed read degrades as the sequential loader did > countUnreplay
       "site": {
         "a11yCheckedAt": null,
         "a11yRoutesScanned": null,
+        "a11yRoutesSkipped": null,
         "a11yRoutesTotal": null,
         "a11yViolations": null,
         "acceptedWatchConditions": [],
@@ -573,6 +576,7 @@ exports[`/ : a failed read degrades as the sequential loader did > countUnreplay
       "site": {
         "a11yCheckedAt": null,
         "a11yRoutesScanned": null,
+        "a11yRoutesSkipped": null,
         "a11yRoutesTotal": null,
         "a11yViolations": null,
         "acceptedWatchConditions": [],
@@ -785,6 +789,7 @@ exports[`/ : a failed read degrades as the sequential loader did > listAllReport
       "site": {
         "a11yCheckedAt": null,
         "a11yRoutesScanned": null,
+        "a11yRoutesSkipped": null,
         "a11yRoutesTotal": null,
         "a11yViolations": null,
         "acceptedWatchConditions": [],
@@ -920,6 +925,7 @@ exports[`/ : a failed read degrades as the sequential loader did > listAllReport
       "site": {
         "a11yCheckedAt": null,
         "a11yRoutesScanned": null,
+        "a11yRoutesSkipped": null,
         "a11yRoutesTotal": null,
         "a11yViolations": null,
         "acceptedWatchConditions": [],
@@ -1124,6 +1130,7 @@ exports[`/ : a failed read degrades as the sequential loader did > listFleetEven
       "site": {
         "a11yCheckedAt": null,
         "a11yRoutesScanned": null,
+        "a11yRoutesSkipped": null,
         "a11yRoutesTotal": null,
         "a11yViolations": null,
         "acceptedWatchConditions": [],
@@ -1282,6 +1289,7 @@ exports[`/ : a failed read degrades as the sequential loader did > listFleetEven
       "site": {
         "a11yCheckedAt": null,
         "a11yRoutesScanned": null,
+        "a11yRoutesSkipped": null,
         "a11yRoutesTotal": null,
         "a11yViolations": null,
         "acceptedWatchConditions": [],
@@ -1485,6 +1493,7 @@ exports[`/ : a failed read degrades as the sequential loader did > listNewSubmis
       "site": {
         "a11yCheckedAt": null,
         "a11yRoutesScanned": null,
+        "a11yRoutesSkipped": null,
         "a11yRoutesTotal": null,
         "a11yViolations": null,
         "acceptedWatchConditions": [],
@@ -1643,6 +1652,7 @@ exports[`/ : a failed read degrades as the sequential loader did > listNewSubmis
       "site": {
         "a11yCheckedAt": null,
         "a11yRoutesScanned": null,
+        "a11yRoutesSkipped": null,
         "a11yRoutesTotal": null,
         "a11yViolations": null,
         "acceptedWatchConditions": [],
@@ -1879,6 +1889,7 @@ exports[`/ : a failed read degrades as the sequential loader did > oldestUnrepla
       "site": {
         "a11yCheckedAt": null,
         "a11yRoutesScanned": null,
+        "a11yRoutesSkipped": null,
         "a11yRoutesTotal": null,
         "a11yViolations": null,
         "acceptedWatchConditions": [],
@@ -2014,6 +2025,7 @@ exports[`/ : a failed read degrades as the sequential loader did > oldestUnrepla
       "site": {
         "a11yCheckedAt": null,
         "a11yRoutesScanned": null,
+        "a11yRoutesSkipped": null,
         "a11yRoutesTotal": null,
         "a11yViolations": null,
         "acceptedWatchConditions": [],
@@ -2226,6 +2238,7 @@ exports[`/ : a failed read degrades as the sequential loader did > readCockpitRo
       "site": {
         "a11yCheckedAt": null,
         "a11yRoutesScanned": null,
+        "a11yRoutesSkipped": null,
         "a11yRoutesTotal": null,
         "a11yViolations": null,
         "acceptedWatchConditions": [],
@@ -2384,6 +2397,7 @@ exports[`/ : a failed read degrades as the sequential loader did > readCockpitRo
       "site": {
         "a11yCheckedAt": null,
         "a11yRoutesScanned": null,
+        "a11yRoutesSkipped": null,
         "a11yRoutesTotal": null,
         "a11yViolations": null,
         "acceptedWatchConditions": [],
@@ -2592,6 +2606,7 @@ exports[`/ : a failed read degrades as the sequential loader did > readDigestSta
       "site": {
         "a11yCheckedAt": null,
         "a11yRoutesScanned": null,
+        "a11yRoutesSkipped": null,
         "a11yRoutesTotal": null,
         "a11yViolations": null,
         "acceptedWatchConditions": [],
@@ -2762,6 +2777,7 @@ exports[`/ : a failed read degrades as the sequential loader did > readDigestSta
       "site": {
         "a11yCheckedAt": null,
         "a11yRoutesScanned": null,
+        "a11yRoutesSkipped": null,
         "a11yRoutesTotal": null,
         "a11yViolations": null,
         "acceptedWatchConditions": [],
@@ -2974,6 +2990,7 @@ exports[`/ : a failed read degrades as the sequential loader did > readLatestDep
       "site": {
         "a11yCheckedAt": null,
         "a11yRoutesScanned": null,
+        "a11yRoutesSkipped": null,
         "a11yRoutesTotal": null,
         "a11yViolations": null,
         "acceptedWatchConditions": [],
@@ -3120,6 +3137,7 @@ exports[`/ : a failed read degrades as the sequential loader did > readLatestDep
       "site": {
         "a11yCheckedAt": null,
         "a11yRoutesScanned": null,
+        "a11yRoutesSkipped": null,
         "a11yRoutesTotal": null,
         "a11yViolations": null,
         "acceptedWatchConditions": [],
@@ -3332,6 +3350,7 @@ exports[`/ : a failed read degrades as the sequential loader did > the whole mod
       "site": {
         "a11yCheckedAt": null,
         "a11yRoutesScanned": null,
+        "a11yRoutesSkipped": null,
         "a11yRoutesTotal": null,
         "a11yViolations": null,
         "acceptedWatchConditions": [],
@@ -3490,6 +3509,7 @@ exports[`/ : a failed read degrades as the sequential loader did > the whole mod
       "site": {
         "a11yCheckedAt": null,
         "a11yRoutesScanned": null,
+        "a11yRoutesSkipped": null,
         "a11yRoutesTotal": null,
         "a11yViolations": null,
         "acceptedWatchConditions": [],
@@ -3782,6 +3802,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > countN
   "site": {
     "a11yCheckedAt": null,
     "a11yRoutesScanned": null,
+    "a11yRoutesSkipped": null,
     "a11yRoutesTotal": null,
     "a11yViolations": null,
     "acceptedWatchConditions": [],
@@ -4140,6 +4161,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > countU
   "site": {
     "a11yCheckedAt": null,
     "a11yRoutesScanned": null,
+    "a11yRoutesSkipped": null,
     "a11yRoutesTotal": null,
     "a11yViolations": null,
     "acceptedWatchConditions": [],
@@ -4511,6 +4533,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > listSu
   "site": {
     "a11yCheckedAt": null,
     "a11yRoutesScanned": null,
+    "a11yRoutesSkipped": null,
     "a11yRoutesTotal": null,
     "a11yViolations": null,
     "acceptedWatchConditions": [],
@@ -4759,6 +4782,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > oldest
   "site": {
     "a11yCheckedAt": null,
     "a11yRoutesScanned": null,
+    "a11yRoutesSkipped": null,
     "a11yRoutesTotal": null,
     "a11yViolations": null,
     "acceptedWatchConditions": [],
@@ -5129,6 +5153,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > readDi
   "site": {
     "a11yCheckedAt": null,
     "a11yRoutesScanned": null,
+    "a11yRoutesSkipped": null,
     "a11yRoutesTotal": null,
     "a11yViolations": null,
     "acceptedWatchConditions": [],
@@ -5489,6 +5514,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > readLa
   "site": {
     "a11yCheckedAt": null,
     "a11yRoutesScanned": null,
+    "a11yRoutesSkipped": null,
     "a11yRoutesTotal": null,
     "a11yViolations": null,
     "acceptedWatchConditions": [],
@@ -5860,6 +5886,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > screen
   "site": {
     "a11yCheckedAt": null,
     "a11yRoutesScanned": null,
+    "a11yRoutesSkipped": null,
     "a11yRoutesTotal": null,
     "a11yViolations": null,
     "acceptedWatchConditions": [],
@@ -6227,6 +6254,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > screen
   "site": {
     "a11yCheckedAt": null,
     "a11yRoutesScanned": null,
+    "a11yRoutesSkipped": null,
     "a11yRoutesTotal": null,
     "a11yViolations": null,
     "acceptedWatchConditions": [],
@@ -6594,6 +6622,7 @@ exports[`/s/:slug : a failed read degrades as the sequential loader did > the wh
   "site": {
     "a11yCheckedAt": null,
     "a11yRoutesScanned": null,
+    "a11yRoutesSkipped": null,
     "a11yRoutesTotal": null,
     "a11yViolations": null,
     "acceptedWatchConditions": [],

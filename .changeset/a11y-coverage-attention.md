@@ -1,0 +1,5 @@
+---
+"@reddoorla/maintenance": minor
+---
+
+An a11y fixture that is missing from a site's source and not declared in `package.json#reddoor.absentFixtures` now stays in the stored route total, so the run stores as partial ("1 of 2") instead of complete (#910). A partial run raises a new Attention item, `a11y-coverage:<site>` ("accessibility scan reached only 1 of 2 routes"), on the cockpit card, Needs-you, the site page and the digest; before, a partial run raised nothing anywhere. A declared absence still leaves the total. From the 11-08 sweep this applies to CalTex, Espada and Revogen, each clearable by declaring `/dev/animate-in`. A partial run's findings raise the same `a11y:<site>` item a complete run does. The write-back also stores the routes a run did not scan, and why, in the new `site_health.a11y_routes_skipped` column (JSON `[{ route, reason, path }]`, migration 0053), with each route's path, and the site page's a11y tile names them ("not scanned: animate-in demo at /dev/animate-in (…)").
