@@ -353,8 +353,10 @@ export function collectA11yAlerts(
  *  not Broken (the P1-78 ladder): coverage loss is the instrument losing its view; a route
  *  that answers an error is a `route-missing` finding, which `collectA11yAlerts` raises.
  *  TODAY THIS CANNOT FIRE: every skip the spec writes has a declared reason, and a declared
- *  skip leaves both counts (`a11yAudit`'s `routes`), so stored scanned equals total. It fires
- *  for a skip with any other reason, and is the item a narrower "declared" would reach. */
+ *  skip leaves both counts (`a11yAudit`'s `routes`), so stored scanned equals total. It is the
+ *  guard for a skip with any other reason (workspace decision
+ *  2026-11-03-1933-910-undeclared-absent-fixture-coverage asks whether an undeclared absent
+ *  fixture should be one). */
 export function collectA11yCoverageAlerts(
   sites: WebsiteRow[],
   baseUrl: string,
