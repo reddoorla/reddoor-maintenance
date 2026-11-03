@@ -459,3 +459,150 @@ describe("ingestSubmission — a composed application is scanned on what the vis
     expect(findRecentDuplicates).not.toHaveBeenCalled();
   });
 });
+
+// Review round 3. The stored half trusts `extra_fields.composedMessage`, so the
+// flag that reaches storage must be ingest's own verdict, never the caller's.
+describe("ingestSubmission — only ingest decides what is stored as composed", () => {
+  function setupStoring(siteOver: { requireTurnstile?: boolean } = {}) {
+    const s = setup(siteOver);
+    s.d.createSubmission = (input) => createSubmission(db, input);
+    return s;
+  }
+  const sprayPayload = (i: number, flag: "top" | "extra") => ({
+    formType: "inquiry",
+    email: `bot${i}@spray.example`,
+    name: `Bot ${i}`,
+    message: PITCH,
+    ...(flag === "top" ? { composedMessage: true } : { extra: { composedMessage: true } }),
+  });
+
+  it.each(["top", "extra"] as const)(
+    "catches three copies of a pitch on an ungated site whose caller sets the flag (%s)",
+    async (flag) => {
+      const statuses: string[] = [];
+      for (const i of [1, 2, 3]) {
+        const { d } = setupStoring({ requireTurnstile: false });
+        const r = await ingestSubmission(d, "reddoor", sprayPayload(i, flag), "absent");
+        if (r.status !== "accepted") throw new Error(r.status);
+        const row = await db
+          .selectFrom("submissions")
+          .select(["status", "spam_reason", "extra_fields"])
+          .where("id", "=", r.submissionId)
+          .executeTakeFirstOrThrow();
+        statuses.push(`${row.status}:${row.spam_reason ?? ""}`);
+        expect(JSON.parse(row.extra_fields ?? "{}")).not.toHaveProperty("composedMessage");
+      }
+      expect(statuses).toEqual(["new:", "spam_auto:duplicate-body", "spam_auto:duplicate-body"]);
+    },
+  );
+
+  it("scores the visitorText of a flagged copy that failed the gate (the classifier sees the stored fields)", async () => {
+    const { d } = setup({ requireTurnstile: false });
+    d.classifySpam = (n, outcome) =>
+      classifySpam({
+        name: n.name,
+        email: n.email,
+        ...(n.message !== undefined ? { message: n.message } : {}),
+        formType: n.formType,
+        extraFields: n.extraFields,
+        turnstile: outcome,
+      });
+    await ingestSubmission(
+      d,
+      "reddoor",
+      payload({ composedMessage: true, visitorText: "https://cheap-links.example" }),
+      pass(),
+    );
+    expect(stored(d).spamReason ?? "").toMatch(/links:1/);
+  });
+
+  it("stores a gated flagged copy whose token failed as not composed", async () => {
+    const { d } = setup();
+    await ingestSubmission(d, "reddoor", payload({ composedMessage: true }), "fail");
+    expect(stored(d).extraFields).not.toHaveProperty("composedMessage");
+  });
+
+  it("stores the visitorText from `extra`, not a top-level key, on a composed row", async () => {
+    const { d } = setup();
+    await ingestSubmission(
+      d,
+      "reddoor",
+      { ...appPayload("https://acme.com", "The Diagnosis"), visitorText: PITCH },
+      pass(),
+    );
+    expect(stored(d).extraFields).toMatchObject({
+      composedMessage: true,
+      visitorText: "The Diagnosis",
+    });
+  });
+
+  // The production step one, once the site drops its own step title: every row is
+  // stored composed with an EMPTY visitorText, and must be matched by nothing.
+  it("a stored composed row with no visitorText is matched by no copy of the template", async () => {
+    await db.deleteFrom("submissions").execute();
+    for (const email of ["e1@x.com", "e2@x.com"]) {
+      await createSubmission(db, {
+        siteId: SITE_ID,
+        formType: "inquiry",
+        name: email,
+        email,
+        message: STEP_ONE,
+        extraFields: { composedMessage: true, visitorText: "" },
+        status: "new",
+        submittedAt: new Date(NOW.getTime() - 3_600_000),
+      });
+    }
+    const r = await findRecentDuplicateSubmissions(db, STEP_ONE, "2026-10-01T00:00:00.000Z");
+    expect(r).toEqual({ exact: [], similar: [] });
+    const { d, retroBucket } = setup();
+    await ingestSubmission(d, "reddoor", payload(), pass());
+    expect(stored(d)).toMatchObject({ status: "new", spamReason: null });
+    expect(retroBucket).not.toHaveBeenCalled();
+  });
+
+  it("a row whose extra_fields column is malformed is still matched by its message", async () => {
+    const row = await createSubmission(db, {
+      siteId: "recOTHER",
+      formType: "contact",
+      name: "x",
+      email: "bot@spam.example",
+      message: PITCH,
+      status: "new",
+      submittedAt: new Date(NOW.getTime() - 3_600_000),
+    });
+    await db
+      .updateTable("submissions")
+      .set({ extra_fields: "{not json" })
+      .where("id", "=", row.id)
+      .execute();
+    const r = await findRecentDuplicateSubmissions(db, PITCH, "2026-10-01T00:00:00.000Z");
+    expect(r.exact.map((m) => m.id)).toEqual([row.id]);
+  });
+});
+
+// `submissions rescore` re-runs the classifier over stored rows with their raw
+// extra_fields, so the skip must live in classifySpam itself (review round 3:
+// a genuine applicant went from 35 at ingest to 60 on rescore).
+describe("classifySpam — visitorText on a stored composed row", () => {
+  const url = "https://ada-clinic.example";
+  const base = {
+    name: "Ada",
+    email: "ada@ada-clinic.example",
+    formType: "inquiry" as const,
+    turnstile: "unverifiable" as const,
+  };
+
+  it("does not count visitorText again on a composed row", () => {
+    const v = classifySpam({
+      ...base,
+      message: `Where can we check out your work? ${url}`,
+      extraFields: { composedMessage: true, visitorText: url },
+    });
+    expect(v.reasons).toContain("links:1");
+  });
+
+  it("still scores a visitorText key on a row that is not composed", () => {
+    const v = classifySpam({ ...base, message: "hello", extraFields: { visitorText: url } });
+    expect(v.reasons).toContain("links:1");
+  });
+});
