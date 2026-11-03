@@ -5,7 +5,7 @@
     "edits": [
       {
         "file": "src/audits/browser.ts",
-        "find": "return first.reason === \"load failed\" ? probeMobileOnce(browser, url, target) : first;",
+        "find": "return first.reason === \"load failed\"\n    ? probeMobileOnce(browser, url, target, RETRY_PAGE_TIMEOUT_MS)\n    : first;",
         "replace": "return first;"
       }
     ],
@@ -18,7 +18,7 @@
     "edits": [
       {
         "file": "src/audits/browser.ts",
-        "find": "return first.reason === \"load failed\" ? probeMobileOnce(browser, url, target) : first;",
+        "find": "return first.reason === \"load failed\"\n    ? probeMobileOnce(browser, url, target, RETRY_PAGE_TIMEOUT_MS)\n    : first;",
         "replace": "return first.reason === \"load failed\" ? { device: target.device, ok: true, status: 200 } : first;"
       }
     ],
@@ -31,8 +31,34 @@
     "edits": [
       {
         "file": "src/audits/browser.ts",
-        "find": "return first.reason === \"load failed\" ? probeMobileOnce(browser, url, target) : first;",
-        "replace": "return first.ok ? first : probeMobileOnce(browser, url, target);"
+        "find": "return first.reason === \"load failed\"\n    ? probeMobileOnce(browser, url, target, RETRY_PAGE_TIMEOUT_MS)\n    : first;",
+        "replace": "return first.ok ? first : probeMobileOnce(browser, url, target, RETRY_PAGE_TIMEOUT_MS);"
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m4-retries-twice",
+    "why": "Review round 1: a second retry multiplies a hanging site's cost against the 75-minute budget",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "return first.reason === \"load failed\"\n    ? probeMobileOnce(browser, url, target, RETRY_PAGE_TIMEOUT_MS)\n    : first;",
+        "replace": "if (first.reason !== \"load failed\") return first;\n  const second = await probeMobileOnce(browser, url, target, RETRY_PAGE_TIMEOUT_MS);\n  return second.reason === \"load failed\" ? probeMobileOnce(browser, url, target, RETRY_PAGE_TIMEOUT_MS) : second;"
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m5-context-outside-try",
+    "why": "Review round 1: a context the browser cannot make throws out of probeMobile",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "  let ctx: Awaited<ReturnType<Browser[\"newContext\"]>> | undefined;\n",
+        "replace": "  let ctx: Awaited<ReturnType<Browser[\"newContext\"]>> | undefined = await browser.newContext({ ...descriptor });\n"
       }
     ],
     "test": "tests/audits/browser.test.ts",

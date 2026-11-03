@@ -1666,12 +1666,14 @@ describe("probeMobile — real Chromium, device-width overflow after styles appl
   let base = "";
   let browser: Browser;
   let dropped = 0;
+  let alwaysDropped = 0;
   let wideServed = 0;
 
   beforeAll(async () => {
     server = createServer((req, res) => {
       // /drop-once: the first request's connection is cut (a transient network drop),
       // later ones serve a fitting page. /drop-always: every connection is cut.
+      if (req.url === "/drop-always") alwaysDropped++;
       if (req.url === "/drop-always" || (req.url === "/drop-once" && dropped++ === 0)) {
         req.socket.destroy();
         return;
@@ -1768,9 +1770,21 @@ describe("probeMobile — real Chromium, device-width overflow after styles appl
     expect(wideServed).toBe(1);
   }, 60_000);
 
-  it("a route that never loads still fails, as load failed", async () => {
+  it("a route that never loads still fails, as load failed, after exactly one retry", async () => {
+    alwaysDropped = 0;
     expect(await probeMobile(browser, `${base}/drop-always`, targets[0]!)).toMatchObject({
       device: "Pixel 7",
+      ok: false,
+      reason: "load failed",
+    });
+    // One retry, never more: its cost is what fleet-lighthouse's 75 minutes allow.
+    expect(alwaysDropped).toBe(2);
+  }, 60_000);
+
+  it("a browser that can no longer make a context is a load failure, not a throw", async () => {
+    const gone = await chromium.launch();
+    await gone.close();
+    expect(await probeMobile(gone, `${base}/fits`, targets[0]!)).toMatchObject({
       ok: false,
       reason: "load failed",
     });
