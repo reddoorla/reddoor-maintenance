@@ -256,6 +256,61 @@ export async function ingestSubmission(
   // has no business triggering. Re-enabled the moment the site leaves development.
   const spamHandlingEnabled = site.status !== "building";
 
+  // A message the SITE composed is not visitor text, so the duplicate scans below
+  // must not judge its template. reddoor's landing-page modal writes the same
+  // sentence for every visitor's step one and the same question labels and
+  // options for every application, so the scan read each lead after the first in
+  // a 30-day window as a spray and stored it `duplicate-body`/`similar-body`,
+  // silently (2026-11-03, sub_4bc17c8e…, whose Turnstile token had PASSED). The
+  // site says so with `extra.composedMessage: true`, and puts whatever the
+  // visitor DID type (free-text answers, anything not on its own question list)
+  // in `extra.visitorText`.
+  //
+  // Two halves. The STORED half is in findRecentDuplicateSubmissions: a composed
+  // row is only ever matched by its visitorText, on every scan path, so no later
+  // copy of the template can mark it or retro-bucket it. The INCOMING half is
+  // here: on a site that requires Turnstile, a flagged copy whose token passed on
+  // the site's own host is scanned on its visitorText alone, and not at all when
+  // there is none. Only a pass counts (the operator, 2026-11-03, decisions
+  // -2043 option a and -2317 option 1). "Unverifiable" was let through in review
+  // round 2, to spare real leads during a siteverify outage, and failed review
+  // twice: a bot can choose it, by replaying one solved token
+  // (`timeout-or-duplicate`, round 4) or by sending a token from its own
+  // Cloudflare widget (`invalid-input-secret`, round 5), and either way one token
+  // delivered unlimited step ones, each with an autoresponder. An unverifiable
+  // flagged copy is now judged like any other copy. What a bot controls is in
+  // visitorText on the verified path, so a pitch typed into an answer is still
+  // caught as a spray. Every other path — visitor-typed messages, ungated sites,
+  // an absent, failed or unverifiable token, a foreign-host pass — scans the
+  // whole message, exactly as before.
+  //
+  // Retro-bucketing is left to a flagged copy only when its token passed on the
+  // site's own host: an unproven copy may be judged, but may not judge others.
+  // Both fields are read from `extra` only: normalizeSubmission also copies
+  // unknown TOP-level keys into extraFields.
+  //
+  // INGEST decides what is stored as composed, never the caller (review round 3).
+  // The stored half trusts `extra_fields.composedMessage`, so a caller-supplied
+  // flag that reached storage — a top-level key, or `extra` on an ungated site or
+  // with a failed token — made the row invisible to every later scan: three
+  // copies of a pitch on an ungated site all landed `new`. The stored row now
+  // carries `composedMessage: true`, with the visitorText read from `extra`, only
+  // when this copy got the visitorText scan; otherwise the flag is dropped and the
+  // row is matched by its message like any other.
+  const composedFlag = isComposedMessage(rawPayload);
+  const gatedComposed = composedFlag && site.requireTurnstile;
+  const passedOnSiteHost =
+    turnstile === "pass" &&
+    (verification.hostname === null ||
+      turnstileHostnameAcceptable(verification.hostname, site.url));
+  const scanVisitorText = gatedComposed && passedOnSiteHost;
+  const scanText = scanVisitorText ? composedVisitorText(rawPayload) : n.message;
+  const mayRetroBucket = !composedFlag || (gatedComposed && passedOnSiteHost);
+  const stored: NormalizedSubmission = {
+    ...n,
+    extraFields: storedExtraFields(n.extraFields, composedFlag, scanVisitorText, rawPayload),
+  };
+
   // Fold the content signals + the Turnstile verdict into ONE spam decision.
   // Absent classifier → treat as clean (fail-open). A throwing classifier is
   // swallowed the same way — a bug in the heuristic must never turn an
@@ -268,7 +323,7 @@ export async function ingestSubmission(
   let verdict: SpamVerdict = { score: 0, reasons: [] };
   if (spamHandlingEnabled && deps.classifySpam) {
     try {
-      verdict = deps.classifySpam(n, turnstile);
+      verdict = deps.classifySpam(stored, turnstile);
     } catch (err) {
       console.error(`[ingest] classifySpam threw: ${String(err)}`);
     }
@@ -353,12 +408,12 @@ export async function ingestSubmission(
   if (
     spamHandlingEnabled &&
     n.formType !== "newsletter" &&
-    n.message !== undefined &&
+    scanText !== undefined &&
     deps.findRecentDuplicates
   ) {
     try {
       const since = new Date(deps.now().getTime() - DUPLICATE_WINDOW_MS);
-      const dupes = await deps.findRecentDuplicates(n.message, since);
+      const dupes = await deps.findRecentDuplicates(scanText, since);
       const senderEmail = n.email.trim().toLowerCase();
       const isOwnResend = (m: { siteId: string; email: string }) =>
         m.siteId === site.id && m.email.trim().toLowerCase() === senderEmail;
@@ -372,7 +427,7 @@ export async function ingestSubmission(
           if (!reasons.includes(reason)) reasons.push(reason);
         }
         const retroIds = [...exact, ...similar].filter((m) => m.status === "new").map((m) => m.id);
-        if (deps.retroBucket && retroIds.length > 0) {
+        if (deps.retroBucket && retroIds.length > 0 && mayRetroBucket) {
           try {
             await deps.retroBucket(retroIds, "retro:duplicate-body");
           } catch (err) {
@@ -391,7 +446,7 @@ export async function ingestSubmission(
     formType: n.formType,
     name: n.name,
     email: n.email,
-    extraFields: n.extraFields,
+    extraFields: stored.extraFields,
     status,
     spamScore: verdict.score,
     spamReason,
@@ -557,4 +612,46 @@ export function turnstileHostnameAcceptable(tokenHostname: string, siteUrl: stri
 export function isTestMode(rawPayload: unknown): boolean {
   if (!rawPayload || typeof rawPayload !== "object") return false;
   return (rawPayload as Record<string, unknown>).testMode === true;
+}
+
+/** True when the SITE says it composed `message` itself: `extra.composedMessage`
+ *  is literally `true` on the raw payload. Only the `extra` envelope counts (see
+ *  the note at `scanVisitorText`). PURE. */
+export function isComposedMessage(rawPayload: unknown): boolean {
+  return rawExtra(rawPayload)?.composedMessage === true;
+}
+
+/** The visitor-typed part of a site-composed message: `extra.visitorText` when it
+ *  is a non-blank string, else undefined (nothing to scan). PURE. */
+export function composedVisitorText(rawPayload: unknown): string | undefined {
+  const v = rawExtra(rawPayload)?.visitorText;
+  return typeof v === "string" && v.trim() !== "" ? v.trim() : undefined;
+}
+
+function rawExtra(rawPayload: unknown): Record<string, unknown> | undefined {
+  if (!rawPayload || typeof rawPayload !== "object") return undefined;
+  const extra = (rawPayload as Record<string, unknown>).extra;
+  return extra && typeof extra === "object" ? (extra as Record<string, unknown>) : undefined;
+}
+
+/** The extraFields ingest stores (and classifies): the caller's, with
+ *  `composedMessage` dropped, then set — with `visitorText` taken from `extra` —
+ *  only when this copy was scanned on its visitorText. So the stored half's
+ *  "composed" is always ingest's own verdict (see the note at `scanVisitorText`).
+ *  A flagged copy that failed the gate also loses its `visitorText`: it is a copy
+ *  of message text, and left in an unflagged row the classifier scores it twice
+ *  (review round 4: an absent-token reddoor application, 35 → 60). PURE. */
+function storedExtraFields(
+  extraFields: Record<string, unknown>,
+  flagged: boolean,
+  composed: boolean,
+  rawPayload: unknown,
+): Record<string, unknown> {
+  const { composedMessage: _drop, ...rest } = extraFields;
+  if (!composed) {
+    if (!flagged) return rest;
+    const { visitorText: _copy, ...unflagged } = rest;
+    return unflagged;
+  }
+  return { ...rest, composedMessage: true, visitorText: composedVisitorText(rawPayload) ?? "" };
 }
