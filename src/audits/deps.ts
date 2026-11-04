@@ -6,6 +6,7 @@ import { baselineVersions } from "../configs/baseline-versions.js";
 import type { AuditContext } from "./util/inject.js";
 import { defaultSpawn } from "./util/spawn.js";
 import { scanOutdated, type OutdatedCounts } from "./deps-outdated.js";
+import { loadHoldRules } from "./deps-held.js";
 
 export type Drift = "same" | "patch" | "minor" | "major" | "newer";
 
@@ -123,9 +124,12 @@ export async function depsAudit(ctx: AuditContext): Promise<AuditResult> {
         ? `${entries.filter((d) => d.drift !== "same").length} of ${entries.length} tracked deps drifted`
         : `${entries.filter((d) => d.drift === "major").length} deps lagging by a major version`;
 
-  const outdated = await scanOutdated(ctx.site.path, ctx.spawn ?? defaultSpawn);
+  // P1-98: the org preset is read at audit time; a failed read holds nothing.
+  const holds = await loadHoldRules(ctx.site.path, ctx.renovatePreset);
+  const outdated = await scanOutdated(ctx.site.path, ctx.spawn ?? defaultSpawn, holds);
   const summary = outdated
-    ? `${driftSummary}; ${outdated.outdated} outdated install(s) (${outdated.major} major)`
+    ? `${driftSummary}; ${outdated.outdated} outdated install(s) (${outdated.major} major)` +
+      (outdated.held.length > 0 ? `; held on purpose: ${outdated.held.join(", ")}` : "")
     : driftSummary;
 
   return {

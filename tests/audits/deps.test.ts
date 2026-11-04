@@ -77,9 +77,9 @@ describe("audits/deps", () => {
 
     const result = await depsAudit({ site: { path: dir }, spawn });
     const { outdated } = result.details as {
-      outdated: { outdated: number; major: number; behind: string[] } | null;
+      outdated: { outdated: number; major: number; behind: string[]; held: string[] } | null;
     };
-    expect(outdated).toEqual({ outdated: 1, major: 1, behind: ["vite@5"] });
+    expect(outdated).toEqual({ outdated: 1, major: 1, behind: ["vite@5"], held: [] });
     expect(result.summary).toMatch(/outdated/i);
   });
 

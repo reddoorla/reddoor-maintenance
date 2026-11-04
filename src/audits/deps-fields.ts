@@ -15,6 +15,7 @@ export function depsCountsFromResult(result: AuditResult): {
   outdated: number | null;
   majorOutdated: number | null;
   behindPackages: string[] | null;
+  heldPackages: string[] | null;
 } {
   if (result.audit !== "deps") {
     throw new Error(`Expected a 'deps' AuditResult, got '${result.audit}'`);
@@ -37,5 +38,8 @@ export function depsCountsFromResult(result: AuditResult): {
   // P1-78a: the packages a major behind, by name. Null with the counts, so a night
   // `pnpm outdated` could not run never clobbers the stored list.
   const behindPackages = details.outdated ? (details.outdated.behind ?? null) : null;
-  return { drifted, majorBehind, outdated, majorOutdated, behindPackages };
+  // P1-98: the packages held on purpose, under the same null guard. An older
+  // result with no `held` reads as none held.
+  const heldPackages = details.outdated ? (details.outdated.held ?? []) : null;
+  return { drifted, majorBehind, outdated, majorOutdated, behindPackages, heldPackages };
 }

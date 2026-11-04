@@ -208,6 +208,8 @@ export type DepsCounts = {
   /** P1-78a: `name@installed-major` per package a major behind; null = not read
    *  this run (optional for callers that never had it). */
   behindPackages?: string[] | null;
+  /** P1-98: `name@installed-major` per package a major behind on purpose; null = not read. */
+  heldPackages?: string[] | null;
 };
 export type SecurityCounts = { critical: number; high: number; moderate: number; low: number };
 export type DomainResult = { certDaysRemaining: number | null; checkedAt: string };
@@ -314,6 +316,10 @@ function depsFields(counts: DepsCounts): FieldSet {
   if (counts.behindPackages != null) {
     fields["Deps Behind Packages"] = JSON.stringify(counts.behindPackages);
     fields["Deps Behind Packages At"] = new Date().toISOString();
+  }
+  // P1-98: the held list rides the same stamp, so its clearing is visible too.
+  if (counts.heldPackages != null) {
+    fields["Deps Held Packages"] = JSON.stringify(counts.heldPackages);
   }
   return fields;
 }

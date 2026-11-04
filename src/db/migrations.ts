@@ -789,4 +789,12 @@ export const MIGRATIONS: Migration[] = [
       ),
     ].join("\n"),
   },
+  {
+    // P1-98: the deps audit's packages a major behind ON PURPOSE (a preset
+    // allowedVersions cap, or @types/node at the runtime major), as JSON
+    // `name@installed-major`. Kept out of deps_behind_packages so Watch counts only
+    // real drift; written beside it, so the runtime move shows them clearing.
+    id: "0055_site_health_deps_held_packages",
+    sql: `ALTER TABLE site_health ADD COLUMN deps_held_packages TEXT;`,
+  },
 ];

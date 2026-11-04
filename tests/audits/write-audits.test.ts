@@ -38,7 +38,7 @@ const a11yResult = (
 
 const depsResult = (
   drifts: Array<"same" | "patch" | "minor" | "major" | "newer">,
-  outdated: { outdated: number; major: number; behind?: string[] } | null = null,
+  outdated: { outdated: number; major: number; behind?: string[]; held?: string[] } | null = null,
 ): AuditResult =>
   ({
     audit: "deps",
@@ -325,6 +325,46 @@ describe("writeBackOneSite", () => {
     const merged = Object.assign({}, ...calls.map((c) => c.fields));
     expect("Deps Behind Packages" in merged).toBe(false);
     expect("Deps Behind Packages At" in merged).toBe(false);
+  });
+
+  it("writes the held list beside the behind list, and keeps held out of the major count (P1-98)", async () => {
+    const { mirror: mirrorHealth, calls } = recordingMirror();
+    await writeBackOneSite({
+      mirrorHealth,
+      websites: [row()],
+      slug: "acme",
+      results: [
+        lhResult({ performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
+        depsResult(["minor"], {
+          outdated: 4,
+          major: 1,
+          behind: ["vitest@3"],
+          held: ["@types/node@24", "typescript@6"],
+        }),
+      ],
+    });
+    const merged = Object.assign({}, ...calls.map((c) => c.fields));
+    expect(JSON.parse(merged["Deps Behind Packages"] as string)).toEqual(["vitest@3"]);
+    expect(JSON.parse(merged["Deps Held Packages"] as string)).toEqual([
+      "@types/node@24",
+      "typescript@6",
+    ]);
+    expect(merged["Deps Major Outdated"]).toBe(1);
+  });
+
+  it("a failed install leaves the stored held list alone too (P1-98)", async () => {
+    const { mirror: mirrorHealth, calls } = recordingMirror();
+    await writeBackOneSite({
+      mirrorHealth,
+      websites: [row()],
+      slug: "acme",
+      results: [
+        lhResult({ performance: 0.9, accessibility: 1, "best-practices": 1, seo: 1 }),
+        depsResult(["minor"], null),
+      ],
+    });
+    const merged = Object.assign({}, ...calls.map((c) => c.fields));
+    expect("Deps Held Packages" in merged).toBe(false);
   });
 
   it("omits Deps Major Outdated from the write when the deps audit couldn't determine it (preserves prior)", async () => {

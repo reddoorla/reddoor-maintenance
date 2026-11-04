@@ -53,13 +53,18 @@ describe("scanOutdated", () => {
     });
     // pnpm outdated exits non-zero when there ARE outdated deps — not an error.
     const { spawn } = spawnStub({ outdated: { code: 1, stdout: outdatedJson, stderr: "" } });
-    expect(await scanOutdated(dir, spawn)).toEqual({ outdated: 3, major: 1, behind: ["vite@5"] });
+    expect(await scanOutdated(dir, spawn)).toEqual({
+      outdated: 3,
+      major: 1,
+      behind: ["vite@5"],
+      held: [],
+    });
   });
 
   it("returns zero counts when pnpm outdated reports nothing", async () => {
     const dir = await siteDir(true);
     const { spawn } = spawnStub({ outdated: { code: 0, stdout: "{}", stderr: "" } });
-    expect(await scanOutdated(dir, spawn)).toEqual({ outdated: 0, major: 0, behind: [] });
+    expect(await scanOutdated(dir, spawn)).toEqual({ outdated: 0, major: 0, behind: [], held: [] });
   });
 
   it("names each package a major behind as name@installed-major, sorted (P1-78a)", async () => {
@@ -74,6 +79,7 @@ describe("scanOutdated", () => {
       outdated: 3,
       major: 2,
       behind: ["@sveltejs/kit@2", "vite@5"],
+      held: [],
     });
   });
 
