@@ -1,6 +1,6 @@
 {
   "name": "@reddoorla/maintenance",
-  "version": "0.112.0",
+  "version": "0.113.0",
   "description": "Canonical maintenance configs, audits, and recipes for the reddoor stack.",
   "type": "module",
   "license": "MIT",
@@ -60,6 +60,10 @@
     "./configs/svelte": {
       "types": "./dist/configs/svelte.d.ts",
       "import": "./dist/configs/svelte.js"
+    },
+    "./smoke": {
+      "types": "./dist/smoke/index.d.ts",
+      "import": "./dist/smoke/index.js"
     }
   },
   "bin": {
@@ -117,7 +121,7 @@
     "@anthropic-ai/sdk": "^1.0.0",
     "@changesets/cli": "^3.0.0",
     "@google-analytics/data": "^7.0.0",
-    "@lhci/cli": "^0.15.1",
+    "@lhci/cli": "^0.16.0",
     "@libsql/client": "^0.8.1",
     "@libsql/kysely-libsql": "^0.4.1",
     "@netlify/functions": "^5.2.2",
@@ -133,7 +137,7 @@
     "google-auth-library": "^10.6.2",
     "happy-dom": "^21.0.4",
     "kysely": "^0.29.2",
-    "mjml": "^4.18.0",
+    "mjml": "^5.0.0",
     "resend": "^4.8.0",
     "sharp": "^0.35.0",
     "svelte": "^5.57.2",

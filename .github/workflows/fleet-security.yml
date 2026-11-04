@@ -88,11 +88,11 @@ jobs:
             --only security,deps \
             --write-back \
             --concurrency 1 \
-            --workdir /tmp/fleet-security | tee /tmp/audit.out || true
+            --workdir /tmp/fleet-security | tee "${RUNNER_TEMP:-/tmp}/audit.out" || true
 
           # `|| true`: under Actions' default `set -e`, a no-match grep in a command
           # substitution would abort the step before the explicit diagnostic below runs.
-          summary=$(grep -oE "FLEET_WRITE_SUMMARY wrote=[0-9]+ failed=[0-9]+ total=[0-9]+" /tmp/audit.out | tail -n1 || true)
+          summary=$(grep -oE "FLEET_WRITE_SUMMARY wrote=[0-9]+ failed=[0-9]+ total=[0-9]+" "${RUNNER_TEMP:-/tmp}/audit.out" | tail -n1 || true)
           if [ -z "$summary" ]; then
             echo "::error::fleet security printed no write summary — the run crashed before write-back (check the Turso creds / clone)."
             exit 1
@@ -102,17 +102,10 @@ jobs:
           total=$(echo "$summary" | grep -oE "total=[0-9]+" | cut -d= -f2)
           echo "fleet write-back: wrote=$wrote failed=$failed total=$total"
 
-          # Surface every partial miss as a visible annotation, even one within
-          # tolerance — a tolerated single-site flake is then never invisible.
-          if [ "$failed" -gt 0 ]; then
-            notwritten=$(grep -oE "[0-9]+ site\(s\) not written:.*" /tmp/audit.out | tail -n1 || true)
-            echo "::warning::fleet security: $failed/$total site(s) not written — $notwritten"
-          fi
-
           # A site that couldn't even be prepared (bad/scheme-less URL + no repo, or a
           # private repo whose clone fails) is dropped rather than crashing the run
           # (resilient fleet prep). Raise it so the misconfigured site row gets fixed.
-          skipped=$(grep -oE "⚠ [0-9]+ site\(s\) skipped \(could not prepare\):.*" /tmp/audit.out | tail -n1 || true)
+          skipped=$(grep -oE "⚠ [0-9]+ site\(s\) skipped \(could not prepare\):.*" "${RUNNER_TEMP:-/tmp}/audit.out" | tail -n1 || true)
           if [ -n "$skipped" ]; then
             echo "::warning::fleet security: $skipped"
           fi
@@ -126,14 +119,14 @@ jobs:
           # The CLI's exit status cannot carry this (a failing audit exits 1 by
           # design, so the step tolerates it), so the verdict line is the contract,
           # and an absent line is red.
-          gate=$(grep -E "^FLEET_WRITE_GATE verdict=(red|green)$" /tmp/audit.out | tail -n1 || true)
+          gate=$(grep -E "^FLEET_WRITE_GATE verdict=(red|green)$" "${RUNNER_TEMP:-/tmp}/audit.out" | tail -n1 || true)
           if [ -z "$gate" ]; then
             echo "::error::fleet security printed no FLEET_WRITE_GATE verdict — cannot confirm what was measured."
             exit 1
           fi
-          grep -E "^FLEET_WRITE_GATE_WARNING " /tmp/audit.out | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet security: /' || true
+          grep -E "^FLEET_WRITE_GATE_WARNING " "${RUNNER_TEMP:-/tmp}/audit.out" | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet security: /' || true
           if [ "$gate" = "FLEET_WRITE_GATE verdict=red" ]; then
-            grep -E "^FLEET_WRITE_GATE_REASON " /tmp/audit.out | sed 's/^FLEET_WRITE_GATE_REASON /::error::fleet security: /' || true
+            grep -E "^FLEET_WRITE_GATE_REASON " "${RUNNER_TEMP:-/tmp}/audit.out" | sed 's/^FLEET_WRITE_GATE_REASON /::error::fleet security: /' || true
             exit 1
           fi
 

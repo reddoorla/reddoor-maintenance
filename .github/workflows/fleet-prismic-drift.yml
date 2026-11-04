@@ -200,13 +200,6 @@ jobs:
           total=$(echo "$summary" | grep -oE "total=[0-9]+" | cut -d= -f2)
           echo "fleet prismic drift write-back: wrote=$wrote failed=$failed total=$total"
 
-          # Every partial miss is visible, even one inside tolerance — a tolerated
-          # single-site flake is then never invisible.
-          if [ "$failed" -gt 0 ]; then
-            notwritten=$(grep -oE "[0-9]+ site\(s\) not written:.*" "$out" | tail -n1 || true)
-            echo "::warning::fleet prismic drift: $failed/$total verdict(s) not written — $notwritten"
-          fi
-
           # NOTHING LANDED AT ALL. The verdicts were computed and none of them reached
           # the fleet's record, so the cockpit and the digest keep whatever they held
           # before — which for a site that broke today is a green tick. The CLI exits 0
@@ -214,7 +207,10 @@ jobs:
           # verdict columns are still being rolled out), so the exit code alone would
           # report a clean night. This is the check `fleet-smoke.yml` did not have when
           # it stayed green through nine of eleven sites failing.
+          # Both early exits below run before the gate's own lines, so each prints the gate's
+          # warnings (the names of the failed sites among them) first: a red night must name them.
           if [ "$wrote" -eq 0 ]; then
+            grep -E "^FLEET_WRITE_GATE_WARNING " "$out" | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet prismic drift: /' || true
             echo "::error::fleet prismic drift wrote 0 of $total verdict(s) — total write-back failure (check the Turso creds / the three Prismic columns in site_health). Every verdict this run computed is unrecorded."
             exit 1
           fi
@@ -222,6 +218,7 @@ jobs:
           # Mass flake: more than a quarter of the sites failed to write. One known
           # flaky row stays green-with-warning; a real outage reds.
           if [ $((failed * 4)) -gt "$total" ]; then
+            grep -E "^FLEET_WRITE_GATE_WARNING " "$out" | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet prismic drift: /' || true
             echo "::error::fleet prismic drift: $failed/$total verdict(s) failed to write (>25%) — investigate (not a single-site flake)."
             exit 1
           fi

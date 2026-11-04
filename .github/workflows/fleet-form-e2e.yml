@@ -157,12 +157,6 @@ jobs:
             echo "::warning::fleet form-e2e: $unreadable of $total site(s) not probed because their /health could not be read, twice — NO end-to-end coverage tonight: ${unread:-unnamed}."
           fi
 
-          # Surface every partial miss as a visible warning.
-          if [ "$failed" != "0" ]; then
-            notwritten=$(grep -oE "✗ [^:]+: .*" "$out" | tail -n5 || true)
-            echo "::warning::fleet form-e2e: $failed/$total site(s) not written — $notwritten"
-          fi
-
           # A site that couldn't be prepared (bad URL/repo) is dropped from the run
           # rather than crashing it; raise it so the misconfigured site row is fixed.
           skipped=$(grep -oE "⚠ [0-9]+ site\(s\) skipped \(could not prepare\):.*" "$out" | tail -n1 || true)
