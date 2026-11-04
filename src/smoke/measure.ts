@@ -96,9 +96,11 @@ export function measureInPage(): OverflowMeasure {
   // exclusion, because Chromium serializes multi-keyword block containers
   // such as `flow-root list-item` as they are written. An anonymous block
   // beside a block child does draw the ellipsis, in Chromium: that part of
-  // #1892's finding 1 did not hold against paint.
+  // #1892's finding 1 did not hold against paint. -webkit-box and
+  // -webkit-inline-box are laid out as flex boxes and draw none either; the
+  // one exception, -webkit-line-clamp, makes display compute as flow-root.
   const notBlockContainer =
-    /(^|[ -])(flex|grid|table|math)$|^table-(row|row-group|header-group|footer-group|column|column-group)$/;
+    /(^|[ -])(flex|grid|table|math)$|^table-(row|row-group|header-group|footer-group|column|column-group)$|^-webkit-(inline-)?box$/;
   // mask-image, and -webkit-mask-box-image with no outset, paint nothing
   // outside the border box (finding 6: a mask-box-image leaves mask-image at
   // none). mask-border, its standard name, is not in Chromium.
@@ -116,6 +118,20 @@ export function measureInPage(): OverflowMeasure {
   // nothing to the page's scroll width; removed before the page width is
   // read. A MutationObserver on the document sees it come and go.
   const probe: { host?: HTMLElement; box?: HTMLElement; child?: HTMLElement } = {};
+  // Whether a box or any box above it in the flat tree is drawn other than
+  // by a positive, axis-aligned scale and a move: a mirror, a turn, a skew,
+  // or a 3D transform, by transform or by the rotate and scale longhands.
+  const turned = (start: Element) => {
+    for (let a: Element | null = start; a; a = up(a)) {
+      const cs = getComputedStyle(a);
+      if (cs.transform !== "none") {
+        const m = new DOMMatrix(cs.transform);
+        if (!m.is2D || m.b !== 0 || m.c !== 0 || m.a < 0 || m.d < 0) return true;
+      }
+      if (cs.rotate !== "none" || /-/.test(cs.scale)) return true;
+    }
+    return false;
+  };
   // The rect a clip-path inset() leaves of a box, or null for any other
   // shape, which leaves the line as it is. A negative inset reaches past the
   // box (`inset(0 -100vmax)`), as it does on screen. `round` is ignored, since
@@ -141,7 +157,8 @@ export function measureInPage(): OverflowMeasure {
     // The reference box: border-box unless named. fill-box, stroke-box and
     // view-box are the border box on a CSS box. The insets, margins, borders
     // and paddings are CSS pixels; the rect is screen pixels, which zoom and
-    // scale transforms make larger. The ratio of the two converts.
+    // a positive scale make larger. The ratio of the two converts. It does not
+    // hold where the box or an ancestor is mirrored or turned: see `turned`.
     const [sx, sy] =
       a instanceof HTMLElement && a.offsetWidth > 0 && a.offsetHeight > 0
         ? [b.width / a.offsetWidth, b.height / a.offsetHeight]
@@ -201,6 +218,16 @@ export function measureInPage(): OverflowMeasure {
       resolve("top", bottom),
     ];
     if (![l, rt, t, bt].every(Number.isFinite)) return null;
+    // A mirrored or turned box's insets fall on its own sides, not the
+    // screen's (review round 2: scaleX(-1) with inset(0 0 0 50%) keeps the
+    // half that paints at the screen's left). There the clip narrows only to
+    // the border box, which holds all it can show, as the site copy did; a
+    // margin box or a negative inset can reach past that, so it does not
+    // narrow at all.
+    if (turned(a)) {
+      if (box === "margin-box" || Math.min(l, rt, t, bt) < 0) return null;
+      return [b.left, b.right, b.top, b.bottom];
+    }
     return [r[0]! + l * sx, r[1]! - rt * sx, r[2]! + t * sy, r[3]! - bt * sy];
   };
   // How far right a line box can be seen, or null when none of it can be seen

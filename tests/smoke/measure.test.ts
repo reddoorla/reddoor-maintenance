@@ -207,6 +207,71 @@ const FINDINGS: Record<string, Fixture> = {
     invisible: true,
     wide: true,
   },
+  // Review round 2: a mirrored or rotated box's insets are on its own sides,
+  // not the screen's, so the clip falls back to the whole border box.
+  "5g. clip-path inset on a mirrored box keeps its left half, which paints on screen": {
+    expected: "cut",
+    html: section(
+      `<div style="width:1000px;transform:scaleX(-1);clip-path:inset(0 0 0 50%);white-space:nowrap;font-size:30px">${LONG}</div>`,
+      "height:100px",
+    ),
+  },
+  "5h. clip-path inset under a mirrored ancestor": {
+    expected: "cut",
+    html: section(
+      `<div style="width:1000px;transform:scaleX(-1)"><div style="clip-path:inset(0 0 0 50%);white-space:nowrap;font-size:30px">${LONG}</div></div>`,
+      "height:100px",
+    ),
+  },
+  "5i. clip-path inset on a box turned half a circle": {
+    expected: "cut",
+    html: section(
+      `<div style="width:600px;rotate:180deg;clip-path:inset(0 0 0 97%);white-space:nowrap;font-size:30px">${LONG}</div>`,
+      "height:100px",
+    ),
+    paintOverride: {
+      painted: false,
+      why: "an 18px sliver of the turned line paints at the screen's left; the line runs past the right edge, so the clipped-line rule reports it",
+    },
+  },
+  // The fallback's limit: a negative inset or a margin box reaches past the
+  // border box, which here sits wholly past the screen while the mirrored
+  // line paints across the edge.
+  "5j. a negative inset on a mirrored box is not narrowed to its border box": {
+    expected: "cut",
+    html: section(
+      `<div style="margin-left:400px;width:200px;transform:scaleX(-1);clip-path:inset(0 -100vmax);white-space:nowrap">${LONG}</div>`,
+    ),
+  },
+  "5k. a margin-box inset on a mirrored box is not narrowed to its border box": {
+    expected: "cut",
+    html: section(
+      `<div style="margin-left:400px;margin-right:400px;width:200px;transform:scaleX(-1);clip-path:inset(0) margin-box;white-space:nowrap">${LONG}</div>`,
+    ),
+  },
+  // Review round 2: Chromium lays -webkit-box out as a flex box, which draws
+  // no ellipsis, unless -webkit-line-clamp is set.
+  "1d. a -webkit-box truncate block draws no ellipsis": {
+    expected: "cut",
+    html: `<div style="display:-webkit-box;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${LONG}</div>`,
+  },
+  "1e. a -webkit-inline-box truncate block draws no ellipsis": {
+    expected: "cut",
+    html: `<div style="display:-webkit-inline-box;width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${LONG}</div>`,
+  },
+  // Controls. -webkit-line-clamp makes display compute as flow-root and
+  // text-overflow as clip in this Chromium (checked 2026-11-04), so a
+  // computed -webkit-box is never clamped. Tailwind's line-clamp-1 wraps and
+  // draws the ellipsis; with nowrap added it paints cut, with none (seen in a
+  // screenshot), which round 2's suggested control had wrong.
+  "1f. Tailwind's line-clamp-1 draws the ellipsis": {
+    expected: "fine",
+    html: `<div style="display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden">${LONG}</div>`,
+  },
+  "1g. line-clamp-1 with nowrap draws no ellipsis": {
+    expected: "cut",
+    html: `<div style="display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden;white-space:nowrap">${LONG}</div>`,
+  },
   "6a. -webkit-mask-box-image masks to the border box": {
     expected: "fine",
     html: section(
