@@ -27,6 +27,8 @@ type Fixture = {
   paintOverride?: { painted: boolean; why: string };
   /** The clip leaves nothing of the text: no text pixel anywhere on screen. */
   invisible?: boolean;
+  /** The page is wider than the screen by construction; skip that assertion. */
+  wide?: boolean;
 };
 
 // A full-width clipping section, as a page's sections are. It keeps the page
@@ -107,6 +109,11 @@ const FINDINGS: Record<string, Fixture> = {
     expected: "fine",
     html: `<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${LONG}<div>Below.</div></div>`,
   },
+  // Review round 1: a multi-keyword block container draws its ellipsis.
+  "1c. a flow-root list-item truncate block draws the ellipsis": {
+    expected: "fine",
+    html: `<div style="display:flow-root list-item;list-style:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${LONG}</div>`,
+  },
   "2a. ruby does not clip": {
     expected: "cut",
     html: section(
@@ -141,6 +148,10 @@ const FINDINGS: Record<string, Fixture> = {
     expected: "fine",
     html: `<div style="width:100px;overflow:hidden"><span style="backdrop-filter:opacity(1)"><span style="position:fixed;left:300px;top:0;white-space:nowrap">${LONG}</span></span></div>`,
   },
+  "3f. will-change: filter on a plain inline span is a containing block": {
+    expected: "fine",
+    html: `<div style="width:100px;overflow:hidden"><span style="will-change:filter"><span style="position:fixed;left:300px;top:0;white-space:nowrap">${LONG}</span></span></div>`,
+  },
   "4. an outer inline <svg> clips its text": {
     expected: "fine",
     html: section(
@@ -161,6 +172,40 @@ const FINDINGS: Record<string, Fixture> = {
       `<div style="width:200px;clip-path:inset(0) margin-box;white-space:nowrap;text-indent:300px">${LONG}</div>`,
     ),
     invisible: true,
+  },
+  // Review round 1: verdicts that hang on the resolved inset, not on the
+  // shape alone.
+  "5c. clip-path: inset(0 0 0 50%) leaves only the half past the screen": {
+    expected: "fine",
+    html: section(
+      `<div style="width:1000px;clip-path:inset(0 0 0 50%);white-space:nowrap">${LONG} ${LONG}</div>`,
+    ),
+    invisible: true,
+  },
+  "5d. clip-path: inset(0) margin-box reaches into the margin": {
+    expected: "cut",
+    html: section(
+      `<div style="width:200px;margin-right:300px;clip-path:inset(0) margin-box;white-space:nowrap;text-indent:300px">${LONG}</div>`,
+    ),
+  },
+  "5e. a page's div:empty rule does not reach the probe": {
+    expected: "fine",
+    html:
+      `<style>div:empty{display:none!important}div{padding:7px!important;max-width:120px}</style>` +
+      section(
+        `<div style="width:1000px;max-width:none;padding:0!important;clip-path:inset(0 0 0 50%);white-space:nowrap">${LONG} ${LONG}</div>`,
+      ),
+    invisible: true,
+  },
+  // Review round 1: at zoom 2 the 500px box is 1000 screen px and the 200px
+  // inset 400, so what is left sits wholly past the 390px screen. Inside a
+  // full-width section the unscaled inset happened to give the same verdict,
+  // so this one is left wide.
+  "5f. clip-path insets under zoom": {
+    expected: "fine",
+    html: `<style>body{zoom:2}</style><div style="width:500px;clip-path:inset(0 0 0 200px);white-space:nowrap;font-size:15px">${LONG}</div>`,
+    invisible: true,
+    wide: true,
   },
   "6a. -webkit-mask-box-image masks to the border box": {
     expected: "fine",
@@ -257,7 +302,9 @@ function checkFixtures(fixtures: Record<string, Fixture>) {
         paintSays,
       );
       if (fx.invisible) expect(anywhere, "text painted somewhere on screen").toBe(false);
-      expect(m.scrollWidth, "page wider than the screen").toBeLessThanOrEqual(m.clientWidth);
+      if (!fx.wide) {
+        expect(m.scrollWidth, "page wider than the screen").toBeLessThanOrEqual(m.clientWidth);
+      }
       expect(measured, `measure() said ${JSON.stringify(m.cut)}`).toBe(fx.expected);
     });
   }
