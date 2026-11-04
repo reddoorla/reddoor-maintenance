@@ -2372,6 +2372,130 @@ describe("land-prs: test changes", () => {
         ),
       ).toEqual([{ file: T, reasons: ['added skip: it.skip("b", () => {'] }]);
     });
+
+    describe("P1-82 review round 4 (#1617)", () => {
+      const one = (patch: string) => testChangeFlags([file(T, "modified", patch)]);
+
+      it("a running test's name is read without its quotes, so 'b', \"b\" and `b` are one name", () => {
+        expect(
+          one(
+            '@@ -1,6 +1,3 @@\n-it.skip("a", () => {\n+it.skip("b", () => {\n   smoke();\n });\n-it(\'b\', () => {\n-  smoke();\n-});',
+          ),
+        ).toEqual([{ file: T, reasons: ['added skip: it.skip("b", () => {'] }]);
+        expect(
+          one(
+            '@@ -1,6 +1,3 @@\n-it.skip("a", () => {\n+it.skip("b", () => {\n   smoke();\n });\n-it(`b`, () => {\n-  smoke();\n-});',
+          ),
+        ).toEqual([{ file: T, reasons: ['added skip: it.skip("b", () => {'] }]);
+      });
+
+      it("a running test whose name cannot be read blocks every rename in its file", () => {
+        expect(
+          one(
+            '@@ -1,7 +1,3 @@\n-it.skip("a", () => {\n+it.skip("b", () => {\n   smoke();\n });\n-it(\n-  "b",\n-  () => { smoke(); });',
+          ),
+        ).toEqual([{ file: T, reasons: ['added skip: it.skip("b", () => {'] }]);
+      });
+
+      it("a plain rename with no removed running test is not an added skip", () => {
+        expect(one('@@ -1 +1 @@\n-it.skip("a", () => {\n+it.skip("b", () => {')).toEqual([]);
+      });
+
+      it("a [ before /* opens a comment unless a regex class closes before a regex", () => {
+        expect(
+          one(
+            '@@ -1,3 +1,5 @@\n+const unused = [/*\n it("works", () => {\n   expect(add(1, 2)).toBe(3);\n });\n+*/];',
+          ),
+        ).toEqual([
+          { file: T, reasons: ['existing line now inside a block comment: it("works", () => {'] },
+        ]);
+      });
+
+      it("a backtick right after / is a regex literal's, not a template's", () => {
+        expect(
+          one(
+            '@@ -1,3 +1,5 @@\n+const tick = /`/; /*\n it("works", () => {\n   expect(add(1, 2)).toBe(3);\n });\n+*/];',
+          ),
+        ).toEqual([
+          { file: T, reasons: ['existing line now inside a block comment: it("works", () => {'] },
+        ]);
+      });
+
+      it("a quote right after / is a regex literal's, not a string's", () => {
+        expect(
+          one(
+            '@@ -1,3 +1,5 @@\n+const q = /\'/; /*\n it("works", () => {\n   expect(add(1, 2)).toBe(3);\n });\n+*/];',
+          ),
+        ).toEqual([
+          { file: T, reasons: ['existing line now inside a block comment: it("works", () => {'] },
+        ]);
+      });
+
+      // The two tests below have no closer in the hunk. A closer that the scan meets in code
+      // makes the side read again from inside a comment (fix 4), which would hide a
+      // mis-read opener, so these are the cases where only fixes 2, 3 and the JSDoc start show.
+      it("a [/* with no closer in the hunk opens a comment, and the line after it is wrapped", () => {
+        expect(
+          one(
+            '@@ -1,2 +1,3 @@\n+const unused = [/*\n it("works", () => {\n   expect(add(1, 2)).toBe(3);',
+          ),
+        ).toEqual([
+          { file: T, reasons: ['existing line now inside a block comment: it("works", () => {'] },
+        ]);
+      });
+
+      it("a quote right after / with no closer in the hunk opens no string, so the comment after it wraps", () => {
+        expect(
+          one(
+            '@@ -1,2 +1,3 @@\n+const q = /\'/; /*\n it("works", () => {\n   expect(add(1, 2)).toBe(3);',
+          ),
+        ).toEqual([
+          { file: T, reasons: ['existing line now inside a block comment: it("works", () => {'] },
+        ]);
+      });
+
+      it("a JSDoc hunk with no closer in it is read from inside its comment, so a glob in it opens nothing", () => {
+        expect(
+          one(
+            "@@ -10,2 +10,3 @@\n * Reads every fixture.\n+ * Matches tests/fixtures/*.json.\n * Returns them sorted.",
+          ),
+        ).toEqual([]);
+      });
+
+      it("a */ closing a comment opened above the hunk is a stray, and the lines it hides are wrapped", () => {
+        expect(
+          one(
+            '@@ -3,7 +3,7 @@\n  notes line 2\n  notes line 3\n  notes line 4\n-*/\n it("works", () => {\n   expect(add(1, 2)).toBe(3);\n });\n+*/',
+          ),
+        ).toEqual([
+          { file: T, reasons: ['existing line now inside a block comment: it("works", () => {'] },
+        ]);
+      });
+
+      it("a / before a */ on the line makes it a regex, not a stray closer", () => {
+        expect(
+          one(
+            '@@ -1,4 +1,5 @@\n it("works", () => {\n   const s = "aa";\n+  expect(/a*/.test(s)).toBe(true);\n   expect(add(1, 2)).toBe(3);\n });',
+          ),
+        ).toEqual([]);
+      });
+
+      it("a \\ No newline at end of file line does not end a one-for-one rename", () => {
+        expect(
+          one(
+            '@@ -1 +1 @@\n-it.skip("a", () => {});\n\\ No newline at end of file\n+it.skip("b", () => {});\n\\ No newline at end of file',
+          ),
+        ).toEqual([]);
+      });
+
+      it("a blank context line is not the wrapped line: the first non-blank one is", () => {
+        expect(
+          one('@@ -1,3 +1,4 @@\n+/*\n \n it("works", () => {\n   expect(add(1, 2)).toBe(3);'),
+        ).toEqual([
+          { file: T, reasons: ['existing line now inside a block comment: it("works", () => {'] },
+        ]);
+      });
+    });
   });
 
   describe("round-2 review findings", () => {

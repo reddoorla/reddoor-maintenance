@@ -243,8 +243,8 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "if (newState === \"comment\" && oldState !== \"comment\" && !hunkWrapped) {",
-        "replace": "if (newState === \"comment\" && !hunkWrapped) {"
+        "find": "o.before !== \"comment\" &&",
+        "replace": "true &&"
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
@@ -339,8 +339,8 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "return c === \"`\" ? \"template\" : \"code\";",
-        "replace": "return \"code\";"
+        "find": "state: c === \"`\" ? \"template\" : \"code\", stray",
+        "replace": "state: \"code\", stray"
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
@@ -352,8 +352,8 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "const jsdoc = /^\\*(?!\\/)/.test(text.trim());",
-        "replace": "const jsdoc = false;"
+        "find": "jsdoc: /^\\*(?!\\/)/.test(text.trim()),",
+        "replace": "jsdoc: false,"
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
@@ -365,7 +365,7 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": " && line[i - 1] !== \"[\"",
+        "find": "&&\n        !regexClassAt(line, i)",
         "replace": ""
       }
     ],
@@ -378,7 +378,7 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "line[i - 1] !== \"\\\\\" && ",
+        "find": "line[i - 1] !== \"\\\\\" &&\n",
         "replace": ""
       }
     ],
@@ -422,7 +422,7 @@
       },
       {
         "file": "scripts/land-prs.mjs",
-        "find": "&&\n          !running.has(testName(a))",
+        "find": "&&\n          !running.has(nameBody(testName(a)))",
         "replace": ""
       }
     ],
@@ -435,12 +435,134 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "&&\n          !running.has(testName(a))",
+        "find": "&&\n          !running.has(nameBody(testName(a)))",
         "replace": ""
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
     "why": "#1617 r3: a one-for-one title edit whose new name was already a running test's name is taken as a rename, so the skip is not flagged (G3)."
+  },
+  {
+    "id": "M-P182-19-name-keeps-quotes",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "running.add(nameBody(name));",
+        "replace": "running.add(name);"
+      },
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "!running.has(nameBody(testName(a)))",
+        "replace": "!running.has(testName(a))"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617 r4 fix 1a undone: the running set and its lookup compare names with their quotes, so 'b' and \"b\" are two names and a skip of a running test renamed across quote styles passes as a rename (Q1)."
+  },
+  {
+    "id": "M-P182-20-unread-header-ignored",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "if (unreadRunning) return out;",
+        "replace": "if (false) return out;"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617 r4 fix 1b undone: a removed running test header whose name cannot be read no longer blocks renames in its file, so a skip renamed to the unread test's name passes (Q2)."
+  },
+  {
+    "id": "M-P182-21-bracket-always-regex",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "!regexClassAt(line, i)\n      ) {",
+        "replace": "line[i - 1] !== \"[\" \n      ) {"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617 r4 fix 2 undone: a [ before /* always means a regex class, so [/* that opens a comment is not seen and the wrapped line is missed (K1)."
+  },
+  {
+    "id": "M-P182-22-slash-tick-template",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "if (/[\"'`]/.test(c) && line[i - 1] === \"/\") i++;",
+        "replace": "if (/[\"']/.test(c) && line[i - 1] === \"/\") i++;"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617 r4 fix 3 undone for the backtick: a backtick right after / opens a template literal that runs past the line, so the comment after a regex is missed (T1)."
+  },
+  {
+    "id": "M-P182-23-slash-quote-string",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "if (/[\"'`]/.test(c) && line[i - 1] === \"/\") i++;",
+        "replace": "if (/[`]/.test(c) && line[i - 1] === \"/\") i++;"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617 r4 fix 3 undone for the quotes: a ' or \" right after / opens a string that never closes on the line, so the comment after a regex is missed (T2)."
+  },
+  {
+    "id": "M-P182-24-no-stray-close-rescan",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "first.stray && start === \"code\"",
+        "replace": "false"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617 r4 fix 4 undone: a hunk side that meets a stray */ in code is never read again from inside a comment, so the lines the comment hides are not flagged (C1)."
+  },
+  {
+    "id": "M-P182-25-stray-close-after-slash",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "if (!line.slice(0, i).includes(\"/\")) stray = true;",
+        "replace": "stray = true;"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617 r4 fix 4 widened: a */ after a / on the same line (a regex's /a*/) also counts as a stray closer, so a comment is reported where none opens (C2)."
+  },
+  {
+    "id": "M-P182-26-eof-marker-splits",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "if (raw.startsWith(\"\\\\\")) continue;",
+        "replace": "if (false) continue;"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617 r4 fix 5 undone: a \\ No newline at end of file line ends a change block, so a one-for-one rename whose marker follows it is no longer paired (E1)."
+  },
+  {
+    "id": "M-P182-27-blank-wrap-reason",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "text.trim() !== \"\"",
+        "replace": "true"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617 r4 fix 6 undone: a blank context line can be the reported wrapped line, so the report names an empty line instead of the first non-blank one (N1)."
   }
 ]
