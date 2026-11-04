@@ -195,50 +195,6 @@
     "why": "#1812 r3: a regex quote or a JSX apostrophe on the matcher line would hide the expected value again."
   },
   {
-    "id": "M-P182-1-rename-any-code",
-    "edits": [
-      {
-        "file": "scripts/land-prs.mjs",
-        "find": "codeOf(r).code === code &&",
-        "replace": "true &&"
-      }
-    ],
-    "test": "tests/scripts/land-prs.test.ts",
-    "expect": "red",
-    "why": "#1617: any skip paired with any line counts as a rename, so a test skip widened to a describe skip (R4) passes unflagged."
-  },
-  {
-    "id": "M-P182-2-rename-multiset",
-    "edits": [
-      {
-        "file": "scripts/land-prs.mjs",
-        "find": "if (removed.length === 1 && added.length === 1) {",
-        "replace": "if (added.length === 1 && removed.length > 0) {"
-      },
-      {
-        "file": "scripts/land-prs.mjs",
-        "find": "const r = removed[0];",
-        "replace": "const r = removed.find((x) => codeOf(x).code === codeOf(added[0]).code) ?? \"\";"
-      }
-    ],
-    "test": "tests/scripts/land-prs.test.ts",
-    "expect": "red",
-    "why": "#1617, round 3 (rewritten): a rename is taken from a block of one added line and any number of removed lines, its removed line chosen by code anywhere in the block, not by position: the round-1 multiset pairing, which let a swap in one block pass as two renames."
-  },
-  {
-    "id": "M-P182-3-rename-no-hunk-reset",
-    "edits": [
-      {
-        "file": "scripts/land-prs.mjs",
-        "find": "if (raw.startsWith(\"@@\")) pair();",
-        "replace": "if (raw.startsWith(\"@@\")) continue;"
-      }
-    ],
-    "test": "tests/scripts/land-prs.test.ts",
-    "expect": "red",
-    "why": "#1617: a hunk boundary does not end a change block, so a removal in one hunk pairs with an addition in the next (R6)."
-  },
-  {
     "id": "M-P182-4-wrap-new-side-only",
     "edits": [
       {
@@ -291,56 +247,12 @@
     "why": "#1617: a comment opened around existing lines is not flagged at all (B1)."
   },
   {
-    "id": "M-P182-8-rename-ignores-retry",
-    "edits": [
-      {
-        "file": "scripts/land-prs.mjs",
-        "find": "const sure = !codeOf(r).retry && !codeOf(a).retry;",
-        "replace": "const sure = true;"
-      }
-    ],
-    "test": "tests/scripts/land-prs.test.ts",
-    "expect": "red",
-    "why": "#1617 r1: a rename on a line codeOf gave up on (a trailing comment) passes unflagged."
-  },
-  {
-    "id": "M-P182-9-rename-any-string",
-    "edits": [
-      {
-        "file": "scripts/land-prs.mjs",
-        "find": "if (al[k].text !== rl[k].text) return false;",
-        "replace": "void rl;"
-      },
-      {
-        "file": "scripts/land-prs.mjs",
-        "find": "return namesFirstArgument(a, al[0]);",
-        "replace": "return true;"
-      }
-    ],
-    "test": "tests/scripts/land-prs.test.ts",
-    "expect": "red",
-    "why": "#1617 r1: any string may change with the skip, so a skip's string argument passes unflagged (F1a, F1b, and the later-string case)."
-  },
-  {
-    "id": "M-P182-10-rename-first-not-arg",
-    "edits": [
-      {
-        "file": "scripts/land-prs.mjs",
-        "find": "return namesFirstArgument(a, al[0]);",
-        "replace": "return true;"
-      }
-    ],
-    "test": "tests/scripts/land-prs.test.ts",
-    "expect": "red",
-    "why": "#1617 r1: the first string may be any string on the line, so a string in an `if` condition (F1a, F1b) passes unflagged."
-  },
-  {
     "id": "M-P182-11-template-not-tracked",
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "state: c === \"`\" ? \"template\" : \"code\", stray",
-        "replace": "state: \"code\", stray"
+        "find": "return c === \"`\" ? \"template\" : \"code\";",
+        "replace": "return \"code\";"
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
@@ -400,81 +312,6 @@
     "why": "#1617 r1: an escaped quote ends a string, so the `/*` after it opens a comment (F3b)."
   },
   {
-    "id": "M-P182-16-rename-reuses-removed",
-    "edits": [
-      {
-        "file": "scripts/land-prs.mjs",
-        "find": "(p) => p.added === t && takeOne(removedLeft, matchKey(p.removed)),",
-        "replace": "(p) => p.added === t,"
-      }
-    ],
-    "test": "tests/scripts/land-prs.test.ts",
-    "expect": "red",
-    "why": "#1617 r2: a rename does not use up its removed line, so one removed skip backs both a rename and an exact re-add."
-  },
-  {
-    "id": "M-P182-17-rename-any-block-shape",
-    "edits": [
-      {
-        "file": "scripts/land-prs.mjs",
-        "find": "if (removed.length === 1 && added.length === 1) {",
-        "replace": "if (removed.length > 0 && added.length > 0) {"
-      },
-      {
-        "file": "scripts/land-prs.mjs",
-        "find": "&&\n          !running.has(nameBody(testName(a)))",
-        "replace": ""
-      }
-    ],
-    "test": "tests/scripts/land-prs.test.ts",
-    "expect": "red",
-    "why": "#1617 r3: a rename is paired in a block of any shape, by position, with no name check (the round-2 pairing back), so a skip of a running test's new name passes as a rename (G1, G2)."
-  },
-  {
-    "id": "M-P182-18-rename-name-was-running",
-    "edits": [
-      {
-        "file": "scripts/land-prs.mjs",
-        "find": "&&\n          !running.has(nameBody(testName(a)))",
-        "replace": ""
-      }
-    ],
-    "test": "tests/scripts/land-prs.test.ts",
-    "expect": "red",
-    "why": "#1617 r3: a one-for-one title edit whose new name was already a running test's name is taken as a rename, so the skip is not flagged (G3)."
-  },
-  {
-    "id": "M-P182-19-name-keeps-quotes",
-    "edits": [
-      {
-        "file": "scripts/land-prs.mjs",
-        "find": "running.add(nameBody(name));",
-        "replace": "running.add(name);"
-      },
-      {
-        "file": "scripts/land-prs.mjs",
-        "find": "!running.has(nameBody(testName(a)))",
-        "replace": "!running.has(testName(a))"
-      }
-    ],
-    "test": "tests/scripts/land-prs.test.ts",
-    "expect": "red",
-    "why": "#1617 r4 fix 1a undone: the running set and its lookup compare names with their quotes, so 'b' and \"b\" are two names and a skip of a running test renamed across quote styles passes as a rename (Q1)."
-  },
-  {
-    "id": "M-P182-20-unread-header-ignored",
-    "edits": [
-      {
-        "file": "scripts/land-prs.mjs",
-        "find": "if (unreadRunning) return out;",
-        "replace": "if (false) return out;"
-      }
-    ],
-    "test": "tests/scripts/land-prs.test.ts",
-    "expect": "red",
-    "why": "#1617 r4 fix 1b undone: a removed running test header whose name cannot be read no longer blocks renames in its file, so a skip renamed to the unread test's name passes (Q2)."
-  },
-  {
     "id": "M-P182-21-bracket-always-regex",
     "edits": [
       {
@@ -514,45 +351,6 @@
     "why": "#1617 r4 fix 3 undone for the quotes: a ' or \" right after / opens a string that never closes on the line, so the comment after a regex is missed (T2)."
   },
   {
-    "id": "M-P182-24-no-stray-close-rescan",
-    "edits": [
-      {
-        "file": "scripts/land-prs.mjs",
-        "find": "start === \"code\" && newFirst.stray",
-        "replace": "false"
-      }
-    ],
-    "test": "tests/scripts/land-prs.test.ts",
-    "expect": "red",
-    "why": "#1617 r4 fix 4 undone: a hunk side that meets a stray */ in code is never read again from inside a comment, so the lines the comment hides are not flagged (C1)."
-  },
-  {
-    "id": "M-P182-25-stray-close-after-slash",
-    "edits": [
-      {
-        "file": "scripts/land-prs.mjs",
-        "find": "if (!regexSeen) stray = true;",
-        "replace": "stray = true;"
-      }
-    ],
-    "test": "tests/scripts/land-prs.test.ts",
-    "expect": "red",
-    "why": "#1617 r4 fix 4 widened: a */ after a / on the same line (a regex's /a*/) also counts as a stray closer, so a comment is reported where none opens (C2)."
-  },
-  {
-    "id": "M-P182-26-eof-marker-splits",
-    "edits": [
-      {
-        "file": "scripts/land-prs.mjs",
-        "find": "if (raw.startsWith(\"\\\\\")) continue;",
-        "replace": "if (false) continue;"
-      }
-    ],
-    "test": "tests/scripts/land-prs.test.ts",
-    "expect": "red",
-    "why": "#1617 r4 fix 5 undone: a \\ No newline at end of file line ends a change block, so a one-for-one rename whose marker follows it is no longer paired (E1)."
-  },
-  {
     "id": "M-P182-27-blank-wrap-reason",
     "edits": [
       {
@@ -566,45 +364,6 @@
     "why": "#1617 r4 fix 6 undone: a blank context line can be the reported wrapped line, so the report names an empty line instead of the first non-blank one (N1)."
   },
   {
-    "id": "M-P182-28-stray-blocked-by-any-slash",
-    "edits": [
-      {
-        "file": "scripts/land-prs.mjs",
-        "find": "if (!regexSeen) stray = true;",
-        "replace": "if (!line.slice(0, i).includes(\"/\")) stray = true;"
-      }
-    ],
-    "test": "tests/scripts/land-prs.test.ts",
-    "expect": "red",
-    "why": "#1617 r5 fix 1a undone: any earlier / on the line stops a */ from being a stray, so see a/b */ and see tests/fixtures/a.json */ are not reported (S1, S3)."
-  },
-  {
-    "id": "M-P182-29-stray-stops-at-line-comment",
-    "edits": [
-      {
-        "file": "scripts/land-prs.mjs",
-        "find": "if (line.indexOf(\"*/\", i + 2) >= 0) stray = true;",
-        "replace": "if (false) stray = true;"
-      }
-    ],
-    "test": "tests/scripts/land-prs.test.ts",
-    "expect": "red",
-    "why": "#1617 r5 fix 1b undone: a // ends the scan without looking for a */ after it, so (#1617, https://x) */ is not a stray (S2)."
-  },
-  {
-    "id": "M-P182-30-old-stray-alone-rescans",
-    "edits": [
-      {
-        "file": "scripts/land-prs.mjs",
-        "find": "start === \"code\" && oldFirst.stray && newFirst.stray",
-        "replace": "start === \"code\" && oldFirst.stray"
-      }
-    ],
-    "test": "tests/scripts/land-prs.test.ts",
-    "expect": "red",
-    "why": "#1617 r5 fix 2 undone: an old-side stray alone re-reads the old side from a comment, hiding the wrapped expect line (O1)."
-  },
-  {
     "id": "M-P182-31-jsdoc-any-star",
     "edits": [
       {
@@ -616,24 +375,6 @@
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
     "why": "#1617 r5 fix 3 undone: any first line starting with * is JSDoc, so a code line such as * 2; or *[Symbol.iterator]() { starts the hunk inside a comment (J1, J2)."
-  },
-  {
-    "id": "M-P182-32-escaped-name-readable",
-    "edits": [
-      {
-        "file": "scripts/land-prs.mjs",
-        "find": "!nameBody(testName(a)).includes(\"\\\\\") &&",
-        "replace": "true &&"
-      },
-      {
-        "file": "scripts/land-prs.mjs",
-        "find": "if (name.includes(\"\\\\\")) unreadRunning = true;",
-        "replace": "if (false) unreadRunning = true;"
-      }
-    ],
-    "test": "tests/scripts/land-prs.test.ts",
-    "expect": "red",
-    "why": "#1617 r5 fix 4 undone: a name holding a backslash is compared as written, so an escaped added skip is a rename and a running test with an escaped name does not block renames (E1, E2)."
   },
   {
     "id": "M-P182-33-quote-after-any-slash",

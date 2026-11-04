@@ -2167,61 +2167,6 @@ describe("land-prs: test changes", () => {
   describe("P1-82: renamed skips and block-comment wraps (#1617)", () => {
     const one = (patch: string) => testChangeFlags([file(T, "modified", patch)]);
 
-    it("a skip only renamed is not an added skip", () => {
-      expect(
-        one(
-          '@@ -1,2 +1,2 @@\n-it.skip("old name", () => {\n+it.skip("new name", () => {\n   body();',
-        ),
-      ).toEqual([]);
-    });
-
-    it("a swap of a skip and an un-skip in one block flags only the new skip", () => {
-      expect(
-        one(
-          '@@ -1,2 +1,2 @@\n-it.skip("a", () => {});\n-it("b", () => {});\n+it("a", () => {});\n+it.skip("b", () => {});',
-        ),
-      ).toEqual([{ file: T, reasons: ['added skip: it.skip("b", () => {});'] }]);
-    });
-
-    it("a swap of a skip and an un-skip in two blocks flags only the new skip", () => {
-      expect(
-        one(
-          '@@ -1,3 +1,3 @@\n-it.skip("a", () => {});\n+it("a", () => {});\n keep();\n-it("b", () => {});\n+it.skip("b", () => {});',
-        ),
-      ).toEqual([{ file: T, reasons: ['added skip: it.skip("b", () => {});'] }]);
-    });
-
-    it("a test skip widened to a describe skip is flagged", () => {
-      expect(one('@@ -1 +1 @@\n-it.skip("a", () => {\n+describe.skip("a", () => {')).toEqual([
-        { file: T, reasons: ['added skip: describe.skip("a", () => {'] },
-      ]);
-    });
-
-    it("a skip renamed into an only is flagged as an only", () => {
-      expect(one('@@ -1 +1 @@\n-it.skip("a", () => {});\n+it.only("b", () => {});')).toEqual([
-        { file: T, reasons: ['added .only: it.only("b", () => {});'] },
-      ]);
-    });
-
-    it("a removal and an addition in different hunks do not pair", () => {
-      expect(
-        one(
-          '@@ -1,2 +1,1 @@\n keep();\n-it.skip("a", () => {});\n@@ -9,1 +8,2 @@\n+it.skip("b", () => {});\n more();',
-        ),
-      ).toEqual([{ file: T, reasons: ['added skip: it.skip("b", () => {});'] }]);
-    });
-
-    it("a removed skip line backs one rename or one re-add, never both", () => {
-      // Old: it.skip("b") (body 1), it("c") (body 2). New: it.skip("c") (body 1), it.skip("b") (body 2).
-      // The exact re-add of it.skip("b") takes the removed it.skip("b") first, so the rename pair
-      // it.skip("b") -> it.skip("c") finds no removed line left and stays flagged: one flag.
-      expect(
-        one(
-          '@@ -1,6 +1,6 @@\n-it.skip("b", () => {\n+it.skip("c", () => {\n   expect(1).toBe(1);\n });\n-it("c", () => {\n+it.skip("b", () => {\n   expect(2).toBe(2);\n });',
-        ),
-      ).toEqual([{ file: T, reasons: ['added skip: it.skip("c", () => {'] }]);
-    });
-
     it("a comment opened around existing lines is flagged, and its closer may be out of the patch", () => {
       expect(
         one(
@@ -2272,44 +2217,6 @@ describe("land-prs: test changes", () => {
         one("@@ -1,2 +1,3 @@\n keep();\n+/* flaky on CI */ go();\n expect(a).toBe(1);"),
       ).toEqual([]);
     });
-    it("a rename changes only the test's name: a string that decides the skip is flagged", () => {
-      expect(
-        one(
-          '@@ -1 +1 @@\n-  test.skip(browserName === "webkit");\n+  test.skip(browserName === "chromium");',
-        ),
-      ).toEqual([{ file: T, reasons: ['added skip: test.skip(browserName === "chromium");'] }]);
-      expect(
-        one(
-          '@@ -1 +1 @@\n-describe.runIf(process.env.CI === "true")("x", () => {\n+describe.runIf(process.env.CI === "never")("x", () => {',
-        ),
-      ).toEqual([
-        {
-          file: T,
-          reasons: ['added skip: describe.runIf(process.env.CI === "never")("x", () => {'],
-        },
-      ]);
-    });
-
-    it("a rename whose line was not read as code (an apostrophe, a regex quote, a comment) is flagged", () => {
-      expect(
-        one(
-          `@@ -1 +1 @@\n-render(<p>Don't</p>); it("a", () => {\n+render(<p>Don't</p>); it.skip("a", () => {`,
-        ),
-      ).toEqual([{ file: T, reasons: [`added skip: render(<p>Don't</p>); it.skip("a", () => {`] }]);
-      expect(
-        one('@@ -1 +1 @@\n-const re = /\'/; it("a", fn);\n+const re = /\'/; it.only("a", fn);'),
-      ).toEqual([{ file: T, reasons: ['added .only: const re = /\'/; it.only("a", fn);'] }]);
-      expect(
-        one('@@ -1 +1 @@\n-it.skip("old", () => {}); // note\n+it.skip("new", () => {}); // note'),
-      ).toEqual([{ file: T, reasons: ['added skip: it.skip("new", () => {}); // note'] }]);
-    });
-
-    it("a rename changes only the first string of the call: a later string that changes is flagged", () => {
-      expect(
-        one('@@ -1 +1 @@\n-it.skip("a", () => { go("1"); });\n+it.skip("b", () => { go("2"); });'),
-      ).toEqual([{ file: T, reasons: ['added skip: it.skip("b", () => { go("2"); });'] }]);
-    });
-
     it("a JSDoc whose opener is above the hunk, a glob in a template literal, and a glob in a regex class are not wraps", () => {
       expect(
         one(
@@ -2329,77 +2236,8 @@ describe("land-prs: test changes", () => {
       expect(one('@@ -1,1 +1,2 @@\n+const s = "a\\"/*";\n it("works", () => {')).toEqual([]);
     });
 
-    it("a deleted skip and a skip of another running test are not a rename of one into the other", () => {
-      // Old: it.skip("X") with its body, then it("Y"). New: it.skip("Y") in their place. The block has
-      // five removed lines and one added line, so it is not a one-for-one rename.
-      expect(
-        one(
-          '@@ -1,9 +1,5 @@\n describe("s", () => {\n-  it.skip("X", async () => {\n-    await run();\n-  });\n-\n-  it("Y", async () => {\n+  it.skip("Y", async () => {\n     expect(f()).toBe(2);\n   });\n });',
-        ),
-      ).toEqual([{ file: T, reasons: ['added skip: it.skip("Y", async () => {'] }]);
-    });
-
-    it("two removed and two added lines are not a rename, even when one pair lines up by position", () => {
-      expect(
-        one(
-          '@@ -1,2 +1,2 @@\n-  it.skip("X", run);\n-  it("Y", run);\n+  it.skip("Y", run);\n+  it("Z", run2);',
-        ),
-      ).toEqual([{ file: T, reasons: ['added skip: it.skip("Y", run);'] }]);
-    });
-
-    it("a one-for-one rename whose new name was a running test's name in the patch is an added skip", () => {
-      expect(
-        one(
-          '@@ -1,3 +1,2 @@\n keep();\n-it("Y", () => {\n   body();\n@@ -5,1 +4,1 @@\n-it.skip("X", () => {\n+it.skip("Y", () => {',
-        ),
-      ).toEqual([{ file: T, reasons: ['added skip: it.skip("Y", () => {'] }]);
-    });
-
-    it("a block with two removed lines and one added line is not a rename, even when the removed line that matches is not the first", () => {
-      expect(
-        one(
-          '@@ -1,3 +1,2 @@\n-it("Z", () => {\n-it.skip("X", () => {\n+it.skip("Y", () => {\n   body();',
-        ),
-      ).toEqual([{ file: T, reasons: ['added skip: it.skip("Y", () => {'] }]);
-    });
-
-    it("a removed skip backs one rename or one re-add, never both (a rename whose removed line is re-added)", () => {
-      // Hunk 1 renames it.skip("a") to it.skip("b"); hunk 2 adds it.skip("a") back. The one removed
-      // it.skip("a") backs the re-add, so the rename has no removed line left: the new skip "b" is flagged.
-      expect(
-        one(
-          '@@ -1,2 +1,2 @@\n-it.skip("a", () => {\n+it.skip("b", () => {\n   body();\n@@ -9,1 +9,2 @@\n+it.skip("a", () => {\n   more();',
-        ),
-      ).toEqual([{ file: T, reasons: ['added skip: it.skip("b", () => {'] }]);
-    });
-
     describe("P1-82 review round 4 (#1617)", () => {
       const one = (patch: string) => testChangeFlags([file(T, "modified", patch)]);
-
-      it("a running test's name is read without its quotes, so 'b', \"b\" and `b` are one name", () => {
-        expect(
-          one(
-            '@@ -1,6 +1,3 @@\n-it.skip("a", () => {\n+it.skip("b", () => {\n   smoke();\n });\n-it(\'b\', () => {\n-  smoke();\n-});',
-          ),
-        ).toEqual([{ file: T, reasons: ['added skip: it.skip("b", () => {'] }]);
-        expect(
-          one(
-            '@@ -1,6 +1,3 @@\n-it.skip("a", () => {\n+it.skip("b", () => {\n   smoke();\n });\n-it(`b`, () => {\n-  smoke();\n-});',
-          ),
-        ).toEqual([{ file: T, reasons: ['added skip: it.skip("b", () => {'] }]);
-      });
-
-      it("a running test whose name cannot be read blocks every rename in its file", () => {
-        expect(
-          one(
-            '@@ -1,7 +1,3 @@\n-it.skip("a", () => {\n+it.skip("b", () => {\n   smoke();\n });\n-it(\n-  "b",\n-  () => { smoke(); });',
-          ),
-        ).toEqual([{ file: T, reasons: ['added skip: it.skip("b", () => {'] }]);
-      });
-
-      it("a plain rename with no removed running test is not an added skip", () => {
-        expect(one('@@ -1 +1 @@\n-it.skip("a", () => {\n+it.skip("b", () => {')).toEqual([]);
-      });
 
       it("a [ before /* opens a comment unless a regex class closes before a regex", () => {
         expect(
@@ -2431,9 +2269,7 @@ describe("land-prs: test changes", () => {
         ]);
       });
 
-      // The two tests below have no closer in the hunk. A closer that the scan meets in code
-      // makes the side read again from inside a comment (fix 4), which would hide a
-      // mis-read opener, so these are the cases where only fixes 2, 3 and the JSDoc start show.
+      // The two tests below have no closer in the hunk, so only the opener's reading decides them.
       it("a [/* with no closer in the hunk opens a comment, and the line after it is wrapped", () => {
         expect(
           one(
@@ -2462,32 +2298,6 @@ describe("land-prs: test changes", () => {
         ).toEqual([]);
       });
 
-      it("a */ closing a comment opened above the hunk is a stray, and the lines it hides are wrapped", () => {
-        expect(
-          one(
-            '@@ -3,7 +3,7 @@\n  notes line 2\n  notes line 3\n  notes line 4\n-*/\n it("works", () => {\n   expect(add(1, 2)).toBe(3);\n });\n+*/',
-          ),
-        ).toEqual([
-          { file: T, reasons: ['existing line now inside a block comment: it("works", () => {'] },
-        ]);
-      });
-
-      it("a / before a */ on the line makes it a regex, not a stray closer", () => {
-        expect(
-          one(
-            '@@ -1,4 +1,5 @@\n it("works", () => {\n   const s = "aa";\n+  expect(/a*/.test(s)).toBe(true);\n   expect(add(1, 2)).toBe(3);\n });',
-          ),
-        ).toEqual([]);
-      });
-
-      it("a \\ No newline at end of file line does not end a one-for-one rename", () => {
-        expect(
-          one(
-            '@@ -1 +1 @@\n-it.skip("a", () => {});\n\\ No newline at end of file\n+it.skip("b", () => {});\n\\ No newline at end of file',
-          ),
-        ).toEqual([]);
-      });
-
       it("a blank context line is not the wrapped line: the first non-blank one is", () => {
         expect(
           one('@@ -1,3 +1,4 @@\n+/*\n \n it("works", () => {\n   expect(add(1, 2)).toBe(3);'),
@@ -2499,34 +2309,6 @@ describe("land-prs: test changes", () => {
 
     describe("P1-82 review round 5 (#1617)", () => {
       const one = (patch: string) => testChangeFlags([file(T, "modified", patch)]);
-      const moved =
-        '@@ -3,7 +3,7 @@\n  notes line 2\n  notes line 3\n  notes line 4\n-*/\n it("works", () => {\n   expect(add(1, 2)).toBe(3);\n });\n';
-      const wrapped = ['existing line now inside a block comment: it("works", () => {'];
-
-      it("a stray */ is one a / before it does not make a regex (a/b */ is a stray)", () => {
-        expect(one(`${moved}+ see a/b */`)).toEqual([{ file: T, reasons: wrapped }]);
-      });
-
-      it("a stray */ after a // line comment is a stray", () => {
-        expect(one(`${moved}+ (#1617, https://x) */`)).toEqual([{ file: T, reasons: wrapped }]);
-      });
-
-      it("a removed assertion stays unrestored when a later stray */ hides its re-add", () => {
-        const reasons = one(
-          '@@ -1,3 +1,2 @@\n it("a", () => {\n-  expect(x).toBe(1);\n });\n@@ -20,3 +19,4 @@\n  old notes\n  more notes\n+  expect(x).toBe(1);\n  see tests/fixtures/a.json */',
-        )[0]?.reasons;
-        expect(reasons).toContain("removed assertion not re-added: expect(x).toBe(1);");
-      });
-
-      it("an old-side stray alone does not re-read the old side from a comment", () => {
-        expect(
-          one(
-            '@@ -1,4 +1,5 @@\n it("a", () => {\n+/*\n   expect(x).toBe(1);\n-  const k = 2*/re/.source.length;\n+*/\n });',
-          ),
-        ).toEqual([
-          { file: T, reasons: ["existing line now inside a block comment: expect(x).toBe(1);"] },
-        ]);
-      });
 
       it("a code line that starts with * is not a JSDoc first line", () => {
         expect(
@@ -2551,27 +2333,54 @@ describe("land-prs: test changes", () => {
         ]);
       });
 
-      it("an added skip whose name holds an escaped quote is not a rename", () => {
-        expect(
-          one(
-            `@@ -1,6 +1,3 @@\n-it.skip('a', () => {\n+it.skip('it\\'s b', () => {\n   smoke();\n });\n-it("it's b", () => {\n-  smoke();\n-});`,
-          ),
-        ).toEqual([{ file: T, reasons: ["added skip: it.skip('it\\'s b', () => {"] }]);
-      });
-
-      it("a removed running test whose name holds a backslash blocks every rename", () => {
-        expect(
-          one(
-            '@@ -1,6 +1,3 @@\n-it.skip("a", () => {\n+it.skip("b", () => {\n   smoke();\n });\n-it("\\x62", () => {\n-  smoke();\n-});',
-          ),
-        ).toEqual([{ file: T, reasons: ['added skip: it.skip("b", () => {'] }]);
-      });
-
       it("a quote after a division is a string's, not a regex's, so no wrap is seen", () => {
         expect(
           one(
             '@@ -1,3 +1,4 @@\n+  const n = a /"/*".length;\n it("works", () => {\n   expect(add(1, 2)).toBe(3);\n });',
           ),
+        ).toEqual([]);
+      });
+    });
+
+    describe("P1-82 cut to flag-only checks: renames and moved closers read as on main (#1617)", () => {
+      const one = (patch: string) => testChangeFlags([file(T, "modified", patch)]);
+
+      it("a renamed skip or only is flagged as added, as on main", () => {
+        expect(one('@@ -1 +1 @@\n-it.skip("a", () => {\n+it.skip("b", () => {')).toEqual([
+          { file: T, reasons: ['added skip: it.skip("b", () => {'] },
+        ]);
+        expect(one('@@ -1 +1 @@\n-it.only("a", () => {});\n+it.only("b", () => {});')).toEqual([
+          { file: T, reasons: ['added .only: it.only("b", () => {});'] },
+        ]);
+      });
+
+      it("an only or a describe skip uncommented while renamed is flagged, as on main (round 6)", () => {
+        expect(
+          one(
+            '@@ -1,6 +1,4 @@\n-/*\n // a test\n-it.only("a", () => {\n+it.only("b", () => {\n   expect(1).toBe(1);\n });\n-*/',
+          ),
+        ).toEqual([{ file: T, reasons: ['added .only: it.only("b", () => {'] }]);
+        expect(
+          one(
+            '@@ -1,6 +1,4 @@\n-/*\n // a suite\n-describe.skip("a", () => {\n+describe.skip("b", () => {\n   it("x", () => {});\n });\n-*/',
+          ),
+        ).toEqual([{ file: T, reasons: ['added skip: describe.skip("b", () => {'] }]);
+      });
+
+      it("a skip renamed onto a removed running test with a conditional skip is flagged, as on main (round 6)", () => {
+        expect(
+          one(
+            '@@ -1,4 +1,1 @@\n-test.skip("a", fn);\n+test.skip("b", fn);\n-test("b", async ({ browserName }) => {\n-  test.skip(browserName === "webkit");\n-  go();\n-});',
+          ),
+        ).toEqual([{ file: T, reasons: ['added skip: test.skip("b", fn);'] }]);
+      });
+
+      it("a glob or a cron in an added line comment wraps nothing (round 6's false flag)", () => {
+        expect(
+          one("@@ -1,2 +1,3 @@\n keep();\n+// collects tests/**/*.test.ts\n expect(a).toBe(1);"),
+        ).toEqual([]);
+        expect(
+          one("@@ -1,2 +1,3 @@\n keep();\n+// schedule: */15 * * * *\n expect(a).toBe(1);"),
         ).toEqual([]);
       });
     });
