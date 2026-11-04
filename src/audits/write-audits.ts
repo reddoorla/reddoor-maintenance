@@ -449,6 +449,14 @@ function permanentFailures(result: FleetWriteResult): string[] {
 
 export type FleetWriteGate = { red: boolean; reasons: string[]; warnings: string[] };
 
+/** Escape gate text for a GitHub workflow command's message. GitHub decodes `%25`, `%0D`
+ *  and `%0A` in an annotation, so a literal `%0A` in a site label would show as a line
+ *  break, and a newline would split the `::error::` line. `%` goes first, or the other two
+ *  would be escaped twice. */
+export function annotationText(s: string): string {
+  return s.replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A");
+}
+
 /** The kept sites grouped by what their audits said, each reason once with the
  *  sites that gave it (the first five of them), so a red line names its cause
  *  without repeating it for every site of the fleet. */
@@ -461,6 +469,12 @@ function keptList(kept: Array<{ slug: string; reason: string }>): string {
       return `${reason}: ${slugs.slice(0, 5).join(", ")}${more}`;
     })
     .join("; ");
+}
+
+/** The failed sites as `slug (error)`, joined with `; `: the one list both the human
+ *  summary line and the gate's not-written warning print, so the two cannot drift. */
+function failedList(result: FleetWriteResult): string {
+  return result.failed.map((f) => `${f.slug} (${f.error})`).join("; ");
 }
 
 /** The write gate's verdict, computed here rather than in five copies of workflow bash.
@@ -495,16 +509,16 @@ export function fleetWriteGate(result: FleetWriteResult): FleetWriteGate {
             : `wrote 0 of ${total} site(s)`,
     );
   }
+  // The failed sites are named on a red night too: a red run with no names leaves the
+  // annotation silent about exactly the sites that caused it.
+  if (failed > 0) warnings.push(`${failed} of ${owed} site(s) not written: ${failedList(result)}`);
   const short = failed + missing.length;
   if (short * 4 > owed) {
     reasons.push(`${short} of ${owed} site(s) not written or missing (>25%)`);
-  } else {
-    if (failed > 0) warnings.push(`${failed} of ${owed} site(s) not written`);
-    if (missing.length > 0) {
-      warnings.push(
-        `${missing.length} of ${owed} site(s) never reached write-back: ${missing.join(", ")}`,
-      );
-    }
+  } else if (missing.length > 0) {
+    warnings.push(
+      `${missing.length} of ${owed} site(s) never reached write-back: ${missing.join(", ")}`,
+    );
   }
   const permanent = permanentFailures(result);
   if (permanent.length > 0) {
@@ -529,12 +543,16 @@ export function fleetWriteGate(result: FleetWriteResult): FleetWriteGate {
  *  "wrote ≥ 1" heuristic) lets the gate tolerate a single known flake while
  *  still reding on a total or mass write-back failure.
  *
- *  Then the gate's own verdict: `FLEET_WRITE_GATE verdict=red|green`, one
- *  `FLEET_WRITE_GATE_REASON` line per reason it is red and one
- *  `FLEET_WRITE_GATE_WARNING` line per thing short of red. Every fleet nightly
+ *  Before that summary line comes the gate's own verdict: `FLEET_WRITE_GATE verdict=red|green`,
+ *  one `FLEET_WRITE_GATE_REASON` line per reason it is red and one
+ *  `FLEET_WRITE_GATE_WARNING` line per thing short of red. The REASON and WARNING text is
+ *  escaped for a workflow command (`annotationText`). Every fleet nightly
  *  reds on `verdict=red`, and on the line being absent. `gate: false` leaves the
  *  gate's lines out, for a caller whose workflow step reads no verdict
- *  (github-signals, #1650). */
+ *  (github-signals, #1650).
+ *
+ *  The summary line is printed LAST, so a decoy inside an error string (which can carry the
+ *  summary's own pattern) can never be the last match for `grep … | tail -n1`. */
 export function formatFleetWriteSummary(
   result: FleetWriteResult,
   { gate: printGate = true }: { gate?: boolean } = {},
@@ -546,9 +564,7 @@ export function formatFleetWriteSummary(
   const total = fleetWriteTotal(result);
   let out = `→ wrote ${wrote} site(s)`;
   if (failed > 0) {
-    out += `\n⚠ ${failed} site(s) not written: ${result.failed
-      .map((f) => `${f.slug} (${f.error})`)
-      .join("; ")}`;
+    out += `\n⚠ ${failed} site(s) not written: ${failedList(result)}`;
   }
   if (na.length > 0) out += `\n· ${na.length} site(s) not applicable: ${na.join(", ")}`;
   const kept = result.kept ?? [];
@@ -565,6 +581,14 @@ export function formatFleetWriteSummary(
   if (missing.length > 0) {
     out += `\n⚠ ${missing.length} site(s) on the roster never reached write-back: ${missing.join(", ")}`;
   }
+  // The gate's block comes BEFORE the summary line, so the summary is the last line: a
+  // site's error text, which can carry the summary's own pattern, is never the last match.
+  if (printGate) {
+    const gate = fleetWriteGate(result);
+    out += `\nFLEET_WRITE_GATE verdict=${gate.red ? "red" : "green"}`;
+    for (const r of gate.reasons) out += `\nFLEET_WRITE_GATE_REASON ${annotationText(r)}`;
+    for (const w of gate.warnings) out += `\nFLEET_WRITE_GATE_WARNING ${annotationText(w)}`;
+  }
   out += `\nFLEET_WRITE_SUMMARY wrote=${wrote} failed=${failed} total=${total}`;
   // Mirror counts APPEND so the fleet workflows' `grep -oE "FLEET_WRITE_SUMMARY
   // wrote=... total=[0-9]+"` extraction still matches its prefix untouched.
@@ -573,11 +597,6 @@ export function formatFleetWriteSummary(
     out += ` mirror_missed=${result.mirrorMissed ?? 0}`;
   }
   out += ` na=${na.length} missing=${missing.length} kept=${kept.length}`;
-  if (!printGate) return out;
-  const gate = fleetWriteGate(result);
-  out += `\nFLEET_WRITE_GATE verdict=${gate.red ? "red" : "green"}`;
-  for (const r of gate.reasons) out += `\nFLEET_WRITE_GATE_REASON ${r}`;
-  for (const w of gate.warnings) out += `\nFLEET_WRITE_GATE_WARNING ${w}`;
   return out;
 }
 

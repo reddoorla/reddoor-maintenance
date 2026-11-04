@@ -58,6 +58,64 @@ describe("waitForHydration — against a real page", () => {
   }, 30_000);
 });
 
+// #1923. The starter's enforced CSP (reddoor-starter `sveltekit.config.js`, `csp.mode:
+// "auto"`) has no 'unsafe-eval' in script-src. Playwright `eval`s a STRING predicate in
+// the page, so under that policy a string check is refused at once and the wait reads
+// "settled" in milliseconds. The data: pages above carry no CSP, which is how the string
+// shipped. A data: URL cannot carry a response header, so this page is served through
+// `page.route` on a made-up origin with the header set.
+const CSP_ORIGIN = "http://hydration-csp.test";
+const STARTER_SCRIPT_SRC = "default-src 'self'; script-src 'self' 'unsafe-inline'";
+const MARKER_DELAY_MS = 1500;
+
+describe("waitForHydration — under the starter's CSP (no 'unsafe-eval')", () => {
+  let browser: Browser;
+  beforeAll(async () => {
+    browser = await chromium.launch();
+  });
+  afterAll(async () => {
+    await browser.close();
+  });
+
+  it("waits for the marker the site writes after load, instead of settling at once", async () => {
+    const page = await browser.newPage();
+    await page.route(`${CSP_ORIGIN}/**`, (route) =>
+      route.fulfill({
+        status: 200,
+        headers: {
+          "content-type": "text/html; charset=utf-8",
+          "content-security-policy": STARTER_SCRIPT_SRC,
+        },
+        body: `<!doctype html><html><body><p>x</p><script>addEventListener("load", () => setTimeout(() => { document.documentElement.dataset.hydrated = ""; }, ${MARKER_DELAY_MS}));</script></body></html>`,
+      }),
+    );
+    await page.goto(`${CSP_ORIGIN}/`, { waitUntil: "load" });
+
+    // The instrument first: the policy is live on this page, so a string predicate that
+    // has to poll is refused. Without this, a page whose CSP did not apply would pass on
+    // today's code. The predicate must be false on its first check: Playwright's first
+    // eval runs inside the protocol call, which the CSP exempts, so `"true"` resolves
+    // even under this policy; only the re-eval on a later poll is refused (measured
+    // 2026-11-04).
+    await expect(
+      page.waitForFunction(`document.documentElement.hasAttribute("data-never")`, null, {
+        timeout: 1000,
+      }),
+    ).rejects.toThrow(/unsafe-eval/);
+    expect(await page.locator(HYDRATED_SELECTOR).count()).toBe(0);
+
+    const t0 = Date.now();
+    const how = await waitForHydration(page, { timeoutMs: 8000 });
+    const took = Date.now() - t0;
+    expect(how).toBe("marker");
+    // The instrument check above spent a little of the delay, so allow that much.
+    expect(took).toBeGreaterThanOrEqual(MARKER_DELAY_MS - 500);
+    expect(took).toBeLessThan(6000);
+    expect(await page.locator(HYDRATED_SELECTOR).count()).toBe(1);
+    await page.close();
+  }, 30_000);
+});
+
 describe("waitForHydration — never throws past the probe", () => {
   it("settles when the page cannot answer at all", async () => {
     const dead: HydrationWaitPage = {
