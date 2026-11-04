@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { hasDepsCounts, depsCountsFromResult } from "../../src/audits/deps-fields.js";
+import { auditFields } from "../../src/fleet/site-fields.js";
 import type { AuditResult } from "../../src/types.js";
 import type { DepsDriftEntry } from "../../src/audits/deps.js";
 import type { OutdatedCounts } from "../../src/audits/deps-outdated.js";
@@ -107,6 +108,15 @@ describe("depsCountsFromResult", () => {
       depsCountsFromResult(depsResult([], { outdated: 1, major: 1, behind: ["vite@5"] } as never))
         .heldPackages,
     ).toEqual([]);
+  });
+
+  it("a held-only site still writes its held list, beside an empty behind list", () => {
+    const counts = depsCountsFromResult(
+      depsResult([], { outdated: 1, major: 0, behind: [], held: ["typescript@6"] }),
+    );
+    const fields = auditFields({ deps: counts }) as Record<string, unknown>;
+    expect(fields["Deps Behind Packages"]).toBe("[]");
+    expect(JSON.parse(fields["Deps Held Packages"] as string)).toEqual(["typescript@6"]);
   });
 
   it("throws if given a non-deps AuditResult", () => {

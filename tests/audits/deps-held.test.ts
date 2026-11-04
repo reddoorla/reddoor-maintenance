@@ -191,6 +191,18 @@ describe("held by the preset's allowedVersions cap", () => {
     expect(result).toMatchObject({ behind: ["typescript@6"], held: [] });
   });
 
+  it("prints DEPS_PRESET_UNREAD once for an unread preset, and still counts typescript behind", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { result } = await scan({ outdated: TS6 }, null);
+      expect(result).toMatchObject({ behind: ["typescript@6"], held: [] });
+      const unread = warn.mock.calls.filter((c) => String(c[0]).includes("DEPS_PRESET_UNREAD"));
+      expect(unread).toHaveLength(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it.each([
     ["another owner's preset", "github>someone-else/.github:renovate-config"],
     ["another file in the org repo", "github>reddoorla/.github:renovate-staging-flow"],
@@ -359,6 +371,9 @@ describe("capsFromRules: Renovate's legacy keys and name case (round 3)", () => 
     ["managers", { managers: ["npm"] }],
     ["depTypeList", { depTypeList: ["devDependencies"] }],
     ["updateTypes", { updateTypes: ["major"] }],
+    ["baseBranchList", { baseBranchList: ["staging"] }],
+    ["languages", { languages: ["javascript"] }],
+    ["datasources", { datasources: ["npm"] }],
   ])("a TypeScript cap narrowed by legacy %s is not a fleet-wide hold", (_k, extra) => {
     expect(capsFromRules([{ ...CAP, ...extra }]).get("typescript")).toBeUndefined();
   });
@@ -624,6 +639,16 @@ describe("fetchOrgPreset: the network reader (P1-98 review)", () => {
     expect(fetchMock.mock.calls[0]![0]).toBe(URL_OK);
   });
 
+  it("fetches another file of the org repo from that file's own path", async () => {
+    const fetchMock = vi.fn(async (_url: string) => ok("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await fetchOrgPreset("renovate-staging-flow.json")).toBe("{}");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]![0]).toBe(
+      "https://raw.githubusercontent.com/reddoorla/.github/HEAD/renovate-staging-flow.json",
+    );
+  });
+
   it("retries after a failed attempt, 2 s later, and returns the retry's text", async () => {
     const fetchMock = vi
       .fn()
@@ -687,6 +712,29 @@ describe("org preset references: foreign, cycles, case and other files (P1-98 re
     });
     const { result } = await scan({ outdated: TS6 }, self);
     expect(result).toMatchObject({ behind: ["typescript@6"], held: [] });
+  });
+
+  it("counts it, and returns, when presets in the org repo extend one another without end", async () => {
+    // Each file is distinct, so the per-file memo never cuts the walk short: only the
+    // depth guard can. Past 50 reads the reader throws, so a missing guard fails the
+    // call-count bound below rather than hanging the run on microtasks.
+    let calls = 0;
+    const chain: PresetReader = async (file) => {
+      calls++;
+      if (calls > 50) throw new Error("walked past 50 presets: no depth guard");
+      if (file === "renovate-config.json")
+        return JSON.stringify({ extends: ["github>reddoorla/.github:c0"] });
+      const n = Number(/^c(\d+)\.json$/.exec(file)?.[1]);
+      return JSON.stringify({ extends: [`github>reddoorla/.github:c${n + 1}`] });
+    };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { result } = await scanWith({ outdated: TS6 }, chain);
+      expect(result).toMatchObject({ behind: ["typescript@6"], held: [] });
+      expect(calls).toBeLessThanOrEqual(10);
+    } finally {
+      warn.mockRestore();
+    }
   }, 5_000);
 
   it("holds when the site extends the org preset under a mixed-case owner name", async () => {
