@@ -1,6 +1,6 @@
 {
   "name": "@reddoorla/maintenance",
-  "version": "0.112.0",
+  "version": "0.113.0",
   "description": "Canonical maintenance configs, audits, and recipes for the reddoor stack.",
   "type": "module",
   "license": "MIT",
@@ -60,6 +60,10 @@
     "./configs/svelte": {
       "types": "./dist/configs/svelte.d.ts",
       "import": "./dist/configs/svelte.js"
+    },
+    "./smoke": {
+      "types": "./dist/smoke/index.d.ts",
+      "import": "./dist/smoke/index.js"
     }
   },
   "bin": {
