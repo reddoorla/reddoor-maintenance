@@ -121,6 +121,8 @@ async function cliOutput(args: {
   missRow?: string;
   /** A row whose Turso write throws: a failed write, not a permanent miss (#1651 A2). */
   throwRow?: string;
+  /** Several such rows (R1). */
+  throwRows?: string[];
 }): Promise<string> {
   const wb = await runFleetWriteBack({
     results: args.results,
@@ -129,7 +131,8 @@ async function cliOutput(args: {
     deps: {
       roster: async () => websites,
       makeMirror: async () => async (siteId: string) => {
-        if (siteId === args.throwRow) throw new Error("HTTP 503");
+        if (siteId === args.throwRow || args.throwRows?.includes(siteId))
+          throw new Error("HTTP 503");
         return siteId !== args.missRow;
       },
       recordEvents: async () => {},
@@ -205,6 +208,26 @@ describe.each(STEPS)("$file reads the write gate's verdict", ({ file, step, exit
     expect(r.out).toContain(
       `::warning::${label}: 1 of 8 site(s) not written: site-3 (Turso write failed: HTTP 503)`,
     );
+  });
+
+  it("three of eight not written (>25%): red, and an annotation names each failed site", async () => {
+    // R1 (#1651 review round 1): a red night names its failed sites, not only the count.
+    const r = await runStep(
+      file,
+      step,
+      await cliOutput({
+        results: SLUGS.map(smokeMeasured),
+        expectedSites: SLUGS,
+        throwRows: ["rec1", "rec3", "rec5"],
+      }),
+      exit,
+    );
+    expect(r.code).toBe(1);
+    for (const slug of ["site-1", "site-3", "site-5"]) {
+      expect(r.out).toMatch(
+        new RegExp(`::(warning|error)::[^\\n]*${slug} \\(Turso write failed: HTTP 503\\)`),
+      );
+    }
   });
 
   it("a site label with a percent sign reaches the annotation as written", async () => {

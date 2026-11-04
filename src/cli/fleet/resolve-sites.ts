@@ -9,12 +9,22 @@ import type { WebsiteRow } from "../../fleet/site-row.js";
 import { nameFromRepo } from "./clone-if-needed.js";
 
 /** A site with no name takes the name `cloneIfNeeded` would give it from its repo (#1650),
- *  so the gate sees one label for it at load, not a missing site and a permanent failure. */
+ *  so the gate sees one label for it at load, not a missing site and a permanent failure.
+ *  A derived name is taken only when no other site already has it as an explicit `name` and
+ *  no other nameless site derives the same one; otherwise the site stays nameless and keeps
+ *  its path label, so two different sites never share one label and merge downstream. */
 export function nameFromRepoWhenNameless(sites: Site[]): Site[] {
-  return sites.map((site) => {
+  const explicit = new Set(sites.flatMap((s) => (s.name ? [s.name] : [])));
+  const derived = sites.map((s) => (s.name ? undefined : nameFromRepo(s)));
+  const derivedCount = new Map<string, number>();
+  for (const name of derived) {
+    if (name !== undefined) derivedCount.set(name, (derivedCount.get(name) ?? 0) + 1);
+  }
+  return sites.map((site, i) => {
     if (site.name) return site;
-    const name = nameFromRepo(site);
-    return name === undefined ? site : { ...site, name };
+    const name = derived[i];
+    if (name === undefined || explicit.has(name) || derivedCount.get(name) !== 1) return site;
+    return { ...site, name };
   });
 }
 

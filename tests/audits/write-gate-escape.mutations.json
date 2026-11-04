@@ -104,7 +104,7 @@
     "edits": [
       {
         "file": "src/cli/fleet/resolve-sites.ts",
-        "find": "    if (site.name) return site;\n    const name = nameFromRepo(site);\n    return name === undefined ? site : { ...site, name };",
+        "find": "    const name = derived[i];\n    if (name === undefined || explicit.has(name) || derivedCount.get(name) !== 1) return site;\n    return { ...site, name };",
         "replace": "    return site;"
       }
     ],
@@ -130,12 +130,85 @@
     "edits": [
       {
         "file": "src/cli/fleet/resolve-sites.ts",
-        "find": "    if (site.name) return site;\n",
-        "replace": "    // mutant: a named site is renamed too\n"
+        "find": "  const derived = sites.map((s) => (s.name ? undefined : nameFromRepo(s)));",
+        "replace": "  const derived = sites.map((s) => nameFromRepo(s));"
+      },
+      {
+        "file": "src/cli/fleet/resolve-sites.ts",
+        "find": "    if (site.name) return site;\n    const name = derived[i];",
+        "replace": "    const name = derived[i];"
       }
     ],
     "test": "tests/cli/fleet/resolve-sites.test.ts",
     "expect": "red",
     "why": "#1650 item 2: a site that already has a name keeps it; the repo's name must not overwrite it."
+  },
+  {
+    "id": "W7b-drift-bash-warning-back",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-prismic-drift.yml",
+        "find": "          if [ \"$wrote\" -eq 0 ]; then\n",
+        "replace": "          if [ \"$failed\" -gt 0 ]; then\n            notwritten=$(grep -oE \"[0-9]+ site\\(s\\) not written:.*\" \"$out\" | tail -n1 || true)\n            echo \"::warning::fleet prismic drift: $failed/$total verdict(s) not written — $notwritten\"\n          fi\n\n          if [ \"$wrote\" -eq 0 ]; then\n"
+      }
+    ],
+    "test": "tests/build/fleet-write-gate-workflows.test.ts",
+    "expect": "red",
+    "why": "#1651 item 1: the deleted prismic-drift bash warning, put back, prints a second not-written line for the same miss."
+  },
+  {
+    "id": "W11-red-night-no-names",
+    "edits": [
+      {
+        "file": "src/audits/write-audits.ts",
+        "find": "  if (failed > 0) warnings.push(`${failed} of ${owed} site(s) not written: ${failedList(result)}`);\n  const short = failed + missing.length;\n  if (short * 4 > owed) {\n    reasons.push(`${short} of ${owed} site(s) not written or missing (>25%)`);\n  } else if (missing.length > 0) {\n    warnings.push(\n      `${missing.length} of ${owed} site(s) never reached write-back: ${missing.join(\", \")}`,\n    );\n  }\n  const permanent = permanentFailures(result);",
+        "replace": "  const short = failed + missing.length;\n  if (short * 4 > owed) {\n    reasons.push(`${short} of ${owed} site(s) not written or missing (>25%)`);\n  } else {\n    if (failed > 0) warnings.push(`${failed} of ${owed} site(s) not written: ${failedList(result)}`);\n    if (missing.length > 0) {\n      warnings.push(\n        `${missing.length} of ${owed} site(s) never reached write-back: ${missing.join(\", \")}`,\n      );\n    }\n  }\n  const permanent = permanentFailures(result);"
+      }
+    ],
+    "test": [
+      "tests/audits/fleet-write-gate.test.ts",
+      "tests/build/fleet-write-gate-workflows.test.ts"
+    ],
+    "expect": "red",
+    "why": "The not-written warning put back inside the else: a red night names no site, as the reviewer reproduced."
+  },
+  {
+    "id": "W12-drift-no-early-warning",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-prismic-drift.yml",
+        "find": "            grep -E \"^FLEET_WRITE_GATE_WARNING \" \"$out\" | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet prismic drift: /' || true\n            echo \"::error::fleet prismic drift: $failed/$total",
+        "replace": "            echo \"::error::fleet prismic drift: $failed/$total"
+      }
+    ],
+    "test": "tests/build/fleet-write-gate-workflows.test.ts",
+    "expect": "red",
+    "why": "The >25% exit prints no names: the gate's warnings never reach the annotation on a red night."
+  },
+  {
+    "id": "W13-load-name-collides",
+    "edits": [
+      {
+        "file": "src/cli/fleet/resolve-sites.ts",
+        "find": "    if (name === undefined || explicit.has(name) || derivedCount.get(name) !== 1) return site;",
+        "replace": "    if (name === undefined) return site;"
+      }
+    ],
+    "test": "tests/cli/fleet/resolve-sites.test.ts",
+    "expect": "red",
+    "why": "Without the collision check, two sites deriving one name share a label and merge through expectedSites' Set."
+  },
+  {
+    "id": "W14-summary-not-last",
+    "edits": [
+      {
+        "file": "src/audits/write-audits.ts",
+        "find": "  if (printGate) {\n    const gate = fleetWriteGate(result);\n    out += `\\nFLEET_WRITE_GATE verdict=${gate.red ? \"red\" : \"green\"}`;\n    for (const r of gate.reasons) out += `\\nFLEET_WRITE_GATE_REASON ${annotationText(r)}`;\n    for (const w of gate.warnings) out += `\\nFLEET_WRITE_GATE_WARNING ${annotationText(w)}`;\n  }\n  out += `\\nFLEET_WRITE_SUMMARY wrote=${wrote} failed=${failed} total=${total}`;\n  // Mirror counts APPEND so the fleet workflows' `grep -oE \"FLEET_WRITE_SUMMARY\n  // wrote=... total=[0-9]+\"` extraction still matches its prefix untouched.\n  if (result.mirrored !== undefined) {\n    out += ` mirrored=${result.mirrored} mirror_failed=${result.mirrorFailed ?? 0}`;\n    out += ` mirror_missed=${result.mirrorMissed ?? 0}`;\n  }\n  out += ` na=${na.length} missing=${missing.length} kept=${kept.length}`;\n  return out;",
+        "replace": "  out += `\\nFLEET_WRITE_SUMMARY wrote=${wrote} failed=${failed} total=${total}`;\n  // Mirror counts APPEND so the fleet workflows' `grep -oE \"FLEET_WRITE_SUMMARY\n  // wrote=... total=[0-9]+\"` extraction still matches its prefix untouched.\n  if (result.mirrored !== undefined) {\n    out += ` mirrored=${result.mirrored} mirror_failed=${result.mirrorFailed ?? 0}`;\n    out += ` mirror_missed=${result.mirrorMissed ?? 0}`;\n  }\n  out += ` na=${na.length} missing=${missing.length} kept=${kept.length}`;\n  if (printGate) {\n    const gate = fleetWriteGate(result);\n    out += `\\nFLEET_WRITE_GATE verdict=${gate.red ? \"red\" : \"green\"}`;\n    for (const r of gate.reasons) out += `\\nFLEET_WRITE_GATE_REASON ${annotationText(r)}`;\n    for (const w of gate.warnings) out += `\\nFLEET_WRITE_GATE_WARNING ${annotationText(w)}`;\n  }\n  return out;"
+      }
+    ],
+    "test": ["tests/audits/fleet-write-gate.test.ts", "tests/audits/write-fleet-audits.test.ts"],
+    "expect": "red",
+    "why": "The gate block printed after the summary line: a decoy in an error string becomes the last summary match."
   }
 ]

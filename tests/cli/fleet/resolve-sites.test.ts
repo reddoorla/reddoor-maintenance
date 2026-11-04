@@ -92,3 +92,33 @@ describe("#1650: a nameless inventory site is named from its repo at load", () =
     expect(sites[0]?.name).toBe("mjs-site");
   });
 });
+
+describe("review round 1: two sites never share one derived label", () => {
+  it("C1: two nameless sites deriving `web`, beside an explicit `web`: both stay nameless", async () => {
+    const fleet = await tmpJson([
+      { path: "/srv/a", gitRepo: "orgA/web" },
+      { path: "/srv/b", gitRepo: "orgB/web" },
+      { path: "/srv/c", name: "web" },
+    ]);
+    const sites = await resolveSites({ fleet, cwd: "/cwd" });
+    expect(sites[0]?.name).toBeUndefined();
+    expect(sites[1]?.name).toBeUndefined();
+    expect(sites[2]?.name).toBe("web");
+  });
+
+  it("C2: two nameless sites deriving `web` with no explicit `web`: both stay nameless", () => {
+    const sites = nameFromRepoWhenNameless([
+      { path: "/srv/a", gitRepo: "orgA/web" },
+      { path: "/srv/b", gitRepo: "orgB/web" },
+    ]);
+    expect(sites.map((s) => s.name)).toEqual([undefined, undefined]);
+  });
+
+  it("C3: one nameless site deriving `web` beside an explicit `other` still takes `web`", () => {
+    const sites = nameFromRepoWhenNameless([
+      { path: "/srv/a", gitRepo: "orgA/web" },
+      { path: "/srv/b", name: "other" },
+    ]);
+    expect(sites.map((s) => s.name)).toEqual(["web", "other"]);
+  });
+});
