@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdtemp, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +7,7 @@ import {
   capsFromPreset,
   loadHoldRules,
   capsFromRules,
+  fetchOrgPreset,
   orgPreset,
   pinnedMajor,
   siteNodeMajor,
@@ -598,5 +599,101 @@ describe("the deps audit end to end", () => {
       behind: ["typescript@6"],
       held: [],
     });
+  });
+});
+
+describe("fetchOrgPreset: the network reader (P1-98 review)", () => {
+  const URL_OK = "https://raw.githubusercontent.com/reddoorla/.github/HEAD/renovate-config.json";
+  const ok = (text: string) =>
+    ({ ok: true, status: 200, text: async () => text }) as unknown as Response;
+  const fail = () => ({ ok: false, status: 503, text: async () => "down" }) as unknown as Response;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("fetches the org preset from the default branch's HEAD, by its file name", async () => {
+    const fetchMock = vi.fn(async (_url: string) => ok("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await fetchOrgPreset("renovate-config.json")).toBe("{}");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]![0]).toBe(URL_OK);
+  });
+
+  it("retries after a failed attempt, 2 s later, and returns the retry's text", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("ECONNRESET"))
+      .mockResolvedValueOnce(ok("X"));
+    vi.stubGlobal("fetch", fetchMock);
+    const p = fetchOrgPreset("renovate-config.json");
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(await p).toBe("X");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries after a non-ok response too", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(fail()).mockResolvedValueOnce(ok("X"));
+    vi.stubGlobal("fetch", fetchMock);
+    const p = fetchOrgPreset("renovate-config.json");
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(await p).toBe("X");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives up after exactly three attempts and returns null", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error("ECONNRESET"));
+    vi.stubGlobal("fetch", fetchMock);
+    const p = fetchOrgPreset("renovate-config.json");
+    await vi.advanceTimersByTimeAsync(6_000);
+    expect(await p).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("org preset references: foreign, cycles, case and other files (P1-98 review)", () => {
+  const STAGING = "github>reddoorla/.github:renovate-staging-flow";
+
+  it("counts it when the site also extends a foreign preset whose file name is the org's", async () => {
+    const { result } = await scan({
+      outdated: TS6,
+      renovate: siteExtending(ORG, "github>someone-else/presets:renovate-config"),
+    });
+    expect(result).toMatchObject({ behind: ["typescript@6"], held: [] });
+  });
+
+  it("counts it when the site extends another org-repo file that itself caps typescript", async () => {
+    const dir = await site({ outdated: TS6, renovate: siteExtending(STAGING) });
+    const { spawn } = spawnFor(TS6);
+    const r = reader(PRESET, {
+      "renovate-staging-flow.json": JSON.stringify({
+        packageRules: [{ matchPackageNames: ["typescript"], allowedVersions: "<7.0.0" }],
+      }),
+    });
+    expect(await scanOutdated(dir, spawn, await loadHoldRules(dir, r))).toMatchObject({
+      behind: ["typescript@6"],
+      held: [],
+    });
+  });
+
+  it("counts it, and returns, when a preset in the org repo extends itself", async () => {
+    const self = JSON.stringify({
+      extends: [ORG],
+      packageRules: [{ matchPackageNames: ["typescript"], allowedVersions: "<7.0.0" }],
+    });
+    const { result } = await scan({ outdated: TS6 }, self);
+    expect(result).toMatchObject({ behind: ["typescript@6"], held: [] });
+  }, 5_000);
+
+  it("holds when the site extends the org preset under a mixed-case owner name", async () => {
+    const { result } = await scan({
+      outdated: TS6,
+      renovate: siteExtending("github>RedDoorLA/.github:renovate-config"),
+    });
+    expect(result).toMatchObject({ held: ["typescript@6"] });
   });
 });

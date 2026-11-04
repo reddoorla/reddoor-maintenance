@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   mapWebsiteRecord,
   mapReportRecord,
+  healthColumnFor,
   EXCLUDED_WEBSITE_FIELDS,
   type RawRecord,
 } from "../../src/db/field-map.js";
@@ -161,5 +162,12 @@ describe("mapReportRecord", () => {
       fields: { ...REPORT.fields, "Checklist auto-evidence": evidence },
     };
     expect(mapReportRecord(rec, null).checklist_auto_evidence).toBe(evidence);
+  });
+});
+
+describe("deps held and behind columns (P1-98)", () => {
+  it("maps each deps list to its own column, never to the other", () => {
+    expect(healthColumnFor("Deps Held Packages")?.col).toBe("deps_held_packages");
+    expect(healthColumnFor("Deps Behind Packages")?.col).toBe("deps_behind_packages");
   });
 });
