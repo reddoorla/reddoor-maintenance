@@ -352,7 +352,7 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "jsdoc: /^\\*(?!\\/)/.test(text.trim()),",
+        "find": "jsdoc: jsdocFirstLine(text.trim()),",
         "replace": "jsdoc: false,"
       }
     ],
@@ -492,8 +492,8 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "if (/[\"'`]/.test(c) && line[i - 1] === \"/\") i++;",
-        "replace": "if (/[\"']/.test(c) && line[i - 1] === \"/\") i++;"
+        "find": "if (/[\"'`]/.test(c) && line[i - 1] === \"/\" && regexStartAt(line, i - 1)) i++;",
+        "replace": "if (/[\"']/.test(c) && line[i - 1] === \"/\" && regexStartAt(line, i - 1)) i++;"
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
@@ -505,8 +505,8 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "if (/[\"'`]/.test(c) && line[i - 1] === \"/\") i++;",
-        "replace": "if (/[`]/.test(c) && line[i - 1] === \"/\") i++;"
+        "find": "if (/[\"'`]/.test(c) && line[i - 1] === \"/\" && regexStartAt(line, i - 1)) i++;",
+        "replace": "if (/[`]/.test(c) && line[i - 1] === \"/\" && regexStartAt(line, i - 1)) i++;"
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
@@ -518,7 +518,7 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "first.stray && start === \"code\"",
+        "find": "start === \"code\" && newFirst.stray",
         "replace": "false"
       }
     ],
@@ -531,7 +531,7 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "if (!line.slice(0, i).includes(\"/\")) stray = true;",
+        "find": "if (!regexSeen) stray = true;",
         "replace": "stray = true;"
       }
     ],
@@ -564,5 +564,88 @@
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
     "why": "#1617 r4 fix 6 undone: a blank context line can be the reported wrapped line, so the report names an empty line instead of the first non-blank one (N1)."
+  },
+  {
+    "id": "M-P182-28-stray-blocked-by-any-slash",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "if (!regexSeen) stray = true;",
+        "replace": "if (!line.slice(0, i).includes(\"/\")) stray = true;"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617 r5 fix 1a undone: any earlier / on the line stops a */ from being a stray, so see a/b */ and see tests/fixtures/a.json */ are not reported (S1, S3)."
+  },
+  {
+    "id": "M-P182-29-stray-stops-at-line-comment",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "if (line.indexOf(\"*/\", i + 2) >= 0) stray = true;",
+        "replace": "if (false) stray = true;"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617 r5 fix 1b undone: a // ends the scan without looking for a */ after it, so (#1617, https://x) */ is not a stray (S2)."
+  },
+  {
+    "id": "M-P182-30-old-stray-alone-rescans",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "start === \"code\" && oldFirst.stray && newFirst.stray",
+        "replace": "start === \"code\" && oldFirst.stray"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617 r5 fix 2 undone: an old-side stray alone re-reads the old side from a comment, hiding the wrapped expect line (O1)."
+  },
+  {
+    "id": "M-P182-31-jsdoc-any-star",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "jsdoc: jsdocFirstLine(text.trim()),",
+        "replace": "jsdoc: /^\\*(?!\\/)/.test(text.trim()),"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617 r5 fix 3 undone: any first line starting with * is JSDoc, so a code line such as * 2; or *[Symbol.iterator]() { starts the hunk inside a comment (J1, J2)."
+  },
+  {
+    "id": "M-P182-32-escaped-name-readable",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "!nameBody(testName(a)).includes(\"\\\\\") &&",
+        "replace": "true &&"
+      },
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "if (name.includes(\"\\\\\")) unreadRunning = true;",
+        "replace": "if (false) unreadRunning = true;"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617 r5 fix 4 undone: a name holding a backslash is compared as written, so an escaped added skip is a rename and a running test with an escaped name does not block renames (E1, E2)."
+  },
+  {
+    "id": "M-P182-33-quote-after-any-slash",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "&& regexStartAt(line, i - 1)) i++;",
+        "replace": ") i++;"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617 r5 fix 5 undone: a quote after any / is a regex character, so the division in a /\"/*\" string opens a false comment (D1)."
   }
 ]

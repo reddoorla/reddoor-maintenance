@@ -2496,6 +2496,85 @@ describe("land-prs: test changes", () => {
         ]);
       });
     });
+
+    describe("P1-82 review round 5 (#1617)", () => {
+      const one = (patch: string) => testChangeFlags([file(T, "modified", patch)]);
+      const moved =
+        '@@ -3,7 +3,7 @@\n  notes line 2\n  notes line 3\n  notes line 4\n-*/\n it("works", () => {\n   expect(add(1, 2)).toBe(3);\n });\n';
+      const wrapped = ['existing line now inside a block comment: it("works", () => {'];
+
+      it("a stray */ is one a / before it does not make a regex (a/b */ is a stray)", () => {
+        expect(one(`${moved}+ see a/b */`)).toEqual([{ file: T, reasons: wrapped }]);
+      });
+
+      it("a stray */ after a // line comment is a stray", () => {
+        expect(one(`${moved}+ (#1617, https://x) */`)).toEqual([{ file: T, reasons: wrapped }]);
+      });
+
+      it("a removed assertion stays unrestored when a later stray */ hides its re-add", () => {
+        const reasons = one(
+          '@@ -1,3 +1,2 @@\n it("a", () => {\n-  expect(x).toBe(1);\n });\n@@ -20,3 +19,4 @@\n  old notes\n  more notes\n+  expect(x).toBe(1);\n  see tests/fixtures/a.json */',
+        )[0]?.reasons;
+        expect(reasons).toContain("removed assertion not re-added: expect(x).toBe(1);");
+      });
+
+      it("an old-side stray alone does not re-read the old side from a comment", () => {
+        expect(
+          one(
+            '@@ -1,4 +1,5 @@\n it("a", () => {\n+/*\n   expect(x).toBe(1);\n-  const k = 2*/re/.source.length;\n+*/\n });',
+          ),
+        ).toEqual([
+          { file: T, reasons: ["existing line now inside a block comment: expect(x).toBe(1);"] },
+        ]);
+      });
+
+      it("a code line that starts with * is not a JSDoc first line", () => {
+        expect(
+          one(
+            '@@ -2,5 +2,7 @@\n     * 2;\n   it("a", () => {\n+    /*\n     expect(total).toBe(4);\n+    */\n   });',
+          ),
+        ).toEqual([
+          {
+            file: T,
+            reasons: ["existing line now inside a block comment: expect(total).toBe(4);"],
+          },
+        ]);
+        expect(
+          one(
+            '@@ -2,5 +2,7 @@\n   *[Symbol.iterator]() {\n   it("a", () => {\n+    /*\n     expect(total).toBe(4);\n+    */\n   });',
+          ),
+        ).toEqual([
+          {
+            file: T,
+            reasons: ["existing line now inside a block comment: expect(total).toBe(4);"],
+          },
+        ]);
+      });
+
+      it("an added skip whose name holds an escaped quote is not a rename", () => {
+        expect(
+          one(
+            `@@ -1,6 +1,3 @@\n-it.skip('a', () => {\n+it.skip('it\\'s b', () => {\n   smoke();\n });\n-it("it's b", () => {\n-  smoke();\n-});`,
+          ),
+        ).toEqual([{ file: T, reasons: ["added skip: it.skip('it\\'s b', () => {"] }]);
+      });
+
+      it("a removed running test whose name holds a backslash blocks every rename", () => {
+        expect(
+          one(
+            '@@ -1,6 +1,3 @@\n-it.skip("a", () => {\n+it.skip("b", () => {\n   smoke();\n });\n-it("\\x62", () => {\n-  smoke();\n-});',
+          ),
+        ).toEqual([{ file: T, reasons: ['added skip: it.skip("b", () => {'] }]);
+      });
+
+      it("a quote after a division is a string's, not a regex's, so no wrap is seen", () => {
+        expect(
+          one(
+            '@@ -1,3 +1,4 @@\n+  const n = a /"/*".length;\n it("works", () => {\n   expect(add(1, 2)).toBe(3);\n });',
+          ),
+        ).toEqual([]);
+      });
+    });
   });
 
   describe("round-2 review findings", () => {

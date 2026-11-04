@@ -1058,7 +1058,9 @@ const nameBody = (lit) => lit.slice(1, -1);
  *  a parenthesised argument before its name, `it.skip.each([1, 2])("a %i", …)` → `("b %i", …)`,
  *  is not a rename and stays flagged: `FIRST_ARG_CALL` allows no `(…)` between the call and the
  *  name, which only makes the gate stricter (round 4). A `\ No newline at end of file` line is
- *  skipped: it ends no change block (round 4). */
+ *  skipped: it ends no change block (round 4). An escaped name is unreadable (round 5): an added
+ *  skip whose name holds a `\` is never a rename, and a removed running test whose name holds a
+ *  `\` blocks every rename in the file, as an unreadable header does. */
 function renamedSkips(patch) {
   /** @type {{ removed: string, added: string }[]} */
   const out = [];
@@ -1073,6 +1075,8 @@ function renamedSkips(patch) {
     const name = testName(t);
     if (name !== "") running.add(nameBody(name));
     else if (hasCall(t, TEST_CALL)) unreadRunning = true;
+    // A running name holding a `\` is unreadable, so it blocks every rename (round 5).
+    if (name.includes("\\")) unreadRunning = true;
   }
   if (unreadRunning) return out;
   let removed = [];
@@ -1091,6 +1095,7 @@ function renamedSkips(patch) {
           codeOf(r).code === code &&
           onlyNameChanged(r, a) &&
           (hasCall(a, ONLY) || hasCall(a, SKIP)) &&
+          !nameBody(testName(a)).includes("\\") &&
           !running.has(nameBody(testName(a)))
         ) {
           out.push({ removed: r, added: a });
@@ -1129,6 +1134,23 @@ const REGEX_CLASS_TAIL = /^[^\]]*\][^/]*\//;
  *  (#1617, round 4). `[/*` otherwise opens a comment. */
 const regexClassAt = (line, i) => line[i - 1] === "[" && REGEX_CLASS_TAIL.test(line.slice(i + 2));
 
+/** The characters that, as the last non-space character before a `/`, make it start a regex
+ *  literal rather than divide (#1617, round 5). */
+const REGEX_AFTER_PUNCT = "(,=:[!&|?{};+-*%<>~^";
+/** The words that, ending the code before a `/`, make it start a regex literal (round 5). */
+const REGEX_AFTER_WORD = /\b(?:return|typeof|case|in|of|void|yield)$/;
+
+/** Whether `line[i]` is a `/` in a position where a regex literal can start (#1617, round 5):
+ *  nothing but spaces before it on the line, or the last non-space character before it is one
+ *  of `REGEX_AFTER_PUNCT`, or the code before it ends in one of `REGEX_AFTER_WORD`. A `/` after
+ *  an operand (`a /`, `) /`) divides. */
+function regexStartAt(line, i) {
+  if (line[i] !== "/") return false;
+  const before = line.slice(0, i).trimEnd();
+  if (before === "") return true;
+  return REGEX_AFTER_PUNCT.includes(before.at(-1)) || REGEX_AFTER_WORD.test(before);
+}
+
 /** The state at the end of a line, given its state at the start, and whether the line holds a
  *  stray `*\/` (#1617, round 1; round 4). A state is `"code"`, `"comment"` (inside a block comment)
  *  or `"template"` (inside a template literal that runs on from an earlier line). In a comment,
@@ -1137,13 +1159,19 @@ const regexClassAt = (line, i) => line[i - 1] === "[" && REGEX_CLASS_TAIL.test(l
  *  quote right after a `/` is a regex literal's and is stepped over (round 4); an unclosed
  *  backtick ends the line in `"template"`, an unclosed `"` or `'` ends it in `"code"`; `//` ends
  *  the line; a `/*` not preceded by `\` or a regex class's `[` (see `regexClassAt`) opens a
- *  comment. `stray` is true when, in code, the line holds a `*\/` with no `/` before it on the
- *  line: a comment must have been opened above the line (round 4). The `*\/` of
- *  `expect(/a*\/.test(s))` has a `/` before it, so it is a regex and not a stray closer. */
+ *  comment. `stray` is true when, in code, the line holds a `*\/` that no `/` satisfying
+ *  `regexStartAt` precedes in code on the line: a comment must have been opened above the line
+ *  (round 4; round 5 makes it `regexStartAt`, so `see a/b *\/` is a stray). A `/` that is part of
+ *  `//` or `/*` does not count. A `*\/` after a `//` is a stray too, since the line comment
+ *  cannot hold it (round 5). The `*\/` of `expect(/a*\/.test(s))` follows a regex's `/`, so it
+ *  is a regex and not a stray closer. A quote after a `/` is stepped over only when that `/`
+ *  satisfies `regexStartAt` (round 5); after a division it opens a string. */
 function commentScan(line, state) {
   let st = state;
   let i = 0;
   let stray = false;
+  // Whether a `/` met in code so far starts a regex literal (round 5: `regexStartAt`).
+  let regexSeen = false;
   while (i < line.length) {
     if (st === "comment") {
       const end = line.indexOf("*/", i);
@@ -1157,12 +1185,14 @@ function commentScan(line, state) {
       i = end + 1;
     } else {
       const c = line[i];
-      if (/["'`]/.test(c) && line[i - 1] === "/") i++;
+      if (/["'`]/.test(c) && line[i - 1] === "/" && regexStartAt(line, i - 1)) i++;
       else if (/["'`]/.test(c)) {
         const end = closeQuote(line, i + 1, c);
         if (end < 0) return { state: c === "`" ? "template" : "code", stray };
         i = end + 1;
       } else if (c === "/" && line[i + 1] === "/") {
+        // A `*/` after a line comment's `//` is a stray closer (round 5).
+        if (line.indexOf("*/", i + 2) >= 0) stray = true;
         return { state: "code", stray };
       } else if (
         c === "/" &&
@@ -1173,17 +1203,27 @@ function commentScan(line, state) {
         st = "comment";
         i += 2;
       } else if (c === "*" && line[i + 1] === "/") {
-        if (!line.slice(0, i).includes("/")) stray = true;
+        if (!regexSeen) stray = true;
+        i += 2;
+      } else {
+        if (c === "/" && regexStartAt(line, i)) regexSeen = true;
         i++;
-      } else i++;
+      }
     }
   }
   return { state: st, stray };
 }
 
+/** Whether a hunk's first line, trimmed to `t`, is a JSDoc continuation (#1617, round 5): it
+ *  matches `^\*(\s|@|$)`, does not start with `*\/`, and does not end in `;`, `{` or `,`, so a
+ *  line of code such as `* 2;` or `*[Symbol.iterator]() {` is not JSDoc. */
+function jsdocFirstLine(t) {
+  return /^\*(\s|@|$)/.test(t) && !t.startsWith("*/") && !/[;{,]$/.test(t);
+}
+
 /** The hunks of a patch, each `{ jsdoc, lines }`: `lines` are `{ kind, text }` in order, `kind`
  *  being `" "`, `"-"` or `"+"` and `text` the line without it, and `jsdoc` is whether the
- *  hunk's first line is a JSDoc continuation (its text starts with `*`, not `*\/`). Blank lines,
+ *  hunk's first line is a JSDoc continuation (see `jsdocFirstLine`, round 5). Blank lines,
  *  `\` lines and any line of another kind are dropped (round 4). */
 function hunksOf(patch) {
   const hunks = [];
@@ -1196,7 +1236,7 @@ function hunksOf(patch) {
     if (raw === "" || raw.startsWith("\\") || !" -+".includes(raw[0])) continue;
     const text = raw.slice(1);
     if (hunk === null) {
-      hunk = { jsdoc: /^\*(?!\/)/.test(text.trim()), lines: [] };
+      hunk = { jsdoc: jsdocFirstLine(text.trim()), lines: [] };
       hunks.push(hunk);
     }
     hunk.lines.push({ kind: raw[0], text });
@@ -1231,18 +1271,23 @@ function sideStates(lines, side, start) {
  *  comment. A hunk starts in `"comment"` on both sides when its first line is a JSDoc
  *  continuation, so the JSDoc's opener above the hunk is not missed; otherwise each side starts
  *  in `"code"`, and a side that meets a stray `*\/` in code is scanned again from `"comment"`:
- *  the comment that stray closes was opened above the hunk (round 4). A side is re-scanned at
- *  most once. */
+ *  the comment that stray closes was opened above the hunk (round 4). Round 5: the new side is
+ *  re-scanned on its own stray, but the old side only when the new side also met a stray, so an
+ *  old-side stray alone is ignored. A side is re-scanned at most once. */
 function hunkShifts({ jsdoc, lines }) {
   const start = jsdoc ? "comment" : "code";
-  const scan = (side) => {
-    const first = sideStates(lines, side, start);
-    return first.stray && start === "code"
-      ? sideStates(lines, side, "comment").states
-      : first.states;
-  };
-  const oldStates = scan("old");
-  const newStates = scan("new");
+  const oldFirst = sideStates(lines, "old", start);
+  const newFirst = sideStates(lines, "new", start);
+  // The new side re-reads on its own stray. The old side re-reads only when the new side also
+  // met a stray and the old side met one too (round 5: an old-side stray alone is ignored).
+  const newStates =
+    start === "code" && newFirst.stray
+      ? sideStates(lines, "new", "comment").states
+      : newFirst.states;
+  const oldStates =
+    start === "code" && oldFirst.stray && newFirst.stray
+      ? sideStates(lines, "old", "comment").states
+      : oldFirst.states;
   const wrapped = [];
   const commented = [];
   for (let k = 0; k < lines.length; k++) {
@@ -1322,9 +1367,13 @@ function renamedAway(before, after) {
  *  new name is compared without its quotes, and a removed running test whose name cannot be read
  *  blocks every rename in the file (round 4). The first non-blank context line of each hunk that
  *  the PR's change puts inside a block comment is flagged (round 4: a blank one is not). A hunk
- *  starts inside a block comment only when its first line is a JSDoc continuation (`*`); otherwise
- *  it starts outside one, and a side that meets a stray `*\/` in code is read again from inside a
- *  comment, since that closer opened above the hunk (round 4; see `hunkShifts`). A comment opened
+ *  starts inside a block comment only when its first line is a JSDoc continuation (`*`, as
+ *  `jsdocFirstLine` reads it, round 5); otherwise it starts outside one, and a side that meets a
+ *  stray `*\/` in code is read again from inside a comment, since that closer opened above the
+ *  hunk (round 4; see `hunkShifts`: round 5 re-reads the old side only when the new side also
+ *  met a stray). A `*\/` in a line comment, or one no regex `/` precedes, is a stray (round 5).
+ *  Escaped names are unreadable and never renames (round 5; see `renamedSkips`). A `/` that
+ *  divides no longer lets a quote after it open a regex (round 5; see `regexStartAt`). A comment opened
  *  above a hunk and closed in no line of it is not seen. An added line wholly inside a block
  *  comment does not re-add a removed assertion (see `blockCommentShifts`). Two rare false flags
  *  are known, each costing the
