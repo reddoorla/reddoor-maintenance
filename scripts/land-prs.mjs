@@ -980,6 +980,187 @@ function valueLines(patch) {
   return out;
 }
 
+/** The index of the quote `q` that closes a string whose body starts at `from`, or -1
+ *  (#1617, round 1). A `\` skips the next character. */
+function closeQuote(line, from, q) {
+  let j = from;
+  while (j < line.length && line[j] !== q) j += line[j] === "\\" ? 2 : 1;
+  return j < line.length ? j : -1;
+}
+
+/** The text after a `[` and a `/*` that closes a regex class and then ends a regex, as in
+ *  `/[/*]/` (#1617, round 4): the rest of the line from the `/*`'s end, up to a `]`, then a `/`. */
+const REGEX_CLASS_TAIL = /^[^\]]*\][^/]*\//;
+
+/** Whether the `/*` at `i` is a regex class's `/*` after a `[` (`/[/*]/`), so not a comment
+ *  (#1617, round 4). `[/*` otherwise opens a comment. */
+const regexClassAt = (line, i) => line[i - 1] === "[" && REGEX_CLASS_TAIL.test(line.slice(i + 2));
+
+/** The characters that, as the last non-space character before a `/`, make it start a regex
+ *  literal rather than divide (#1617, round 5). */
+const REGEX_AFTER_PUNCT = "(,=:[!&|?{};+-*%<>~^";
+/** The words that, ending the code before a `/`, make it start a regex literal (round 5). */
+const REGEX_AFTER_WORD = /\b(?:return|typeof|case|in|of|void|yield)$/;
+
+/** Whether `line[i]` is a `/` in a position where a regex literal can start (#1617, round 5):
+ *  nothing but spaces before it on the line, or the last non-space character before it is one
+ *  of `REGEX_AFTER_PUNCT`, or the code before it ends in one of `REGEX_AFTER_WORD`. A `/` after
+ *  an operand (`a /`, `) /`) divides. */
+function regexStartAt(line, i) {
+  if (line[i] !== "/") return false;
+  const before = line.slice(0, i).trimEnd();
+  if (before === "") return true;
+  return REGEX_AFTER_PUNCT.includes(before.at(-1)) || REGEX_AFTER_WORD.test(before);
+}
+
+/** The state at the end of a line, given its state at the start (#1617, round 1; round 4). A
+ *  state is `"code"`, `"comment"` (inside a block comment) or `"template"` (inside a template
+ *  literal that runs on from an earlier line). In a comment, the first `*\/` ends it. In a
+ *  template, the first unescaped backtick ends it. In code, a string (`"`, `'` or `` ` ``, with a
+ *  `\` skipping the next character) is passed whole, except that a quote right after a `/` that
+ *  satisfies `regexStartAt` is a regex literal's and is stepped over (round 4; round 5: after a
+ *  division it opens a string); an unclosed backtick ends the line in `"template"`, an unclosed
+ *  `"` or `'` ends it in `"code"`; `//` ends the line; a `/*` not preceded by `\` or a regex
+ *  class's `[` (see `regexClassAt`) opens a comment. A `*\/` met in code closes nothing: a
+ *  comment opened above the hunk is not seen (#1617's moved-closer gap). */
+function commentScan(line, state) {
+  let st = state;
+  let i = 0;
+  while (i < line.length) {
+    if (st === "comment") {
+      const end = line.indexOf("*/", i);
+      if (end < 0) return "comment";
+      st = "code";
+      i = end + 2;
+    } else if (st === "template") {
+      const end = closeQuote(line, i, "`");
+      if (end < 0) return "template";
+      st = "code";
+      i = end + 1;
+    } else {
+      const c = line[i];
+      if (/["'`]/.test(c) && line[i - 1] === "/" && regexStartAt(line, i - 1)) i++;
+      else if (/["'`]/.test(c)) {
+        const end = closeQuote(line, i + 1, c);
+        if (end < 0) return c === "`" ? "template" : "code";
+        i = end + 1;
+      } else if (c === "/" && line[i + 1] === "/") {
+        return "code";
+      } else if (
+        c === "/" &&
+        line[i + 1] === "*" &&
+        line[i - 1] !== "\\" &&
+        !regexClassAt(line, i)
+      ) {
+        st = "comment";
+        i += 2;
+      } else if (c === "*" && line[i + 1] === "/") {
+        i += 2;
+      } else {
+        i++;
+      }
+    }
+  }
+  return st;
+}
+
+/** Whether a hunk's first line, trimmed to `t`, is a JSDoc continuation (#1617, round 5): it
+ *  matches `^\*(\s|@|$)`, does not start with `*\/`, and does not end in `;`, `{` or `,`, so a
+ *  line of code such as `* 2;` or `*[Symbol.iterator]() {` is not JSDoc. */
+function jsdocFirstLine(t) {
+  return /^\*(\s|@|$)/.test(t) && !t.startsWith("*/") && !/[;{,]$/.test(t);
+}
+
+/** The hunks of a patch, each `{ jsdoc, lines }`: `lines` are `{ kind, text }` in order, `kind`
+ *  being `" "`, `"-"` or `"+"` and `text` the line without it, and `jsdoc` is whether the
+ *  hunk's first line is a JSDoc continuation (see `jsdocFirstLine`, round 5). Blank lines,
+ *  `\` lines and any line of another kind are dropped (round 4). */
+function hunksOf(patch) {
+  const hunks = [];
+  let hunk = null;
+  for (const raw of String(patch).split("\n")) {
+    if (raw.startsWith("@@")) {
+      hunk = null;
+      continue;
+    }
+    if (raw === "" || raw.startsWith("\\") || !" -+".includes(raw[0])) continue;
+    const text = raw.slice(1);
+    if (hunk === null) {
+      hunk = { jsdoc: jsdocFirstLine(text.trim()), lines: [] };
+      hunks.push(hunk);
+    }
+    hunk.lines.push({ kind: raw[0], text });
+  }
+  return hunks;
+}
+
+/** The state each line of one side of a hunk starts and ends in, from `start`: `{ before, after }`
+ *  per line of that side, `null` for a line of the other side. The old side is the context and
+ *  `-` lines, the new side the context and `+` lines. */
+function sideStates(lines, side, start) {
+  const states = [];
+  let st = start;
+  for (const { kind, text } of lines) {
+    if (kind === (side === "old" ? "+" : "-")) {
+      states.push(null);
+      continue;
+    }
+    const after = commentScan(text, st);
+    states.push({ before: st, after });
+    st = after;
+  }
+  return states;
+}
+
+/** The block-comment shifts of one hunk: `wrapped`, at most one, the first non-blank context line
+ *  the PR's change puts inside a block comment, a comment opened by an added line above it in the
+ *  hunk (and not open on the old side); and `commented`, each added line wholly inside a block
+ *  comment. A context line that starts with `*\/` is never the wrapped line: it hides nothing,
+ *  since the code after its closer runs, and it is what a glob added to a comment that opened
+ *  above the hunk makes look wrapped (round 7). A hunk starts in `"comment"` on both sides when its first line is a JSDoc
+ *  continuation, so the JSDoc's opener above the hunk is not missed; otherwise each side starts
+ *  in `"code"`. */
+function hunkShifts({ jsdoc, lines }) {
+  const start = jsdoc ? "comment" : "code";
+  const oldStates = sideStates(lines, "old", start);
+  const newStates = sideStates(lines, "new", start);
+  const wrapped = [];
+  const commented = [];
+  for (let k = 0; k < lines.length; k++) {
+    const { kind, text } = lines[k];
+    if (kind === " ") {
+      const o = oldStates[k];
+      const n = newStates[k];
+      if (
+        wrapped.length === 0 &&
+        n.before === "comment" &&
+        o.before !== "comment" &&
+        text.trim() !== "" &&
+        !text.trim().startsWith("*/")
+      ) {
+        wrapped.push(text.trim());
+      }
+    } else if (kind === "+") {
+      const n = newStates[k];
+      if (n.before === "comment" && n.after === "comment") commented.push(text.trim());
+    }
+  }
+  return { wrapped, commented };
+}
+
+/** The block-comment shifts of a patch (#1617, round 1; round 4 scans each hunk as a unit, see
+ *  `hunkShifts`): `wrapped`, the wrapped line of each hunk that has one, and `commented`. */
+function blockCommentShifts(patch) {
+  const wrapped = [];
+  const commented = [];
+  for (const hunk of hunksOf(patch)) {
+    const shift = hunkShifts(hunk);
+    wrapped.push(...shift.wrapped);
+    commented.push(...shift.commented);
+  }
+  return { wrapped, commented };
+}
+
 /** How many times each line occurs: a removed line is matched by one added copy, so
  *  removing an assertion twice and adding it back once still loses one. */
 function lineCounts(lines) {
@@ -1016,7 +1197,17 @@ function renamedAway(before, after) {
  *  assertion is not); an added skip (see `SKIP`) that was not there before; a changed line
  *  too long to scan; and a changed test file whose patch GitHub left out (it does for a
  *  large diff), because nothing here can read it. Only a line's code counts: a
- *  commented-out call is neither (see `codeOf`). */
+ *  commented-out call is neither (see `codeOf`). A renamed skip is flagged as an added skip.
+ *  The first non-blank context line of each hunk that the PR's change puts inside a block comment
+ *  is flagged (#1617; round 4: a blank one is not). A hunk starts inside a block comment only when
+ *  its first line is a JSDoc continuation (`*`, as `jsdocFirstLine` reads it, round 5); otherwise
+ *  it starts outside one, so a comment opened above a hunk is not seen, nor is a `*\/` moved down
+ *  out of one. An added line wholly inside a block comment does not re-add a removed assertion
+ *  (see `blockCommentShifts`). Two rare false flags are known, each costing the author one line:
+ *  a hunk that starts on a line beginning with `*` is taken to start inside a JSDoc block, so a
+ *  Markdown bullet inside a template literal there can deny credit for a re-added line; and a hunk
+ *  that starts inside a multi-line template literal is read as code, so a glob such as `src/*`
+ *  added there can be flagged as a wrap. */
 export function testChangeFlags(files) {
   const out = [];
   for (const f of Array.isArray(files) ? files : []) {
@@ -1083,6 +1274,8 @@ export function testChangeFlags(files) {
     const addedLeft = lineCounts(added.map(matchKey));
     const removedLeft = lineCounts(removed.map(matchKey));
     const valueLeft = lineCounts(valueLines(f.patch));
+    const shifts = blockCommentShifts(f.patch);
+    for (const c of shifts.commented) takeOne(addedLeft, matchKey(c));
     const reasons = away ? [away] : [];
     const tooLong = (t) => `a changed line of ${t.length} characters, too long to scan: read it`;
     for (const t of removed) {
@@ -1106,6 +1299,7 @@ export function testChangeFlags(files) {
         reasons.push(only ? `added .only: ${t}` : `added skip: ${t}`);
       }
     }
+    for (const w of shifts.wrapped) reasons.push(`existing line now inside a block comment: ${w}`);
     if (reasons.length > 0) out.push({ file, reasons });
   }
   return out;
