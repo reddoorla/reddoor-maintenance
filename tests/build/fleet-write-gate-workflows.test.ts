@@ -119,6 +119,8 @@ async function cliOutput(args: {
   results: AuditResult[];
   expectedSites: string[];
   missRow?: string;
+  /** A row whose Turso write throws: a failed write, not a permanent miss (#1651 A2). */
+  throwRow?: string;
 }): Promise<string> {
   const wb = await runFleetWriteBack({
     results: args.results,
@@ -126,7 +128,10 @@ async function cliOutput(args: {
     expectedSites: args.expectedSites,
     deps: {
       roster: async () => websites,
-      makeMirror: async () => async (siteId: string) => siteId !== args.missRow,
+      makeMirror: async () => async (siteId: string) => {
+        if (siteId === args.throwRow) throw new Error("HTTP 503");
+        return siteId !== args.missRow;
+      },
       recordEvents: async () => {},
     },
   });
@@ -179,6 +184,27 @@ describe.each(STEPS)("$file reads the write gate's verdict", ({ file, step, exit
     );
     expect(r.code).toBe(0);
     expect(r.out).toContain(`::warning::${label}: 1 of 8 site(s) never reached write-back: site-7`);
+  });
+
+  it("one failed site of eight: one not-written warning, the gate's, naming it", async () => {
+    // A2 (#1651): the workflow's own bash warning is gone, so the gate's line is the only one.
+    const r = await runStep(
+      file,
+      step,
+      await cliOutput({
+        results: SLUGS.map(smokeMeasured),
+        expectedSites: SLUGS,
+        throwRow: "rec3",
+      }),
+      exit,
+    );
+    expect(r.code).toBe(0);
+    const warnings = r.out.split("\n").filter((l) => l.startsWith("::warning::"));
+    const notWritten = warnings.filter((l) => l.includes("not written"));
+    expect(notWritten).toHaveLength(1);
+    expect(r.out).toContain(
+      `::warning::${label}: 1 of 8 site(s) not written: site-3 (Turso write failed: HTTP 503)`,
+    );
   });
 
   it("a site label with a percent sign reaches the annotation as written", async () => {

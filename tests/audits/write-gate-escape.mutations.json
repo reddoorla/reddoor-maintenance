@@ -69,5 +69,73 @@
     "test": "tests/build/fleet-write-gate-workflows.test.ts",
     "expect": "red",
     "why": "#1651 item 4: the security gate writes the shared /tmp/audit.out again, so parallel runs race on it."
+  },
+  {
+    "id": "W6-warning-no-names",
+    "edits": [
+      {
+        "file": "src/audits/write-audits.ts",
+        "find": "${failed} of ${owed} site(s) not written: ${failedList(result)}`",
+        "replace": "${failed} of ${owed} site(s) not written`"
+      }
+    ],
+    "test": [
+      "tests/audits/fleet-write-gate.test.ts",
+      "tests/build/fleet-write-gate-workflows.test.ts"
+    ],
+    "expect": "red",
+    "why": "#1651 item 1: the gate's not-written warning must name the sites and their errors, since the workflow's own line that did is gone."
+  },
+  {
+    "id": "W7-bash-warning-back",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-lighthouse.yml",
+        "find": "          # A site that couldn't even be prepared (bad/scheme-less URL + no repo)\n",
+        "replace": "          if [ \"$failed\" -gt 0 ]; then\n            notwritten=$(grep -oE \"[0-9]+ site\\(s\\) not written:.*\" \"${RUNNER_TEMP:-/tmp}/audit.out\" | tail -n1 || true)\n            echo \"::warning::fleet Lighthouse: $failed/$total site(s) not written — $notwritten\"\n          fi\n\n          # A site that couldn't even be prepared (bad/scheme-less URL + no repo)\n"
+      }
+    ],
+    "test": "tests/build/fleet-write-gate-workflows.test.ts",
+    "expect": "red",
+    "why": "#1651 item 1: the deleted per-workflow bash warning, put back, prints a second not-written line for the same miss."
+  },
+  {
+    "id": "W8-no-load-naming",
+    "edits": [
+      {
+        "file": "src/cli/fleet/resolve-sites.ts",
+        "find": "    if (site.name) return site;\n    const name = nameFromRepo(site);\n    return name === undefined ? site : { ...site, name };",
+        "replace": "    return site;"
+      }
+    ],
+    "test": ["tests/cli/fleet/resolve-sites.test.ts", "tests/cli/fleet/clone-if-needed.test.ts"],
+    "expect": "red",
+    "why": "#1650 item 2: without load-time naming the gate sees a nameless site as missing and then as a permanent failure."
+  },
+  {
+    "id": "W9-name-throws",
+    "edits": [
+      {
+        "file": "src/cli/fleet/clone-if-needed.ts",
+        "find": "  try {\n    const repoUrl = resolveCloneUrl(site);\n    if (!repoUrl) return undefined;\n    const name = deriveNameFromRepoUrl(repoUrl);\n    assertSafeName(name);\n    return name;\n  } catch {\n    return undefined;\n  }",
+        "replace": "  const repoUrl = resolveCloneUrl(site);\n  if (!repoUrl) return undefined;\n  const name = deriveNameFromRepoUrl(repoUrl);\n  assertSafeName(name);\n  return name;"
+      }
+    ],
+    "test": "tests/cli/fleet/resolve-sites.test.ts",
+    "expect": "red",
+    "why": "#1650 item 2: nameFromRepo must never throw, so one bad entry cannot kill the whole inventory load."
+  },
+  {
+    "id": "W10-overwrite-name",
+    "edits": [
+      {
+        "file": "src/cli/fleet/resolve-sites.ts",
+        "find": "    if (site.name) return site;\n",
+        "replace": "    // mutant: a named site is renamed too\n"
+      }
+    ],
+    "test": "tests/cli/fleet/resolve-sites.test.ts",
+    "expect": "red",
+    "why": "#1650 item 2: a site that already has a name keeps it; the repo's name must not overwrite it."
   }
 ]

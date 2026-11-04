@@ -6,6 +6,17 @@ import { fromJsonFile } from "../../inventory/json.js";
 import { isHttpUrl } from "../../util/url.js";
 import type { Db } from "../../db/client.js";
 import type { WebsiteRow } from "../../fleet/site-row.js";
+import { nameFromRepo } from "./clone-if-needed.js";
+
+/** A site with no name takes the name `cloneIfNeeded` would give it from its repo (#1650),
+ *  so the gate sees one label for it at load, not a missing site and a permanent failure. */
+export function nameFromRepoWhenNameless(sites: Site[]): Site[] {
+  return sites.map((site) => {
+    if (site.name) return site;
+    const name = nameFromRepo(site);
+    return name === undefined ? site : { ...site, name };
+  });
+}
 
 /** The `--fleet` keyword that reads the fleet roster from the database (#646 step 4). */
 export const FLEET_KEYWORD = "turso";
@@ -65,7 +76,7 @@ export async function resolveSites(input: ResolveSitesInput): Promise<Site[]> {
     const ext = extname(fleetPath).toLowerCase();
     if (ext === ".json") {
       // fromJsonFile already scheme-allowlists deployedUrl internally.
-      return fromJsonFile(fleetPath)();
+      return nameFromRepoWhenNameless(await fromJsonFile(fleetPath)());
     }
     if (ext === ".js" || ext === ".mjs" || ext === ".cjs") {
       const mod = (await import(pathToFileURL(fleetPath).href)) as {
@@ -78,7 +89,7 @@ export async function resolveSites(input: ResolveSitesInput): Promise<Site[]> {
       }
       // A dynamic module's deployedUrl is unvalidated — sanitize before it can
       // reach a deployed audit (the JSON/Turso providers already do this).
-      return sanitizeDynamicSites(await mod.default());
+      return nameFromRepoWhenNameless(sanitizeDynamicSites(await mod.default()));
     }
     throw Object.assign(
       new Error(`--fleet ${input.fleet}: unsupported extension ${ext || "(none)"}`),

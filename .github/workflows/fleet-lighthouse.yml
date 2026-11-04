@@ -89,13 +89,6 @@ jobs:
           total=$(echo "$summary" | grep -oE "total=[0-9]+" | cut -d= -f2)
           echo "fleet write-back: wrote=$wrote failed=$failed total=$total"
 
-          # Surface every partial miss as a visible annotation, even one within
-          # tolerance — a tolerated flake (e.g. erp) is then never invisible.
-          if [ "$failed" -gt 0 ]; then
-            notwritten=$(grep -oE "[0-9]+ site\(s\) not written:.*" "${RUNNER_TEMP:-/tmp}/audit.out" | tail -n1 || true)
-            echo "::warning::fleet Lighthouse: $failed/$total site(s) not written — $notwritten"
-          fi
-
           # A site that couldn't even be prepared (bad/scheme-less URL + no repo)
           # is dropped from the run rather than crashing it (resilient fleet prep).
           # Raise it as a warning so the misconfigured site row gets fixed —

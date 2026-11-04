@@ -151,7 +151,21 @@ describe("1. a site whose audits wrote nothing is never `written`", () => {
     });
     const gate = fleetWriteGate(result);
     expect(gate.red).toBe(false);
-    expect(gate.warnings).toContain("1 of 8 site(s) not written");
+    expect(gate.warnings).toContain(
+      "1 of 8 site(s) not written: site-0 (nothing measured: smoke: smoke: pnpm install failed (exit 1))",
+    );
+  });
+
+  it("A1 (#1651): a partial miss's warning names the site and its error, once", () => {
+    // The gate's warning is the one not-written line a workflow prints, so it carries the
+    // names the workflow's own bash line used to grep for.
+    const result: FleetWriteResult = {
+      written: Array.from({ length: 9 }, (_, i) => ({ siteName: `s${i}`, writes: [] })),
+      failed: [{ slug: "site-3", error: "timeout" }],
+    };
+    const gate = fleetWriteGate(result);
+    expect(gate.red).toBe(false);
+    expect(gate.warnings).toEqual(["1 of 10 site(s) not written: site-3 (timeout)"]);
   });
 
   it("lighthouse landed but browser and function-health measured nothing on every site: red", async () => {
@@ -294,7 +308,9 @@ describe("3. a failure that recurs every night is not a flake", () => {
     });
     const gate = fleetWriteGate(result);
     expect(gate.red).toBe(false);
-    expect(gate.warnings).toEqual(["1 of 10 site(s) not written"]);
+    expect(gate.warnings).toEqual([
+      "1 of 10 site(s) not written: site-4 (Turso write failed: HTTP 503)",
+    ]);
   });
 });
 
@@ -494,7 +510,9 @@ describe("review round 2", () => {
         return true;
       },
     });
-    expect(fleetWriteGate(result).warnings).toEqual(["1 of 9 site(s) not written"]);
+    expect(fleetWriteGate(result).warnings).toEqual([
+      "1 of 9 site(s) not written: site-4 (Turso write failed: HTTP 503)",
+    ]);
   });
 
   it("the missing-site warning counts against the sites owed a write too", async () => {

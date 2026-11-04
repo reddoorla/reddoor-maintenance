@@ -200,13 +200,6 @@ jobs:
           total=$(echo "$summary" | grep -oE "total=[0-9]+" | cut -d= -f2)
           echo "fleet prismic drift write-back: wrote=$wrote failed=$failed total=$total"
 
-          # Every partial miss is visible, even one inside tolerance — a tolerated
-          # single-site flake is then never invisible.
-          if [ "$failed" -gt 0 ]; then
-            notwritten=$(grep -oE "[0-9]+ site\(s\) not written:.*" "$out" | tail -n1 || true)
-            echo "::warning::fleet prismic drift: $failed/$total verdict(s) not written — $notwritten"
-          fi
-
           # NOTHING LANDED AT ALL. The verdicts were computed and none of them reached
           # the fleet's record, so the cockpit and the digest keep whatever they held
           # before — which for a site that broke today is a green tick. The CLI exits 0

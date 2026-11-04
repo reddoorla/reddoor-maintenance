@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cloneIfNeeded } from "../../../src/cli/fleet/clone-if-needed.js";
 import type { SpawnFn } from "../../../src/audits/util/spawn.js";
+import { resolveSites } from "../../../src/cli/fleet/resolve-sites.js";
+import { siteLabel } from "../../../src/util/site.js";
 
 async function existingDir(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "reddoor-cif-"));
@@ -340,5 +342,31 @@ describe("cli/fleet/cloneIfNeeded", () => {
     const spawn: SpawnFn = async () => ({ code: 1, stdout: "", stderr: "no such remote" });
     const site = { path, name: "caltex", gitRepo: "reddoorla/caltex" };
     await expect(cloneIfNeeded(site, { workdir: "/never", spawn })).resolves.toEqual(site);
+  });
+});
+
+describe("#1650: the label the gate sees is the one the clone gives", () => {
+  it("B4: a nameless JSON site's loaded label equals the name its fresh clone gets", async () => {
+    const workdir = await mkdtemp(join(tmpdir(), "reddoor-b4-wd-"));
+    const inv = await mkdtemp(join(tmpdir(), "reddoor-b4-inv-"));
+    const invPath = join(inv, "inv.json");
+    await writeFile(
+      invPath,
+      JSON.stringify([{ path: join(workdir, "missing"), gitRepo: "reddoorla/foo" }]),
+      "utf-8",
+    );
+    const [loaded] = await resolveSites({ fleet: invPath, cwd: inv });
+    const spawn: SpawnFn = async (cmd, args) => {
+      if (cmd === "git" && args[0] === "clone") {
+        const target = args[args.length - 1] as string;
+        await mkdir(target, { recursive: true });
+        await writeFile(join(target, "ok"), "x", "utf-8");
+        return { code: 0, stdout: "", stderr: "" };
+      }
+      throw new Error(`unexpected: ${cmd}`);
+    };
+    const cloned = await cloneIfNeeded(loaded!, { workdir, spawn });
+    expect(siteLabel(loaded!)).toBe("foo");
+    expect(siteLabel(loaded!)).toBe(cloned.name);
   });
 });

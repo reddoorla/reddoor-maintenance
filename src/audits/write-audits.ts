@@ -471,6 +471,12 @@ function keptList(kept: Array<{ slug: string; reason: string }>): string {
     .join("; ");
 }
 
+/** The failed sites as `slug (error)`, joined with `; `: the one list both the human
+ *  summary line and the gate's not-written warning print, so the two cannot drift. */
+function failedList(result: FleetWriteResult): string {
+  return result.failed.map((f) => `${f.slug} (${f.error})`).join("; ");
+}
+
 /** The write gate's verdict, computed here rather than in five copies of workflow bash.
  *  The CLI's exit code cannot carry it: a site whose audit reports `fail` exits 1 by design,
  *  so every workflow runs the CLI under `|| true` and reads this verdict instead (#1605).
@@ -507,7 +513,8 @@ export function fleetWriteGate(result: FleetWriteResult): FleetWriteGate {
   if (short * 4 > owed) {
     reasons.push(`${short} of ${owed} site(s) not written or missing (>25%)`);
   } else {
-    if (failed > 0) warnings.push(`${failed} of ${owed} site(s) not written`);
+    if (failed > 0)
+      warnings.push(`${failed} of ${owed} site(s) not written: ${failedList(result)}`);
     if (missing.length > 0) {
       warnings.push(
         `${missing.length} of ${owed} site(s) never reached write-back: ${missing.join(", ")}`,
@@ -555,9 +562,7 @@ export function formatFleetWriteSummary(
   const total = fleetWriteTotal(result);
   let out = `→ wrote ${wrote} site(s)`;
   if (failed > 0) {
-    out += `\n⚠ ${failed} site(s) not written: ${result.failed
-      .map((f) => `${f.slug} (${f.error})`)
-      .join("; ")}`;
+    out += `\n⚠ ${failed} site(s) not written: ${failedList(result)}`;
   }
   if (na.length > 0) out += `\n· ${na.length} site(s) not applicable: ${na.join(", ")}`;
   const kept = result.kept ?? [];
