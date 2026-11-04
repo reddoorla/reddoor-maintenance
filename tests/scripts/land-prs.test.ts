@@ -2375,6 +2375,25 @@ describe("land-prs: test changes", () => {
         ).toEqual([{ file: T, reasons: ['added skip: test.skip("b", fn);'] }]);
       });
 
+      it("a glob added to a comment opened above the hunk does not flag the comment's closer (round 7)", () => {
+        expect(
+          one(
+            '@@ -10,5 +10,5 @@\n    * Reads the fixtures, then the config,\n-   * from the fixtures folder.\n+   * from fixtures/*.json.\n    */\n   it("reads", () => {',
+          ),
+        ).toEqual([]);
+        expect(
+          one(
+            '@@ -10,5 +10,5 @@\n   Test plan:\n-  - covers src\n+  - covers src/*.ts\n */\n it("x", () => {',
+          ),
+        ).toEqual([]);
+        // A real wrap below an added opener is still flagged at its first hidden line.
+        expect(
+          one('@@ -1,4 +1,5 @@\n it("a", () => {\n+  /*\n   expect(a).toBe(1);\n */\n });'),
+        ).toEqual([
+          { file: T, reasons: ["existing line now inside a block comment: expect(a).toBe(1);"] },
+        ]);
+      });
+
       it("a glob or a cron in an added line comment wraps nothing (round 6's false flag)", () => {
         expect(
           one("@@ -1,2 +1,3 @@\n keep();\n+// collects tests/**/*.test.ts\n expect(a).toBe(1);"),

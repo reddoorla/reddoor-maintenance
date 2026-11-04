@@ -1115,7 +1115,9 @@ function sideStates(lines, side, start) {
 /** The block-comment shifts of one hunk: `wrapped`, at most one, the first non-blank context line
  *  the PR's change puts inside a block comment, a comment opened by an added line above it in the
  *  hunk (and not open on the old side); and `commented`, each added line wholly inside a block
- *  comment. A hunk starts in `"comment"` on both sides when its first line is a JSDoc
+ *  comment. A context line that starts with `*\/` is never the wrapped line: it hides nothing,
+ *  since the code after its closer runs, and it is what a glob added to a comment that opened
+ *  above the hunk makes look wrapped (round 7). A hunk starts in `"comment"` on both sides when its first line is a JSDoc
  *  continuation, so the JSDoc's opener above the hunk is not missed; otherwise each side starts
  *  in `"code"`. */
 function hunkShifts({ jsdoc, lines }) {
@@ -1133,7 +1135,8 @@ function hunkShifts({ jsdoc, lines }) {
         wrapped.length === 0 &&
         n.before === "comment" &&
         o.before !== "comment" &&
-        text.trim() !== ""
+        text.trim() !== "" &&
+        !text.trim().startsWith("*/")
       ) {
         wrapped.push(text.trim());
       }

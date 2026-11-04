@@ -388,5 +388,18 @@
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
     "why": "#1617 r5 fix 5 undone: a quote after any / is a regex character, so the division in a /\"/*\" string opens a false comment (D1)."
+  },
+  {
+    "id": "M-P182-34-closer-is-wrapped",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": " &&\n        !text.trim().startsWith(\"*/\")",
+        "replace": ""
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617 r7 fix undone: a context line that starts with */ can be the wrapped line, so a glob added to a comment opened above the hunk flags the comment's closer (L2-1)."
   }
 ]
