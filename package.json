@@ -121,7 +121,7 @@
     "@anthropic-ai/sdk": "^0.137.0",
     "@changesets/cli": "^3.0.0",
     "@google-analytics/data": "^7.0.0",
-    "@lhci/cli": "^0.15.1",
+    "@lhci/cli": "^0.16.0",
     "@libsql/client": "^0.8.1",
     "@libsql/kysely-libsql": "^0.4.1",
     "@netlify/functions": "^5.2.2",
