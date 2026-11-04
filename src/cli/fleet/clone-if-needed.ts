@@ -130,6 +130,21 @@ function resolveCloneUrl(site: Site): string | undefined {
   return `https://github.com/${site.gitRepo}.git`;
 }
 
+/** The name `cloneIfNeeded` would give a nameless site from its repo, or `undefined` when
+ *  there is no repo or the repo or derived name is unusable. It never throws: a bad entry
+ *  still fails in prep, as before, and does not kill the whole inventory load. */
+export function nameFromRepo(site: Site): string | undefined {
+  try {
+    const repoUrl = resolveCloneUrl(site);
+    if (!repoUrl) return undefined;
+    const name = deriveNameFromRepoUrl(repoUrl);
+    assertSafeName(name);
+    return name;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function cloneIfNeeded(site: Site, opts: CloneIfNeededOptions): Promise<Site> {
   const spawn = opts.spawn ?? defaultSpawn;
 

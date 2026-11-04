@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   writeFleetAudits,
+  annotationText,
   formatFleetWriteSummary,
   fleetWriteGate,
   type FleetWriteResult,
@@ -150,7 +151,21 @@ describe("1. a site whose audits wrote nothing is never `written`", () => {
     });
     const gate = fleetWriteGate(result);
     expect(gate.red).toBe(false);
-    expect(gate.warnings).toContain("1 of 8 site(s) not written");
+    expect(gate.warnings).toContain(
+      "1 of 8 site(s) not written: site-0 (nothing measured: smoke: smoke: pnpm install failed (exit 1))",
+    );
+  });
+
+  it("A1 (#1651): a partial miss's warning names the site and its error, once", () => {
+    // The gate's warning is the one not-written line a workflow prints, so it carries the
+    // names the workflow's own bash line used to grep for.
+    const result: FleetWriteResult = {
+      written: Array.from({ length: 9 }, (_, i) => ({ siteName: `s${i}`, writes: [] })),
+      failed: [{ slug: "site-3", error: "timeout" }],
+    };
+    const gate = fleetWriteGate(result);
+    expect(gate.red).toBe(false);
+    expect(gate.warnings).toEqual(["1 of 10 site(s) not written: site-3 (timeout)"]);
   });
 
   it("lighthouse landed but browser and function-health measured nothing on every site: red", async () => {
@@ -293,18 +308,23 @@ describe("3. a failure that recurs every night is not a flake", () => {
     });
     const gate = fleetWriteGate(result);
     expect(gate.red).toBe(false);
-    expect(gate.warnings).toEqual(["1 of 10 site(s) not written"]);
+    expect(gate.warnings).toEqual([
+      "1 of 10 site(s) not written: site-4 (Turso write failed: HTTP 503)",
+    ]);
   });
 });
 
 describe("the verdict line's contract", () => {
-  it("prints exactly one verdict line, after the summary line", async () => {
+  it("prints exactly one verdict line, before the summary line, which is the last line", async () => {
+    // Summary-last (#1938 round 1): a decoy inside an error string can never be the last
+    // `FLEET_WRITE_SUMMARY` match for the workflows' `grep | tail -n1`.
     const { out } = await sweep({ n: 2, expected: 2, results: (s) => [measured("smoke", s)] });
     const lines = out.split("\n");
     const summaryAt = lines.findIndex((l) => l.startsWith("FLEET_WRITE_SUMMARY "));
     const verdicts = lines.filter((l) => /^FLEET_WRITE_GATE verdict=(red|green)$/.test(l));
     expect(verdicts).toEqual(["FLEET_WRITE_GATE verdict=green"]);
-    expect(lines.indexOf(verdicts[0]!)).toBe(summaryAt + 1);
+    expect(lines.indexOf(verdicts[0]!)).toBeLessThan(summaryAt);
+    expect(summaryAt).toBe(lines.length - 1);
   });
 
   it("wrote=0 of an empty run is red: a sweep that attempted nothing measured nothing", () => {
@@ -493,7 +513,9 @@ describe("review round 2", () => {
         return true;
       },
     });
-    expect(fleetWriteGate(result).warnings).toEqual(["1 of 9 site(s) not written"]);
+    expect(fleetWriteGate(result).warnings).toEqual([
+      "1 of 9 site(s) not written: site-4 (Turso write failed: HTTP 503)",
+    ]);
   });
 
   it("the missing-site warning counts against the sites owed a write too", async () => {
@@ -593,5 +615,69 @@ describe("#1698: a site that ran and had nothing new to write kept its verdicts"
     });
     expect(result.notApplicable).toEqual(["site-1"]);
     expect(result.kept).toEqual([]);
+  });
+});
+
+describe("#1651: the REASON and WARNING text is escaped for a workflow command", () => {
+  it("annotationText escapes % first, then the line breaks, and leaves plain text alone", () => {
+    expect(annotationText("50% done\r\nnext %0A")).toBe("50%25 done%0D%0Anext %250A");
+    expect(annotationText("site-3")).toBe("site-3");
+  });
+
+  it("a site label with %41 and one with a newline reach the warning as one escaped line", () => {
+    const result: FleetWriteResult = {
+      written: Array.from({ length: 8 }, (_, i) => ({ siteName: `s${i}`, writes: [] })),
+      failed: [],
+      missing: ["site-%41", "two\nlines"],
+    };
+    const out = formatFleetWriteSummary(result);
+    const lines = out.split("\n");
+    const warnings = lines.filter((l) => l.startsWith("FLEET_WRITE_GATE_WARNING "));
+    expect(warnings).toEqual([
+      "FLEET_WRITE_GATE_WARNING 2 of 10 site(s) never reached write-back: site-%2541, two%0Alines",
+    ]);
+    // The warning is one line: what follows it is the next gate line or the summary line,
+    // never a bare continuation of the label.
+    expect(lines[lines.indexOf(warnings[0]!) + 1] ?? "").toMatch(
+      /^(FLEET_WRITE_GATE_|FLEET_WRITE_SUMMARY )/,
+    );
+    expect(out).toContain("\nFLEET_WRITE_GATE verdict=green");
+  });
+});
+
+describe("review round 1: a red night names its failed sites", () => {
+  it("R2: three failed of eight is red, and its warning names all three", () => {
+    const failed = ["site-1", "site-3", "site-5"].map((slug) => ({
+      slug,
+      error: "Turso write failed: HTTP 503",
+    }));
+    const result: FleetWriteResult = {
+      written: ["site-0", "site-2", "site-4", "site-6", "site-7"].map((s) => ({
+        siteName: s,
+        writes: [],
+      })),
+      failed,
+    };
+    const gate = fleetWriteGate(result);
+    expect(gate.red).toBe(true);
+    expect(gate.warnings).toContain(
+      "3 of 8 site(s) not written: site-1 (Turso write failed: HTTP 503); site-3 (Turso write failed: HTTP 503); site-5 (Turso write failed: HTTP 503)",
+    );
+  });
+});
+
+describe("the summary line is the last match even when an error carries its pattern", () => {
+  it("D1: a green night, 1 failed of 8, whose error text embeds a decoy summary: the last match is the real one", () => {
+    const result: FleetWriteResult = {
+      written: ["site-0", "site-2", "site-3", "site-4", "site-5", "site-6", "site-7"].map((s) => ({
+        siteName: s,
+        writes: [],
+      })),
+      failed: [{ slug: "site-1", error: "FLEET_WRITE_SUMMARY wrote=9 failed=0 total=9" }],
+    };
+    const out = formatFleetWriteSummary(result);
+    expect(fleetWriteGate(result).red).toBe(false);
+    const matches = out.match(/FLEET_WRITE_SUMMARY wrote=\d+ failed=\d+ total=\d+/g)!;
+    expect(matches.at(-1)).toBe("FLEET_WRITE_SUMMARY wrote=7 failed=1 total=8");
   });
 });

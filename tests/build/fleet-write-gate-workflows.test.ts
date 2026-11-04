@@ -10,6 +10,7 @@ import { formatUnmeasuredSmokeSummary } from "../../src/audits/smoke.js";
 import type { AuditResult } from "../../src/types.js";
 import { websiteRowsFrom } from "../_helpers/raw-rows.js";
 import { stepRunScript, workflowPath } from "./_helpers/workflow-source.js";
+import { decodeAnnotations } from "./_helpers/decode-annotations.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -89,10 +90,13 @@ async function runStep(
       cwd: dir,
       env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}`, RUNNER_TEMP: dir },
     });
-    return { code: 0, out: o + stderr };
+    return { code: 0, out: decodeAnnotations(o + stderr) };
   } catch (e) {
     const err = e as { code?: number; stdout?: string; stderr?: string };
-    return { code: err.code ?? 1, out: (err.stdout ?? "") + (err.stderr ?? "") };
+    return {
+      code: err.code ?? 1,
+      out: decodeAnnotations((err.stdout ?? "") + (err.stderr ?? "")),
+    };
   }
 }
 
@@ -115,6 +119,10 @@ async function cliOutput(args: {
   results: AuditResult[];
   expectedSites: string[];
   missRow?: string;
+  /** A row whose Turso write throws: a failed write, not a permanent miss (#1651 A2). */
+  throwRow?: string;
+  /** Several such rows (R1). */
+  throwRows?: string[];
 }): Promise<string> {
   const wb = await runFleetWriteBack({
     results: args.results,
@@ -122,7 +130,11 @@ async function cliOutput(args: {
     expectedSites: args.expectedSites,
     deps: {
       roster: async () => websites,
-      makeMirror: async () => async (siteId: string) => siteId !== args.missRow,
+      makeMirror: async () => async (siteId: string) => {
+        if (siteId === args.throwRow || args.throwRows?.includes(siteId))
+          throw new Error("HTTP 503");
+        return siteId !== args.missRow;
+      },
       recordEvents: async () => {},
     },
   });
@@ -177,6 +189,63 @@ describe.each(STEPS)("$file reads the write gate's verdict", ({ file, step, exit
     expect(r.out).toContain(`::warning::${label}: 1 of 8 site(s) never reached write-back: site-7`);
   });
 
+  it("one failed site of eight: one not-written warning, the gate's, naming it", async () => {
+    // A2 (#1651): the workflow's own bash warning is gone, so the gate's line is the only one.
+    const r = await runStep(
+      file,
+      step,
+      await cliOutput({
+        results: SLUGS.map(smokeMeasured),
+        expectedSites: SLUGS,
+        throwRow: "rec3",
+      }),
+      exit,
+    );
+    expect(r.code).toBe(0);
+    const warnings = r.out.split("\n").filter((l) => l.startsWith("::warning::"));
+    const notWritten = warnings.filter((l) => l.includes("not written"));
+    expect(notWritten).toHaveLength(1);
+    expect(r.out).toContain(
+      `::warning::${label}: 1 of 8 site(s) not written: site-3 (Turso write failed: HTTP 503)`,
+    );
+  });
+
+  it("three of eight not written (>25%): red, and an annotation names each failed site", async () => {
+    // R1 (#1651 review round 1): a red night names its failed sites, not only the count.
+    const r = await runStep(
+      file,
+      step,
+      await cliOutput({
+        results: SLUGS.map(smokeMeasured),
+        expectedSites: SLUGS,
+        throwRows: ["rec1", "rec3", "rec5"],
+      }),
+      exit,
+    );
+    expect(r.code).toBe(1);
+    for (const slug of ["site-1", "site-3", "site-5"]) {
+      expect(r.out).toMatch(
+        new RegExp(`::(warning|error)::[^\\n]*${slug} \\(Turso write failed: HTTP 503\\)`),
+      );
+    }
+  });
+
+  it("a site label with a percent sign reaches the annotation as written", async () => {
+    const r = await runStep(
+      file,
+      step,
+      await cliOutput({
+        results: SLUGS.map(smokeMeasured),
+        expectedSites: [...SLUGS, "site-%0A"],
+      }),
+      exit,
+    );
+    expect(r.code).toBe(0);
+    expect(r.out).toContain(
+      `::warning::${label}: 1 of 9 site(s) never reached write-back: site-%0A`,
+    );
+  });
+
   it("six of eight resolved sites never reached write-back: red", async () => {
     const r = await runStep(
       file,
@@ -216,4 +285,40 @@ describe.each(STEPS)("$file reads the write gate's verdict", ({ file, step, exit
     expect(r.code).toBe(1);
     expect(r.out).toContain("printed no FLEET_WRITE_GATE verdict");
   });
+});
+
+it("fleet smoke: a never-measured site plus a failed write reds, and names the failed write too (#1938 round 2)", async () => {
+  // S1: the unmeasured check exits before the gate's block, so the gate's not-written
+  // warning must print before that exit, or site-3's 503 reaches no annotation.
+  const results: AuditResult[] = SLUGS.map((site) =>
+    site === "site-0"
+      ? {
+          audit: "smoke",
+          site,
+          status: "skip",
+          summary: "smoke: pnpm install failed (exit 1) — deps unavailable",
+        }
+      : smokeMeasured(site),
+  );
+  const r = await runStep(
+    "fleet-smoke.yml",
+    "Fleet smoke suite + write-back",
+    await cliOutput({ results, expectedSites: SLUGS, throwRow: "rec3" }),
+    1,
+  );
+  expect(r.code).toBe(1);
+  expect(r.out).toContain("::error::fleet smoke: 1 site(s) never measured");
+  expect(r.out).toMatch(
+    /::warning::fleet smoke: [^\n]*not written[^\n]*site-3 \(Turso write failed: HTTP 503\)/,
+  );
+});
+
+it("every gated step writes its output under RUNNER_TEMP, never a shared /tmp file (#1651)", async () => {
+  for (const { file, step } of STEPS) {
+    const script = stepRunScript(await readFile(workflowPath(file), "utf-8"), step).replaceAll(
+      "${RUNNER_TEMP:-/tmp}",
+      "",
+    );
+    expect(script, file).not.toMatch(/\/tmp\/[\w.-]+\.out\b/);
+  }
 });

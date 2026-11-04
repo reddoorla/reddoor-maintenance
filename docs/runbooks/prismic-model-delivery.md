@@ -59,7 +59,7 @@ The token is sent as `Authorization: Bearer <token>` plus a `repository: <reposi
 
 ### The names come from the Prismic repository, not the repo directory
 
-The central sweep needs one `PRISMIC_TOKEN_<PRISMIC REPOSITORY NAME>` per Prismic repository, upper-snaked. Sixteen of them today. Four do not match their GitHub repo's name, and they are exactly the four a list written from repo names gets wrong:
+The central sweep needs one `PRISMIC_TOKEN_<PRISMIC REPOSITORY NAME>` per Prismic repository, upper-snaked. The live list is what `prismic-models --fleet turso --tokens` prints; the two sweep workflows mapped 20 on 2026-11-03. Four do not match their GitHub repo's name, and they are exactly the four a list written from repo names gets wrong:
 
 | GitHub repo                  | Prismic repository   | Secret                             |
 | ---------------------------- | -------------------- | ---------------------------------- |
