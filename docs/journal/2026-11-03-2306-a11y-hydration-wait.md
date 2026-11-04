@@ -10,15 +10,15 @@
 
 Mutations, each run against the four new tests:
 
-| Mutation | Red |
-| --- | --- |
-| M1 no wait (today's code) | 3 of 4 |
-| M2 the check passed as a string | 2 of 4 |
-| M3 wait on the first scanned route only | 2 of 4 |
-| M4 cap of 1000 ms instead of 5000 | 2 of 4 |
-| M5 rejection unhandled | 2 of 4 (the markerless site) |
-| M6 never stop waiting on a markerless site | 1 of 4 |
-| M7 wrong attribute (`data-hydrate`) | 2 of 4 |
+| Mutation                                   | Red                          |
+| ------------------------------------------ | ---------------------------- |
+| M1 no wait (today's code)                  | 3 of 4                       |
+| M2 the check passed as a string            | 2 of 4                       |
+| M3 wait on the first scanned route only    | 2 of 4                       |
+| M4 cap of 1000 ms instead of 5000          | 2 of 4                       |
+| M5 rejection unhandled                     | 2 of 4 (the markerless site) |
+| M6 never stop waiting on a markerless site | 1 of 4                       |
+| M7 wrong attribute (`data-hydrate`)        | 2 of 4                       |
 
 **Cost.** The live suite went from 163 s to 289 s: about 47 s is the new block, and the other ~79 s is the existing markerless fixture sites each paying the cap once. A fleet site without the marker now takes 5 s longer per weekly run; a site with it takes however long its bundle takes to hydrate.
 
