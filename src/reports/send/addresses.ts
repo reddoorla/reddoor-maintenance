@@ -10,6 +10,9 @@
  *  copy on file alongside the client recipients. */
 export const GLOBAL_REPORT_CC = "info@reddoorla.com";
 
+/** The sender on every report email, the real send and `report --test-send` alike. */
+export const REPORT_FROM_ADDRESS = "Reddoor Reports <reports@reddoorla.com>";
+
 /**
  * Append {@link GLOBAL_REPORT_CC} to a site's per-site CC list. The per-site CC is
  * passed through unchanged (preserving prior behavior); the global address is added

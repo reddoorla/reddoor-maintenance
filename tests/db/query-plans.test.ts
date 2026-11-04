@@ -78,6 +78,9 @@ const EXEMPT_MODULES: Record<string, string> = {
     "insertSiteRows inside one transaction and delegates to updateSiteIdentity/getSiteBySlug, " +
     "all gated below. It cannot run HERE: a libSQL transaction on this harness's shared " +
     ":memory: client hands the connection away and every later scenario would see an empty db",
+  "test-sends.ts":
+    "the operator's [TEST] send log (P1-33(c)) — CLI-only, never on a request path; " +
+    "a few rows a month, read whole in (sent_at, id) order by design, the order 0054's index serves",
   "usage.ts":
     "plan-quota headroom — reads the Turso PLATFORM HTTP API, never the database; " +
     "issues no SQL at all",

@@ -859,6 +859,15 @@ cli
     "--rerender <reportId>",
     "Regenerate one UNSENT report's stored HTML from its current row, so the console preview shows edited commentary. Refuses a sent report.",
   )
+  .option(
+    "--test-send <reportId|slug>",
+    "Email the operator ALONE the [TEST] render of one report (a report id, or a slug for its newest unsent report), and log it in report_test_sends. Never stamps the report. Refuses --to.",
+  )
+  .option(
+    "--test-verdict <sendId>",
+    'Record the operator\'s verdict on one test send: report --test-verdict <sendId> clean|"<what was wrong>".',
+  )
+  .option("--test-streak", "Print the clean-send streak computed from report_test_sends.")
   .action(
     async (
       site,
@@ -870,12 +879,19 @@ cli
         sendReady?: boolean;
         digest?: boolean;
         rerender?: string;
+        testSend?: string;
+        testVerdict?: string;
+        testStreak?: boolean;
         cwd?: string;
         verbose?: boolean;
       },
     ) =>
       runOrExit(
-        async () => (await import("./commands/report.js")).runReportCommand(site, opts),
+        async () =>
+          (await import("./commands/report.js")).runReportCommand(site, {
+            ...opts,
+            positionals: cli.args.map(String),
+          }),
         opts,
       ),
   );
