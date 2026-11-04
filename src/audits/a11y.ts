@@ -16,6 +16,7 @@ import type { AuditContext } from "./util/inject.js";
 import { portInUse, spawnOutput, withPortRetry } from "../util/port-retry.js";
 import { revealBelowFold, type RevealPass } from "./util/reveal-below-fold.js";
 import { freezeMotion } from "./util/freeze-motion.js";
+import { HYDRATED_EXPR, HYDRATION_TIMEOUT_MS } from "./util/hydration-wait.js";
 import {
   contrastUnmeasuredHelp,
   ruleErroredHelp,
@@ -72,6 +73,11 @@ export type SkippedRoute = {
 /** One route's reveal pass (#100), as the spec records it in the artifact. */
 export type RevealRecord = RevealPass & { route: string };
 
+/** How the scan of one route waited for hydration: on the marker, until the
+ *  cap ran out ("settled"), or not at all, because an earlier route had already
+ *  shown the site does not write the marker. */
+export type HydrationWait = { route: string; wait: "marker" | "settled" | "not-waited" };
+
 /** Violation nodes inside cross-origin frames that one scanned route did not
  *  count (#100 review): how many, and under which rules. */
 export type FrameNodesDropped = { route: string; count: number; rules: string[] };
@@ -100,6 +106,8 @@ type NormalizedA11y = {
   skipped?: SkippedRoute[];
   /** Absent in an artifact written by a spec from before this field existed. */
   reveals?: RevealRecord[];
+  /** Absent in an artifact written by a spec from before this field existed. */
+  hydration?: HydrationWait[];
   /** Absent in an artifact written by a spec from before this field existed. */
   frameNodesDropped?: FrameNodesDropped[];
   /** Absent in an artifact written by a spec from before this field existed. */
@@ -457,6 +465,13 @@ const FRAME_READ_TIMEOUT_MS = 2000;
 // with the crash unnamed. Bounded, the run goes on: the final settle reads
 // what is left and results.json is written.
 const ABOUT_BLANK_TIMEOUT_MS = 10_000;
+// The starter's hydration marker (reddoor-starter#184) and its cap, from
+// src/audits/util/hydration-wait.ts. Emitted as a FUNCTION, never passed as a
+// string: Playwright evals a string predicate inside the page, and the
+// starter's CSP has no 'unsafe-eval', so a string is refused in milliseconds
+// and the wait returns at once without having waited.
+const isHydrated = () => ${HYDRATED_EXPR};
+const HYDRATION_TIMEOUT_MS = ${HYDRATION_TIMEOUT_MS};
 const SKIP_REASON = ${JSON.stringify(PLACEHOLDER_SKIP_REASON)};
 const ABSENT_FIXTURE_SKIP_REASON = ${JSON.stringify(ABSENT_FIXTURE_SKIP_REASON)};
 const REVEAL_PASS_ERROR_PREFIX = ${JSON.stringify(REVEAL_PASS_ERROR_PREFIX)};
@@ -488,6 +503,15 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
   // One entry per scanned route: what the reveal pass did there. Written to
   // the artifact so a pass that stopped short can be named, not assumed.
   const reveals = [];
+  // One entry per scanned route: how the scan waited for hydration, so a run
+  // that scanned before it can be told from one that did not.
+  const hydration = [];
+  // A site writes the marker on every route (its root layout) or on none.
+  // Once a route has hit the cap with no marker seen anywhere, the site is
+  // taken not to write it, and later routes are not waited for: it pays the
+  // cap once per run, not once per route.
+  let markerSeen = false;
+  let settledWithoutMarker = false;
   // One entry per scanned route: violation nodes inside cross-origin frames
   // that were not counted against the site, and under which rules.
   const frameNodesDropped = [];
@@ -621,6 +645,23 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
         });
         continue;
       }
+      // #948's residual race. goto resolves at load, and SvelteKit hydrates
+      // after it, from a dynamic import: scanned at once, the preview build
+      // still gave the server-rendered page some of the time. Wait for the
+      // root layout's onMount to write html[data-hydrated], which comes after
+      // every child has mounted. Capped, and never thrown: a site that does
+      // not write the marker cannot be told from one that has not hydrated
+      // yet, so the cap is its settle. If a marker site's first route never
+      // hydrates, its later routes go unwaited, as every route was before.
+      let wait = "not-waited";
+      if (markerSeen || !settledWithoutMarker) {
+        wait = await page
+          .waitForFunction(isHydrated, null, { timeout: HYDRATION_TIMEOUT_MS })
+          .then(() => "marker", () => "settled");
+      }
+      if (wait === "marker") markerSeen = true;
+      if (wait === "settled") settledWithoutMarker = true;
+      hydration.push({ route: name, wait });
       // Snap CSS transitions/animations to their resting state before axe runs.
       // AnimateIn-style fixtures transition opacity 0->1; sampling mid-transition
       // makes axe compute color-contrast against semi-transparent text, yielding a
@@ -880,6 +921,7 @@ test("a11y + hydration across configured routes", async ({ page, baseURL }) => {
           violations,
           skipped,
           reveals,
+          hydration,
           frameNodesDropped,
           thirdPartyErrors,
           measured,
