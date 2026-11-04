@@ -114,6 +114,15 @@ const FINDINGS: Record<string, Fixture> = {
     expected: "fine",
     html: `<div style="display:flow-root list-item;list-style:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${LONG}</div>`,
   },
+  // Review round 4: a turned box's bounding rect is wider than the box, so
+  // it gives no scale; the ellipsis is drawn inside the screen.
+  "1h. an ellipsis in a turned box": {
+    expected: "fine",
+    html: section(
+      `<div style="margin:40px 0 0 10px;width:370px;height:300px;rotate:-6deg;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-top:250px;box-sizing:border-box">${LONG}</div>`,
+      "height:400px",
+    ),
+  },
   "2a. ruby does not clip": {
     expected: "cut",
     html: section(
@@ -158,6 +167,15 @@ const FINDINGS: Record<string, Fixture> = {
       `<div style="padding-left:200px"><svg width="100" height="24"><text x="150" y="18">${LONG}</text></svg></div>`,
     ),
     invisible: true,
+  },
+  // Review round 4: the outer <svg> clips in CSS pixels too, so under zoom
+  // its box must be scaled to the screen like any other.
+  "4b. an outer inline <svg> under zoom cuts its text at the edge": {
+    expected: "cut",
+    html: section(
+      `<div style="zoom:2"><svg width="195" height="60"><text x="110" y="30" font-size="14">${LONG}</text></svg></div>`,
+      "height:200px",
+    ),
   },
   "5a. clip-path: inset(calc(10% - 5px)) is a positive inset": {
     expected: "fine",

@@ -118,27 +118,44 @@ export function measureInPage(): OverflowMeasure {
   // nothing to the page's scroll width; removed before the page width is
   // read. A MutationObserver on the document sees it come and go.
   const probe: { host?: HTMLElement; box?: HTMLElement; child?: HTMLElement } = {};
-  // Screen pixels per CSS pixel on a box, across and down. A rect is in
-  // screen pixels, which zoom and a scaled ancestor make larger; offset,
-  // client and scroll sizes, insets, margins, borders and paddings are CSS
-  // pixels.
-  const ratio = (a: Element, b: DOMRect): [number, number] =>
-    a instanceof HTMLElement && a.offsetWidth > 0 && a.offsetHeight > 0
-      ? [b.width / a.offsetWidth, b.height / a.offsetHeight]
-      : [1, 1];
   // Whether a box or any box above it in the flat tree is drawn other than
   // by a positive, axis-aligned scale and a move: a mirror, a turn, a skew,
   // or a 3D transform, by transform or by the rotate and scale longhands.
-  const turned = (start: Element) => {
-    for (let a: Element | null = start; a; a = up(a)) {
+  // Kept per box, since every line asks it of each of its ancestors.
+  const turnedOf = new Map<Element, boolean>();
+  const turned = (a: Element): boolean => {
+    let t = turnedOf.get(a);
+    if (t !== undefined) return t;
+    const cs = getComputedStyle(a);
+    const m = cs.transform === "none" ? null : new DOMMatrix(cs.transform);
+    const parent = up(a);
+    t =
+      (m !== null && (!m.is2D || m.b !== 0 || m.c !== 0 || m.a < 0 || m.d < 0)) ||
+      cs.rotate !== "none" ||
+      /-/.test(cs.scale) ||
+      (parent !== null && turned(parent));
+    turnedOf.set(a, t);
+    return t;
+  };
+  // Screen pixels per CSS pixel on a box, across and down. A rect is in
+  // screen pixels, which zoom and a scaled ancestor make larger; offset,
+  // client and scroll sizes, insets, margins, borders and paddings are CSS
+  // pixels. An outer <svg> has no offset size, so its CSS size is read from
+  // its computed style (review round 4). A turned box's rect bounds it
+  // without measuring it, so there the ratio is 1, as in the site copy.
+  const ratio = (a: Element, b: DOMRect): [number, number] => {
+    if (turned(a)) return [1, 1];
+    let [w, h] = [0, 0];
+    if (a instanceof HTMLElement) [w, h] = [a.offsetWidth, a.offsetHeight];
+    else if (a instanceof SVGSVGElement) {
       const cs = getComputedStyle(a);
-      if (cs.transform !== "none") {
-        const m = new DOMMatrix(cs.transform);
-        if (!m.is2D || m.b !== 0 || m.c !== 0 || m.a < 0 || m.d < 0) return true;
-      }
-      if (cs.rotate !== "none" || /-/.test(cs.scale)) return true;
+      const px = (p: string) => parseFloat(cs.getPropertyValue(p)) || 0;
+      const edge = (s: string) =>
+        cs.boxSizing === "border-box" ? 0 : px(`padding-${s}`) + px(`border-${s}-width`);
+      w = px("width") + edge("left") + edge("right");
+      h = px("height") + edge("top") + edge("bottom");
     }
-    return false;
+    return w > 0 && h > 0 ? [b.width / w, b.height / h] : [1, 1];
   };
   // The rect a clip-path inset() leaves of a box, or null for any other
   // shape, which leaves the line as it is. A negative inset reaches past the
