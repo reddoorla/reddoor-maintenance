@@ -59,13 +59,66 @@ function isPattern(v: unknown): boolean {
 
 const NAME_LISTS = ["matchPackageNames", "matchDepNames"] as const;
 
+/**
+ * Legacy `packageRules` keys Renovate migrates before matching
+ * (`lib/config/migrations/custom/package-rules-migration.ts`, 44.0.0): its
+ * `renameMap` turns the first group into `match*` keys, and `mergeMatchers` folds
+ * the second into `matchPackageNames`/`matchDepNames` as OR'd globs, regexes or
+ * negations. So a rule holding any of them is neither a clean cap nor provably
+ * about other packages: `{matchPackageNames:["eslint"], matchPackagePatterns:["^type"]}`
+ * reaches `typescript`, and `{matchPackageNames:["typescript"], paths:[…]}` caps
+ * one file only.
+ */
+const LEGACY_KEYS: ReadonlySet<string> = new Set([
+  // renameMap
+  "matchFiles",
+  "matchPaths",
+  "paths",
+  "languages",
+  "matchLanguages",
+  "baseBranchList",
+  "managers",
+  "datasources",
+  "depTypeList",
+  "packageNames",
+  "packagePatterns",
+  "sourceUrlPrefixes",
+  "updateTypes",
+  // mergeMatchers
+  "matchPackagePatterns",
+  "matchPackagePrefixes",
+  "matchDepPatterns",
+  "matchDepPrefixes",
+  "matchSourceUrlPrefixes",
+  "excludePackageNames",
+  "excludePackagePatterns",
+  "excludePackagePrefixes",
+  "excludeDepNames",
+  "excludeDepPatterns",
+  "excludeDepPrefixes",
+  "excludeRepositories",
+]);
+
+function hasLegacyKey(rule: Record<string, unknown>): boolean {
+  return Object.keys(rule).some((k) => LEGACY_KEYS.has(k));
+}
+
+/** Renovate matches package and dep names case-insensitively (minimatch
+ *  `nocase` in `lib/util/string-match.ts`). */
+function namesInclude(list: readonly unknown[], pkg: string): boolean {
+  const want = pkg.toLowerCase();
+  return list.some((v) => typeof v === "string" && v.toLowerCase() === want);
+}
+
 /** True when the rule cannot apply to `pkg`: it carries an exact-name list
  *  (`matchPackageNames` or `matchDepNames`, which Renovate ANDs with its other
- *  matchers) of plain names, none of them `pkg`. Any other rule might reach it. */
+ *  matchers) of plain names, none of them `pkg` in any case, and no legacy key
+ *  Renovate would merge into that list. Any other rule might reach it. */
 function excludes(rule: Record<string, unknown>, pkg: string): boolean {
+  if (hasLegacyKey(rule)) return false;
   return NAME_LISTS.some((k) => {
     const v = rule[k];
-    return Array.isArray(v) && v.length > 0 && !v.some(isPattern) && !v.includes(pkg);
+    return Array.isArray(v) && v.length > 0 && !v.some(isPattern) && !namesInclude(v, pkg);
   });
 }
 
@@ -93,6 +146,7 @@ export function capsFromRules(
     for (const pkg of eligible) {
       if (excludes(rule, pkg)) continue;
       const clean =
+        !hasLegacyKey(rule) &&
         matchers.length === 1 &&
         matchers[0] === "matchPackageNames" &&
         Array.isArray(names) &&

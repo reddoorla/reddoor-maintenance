@@ -332,6 +332,41 @@ describe("capsFromRules: Renovate's rule order", () => {
   });
 });
 
+describe("capsFromRules: Renovate's legacy keys and name case (round 3)", () => {
+  const CAP = { matchPackageNames: ["typescript"], allowedVersions: "<7.0.0" };
+  const lifted = (rule: Record<string, unknown>) =>
+    capsFromRules([CAP, { allowedVersions: "<8.0.0", ...rule }]).get("typescript");
+
+  it.each([
+    ["matchPackagePatterns", { matchPackageNames: ["eslint"], matchPackagePatterns: ["^type"] }],
+    ["matchPackagePrefixes", { matchPackageNames: ["eslint"], matchPackagePrefixes: ["types"] }],
+    ["matchDepPatterns", { matchDepNames: ["eslint"], matchDepPatterns: ["^type"] }],
+    ["matchDepPrefixes", { matchDepNames: ["eslint"], matchDepPrefixes: ["type"] }],
+    ["packagePatterns", { matchPackageNames: ["eslint"], packagePatterns: ["^type"] }],
+    ["packageNames", { matchPackageNames: ["eslint"], packageNames: ["typescript"] }],
+  ])("a name list with legacy %s lifts the cap (Renovate ORs it in)", (_k, rule) => {
+    expect(lifted(rule)).toBeUndefined();
+  });
+
+  it("a name differing only in case lifts the cap (Renovate matches nocase)", () => {
+    expect(lifted({ matchPackageNames: ["TypeScript"] })).toBeUndefined();
+    expect(lifted({ matchDepNames: ["TYPESCRIPT"] })).toBeUndefined();
+  });
+
+  it.each([
+    ["paths", { paths: ["apps/x/package.json"] }],
+    ["managers", { managers: ["npm"] }],
+    ["depTypeList", { depTypeList: ["devDependencies"] }],
+    ["updateTypes", { updateTypes: ["major"] }],
+  ])("a TypeScript cap narrowed by legacy %s is not a fleet-wide hold", (_k, extra) => {
+    expect(capsFromRules([{ ...CAP, ...extra }]).get("typescript")).toBeUndefined();
+  });
+
+  it("a plain name list for another package still leaves the cap in force", () => {
+    expect(lifted({ matchPackageNames: ["eslint"] })).toBe("<7.0.0");
+  });
+});
+
 describe("every rule Renovate applies must be known", () => {
   const STAGING = "github>reddoorla/.github:renovate-staging-flow";
 
