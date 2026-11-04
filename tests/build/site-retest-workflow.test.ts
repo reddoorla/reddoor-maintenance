@@ -99,8 +99,10 @@ describe("the command it runs imports nothing that dispatches Renovate", () => {
   }
 
   // The renovate classifier is read-only (is this PR Renovate's?), so it may be reached;
-  // anything else under a renovate name is the dispatch side (#1888).
-  const READ_ONLY = new Set(["src/alerts/renovate.ts"]);
+  // so may the config parser (P1-98: the deps audit reads the preset's allowedVersions
+  // through it; the module imports nothing and dispatches nothing). Anything else under
+  // a renovate name is the dispatch side (#1888).
+  const READ_ONLY = new Set(["src/alerts/renovate.ts", "src/audits/renovate-base-branches.ts"]);
 
   it("nothing reachable from them, transitively, is a renovate module", () => {
     const graph = reachable(files);

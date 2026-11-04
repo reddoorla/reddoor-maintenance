@@ -89,6 +89,7 @@ describe("openDb", () => {
       "0052_site_health_a11y_checked_at",
       "0053_site_health_a11y_routes_skipped",
       "0054_report_test_sends",
+      "0055_site_health_deps_held_packages",
     ]);
     await db.destroy();
   });

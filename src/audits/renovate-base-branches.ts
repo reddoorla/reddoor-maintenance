@@ -42,8 +42,10 @@
 /** Renovate's own config-file search order ON GITHUB, copied from
  *  renovatebot/renovate@44.0.0 `lib/config/app-strings.ts` — the major the
  *  fleet runs (renovatebot/github-action v46 defaults to Renovate 44). There,
- *  `configFilePatterns` brace-expands `renovate.json{,c,5}` and friends, and
- *  `getConfigFileNames("github")` drops every `.gitlab/*` name. The FIRST file
+ *  `configFilePatterns` brace-expands `renovate.json{,c,5}` and friends.
+ *  `.gitlab/*` stays in on GitHub too: `detectConfigFile`
+ *  (`lib/workers/repository/init/merge.ts`) calls `getConfigFileNames()` with
+ *  no platform, so nothing is filtered (P1-98 review round 5). The FIRST file
  *  present wins and the rest are never read, exactly as Renovate does.
  *  `package.json` counts only when it carries a `renovate` key. The test pins
  *  this list literally; re-check it against app-strings.ts on a Renovate
@@ -55,6 +57,9 @@ export const RENOVATE_CONFIG_FILES = [
   ".github/renovate.json",
   ".github/renovate.jsonc",
   ".github/renovate.json5",
+  ".gitlab/renovate.json",
+  ".gitlab/renovate.jsonc",
+  ".gitlab/renovate.json5",
   ".renovaterc",
   ".renovaterc.json",
   ".renovaterc.jsonc",

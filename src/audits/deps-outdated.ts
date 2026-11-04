@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import type { SpawnFn } from "./util/spawn.js";
 import { pathExists } from "../util/fs.js";
+import { NO_HOLDS, holdReason, majorOf, type HoldRules } from "./deps-held.js";
 
 /** Real installed-version drift, distinct from the declared-range "drift" the
  *  deps audit computes against the baseline: how many dependencies are behind
@@ -11,13 +12,11 @@ export type OutdatedCounts = {
   /** P1-78a: the packages counted in `major`, each as `name@installed-major`
    *  (the major the site has now), sorted. fleet_daily ages each one. */
   behind: string[];
+  /** P1-98: packages a major behind that the fleet holds on purpose (a preset
+   *  `allowedVersions` cap, or `@types/node` at the runtime major), same
+   *  `name@installed-major` form, sorted. Recorded, never counted in `major`. */
+  held: string[];
 };
-
-function majorOf(version: string): number {
-  const head = version.replace(/^[\^~]/, "").split(".")[0] ?? "0";
-  const n = Number.parseInt(head, 10);
-  return Number.isNaN(n) ? 0 : n;
-}
 
 /**
  * Count outdated dependencies for a site, using its committed lockfile as the
@@ -34,6 +33,7 @@ function majorOf(version: string): number {
 export async function scanOutdated(
   sitePath: string,
   spawn: SpawnFn,
+  holds: HoldRules = NO_HOLDS,
 ): Promise<OutdatedCounts | null> {
   if (!(await pathExists(join(sitePath, "pnpm-lock.yaml")))) return null;
 
@@ -65,11 +65,17 @@ export async function scanOutdated(
       { current?: string; latest?: string }
     >;
     const entries = Object.entries(parsed);
-    const behind = entries
-      .filter(([, e]) => e.current && e.latest && majorOf(e.latest) > majorOf(e.current))
-      .map(([name, e]) => `${name}@${majorOf(e.current!)}`)
-      .sort();
-    return { outdated: entries.length, major: behind.length, behind };
+    const behind: string[] = [];
+    const held: string[] = [];
+    for (const [name, e] of entries) {
+      if (!e.current || !e.latest || majorOf(e.latest) <= majorOf(e.current)) continue;
+      const key = `${name}@${majorOf(e.current)}`;
+      const why = await holdReason(name, e.current, e.latest, holds, sitePath, spawn);
+      (why === null ? behind : held).push(key);
+    }
+    behind.sort();
+    held.sort();
+    return { outdated: entries.length, major: behind.length, behind, held };
   } catch {
     return null;
   }

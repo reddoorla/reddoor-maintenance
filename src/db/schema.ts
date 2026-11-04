@@ -154,6 +154,8 @@ export interface SiteHealthTable {
   deps_behind_packages: string | null;
   /** P1-78a (0051): when that list was last written. */
   deps_behind_packages_at: string | null;
+  /** P1-98 (0055): JSON `name@installed-major` list of packages a major behind on purpose. */
+  deps_held_packages: string | null;
   vulns_critical: number | null;
   vulns_high: number | null;
   vulns_moderate: number | null;

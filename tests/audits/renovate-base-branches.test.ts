@@ -98,9 +98,10 @@ describe("readRenovateBaseBranches", () => {
       unreadPresets: [],
     });
     // Pinned LITERALLY, not derived from RENOVATE_CONFIG_FILES: this is
-    // Renovate 44's `getConfigFileNames("github")` (lib/config/app-strings.ts
-    // @ 44.0.0 — `.gitlab/*` filtered out on GitHub, `.jsonc` second). A list
-    // compared against itself could never catch a missing name.
+    // Renovate 44's `getConfigFileNames()` as `detectConfigFile` calls it, with
+    // no platform (lib/config/app-strings.ts @ 44.0.0 — `.gitlab/*` is kept on
+    // GitHub, `.jsonc` second). A list compared against itself could never
+    // catch a missing name.
     const expected = [
       "renovate.json",
       "renovate.jsonc",
@@ -108,6 +109,9 @@ describe("readRenovateBaseBranches", () => {
       ".github/renovate.json",
       ".github/renovate.jsonc",
       ".github/renovate.json5",
+      ".gitlab/renovate.json",
+      ".gitlab/renovate.jsonc",
+      ".gitlab/renovate.json5",
       ".renovaterc",
       ".renovaterc.json",
       ".renovaterc.jsonc",

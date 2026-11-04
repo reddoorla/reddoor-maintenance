@@ -8,6 +8,7 @@ import type { NetlifyDeployDeps } from "../netlify-deploy.js";
 import type { FunctionHealthDeps } from "../function-health.js";
 import type { DependabotDeps } from "../security.js";
 import type { AnalyticsDeps } from "../analytics.js";
+import type { PresetReader } from "../deps-held.js";
 
 export type AuditContext = {
   site: Site;
@@ -37,4 +38,7 @@ export type AuditContext = {
    *  optional and an absent one means that half cannot run HERE — the verdict names what it could
    *  not check rather than passing on it. */
   analyticsDeps?: AnalyticsDeps;
+  /** P1-98: the org Renovate preset's text for the deps audit (tests). Defaults to a
+   *  real fetch of `reddoorla/.github` `renovate-config.json`; null = unread, holds no capped package. */
+  renovatePreset?: PresetReader;
 };
