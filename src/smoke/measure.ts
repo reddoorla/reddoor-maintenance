@@ -358,16 +358,19 @@ export function measureInPage(): OverflowMeasure {
       if (!n.textContent?.trim()) continue;
       const el = n.parentElement ?? (n.parentNode instanceof ShadowRoot ? n.parentNode.host : null);
       if (!el) continue;
-      // A display: contents parent (Tailwind's `contents`, a slot showing its
-      // fallback) has no box, and checkVisibility() is false on one, so it is
-      // asked of the nearest box; visibility is inherited, so el's own is
-      // still read (review round 5).
-      let shown: Element | null = el;
-      while (shown && getComputedStyle(shown).display === "contents") shown = up(shown);
-      if (!shown || getComputedStyle(el).visibility !== "visible") continue;
-      if (!shown.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
-      // A slotted text node is laid out inside its slot, so its clips start there.
+      // A slotted text node is laid out inside its slot, so its clips and
+      // what hides it start there, not at its light-DOM host (review round 6).
       const start = n.assignedSlot ?? el;
+      // A display: contents parent (Tailwind's `contents`, a slot showing its
+      // fallback) has no box, and checkVisibility() is false on one, so the
+      // nearest box is asked about display, opacity and content-visibility
+      // (review round 5). visibility is inherited and can be set back to
+      // visible below a hidden box, so it is read from the text's own parent
+      // (review round 6).
+      let shown: Element | null = start;
+      while (shown && getComputedStyle(shown).display === "contents") shown = up(shown);
+      if (!shown || getComputedStyle(start).visibility !== "visible") continue;
+      if (!shown.checkVisibility({ opacityProperty: true })) continue;
       // Text the page marks inert is out of use: a carousel's peeking
       // next slide (a designed peek, not a cut), or a parked panel. inert
       // reaches into shadow trees, which closest() does not (finding 6).

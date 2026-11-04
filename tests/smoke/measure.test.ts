@@ -319,6 +319,31 @@ const FINDINGS: Record<string, Fixture> = {
       `<p style="white-space:nowrap;margin:0"><span style="display:contents;visibility:hidden">${LONG}</span></p>`,
     ),
   },
+  // Review round 6 (the site copy has both): visibility is the text's own,
+  // read where it is laid out, and the nearest box is asked only about
+  // opacity, display and content-visibility.
+  "7d. a visible display: contents span under a hidden box paints": {
+    expected: "cut",
+    html: section(
+      `<p style="white-space:nowrap;margin:0;visibility:hidden"><span style="display:contents;visibility:visible">${LONG}</span></p>`,
+    ),
+  },
+  "7e. slotted text under an opacity 0 wrapper in the shadow tree": {
+    expected: "fine",
+    html: shadow("", `<p style="white-space:nowrap;margin:0;opacity:0"><slot></slot></p>`).replace(
+      '<div id="host" ></div>',
+      `<div id="host" >${LONG}</div>`,
+    ),
+    invisible: true,
+  },
+  "7f. slotted text under a hidden wrapper in the shadow tree": {
+    expected: "fine",
+    html: shadow(
+      "",
+      `<p style="white-space:nowrap;margin:0;visibility:hidden"><slot></slot></p>`,
+    ).replace('<div id="host" ></div>', `<div id="host" >${LONG}</div>`),
+    invisible: true,
+  },
   "6a. -webkit-mask-box-image masks to the border box": {
     expected: "fine",
     html: section(

@@ -20,7 +20,7 @@ Where it landed: this PR (branch `claude/1892-measure-lift`), which closes https
 
 **Defects review found.** Round 1 had three majors and a minor, all reproduced before they were fixed. `will-change: filter` on an inline span is a containing block. `flow-root list-item` is a block container. The probe could be reached by page CSS and was unscaled under zoom. And no fixture pinned a resolved inset (5c and 5d now do).
 
-Rounds 2 to 5 were all dirty, and every finding was rebuilt here as a fixture that was red before its fix. The work moved to a second session at 300k tokens of context, after round 2.
+Rounds 2 to 6 were all dirty, and every finding was rebuilt here as a fixture that was red before its fix. The work moved to a second session at 300k tokens of context, after round 2.
 
 - **Round 2: two majors.**
   - `insetRect` applied the insets to the axis-aligned bounding rect. On `scaleX(-1)` with `inset(0 0 0 50%)` it kept the wrong half, so a cut line read fine. On a mirrored, turned or skewed box, or under one, the clip now narrows only to the border box, as the site copy did. It does not narrow at all for a negative inset or a margin box (5g to 5k).
@@ -33,6 +33,10 @@ Rounds 2 to 5 were all dirty, and every finding was rebuilt here as a fixture th
   - The major: text whose parent is `display: contents` was never measured, because `checkVisibility()` is false on a box-less element (7a, 7b, with the control 7c). It is fixed on the branch, but it is a hole the site copy has too, not one of the six, and it came after the fifth round. Whether to land without a sixth round went to the operator: workspace `decisions/2026-11-04-0315-1892-measure-round-5-hold.md`.
   - The nit: the inset probe makes inset-heavy pages about 4× slower. It is filed as https://github.com/reddoorla/reddoor-maintenance/issues/1937.
   - Folded in with the nit: `scripts/smoke-dist.mjs`'s pages now carry a doctype. They ran in quirks mode, where `clientWidth` is not the screen's.
+- **Round 6, which the operator asked for: two majors, both in round 5's visibility gate, both shared with the site copy.**
+  - A `display: contents` span set back to `visibility: visible` under a hidden box paints, but it was skipped, because the nearest box was asked about `visibility` (7d).
+  - Slotted text under a hidden or `opacity: 0` wrapper around its `<slot>` was checked against its light-DOM host, which paints, so it read cut (7e, 7f).
+  - Fixed: the gate starts from the slot, and `visibility` is read only from the text's own parent. Whether to land without a seventh round went back to the operator: workspace `decisions/2026-11-04-0352-1892-measure-round-6-hold.md`.
 
 **More beliefs corrected on contact.**
 
