@@ -287,6 +287,32 @@ describe.each(STEPS)("$file reads the write gate's verdict", ({ file, step, exit
   });
 });
 
+it("fleet smoke: a never-measured site plus a failed write reds, and names the failed write too (#1938 round 2)", async () => {
+  // S1: the unmeasured check exits before the gate's block, so the gate's not-written
+  // warning must print before that exit, or site-3's 503 reaches no annotation.
+  const results: AuditResult[] = SLUGS.map((site) =>
+    site === "site-0"
+      ? {
+          audit: "smoke",
+          site,
+          status: "skip",
+          summary: "smoke: pnpm install failed (exit 1) — deps unavailable",
+        }
+      : smokeMeasured(site),
+  );
+  const r = await runStep(
+    "fleet-smoke.yml",
+    "Fleet smoke suite + write-back",
+    await cliOutput({ results, expectedSites: SLUGS, throwRow: "rec3" }),
+    1,
+  );
+  expect(r.code).toBe(1);
+  expect(r.out).toContain("::error::fleet smoke: 1 site(s) never measured");
+  expect(r.out).toMatch(
+    /::warning::fleet smoke: [^\n]*not written[^\n]*site-3 \(Turso write failed: HTTP 503\)/,
+  );
+});
+
 it("every gated step writes its output under RUNNER_TEMP, never a shared /tmp file (#1651)", async () => {
   for (const { file, step } of STEPS) {
     const script = stepRunScript(await readFile(workflowPath(file), "utf-8"), step).replaceAll(

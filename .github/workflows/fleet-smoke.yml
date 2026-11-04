@@ -119,6 +119,9 @@ jobs:
           fi
           unmeasured=$(echo "$unmeasured_line" | grep -oE "count=[0-9]+" | cut -d= -f2)
           if [ "$unmeasured" -gt 0 ]; then
+            # This exit comes before the gate's block below, so print the gate's warnings
+            # first: a failed write on the same night is named too (#1938 review round 2).
+            grep -E "^FLEET_WRITE_GATE_WARNING " "${RUNNER_TEMP:-/tmp}/smoke.out" | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet smoke: /' || true
             echo "::error::fleet smoke: $unmeasured site(s) never measured — $(echo "$unmeasured_line" | sed 's/.*sites=//')"
             exit 1
           fi

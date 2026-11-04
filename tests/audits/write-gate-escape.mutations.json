@@ -92,7 +92,7 @@
       {
         "file": ".github/workflows/fleet-lighthouse.yml",
         "find": "          # A site that couldn't even be prepared (bad/scheme-less URL + no repo)\n",
-        "replace": "          if [ \"$failed\" -gt 0 ]; then\n            notwritten=$(grep -oE \"[0-9]+ site\\(s\\) not written:.*\" \"${RUNNER_TEMP:-/tmp}/audit.out\" | tail -n1 || true)\n            echo \"::warning::fleet Lighthouse: $failed/$total site(s) not written — $notwritten\"\n          fi\n\n          # A site that couldn't even be prepared (bad/scheme-less URL + no repo)\n"
+        "replace": "          if [ \"$failed\" -gt 0 ]; then\n            notwritten=$(grep -oE \"[0-9]+ site\\(s\\) not written:.*\" \"${RUNNER_TEMP:-/tmp}/audit.out\" | tail -n1 || true)\n            echo \"::warning::fleet Lighthouse: $failed/$total site(s) not written \u2014 $notwritten\"\n          fi\n\n          # A site that couldn't even be prepared (bad/scheme-less URL + no repo)\n"
       }
     ],
     "test": "tests/build/fleet-write-gate-workflows.test.ts",
@@ -149,7 +149,7 @@
       {
         "file": ".github/workflows/fleet-prismic-drift.yml",
         "find": "          if [ \"$wrote\" -eq 0 ]; then\n",
-        "replace": "          if [ \"$failed\" -gt 0 ]; then\n            notwritten=$(grep -oE \"[0-9]+ site\\(s\\) not written:.*\" \"$out\" | tail -n1 || true)\n            echo \"::warning::fleet prismic drift: $failed/$total verdict(s) not written — $notwritten\"\n          fi\n\n          if [ \"$wrote\" -eq 0 ]; then\n"
+        "replace": "          if [ \"$failed\" -gt 0 ]; then\n            notwritten=$(grep -oE \"[0-9]+ site\\(s\\) not written:.*\" \"$out\" | tail -n1 || true)\n            echo \"::warning::fleet prismic drift: $failed/$total verdict(s) not written \u2014 $notwritten\"\n          fi\n\n          if [ \"$wrote\" -eq 0 ]; then\n"
       }
     ],
     "test": "tests/build/fleet-write-gate-workflows.test.ts",
@@ -210,5 +210,18 @@
     "test": ["tests/audits/fleet-write-gate.test.ts", "tests/audits/write-fleet-audits.test.ts"],
     "expect": "red",
     "why": "The gate block printed after the summary line: a decoy in an error string becomes the last summary match."
+  },
+  {
+    "id": "W15-smoke-unmeasured-no-names",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-smoke.yml",
+        "find": "            grep -E \"^FLEET_WRITE_GATE_WARNING \" \"${RUNNER_TEMP:-/tmp}/smoke.out\" | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet smoke: /' || true\n            echo \"::error::fleet smoke: $unmeasured",
+        "replace": "            echo \"::error::fleet smoke: $unmeasured"
+      }
+    ],
+    "test": "tests/build/fleet-write-gate-workflows.test.ts",
+    "expect": "red",
+    "why": "#1938 r2: smoke's never-measured exit prints no gate warnings, so a failed write on the same night reaches no annotation (S1)."
   }
 ]

@@ -12,7 +12,9 @@ import { nameFromRepo } from "./clone-if-needed.js";
  *  so the gate sees one label for it at load, not a missing site and a permanent failure.
  *  A derived name is taken only when no other site already has it as an explicit `name` and
  *  no other nameless site derives the same one; otherwise the site stays nameless and keeps
- *  its path label, so two different sites never share one label and merge downstream. */
+ *  its path label, so two different sites never share one label at load and merge downstream.
+ *  A site left nameless here is still named from its repo by `cloneIfNeeded` at prep, so that
+ *  fallback can still give it the colliding name later (the #1650 drift, for that case only). */
 export function nameFromRepoWhenNameless(sites: Site[]): Site[] {
   const explicit = new Set(sites.flatMap((s) => (s.name ? [s.name] : [])));
   const derived = sites.map((s) => (s.name ? undefined : nameFromRepo(s)));
