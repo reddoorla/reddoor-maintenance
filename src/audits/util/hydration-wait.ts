@@ -1,3 +1,4 @@
+/// <reference lib="dom" />
 /**
  * Waiting for a SvelteKit page to finish hydrating before touching its DOM.
  *
@@ -16,9 +17,20 @@
 
 export const HYDRATED_SELECTOR = "html[data-hydrated]";
 
-/** The marker check as an expression string, for callers that evaluate in the
- *  page without the DOM lib (form-e2e) or emit it into a generated spec (a11y). */
+/** The marker check as an expression string, for emitting into a generated spec
+ *  (a11y wraps it in a function there). Never pass it to `waitForFunction` as a
+ *  string: Playwright `eval`s a string predicate in the page, and a CSP without
+ *  'unsafe-eval' (the starter's, `csp.mode: "auto"`) refuses it as soon as the check
+ *  has to poll, so the wait settles at once (#1923). Use `isHydrated`. */
 export const HYDRATED_EXPR = `document.documentElement.hasAttribute("data-hydrated")`;
+
+/** The marker check as a function. Playwright `eval`s a function's source once,
+ *  inside the protocol call where the CSP does not apply, and polls the cached
+ *  function; a string is re-`eval`ed on every poll, which the CSP refuses
+ *  (playwright-core 1.64.1, `waitForFunctionExpression`). The CSP test in
+ *  hydration-wait.test.ts guards that behaviour across upgrades. Keep it in step
+ *  with `HYDRATED_EXPR`. */
+export const isHydrated = (): boolean => document.documentElement.hasAttribute("data-hydrated");
 
 /** Long enough for a cold SvelteKit bundle on a CI runner to start after `load`;
  *  short enough that a site without the marker pays it once per run. */
@@ -26,7 +38,7 @@ export const HYDRATION_TIMEOUT_MS = 5000;
 
 export type HydrationWaitPage = {
   waitForLoadState: (state: "load", opts: { timeout: number }) => Promise<unknown>;
-  waitForFunction: (expr: string, arg: unknown, opts: { timeout: number }) => Promise<unknown>;
+  waitForFunction: (fn: () => boolean, arg: unknown, opts: { timeout: number }) => Promise<unknown>;
 };
 
 /**
@@ -44,7 +56,7 @@ export async function waitForHydration(
   await page.waitForLoadState("load", { timeout: timeoutMs }).catch(() => {});
   const left = Math.max(1, timeoutMs - (Date.now() - start));
   return page
-    .waitForFunction(HYDRATED_EXPR, null, { timeout: left })
+    .waitForFunction(isHydrated, null, { timeout: left })
     .then(() => "marker" as const)
     .catch(() => "settled" as const);
 }
