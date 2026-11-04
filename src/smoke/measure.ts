@@ -118,6 +118,14 @@ export function measureInPage(): OverflowMeasure {
   // nothing to the page's scroll width; removed before the page width is
   // read. A MutationObserver on the document sees it come and go.
   const probe: { host?: HTMLElement; box?: HTMLElement; child?: HTMLElement } = {};
+  // Screen pixels per CSS pixel on a box, across and down. A rect is in
+  // screen pixels, which zoom and a scaled ancestor make larger; offset,
+  // client and scroll sizes, insets, margins, borders and paddings are CSS
+  // pixels.
+  const ratio = (a: Element, b: DOMRect): [number, number] =>
+    a instanceof HTMLElement && a.offsetWidth > 0 && a.offsetHeight > 0
+      ? [b.width / a.offsetWidth, b.height / a.offsetHeight]
+      : [1, 1];
   // Whether a box or any box above it in the flat tree is drawn other than
   // by a positive, axis-aligned scale and a move: a mirror, a turn, a skew,
   // or a 3D transform, by transform or by the rotate and scale longhands.
@@ -155,14 +163,10 @@ export function measureInPage(): OverflowMeasure {
     if (args.length < 1 || args.length > 4) return null;
     const [top, right = top, bottom = top, left = right] = args as [string, ...string[]];
     // The reference box: border-box unless named. fill-box, stroke-box and
-    // view-box are the border box on a CSS box. The insets, margins, borders
-    // and paddings are CSS pixels; the rect is screen pixels, which zoom and
-    // a positive scale make larger. The ratio of the two converts. It does not
-    // hold where the box or an ancestor is mirrored or turned: see `turned`.
-    const [sx, sy] =
-      a instanceof HTMLElement && a.offsetWidth > 0 && a.offsetHeight > 0
-        ? [b.width / a.offsetWidth, b.height / a.offsetHeight]
-        : [1, 1];
+    // view-box are the border box on a CSS box. `ratio` converts the CSS
+    // pixels to the rect's. It does not hold where the box or an ancestor is
+    // mirrored or turned: see `turned`.
+    const [sx, sy] = ratio(a, b);
     const scale = (d: readonly number[]) => [d[0]! * sx, d[1]! * sx, d[2]! * sy, d[3]! * sy];
     const px = (p: string) => parseFloat(cs.getPropertyValue(p)) || 0;
     const sides = (f: (side: string) => number) => [f("left"), f("right"), f("top"), f("bottom")];
@@ -281,23 +285,25 @@ export function measureInPage(): OverflowMeasure {
             : true;
       if (containing && !inline) {
         escaped = "";
-        // The padding box, which overflow and paint containment clip to.
-        const pl = b.left + a.clientLeft;
-        const pt = b.top + a.clientTop;
-        const [pr, pb] = [pl + a.clientWidth, pt + a.clientHeight];
+        // The padding box, which overflow and paint containment clip to, in
+        // screen pixels (review round 3: under zoom it came out half wide).
+        const [qx, qy] = ratio(a, b);
+        const pl = b.left + a.clientLeft * qx;
+        const pt = b.top + a.clientTop * qy;
+        const [pr, pb] = [pl + a.clientWidth * qx, pt + a.clientHeight * qy];
         const scrolls = (o: string) => o === "auto" || o === "scroll";
         const paint = /paint|strict|content/.test(cs.contain) || cs.contentVisibility === "auto";
         const xBefore = x1;
         if (scrolls(cs.overflowX)) {
-          const l = pl - a.scrollLeft;
-          if (Math.min(x1, l + a.scrollWidth) - Math.max(x0, l) <= 1) return null;
+          const l = pl - a.scrollLeft * qx;
+          if (Math.min(x1, l + a.scrollWidth * qx) - Math.max(x0, l) <= 1) return null;
           [x0, x1] = [pl, pr];
         } else if (cs.overflowX !== "visible" || paint) {
           [x0, x1] = [Math.max(x0, pl), Math.min(x1, pr)];
         }
         if (scrolls(cs.overflowY)) {
-          const t = pt - a.scrollTop;
-          if (Math.min(y1, t + a.scrollHeight) - Math.max(y0, t) <= 1) return null;
+          const t = pt - a.scrollTop * qy;
+          if (Math.min(y1, t + a.scrollHeight * qy) - Math.max(y0, t) <= 1) return null;
           [y0, y1] = [pt, pb];
         } else if (cs.overflowY !== "visible" || paint) {
           [y0, y1] = [Math.max(y0, pt), Math.min(y1, pb)];

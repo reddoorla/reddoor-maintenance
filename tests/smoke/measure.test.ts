@@ -198,9 +198,9 @@ const FINDINGS: Record<string, Fixture> = {
     invisible: true,
   },
   // Review round 1: at zoom 2 the 500px box is 1000 screen px and the 200px
-  // inset 400, so what is left sits wholly past the 390px screen. Inside a
-  // full-width section the unscaled inset happened to give the same verdict,
-  // so this one is left wide.
+  // inset 400, so what is left sits wholly past the 390px screen. It is left
+  // outside a section, so only the inset's scale decides it; 5l puts a zoomed
+  // inset inside one.
   "5f. clip-path insets under zoom": {
     expected: "fine",
     html: `<style>body{zoom:2}</style><div style="width:500px;clip-path:inset(0 0 0 200px);white-space:nowrap;font-size:15px">${LONG}</div>`,
@@ -271,6 +271,17 @@ const FINDINGS: Record<string, Fixture> = {
   "1g. line-clamp-1 with nowrap draws no ellipsis": {
     expected: "cut",
     html: `<div style="display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden;white-space:nowrap">${LONG}</div>`,
+  },
+  // Review round 3: overflow's padding box is in CSS pixels, the line in
+  // screen pixels, so under zoom or a scaled ancestor the section clipped to
+  // half its painted width and the inset's narrowed line left nothing.
+  "5l. clip-path inset in a clipping section under zoom": {
+    expected: "cut",
+    html: `<style>body{zoom:2}</style>${section(`<div style="width:300px;clip-path:inset(0 0 0 150px);white-space:nowrap;font-size:15px">${LONG}</div>`)}`,
+  },
+  "5m. a line cut at the edge of a scaled clipping section": {
+    expected: "cut",
+    html: `<div style="overflow:hidden;width:195px;transform:scale(2);transform-origin:0 0"><div style="padding-left:150px;white-space:nowrap;font-size:15px">${LONG}</div></div>`,
   },
   "6a. -webkit-mask-box-image masks to the border box": {
     expected: "fine",
