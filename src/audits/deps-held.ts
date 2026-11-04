@@ -54,8 +54,13 @@ function isObject(v: unknown): v is Record<string, unknown> {
 
 /** A matcher entry that is a glob, regex or negation, not an exact name. */
 function isPattern(v: unknown): boolean {
-  return typeof v !== "string" || v.startsWith("/") || v.startsWith("!") || /[*?{}[\]]/.test(v);
+  // An allowlist, not a list of glob characters: Renovate's minimatch also takes
+  // extglobs (`@(typescript|eslint)`, `+(…)`), so only a string shaped like an npm
+  // package name is an exact name. Anything else may reach any package.
+  return typeof v !== "string" || !NPM_NAME.test(v);
 }
+
+const NPM_NAME = /^(?:@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*$/i;
 
 const NAME_LISTS = ["matchPackageNames", "matchDepNames"] as const;
 
@@ -292,9 +297,43 @@ export function extendsOrgPreset(config: Record<string, unknown>): boolean {
  *  any other key. */
 function unfollowable(config: Record<string, unknown>): boolean {
   if (config["ignorePresets"] !== undefined) return true;
-  return Object.entries(config).some(
-    ([k, v]) => k !== "packageRules" && isObject(v) && v["packageRules"] !== undefined,
+  if (Object.keys(config).some((k) => LEGACY_RULE_KEYS.has(k))) return true;
+  // Renovate resolves `extends` in every nested object (a manager block, a single
+  // packageRule) and merges `packageRules` from them; none of that is read here.
+  return Object.entries(config).some(([k, v]) =>
+    k === "extends"
+      ? false
+      : k === "packageRules" && Array.isArray(v)
+        ? v.some((rule) => nests(rule, NESTED_KEYS))
+        : nests(v, NESTED_KEYS),
   );
+}
+
+/** Top-level keys Renovate 44's migrations turn into `packageRules`
+ *  (`PackagesMigration`, `PathRulesMigration`, `DepTypesMigration`,
+ *  `PackageNameMigration`, `PackagePatternMigration`, `PackageFilesMigration`). */
+const LEGACY_RULE_KEYS: ReadonlySet<string> = new Set([
+  "packages",
+  "pathRules",
+  "depTypes",
+  "dependencies",
+  "devDependencies",
+  "optionalDependencies",
+  "peerDependencies",
+  "engines",
+  "packageName",
+  "packagePattern",
+  "packageFiles",
+]);
+
+const NESTED_KEYS: ReadonlySet<string> = new Set(["extends", "ignorePresets", "packageRules"]);
+
+/** True when `v`, or any object or array inside it, carries one of `keys`. */
+function nests(v: unknown, keys: ReadonlySet<string>, depth = 0): boolean {
+  if (depth > 20) return true;
+  if (Array.isArray(v)) return v.some((x) => nests(x, keys, depth + 1));
+  if (!isObject(v)) return false;
+  return Object.entries(v).some(([k, x]) => keys.has(k) || nests(x, keys, depth + 1));
 }
 
 const PRESET_DEPTH = 5;

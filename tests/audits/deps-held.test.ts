@@ -697,3 +697,79 @@ describe("org preset references: foreign, cycles, case and other files (P1-98 re
     expect(result).toMatchObject({ held: ["typescript@6"] });
   });
 });
+
+describe("Renovate shapes the audit does not model leave the cap unknown (round 4)", () => {
+  const LIFT = "github>reddoorla/.github:lift";
+  it("an extglob name may reach typescript (minimatch extglob)", () => {
+    for (const name of ["@(typescript|eslint)", "+(typescript)"]) {
+      const caps = capsFromRules([
+        { matchPackageNames: ["typescript"], allowedVersions: "<7.0.0" },
+        { matchPackageNames: [name], allowedVersions: "<8.0.0" },
+      ]);
+      expect(caps.get("typescript")).toBeUndefined();
+    }
+  });
+
+  it("a plain scoped name for another package still leaves the cap in force", () => {
+    const caps = capsFromRules([
+      { matchPackageNames: ["typescript"], allowedVersions: "<7.0.0" },
+      { matchPackageNames: ["@types/node", "svelte-check"], allowedVersions: "<25.0.0" },
+    ]);
+    expect(caps.get("typescript")).toBe("<7.0.0");
+  });
+
+  it.each([
+    ["devDependencies", { devDependencies: { allowedVersions: "<8.0.0" } }],
+    ["packages", { packages: [{ matchPackageNames: ["typescript"], allowedVersions: "<8.0.0" }] }],
+    ["pathRules", { pathRules: [{ paths: ["package.json"], allowedVersions: "<8.0.0" }] }],
+    ["depTypes", { depTypes: [{ depType: "devDependencies", allowedVersions: "<8.0.0" }] }],
+  ])(
+    "a legacy top-level %s, which Renovate migrates into packageRules, counts it",
+    async (_k, extra) => {
+      const { result } = await scan({
+        outdated: TS6,
+        renovate: JSON.stringify({ extends: [ORG], ...extra }),
+      });
+      expect(result).toMatchObject({ behind: ["typescript@6"], held: [] });
+    },
+  );
+
+  it("an extends inside a packageRule counts it (Renovate resolves it)", async () => {
+    const r = reader(PRESET, { "lift.json": JSON.stringify({ allowedVersions: "<8.0.0" }) });
+    const { result } = await scanWith(
+      {
+        outdated: TS6,
+        renovate: JSON.stringify({
+          extends: [ORG],
+          packageRules: [{ matchPackageNames: ["typescript"], extends: [LIFT] }],
+        }),
+      },
+      r,
+    );
+    expect(result).toMatchObject({ behind: ["typescript@6"], held: [] });
+  });
+
+  it("an extends under a manager block counts it (it can bring packageRules)", async () => {
+    const r = reader(PRESET, {
+      "lift.json": JSON.stringify({
+        packageRules: [{ matchPackageNames: ["typescript"], allowedVersions: "<8.0.0" }],
+      }),
+    });
+    const { result } = await scanWith(
+      { outdated: TS6, renovate: JSON.stringify({ extends: [ORG], npm: { extends: [LIFT] } }) },
+      r,
+    );
+    expect(result).toMatchObject({ behind: ["typescript@6"], held: [] });
+  });
+
+  it("an ordinary nested object (lockFileMaintenance) still holds", async () => {
+    const { result } = await scan({
+      outdated: TS6,
+      renovate: JSON.stringify({
+        extends: [ORG],
+        lockFileMaintenance: { enabled: true, schedule: ["before 5am on monday"] },
+      }),
+    });
+    expect(result).toMatchObject({ behind: [], held: ["typescript@6"] });
+  });
+});

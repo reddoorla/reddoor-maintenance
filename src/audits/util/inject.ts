@@ -39,6 +39,6 @@ export type AuditContext = {
    *  not check rather than passing on it. */
   analyticsDeps?: AnalyticsDeps;
   /** P1-98: the org Renovate preset's text for the deps audit (tests). Defaults to a
-   *  real fetch of `reddoorla/.github` `renovate-config.json`; null = unread, holds nothing. */
+   *  real fetch of `reddoorla/.github` `renovate-config.json`; null = unread, holds no capped package. */
   renovatePreset?: PresetReader;
 };
