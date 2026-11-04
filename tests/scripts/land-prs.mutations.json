@@ -238,8 +238,8 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "if (newIn && !oldIn && !hunkWrapped) {",
-        "replace": "if (newIn && !hunkWrapped) {"
+        "find": "if (newState === \"comment\" && oldState !== \"comment\" && !hunkWrapped) {",
+        "replace": "if (newState === \"comment\" && !hunkWrapped) {"
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
@@ -270,7 +270,7 @@
     ],
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
-    "why": "#1617: a `/*` inside a string opens a comment, so a string literal that holds `src/*` hides the line after it (B7)."
+    "why": "#1617: a `/*` inside a string opens a comment, so the line after a string that holds `src/*` is falsely flagged as wrapped (B7)."
   },
   {
     "id": "M-P182-7-no-wrap-reason",
@@ -284,5 +284,114 @@
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
     "why": "#1617: a comment opened around existing lines is not flagged at all (B1)."
+  },
+  {
+    "id": "M-P182-8-rename-ignores-retry",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "const sure = !codeOf(r).retry && !codeOf(a).retry;",
+        "replace": "const sure = true;"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617 r1: a rename on a line codeOf gave up on (a trailing comment) passes unflagged."
+  },
+  {
+    "id": "M-P182-9-rename-any-string",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "if (al[k].text !== rl[k].text) return false;",
+        "replace": "void rl;"
+      },
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "return namesFirstArgument(a, al[0]);",
+        "replace": "return true;"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617 r1: any string may change with the skip, so a skip's string argument passes unflagged (F1a, F1b, and the later-string case)."
+  },
+  {
+    "id": "M-P182-10-rename-first-not-arg",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "return namesFirstArgument(a, al[0]);",
+        "replace": "return true;"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617 r1: the first string may be any string on the line, so a string in an `if` condition (F1a, F1b) passes unflagged."
+  },
+  {
+    "id": "M-P182-11-template-not-tracked",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "return c === \"`\" ? \"template\" : \"code\";",
+        "replace": "return \"code\";"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617 r1: an unclosed template literal does not carry into the next line, so a glob in it reads as a comment opener (F2b)."
+  },
+  {
+    "id": "M-P182-12-jsdoc-start-code",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "const jsdoc = /^\\*(?!\\/)/.test(text.trim());",
+        "replace": "const jsdoc = false;"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617 r1: a hunk that starts inside a JSDoc is read as outside one, so the JSDoc's close reads as a new comment (F2a)."
+  },
+  {
+    "id": "M-P182-13-bracket-opens",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": " && line[i - 1] !== \"[\"",
+        "replace": ""
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617 r1: a `/*` in a regex class (`/[/*]/`) opens a comment (F2c)."
+  },
+  {
+    "id": "M-P182-14-escaped-slash",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "line[i - 1] !== \"\\\\\" && ",
+        "replace": ""
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617 r1: an escaped slash before a star in a regex opens a comment (F3a)."
+  },
+  {
+    "id": "M-P182-15-escape-skip",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "j += line[j] === \"\\\\\" ? 2 : 1;",
+        "replace": "j += 1;"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617 r1: an escaped quote ends a string, so the `/*` after it opens a comment (F3b)."
   }
 ]

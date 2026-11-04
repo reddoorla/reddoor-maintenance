@@ -980,12 +980,59 @@ function valueLines(patch) {
   return out;
 }
 
+/** The string literals of a trimmed line, in order: `{ text, start, end }`, `text` with its
+ *  quotes (#1617, round 1). The scan is `codeOf`'s: a `\` skips the next character, and `//`
+ *  and `/* … *\/` are skipped. An unclosed literal ends the scan, as it ends `codeOf`'s code. */
+function stringLiterals(line) {
+  const out = [];
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === "/" && line[i + 1] === "/") break;
+    if (c === "/" && line[i + 1] === "*") {
+      const end = line.indexOf("*/", i + 2);
+      if (end < 0) break;
+      i = end + 1;
+    } else if (c === '"' || c === "'" || c === "`") {
+      const end = closeQuote(line, i + 1, c);
+      if (end < 0) break;
+      out.push({ text: line.slice(i, end + 1), start: i, end });
+      i = end;
+    }
+  }
+  return out;
+}
+
+/** A call's name and its `(`, at the end of the code before a literal (#1617, round 1). */
+const FIRST_ARG_CALL =
+  /(?:\b(?:it|test|describe|suite|bench)|\bx(?:it|test|describe)|\bf(?:it|describe))(?:\s*\.\s*\w+){0,8}\s*\($/;
+
+/** Whether `lit`, a literal of `line`, is the first argument of the call it sits in: the code
+ *  before it ends in such a call's `(`, and the code after its closing quote starts with `,`. */
+function namesFirstArgument(line, lit) {
+  const before = codeOf(line.slice(0, lit.start)).code;
+  const after = codeOf(line.slice(lit.end + 1)).code;
+  return FIRST_ARG_CALL.test(before) && after.startsWith(",");
+}
+
+/** Whether `a` is `r` with only its test's name changed (#1617, round 1): the same number of
+ *  string literals, at least one, every one after the first identical, and the first one the
+ *  first argument of the call. */
+function onlyNameChanged(r, a) {
+  const rl = stringLiterals(r);
+  const al = stringLiterals(a);
+  if (al.length === 0 || al.length !== rl.length) return false;
+  for (let k = 1; k < al.length; k++) if (al[k].text !== rl[k].text) return false;
+  return namesFirstArgument(a, al[0]);
+}
+
 /** The added lines that rename a skip or an only (#1617). A change block is a maximal run of
  *  `-` lines followed by a maximal run of `+` lines; any other line, or a `@@`, ends one. Within
  *  a block the i-th removed line pairs with the i-th added line. A pair is a rename when the
- *  added line is a skip or an only, its code (string contents blanked) equals the removed
- *  line's, and that code is not empty: `it.skip("a", …)` → `it.skip("b", …)` is a rename;
- *  `it("b", …)` → `it.skip("b", …)` is not. */
+ *  added line is a skip or an only, neither line is one `codeOf` gave up on (`retry`), its code
+ *  (string contents blanked) equals the removed line's, that code is not empty, and only the
+ *  test's name differs (see `onlyNameChanged`): `it.skip("a", …)` → `it.skip("b", …)` is a
+ *  rename; `it("b", …)` → `it.skip("b", …)` is not, and neither is a change to a string after
+ *  the test's name, such as `"webkit"` → `"chromium"` in `test.skip(browserName === "webkit")`. */
 function renamedSkips(patch) {
   const out = [];
   let removed = [];
@@ -997,10 +1044,13 @@ function renamedSkips(patch) {
       const a = added[i];
       if (r.length > MAX_LINE || a.length > MAX_LINE) continue;
       const code = codeOf(a).code;
+      const sure = !codeOf(r).retry && !codeOf(a).retry;
       if (
         r !== a &&
+        sure &&
         code !== "" &&
         codeOf(r).code === code &&
+        onlyNameChanged(r, a) &&
         (hasCall(a, ONLY) || hasCall(a, SKIP))
       ) {
         out.push(a);
@@ -1021,69 +1071,96 @@ function renamedSkips(patch) {
   return out;
 }
 
-/** Whether a line ends inside a block comment, given whether it starts inside one (#1617).
- *  One pass: a comment ends at the first `*\/`; a string (`"`, `'` or `` ` ``, with a `\`
- *  skipping the next character) is passed whole, and an unclosed one ends the line out of a
- *  comment; `//` ends the line; a `/*` not preceded by `\` opens a comment. */
-function commentScan(line, inComment) {
-  let inC = inComment;
-  let i = 0;
-  while (i < line.length) {
-    if (inC) {
-      const end = line.indexOf("*/", i);
-      if (end < 0) return true;
-      inC = false;
-      i = end + 2;
-      continue;
-    }
-    const c = line[i];
-    if (/["'`]/.test(c)) {
-      let j = i + 1;
-      while (j < line.length && line[j] !== c) j += line[j] === "\\" ? 2 : 1;
-      if (j >= line.length) return false;
-      i = j + 1;
-    } else if (c === "/" && line[i + 1] === "/") {
-      return false;
-    } else if (c === "/" && line[i + 1] === "*" && line[i - 1] !== "\\") {
-      inC = true;
-      i += 2;
-    } else i++;
-  }
-  return inC;
+/** The index of the quote `q` that closes a string whose body starts at `from`, or -1
+ *  (#1617, round 1). A `\` skips the next character. */
+function closeQuote(line, from, q) {
+  let j = from;
+  while (j < line.length && line[j] !== q) j += line[j] === "\\" ? 2 : 1;
+  return j < line.length ? j : -1;
 }
 
-/** The block-comment shifts of a patch (#1617). `wrapped`: the first context line of each hunk
- *  that the PR's change puts inside a block comment, a comment opened by an added line above
- *  it in the hunk (and not open on the old side). `commented`: each added line wholly inside a
- *  block comment. Each hunk starts outside any comment, so a comment opened before it is not seen. */
+/** The state at the end of a line, given its state at the start (#1617, round 1). A state is
+ *  `"code"`, `"comment"` (inside a block comment) or `"template"` (inside a template literal
+ *  that runs on from an earlier line). In a comment, the first `*\/` ends it. In a template, the
+ *  first unescaped backtick ends it. In code, a string (`"`, `'` or `` ` ``, with a `\` skipping
+ *  the next character) is passed whole; an unclosed backtick ends the line in `"template"`, an
+ *  unclosed `"` or `'` ends it in `"code"`; `//` ends the line; a `/*` not preceded by `\` or
+ *  `[` (a regex class) opens a comment. */
+function commentScan(line, state) {
+  let st = state;
+  let i = 0;
+  while (i < line.length) {
+    if (st === "comment") {
+      const end = line.indexOf("*/", i);
+      if (end < 0) return "comment";
+      st = "code";
+      i = end + 2;
+    } else if (st === "template") {
+      const end = closeQuote(line, i, "`");
+      if (end < 0) return "template";
+      st = "code";
+      i = end + 1;
+    } else {
+      const c = line[i];
+      if (/["'`]/.test(c)) {
+        const end = closeQuote(line, i + 1, c);
+        if (end < 0) return c === "`" ? "template" : "code";
+        i = end + 1;
+      } else if (c === "/" && line[i + 1] === "/") {
+        return "code";
+      } else if (c === "/" && line[i + 1] === "*" && line[i - 1] !== "\\" && line[i - 1] !== "[") {
+        st = "comment";
+        i += 2;
+      } else i++;
+    }
+  }
+  return st;
+}
+
+/** The block-comment shifts of a patch (#1617, round 1). `wrapped`: the first context line of
+ *  each hunk that the PR's change puts inside a block comment, a comment opened by an added line
+ *  above it in the hunk (and not open on the old side). `commented`: each added line wholly
+ *  inside a block comment. A hunk starts in `"comment"` on both sides when its first line is a
+ *  JSDoc continuation (its text starts with `*`, not `*\/`), so the JSDoc's opener above the hunk
+ *  is not missed; otherwise it starts in `"code"`. */
 function blockCommentShifts(patch) {
   const wrapped = [];
   const commented = [];
-  let oldIn = false;
-  let newIn = false;
+  let oldState = "code";
+  let newState = "code";
   let hunkWrapped = false;
+  let headerPending = false;
   for (const raw of String(patch).split("\n")) {
     if (raw.startsWith("@@")) {
-      oldIn = false;
-      newIn = false;
+      oldState = "code";
+      newState = "code";
       hunkWrapped = false;
+      headerPending = true;
       continue;
     }
     if (raw === "" || raw.startsWith("\\")) continue;
     const text = raw.slice(1);
+    if (headerPending) {
+      headerPending = false;
+      const jsdoc = /^\*(?!\/)/.test(text.trim());
+      if (jsdoc) {
+        oldState = "comment";
+        newState = "comment";
+      }
+    }
     if (raw.startsWith(" ")) {
-      if (newIn && !oldIn && !hunkWrapped) {
+      if (newState === "comment" && oldState !== "comment" && !hunkWrapped) {
         wrapped.push(text.trim());
         hunkWrapped = true;
       }
-      oldIn = commentScan(text, oldIn);
-      newIn = commentScan(text, newIn);
+      oldState = commentScan(text, oldState);
+      newState = commentScan(text, newState);
     } else if (raw.startsWith("-")) {
-      oldIn = commentScan(text, oldIn);
+      oldState = commentScan(text, oldState);
     } else if (raw.startsWith("+")) {
-      const endsIn = commentScan(text, newIn);
-      if (newIn && endsIn) commented.push(text.trim());
-      newIn = endsIn;
+      const endState = commentScan(text, newState);
+      if (newState === "comment" && endState === "comment") commented.push(text.trim());
+      newState = endState;
     }
   }
   return { wrapped, commented };
@@ -1127,10 +1204,12 @@ function renamedAway(before, after) {
  *  large diff), because nothing here can read it. Only a line's code counts: a
  *  commented-out call is neither (see `codeOf`). A skip whose line changed only inside its
  *  strings, paired by position in its change block, is a rename, not an added skip (see
- *  `renamedSkips`). A context line that the PR's change puts inside a block comment is flagged
- *  (the hunk's comment state is assumed closed at its first line, so a comment opened before
- *  the hunk is not seen), and an added line wholly inside a block comment does not re-add a
- *  removed assertion (see `blockCommentShifts`). */
+ *  `renamedSkips`: only the test's name may differ, and a line whose code `codeOf` gave up on
+ *  is not a rename). The first context line of each hunk that the PR's change puts inside a
+ *  block comment is flagged. A hunk starts inside a block comment only when its first line is a
+ *  JSDoc continuation (`*`); otherwise it is assumed outside one, so a comment opened above the
+ *  hunk is not seen. An added line wholly inside a block comment does not re-add a removed
+ *  assertion (see `blockCommentShifts`). */
 export function testChangeFlags(files) {
   const out = [];
   for (const f of Array.isArray(files) ? files : []) {

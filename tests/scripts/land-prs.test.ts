@@ -2261,6 +2261,62 @@ describe("land-prs: test changes", () => {
         one("@@ -1,2 +1,3 @@\n keep();\n+/* flaky on CI */ go();\n expect(a).toBe(1);"),
       ).toEqual([]);
     });
+    it("a rename changes only the test's name: a string that decides the skip is flagged", () => {
+      expect(
+        one(
+          '@@ -1 +1 @@\n-  test.skip(browserName === "webkit");\n+  test.skip(browserName === "chromium");',
+        ),
+      ).toEqual([{ file: T, reasons: ['added skip: test.skip(browserName === "chromium");'] }]);
+      expect(
+        one(
+          '@@ -1 +1 @@\n-describe.runIf(process.env.CI === "true")("x", () => {\n+describe.runIf(process.env.CI === "never")("x", () => {',
+        ),
+      ).toEqual([
+        {
+          file: T,
+          reasons: ['added skip: describe.runIf(process.env.CI === "never")("x", () => {'],
+        },
+      ]);
+    });
+
+    it("a rename whose line was not read as code (an apostrophe, a regex quote, a comment) is flagged", () => {
+      expect(
+        one(
+          `@@ -1 +1 @@\n-render(<p>Don't</p>); it("a", () => {\n+render(<p>Don't</p>); it.skip("a", () => {`,
+        ),
+      ).toEqual([{ file: T, reasons: [`added skip: render(<p>Don't</p>); it.skip("a", () => {`] }]);
+      expect(
+        one('@@ -1 +1 @@\n-const re = /\'/; it("a", fn);\n+const re = /\'/; it.only("a", fn);'),
+      ).toEqual([{ file: T, reasons: ['added .only: const re = /\'/; it.only("a", fn);'] }]);
+      expect(
+        one('@@ -1 +1 @@\n-it.skip("old", () => {}); // note\n+it.skip("new", () => {}); // note'),
+      ).toEqual([{ file: T, reasons: ['added skip: it.skip("new", () => {}); // note'] }]);
+    });
+
+    it("a rename changes only the first string of the call: a later string that changes is flagged", () => {
+      expect(
+        one('@@ -1 +1 @@\n-it.skip("a", () => { go("1"); });\n+it.skip("b", () => { go("2"); });'),
+      ).toEqual([{ file: T, reasons: ['added skip: it.skip("b", () => { go("2"); });'] }]);
+    });
+
+    it("a JSDoc whose opener is above the hunk, a glob in a template literal, and a glob in a regex class are not wraps", () => {
+      expect(
+        one(
+          "@@ -10,3 +10,4 @@\n  * Reads every fixture.\n+ * Matches tests/fixtures/*.json.\n  * Returns them sorted.\n  */",
+        ),
+      ).toEqual([]);
+      expect(
+        one('@@ -1,1 +1,4 @@\n+const cfg = `\n+  include: src/*\n+`;\n it("works", () => {'),
+      ).toEqual([]);
+      expect(
+        one('@@ -1,1 +1,2 @@\n+const strip = (s) => s.replace(/[/*]/g, "");\n it("works", () => {'),
+      ).toEqual([]);
+    });
+
+    it("an escaped slash before a star, and an escaped quote in a string, do not open a comment", () => {
+      expect(one('@@ -1,1 +1,2 @@\n+const re = /a\\/*b/;\n it("works", () => {')).toEqual([]);
+      expect(one('@@ -1,1 +1,2 @@\n+const s = "a\\"/*";\n it("works", () => {')).toEqual([]);
+    });
   });
 
   describe("round-2 review findings", () => {
