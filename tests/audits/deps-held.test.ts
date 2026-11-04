@@ -75,9 +75,13 @@ function spawnFor(outdated: Site["outdated"]): { spawn: SpawnFn; views: string[]
 }
 
 /** A fresh reader per call, so the per-process memo never leaks between tests. */
-function reader(text: string | null = PRESET): PresetReader {
-  return async () => text;
+/** The org preset is `text`; other files in reddoorla/.github come from `others`. */
+function reader(text: string | null = PRESET, others: Record<string, string> = {}): PresetReader {
+  return async (file) => (file === "renovate-config.json" ? text : (others[file] ?? null));
 }
+
+const ORG = "github>reddoorla/.github:renovate-config";
+const siteExtending = (...ext: string[]) => JSON.stringify({ extends: ext });
 
 async function scan(s: Site, preset: string | null = PRESET) {
   const dir = await site(s);
@@ -166,15 +170,17 @@ describe("held by the preset's allowedVersions cap", () => {
     expect(reads).toBe(1);
   });
 
-  it("does not keep a failed read: the next site reads again and holds", async () => {
+  it("keeps a failed read for the process: the reader retried already, so no site waits again", async () => {
     let reads = 0;
-    const flaky: PresetReader = async () => (++reads === 1 ? null : PRESET);
-    expect(await orgPreset(flaky)).toBeNull();
-    const dir = await site({ outdated: TS6 });
-    const { spawn } = spawnFor(TS6);
-    const result = await scanOutdated(dir, spawn, await loadHoldRules(dir, flaky));
-    expect(result).toMatchObject({ behind: [], held: ["typescript@6"] });
-    expect(reads).toBe(2);
+    const down: PresetReader = async () => {
+      reads++;
+      return null;
+    };
+    for (let n = 0; n < 3; n++) {
+      const { result } = await scanWith({ outdated: TS6 }, down);
+      expect(result).toMatchObject({ behind: ["typescript@6"], held: [] });
+    }
+    expect(reads).toBe(1);
   });
 
   it("counts it, and does not throw, when the reader throws", async () => {
@@ -289,10 +295,137 @@ describe("capsFromRules: Renovate's rule order", () => {
     expect(capsFromRules([ts("<7.0.0"), rule])).toEqual(new Map());
   });
 
+  it.each([
+    ["matchDepTypes", { matchDepTypes: ["devDependencies"], allowedVersions: "<8.0.0" }],
+    ["matchManagers alone", { matchManagers: ["npm"], allowedVersions: "<8.0.0" }],
+    [
+      "an exclusion of something else",
+      { excludePackageNames: ["vite"], allowedVersions: "<8.0.0" },
+    ],
+    ["matchPackagePatterns", { matchPackagePatterns: ["^type"], allowedVersions: "<8.0.0" }],
+    ["matchPackagePrefixes", { matchPackagePrefixes: ["type"], allowedVersions: "<8.0.0" }],
+    ["no matcher at all", { allowedVersions: "<8.0.0" }],
+    ["a negated name", { matchPackageNames: ["!vite"], allowedVersions: "<8.0.0" }],
+    ["a brace glob", { matchPackageNames: ["{type,vite}script"], allowedVersions: "<8.0.0" }],
+    ["a negated dep name", { matchDepNames: ["!vite"], allowedVersions: "<8.0.0" }],
+  ])(
+    "a later rule that might reach typescript without naming it (%s) makes the cap unknown",
+    (_l, rule) => {
+      expect(capsFromRules([ts("<7.0.0"), rule])).toEqual(new Map());
+    },
+  );
+
+  it("a later rule for other named packages leaves the cap, whatever else it matches", () => {
+    expect(
+      capsFromRules([
+        ts("<7.0.0"),
+        { matchPackageNames: ["satori"], matchManagers: ["npm"], allowedVersions: "<1.0.0" },
+        { matchDepNames: ["vite"], allowedVersions: "<8.0.0" },
+      ]),
+    ).toEqual(new Map([["typescript", "<7.0.0"]]));
+  });
+
   it("an exclusion is a matcher too: the rule is not a fleet-wide hold", () => {
     expect(capsFromRules([ts("<7.0.0", { excludePackageNames: ["@types/node"] })])).toEqual(
       new Map(),
     );
+  });
+});
+
+describe("every rule Renovate applies must be known", () => {
+  const STAGING = "github>reddoorla/.github:renovate-staging-flow";
+
+  it("holds when another org preset the site extends is read and leaves typescript alone", async () => {
+    const dir = await site({ outdated: TS6, renovate: siteExtending(ORG, STAGING) });
+    const { spawn } = spawnFor(TS6);
+    const r = reader(PRESET, {
+      "renovate-staging-flow.json": JSON.stringify({ baseBranchPatterns: ["staging"] }),
+    });
+    expect(await scanOutdated(dir, spawn, await loadHoldRules(dir, r))).toMatchObject({
+      held: ["typescript@6"],
+    });
+  });
+
+  it("counts it when another org preset the site extends cannot be read", async () => {
+    const { result } = await scan({ outdated: TS6, renovate: siteExtending(ORG, STAGING) });
+    expect(result).toMatchObject({ behind: ["typescript@6"], held: [] });
+  });
+
+  it("counts it when a later org preset lifts the cap", async () => {
+    const dir = await site({ outdated: TS6, renovate: siteExtending(ORG, STAGING) });
+    const { spawn } = spawnFor(TS6);
+    const r = reader(PRESET, {
+      "renovate-staging-flow.json": JSON.stringify({
+        packageRules: [{ matchDepTypes: ["devDependencies"], allowedVersions: "<99.0.0" }],
+      }),
+    });
+    expect(await scanOutdated(dir, spawn, await loadHoldRules(dir, r))).toMatchObject({
+      behind: ["typescript@6"],
+      held: [],
+    });
+  });
+
+  it("counts it when the site also extends a preset outside reddoorla/.github", async () => {
+    const { result } = await scan({
+      outdated: TS6,
+      renovate: siteExtending(ORG, "github>someone-else/presets:ts"),
+    });
+    expect(result).toMatchObject({ behind: ["typescript@6"], held: [] });
+  });
+
+  it("follows builtin presets as rule-free", async () => {
+    const { result } = await scan({
+      outdated: TS6,
+      renovate: siteExtending("config:recommended", ORG),
+    });
+    expect(result).toMatchObject({ held: ["typescript@6"] });
+  });
+
+  it("counts it when the site sets ignorePresets", async () => {
+    const { result } = await scan({
+      outdated: TS6,
+      renovate: JSON.stringify({ extends: [ORG], ignorePresets: [ORG] }),
+    });
+    expect(result).toMatchObject({ behind: ["typescript@6"], held: [] });
+  });
+
+  it("counts it when the site nests packageRules under a manager", async () => {
+    const { result } = await scan({
+      outdated: TS6,
+      renovate: JSON.stringify({
+        extends: [ORG],
+        npm: { packageRules: [{ matchPackageNames: ["typescript"], allowedVersions: "*" }] },
+      }),
+    });
+    expect(result).toMatchObject({ behind: ["typescript@6"], held: [] });
+  });
+
+  it("counts it when the org preset itself extends an unreadable org preset", async () => {
+    const preset = JSON.stringify({
+      extends: ["config:recommended", "github>reddoorla/.github:extra"],
+      packageRules: [{ matchPackageNames: ["typescript"], allowedVersions: "<7.0.0" }],
+    });
+    const { result } = await scan({ outdated: TS6 }, preset);
+    expect(result).toMatchObject({ behind: ["typescript@6"], held: [] });
+  });
+
+  it("counts it when a second org preset extends one that cannot be read", async () => {
+    const dir = await site({ outdated: TS6, renovate: siteExtending(ORG, STAGING) });
+    const { spawn } = spawnFor(TS6);
+    const r = reader(PRESET, {
+      "renovate-staging-flow.json": JSON.stringify({ extends: ["github>reddoorla/.github:extra"] }),
+    });
+    expect(await scanOutdated(dir, spawn, await loadHoldRules(dir, r))).toMatchObject({
+      behind: ["typescript@6"],
+      held: [],
+    });
+  });
+
+  it("counts a site already above the cap", async () => {
+    const { result } = await scan({
+      outdated: { typescript: { current: "7.0.2", latest: "8.0.1" } },
+    });
+    expect(result).toMatchObject({ behind: ["typescript@7"], held: [] });
   });
 });
 
@@ -335,6 +468,11 @@ describe("@types/node held at the runtime major", () => {
   it("falls back to engines.node when .nvmrc is blank", async () => {
     const { result } = await scan({ outdated: types("24.10.1"), nvmrc: "\n", engines: "24.x" });
     expect(result).toMatchObject({ behind: [], held: ["@types/node@24"] });
+  });
+
+  it("counts it when engines.node admits two majors (^24 || ^26)", async () => {
+    const { result } = await scan({ outdated: types("24.10.1"), engines: "^24.0.0 || ^26.0.0" });
+    expect(result).toMatchObject({ behind: ["@types/node@24"], held: [] });
   });
 
   it("counts it when engines.node is an open range (>=24 admits 25)", async () => {
@@ -405,5 +543,25 @@ describe("the deps audit end to end", () => {
       held: ["@types/node@24", "typescript@6"],
     });
     expect(result.summary).toContain("(1 major); held on purpose: @types/node@24, typescript@6");
+  });
+
+  it("uses the injected preset: one with no cap holds nothing", async () => {
+    const dir = await site({ outdated: {}, nvmrc: "24" });
+    await writeFile(
+      join(dir, "package.json"),
+      JSON.stringify({ devDependencies: { typescript: "^6.0.2" } }),
+    );
+    const { spawn } = spawnFor(TS6);
+    const result = await depsAudit({
+      site: { name: "held", path: dir } as never,
+      spawn,
+      renovatePreset: reader(JSON.stringify({ packageRules: [] })),
+    });
+    expect((result.details as { outdated: unknown }).outdated).toEqual({
+      outdated: 1,
+      major: 1,
+      behind: ["typescript@6"],
+      held: [],
+    });
   });
 });

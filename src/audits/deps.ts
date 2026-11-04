@@ -6,7 +6,8 @@ import { baselineVersions } from "../configs/baseline-versions.js";
 import type { AuditContext } from "./util/inject.js";
 import { defaultSpawn } from "./util/spawn.js";
 import { scanOutdated, type OutdatedCounts } from "./deps-outdated.js";
-import { loadHoldRules } from "./deps-held.js";
+import { NO_HOLDS, loadHoldRules } from "./deps-held.js";
+import { pathExists } from "../util/fs.js";
 
 export type Drift = "same" | "patch" | "minor" | "major" | "newer";
 
@@ -125,7 +126,10 @@ export async function depsAudit(ctx: AuditContext): Promise<AuditResult> {
         : `${entries.filter((d) => d.drift === "major").length} deps lagging by a major version`;
 
   // P1-98: the org preset is read at audit time; a failed read holds nothing.
-  const holds = await loadHoldRules(ctx.site.path, ctx.renovatePreset);
+  // Not for a site with no lockfile, which has no outdated scan to hold anything in.
+  const holds = (await pathExists(join(ctx.site.path, "pnpm-lock.yaml")))
+    ? await loadHoldRules(ctx.site.path, ctx.renovatePreset)
+    : NO_HOLDS;
   const outdated = await scanOutdated(ctx.site.path, ctx.spawn ?? defaultSpawn, holds);
   const summary = outdated
     ? `${driftSummary}; ${outdated.outdated} outdated install(s) (${outdated.major} major)` +

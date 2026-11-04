@@ -27,9 +27,10 @@ import {
  * counted as behind.
  */
 
-/** The org preset the fleet's sites extend. */
+/** The org preset the fleet's sites extend, and the repo whose presets are read. */
 export const ORG_PRESET = { repo: "reddoorla/.github", file: "renovate-config.json" } as const;
-export const ORG_PRESET_URL = `https://raw.githubusercontent.com/${ORG_PRESET.repo}/HEAD/${ORG_PRESET.file}`;
+export const presetUrl = (file: string): string =>
+  `https://raw.githubusercontent.com/${ORG_PRESET.repo}/HEAD/${file}`;
 
 /** Packages whose preset `allowedVersions` cap counts as a hold. The preset also
  *  caps `@libsql/client` and `cookie` (11-04); those stay counted until the
@@ -38,8 +39,8 @@ export const HELD_CAP_PACKAGES: readonly string[] = ["typescript"];
 
 /** What the deps audit needs to decide a hold, per site. */
 export type HoldRules = {
-  /** package → the preset's `allowedVersions`, for eligible packages the site's
-   *  preset caps. Empty when the preset is unread or the site does not extend it. */
+  /** package → the `allowedVersions` in force, for eligible packages whose cap is
+   *  known. Empty when any rule Renovate applies to the site cannot be read. */
   caps: ReadonlyMap<string, string>;
   /** The site's Node runtime major; null when it cannot be read. */
   nodeMajor: number | null;
@@ -51,30 +52,31 @@ function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-/** A string in a matcher that is a glob or regex, not an exact name. */
+/** A matcher entry that is a glob, regex or negation, not an exact name. */
 function isPattern(v: unknown): boolean {
-  return typeof v === "string" && (v.startsWith("/") || v.startsWith("!") || /[*?{]/.test(v));
+  return typeof v !== "string" || v.startsWith("/") || v.startsWith("!") || /[*?{}[\]]/.test(v);
 }
 
-/** True when a rule could reach `pkg` through any matcher: an exact name in any
- *  `match*`/`exclude*` list, or a glob/regex in a name matcher. */
-function mentions(rule: Record<string, unknown>, pkg: string): boolean {
-  return Object.entries(rule).some(
-    ([k, v]) =>
-      (k.startsWith("match") || k.startsWith("exclude")) &&
-      Array.isArray(v) &&
-      v.some((x) => x === pkg || (/PackageNames|DepNames/.test(k) && isPattern(x))),
-  );
+const NAME_LISTS = ["matchPackageNames", "matchDepNames"] as const;
+
+/** True when the rule cannot apply to `pkg`: it carries an exact-name list
+ *  (`matchPackageNames` or `matchDepNames`, which Renovate ANDs with its other
+ *  matchers) of plain names, none of them `pkg`. Any other rule might reach it. */
+function excludes(rule: Record<string, unknown>, pkg: string): boolean {
+  return NAME_LISTS.some((k) => {
+    const v = rule[k];
+    return Array.isArray(v) && v.length > 0 && !v.some(isPattern) && !v.includes(pkg);
+  });
 }
 
 /**
  * The eligible caps a list of Renovate `packageRules` leaves in force, applied in
- * order as Renovate does (the org preset's, then the site's own): the last rule
- * that sets `allowedVersions` for a package wins. A rule counts as a cap only when
- * its sole matcher is `matchPackageNames` naming the package exactly. Any other
- * rule with `allowedVersions` that could reach the package (another matcher, a
- * glob or regex, an exclusion) makes its cap unknown, so the package is dropped
- * and stays counted. A rule with no `allowedVersions` lifts nothing.
+ * the order Renovate applies them: the last rule that sets `allowedVersions` for a
+ * package wins. A rule is a cap only when its sole matcher is `matchPackageNames`
+ * naming the package exactly. Any other rule with `allowedVersions` that is not
+ * provably about other packages (by {@link excludes}) makes the cap unknown, so
+ * the package is dropped and counted: a `matchDepTypes`, `matchManagers`,
+ * pattern, prefix, exclusion or matcherless rule can each lift it.
  */
 export function capsFromRules(
   rules: readonly unknown[],
@@ -88,15 +90,16 @@ export function capsFromRules(
       (k) => k.startsWith("match") || k.startsWith("exclude"),
     );
     const names = rule["matchPackageNames"];
-    const clean =
-      matchers.length === 1 &&
-      matchers[0] === "matchPackageNames" &&
-      Array.isArray(names) &&
-      !names.some(isPattern) &&
-      typeof allowed === "string";
     for (const pkg of eligible) {
-      if (!mentions(rule, pkg)) continue;
-      if (clean && (names as unknown[]).includes(pkg)) caps.set(pkg, allowed as string);
+      if (excludes(rule, pkg)) continue;
+      const clean =
+        matchers.length === 1 &&
+        matchers[0] === "matchPackageNames" &&
+        Array.isArray(names) &&
+        !names.some(isPattern) &&
+        names.includes(pkg) &&
+        typeof allowed === "string";
+      if (clean) caps.set(pkg, allowed);
       else caps.delete(pkg);
     }
   }
@@ -110,7 +113,7 @@ export function packageRulesOf(config: unknown): unknown[] {
     : [];
 }
 
-/** The eligible caps a parsed preset sets on its own (no site rules). */
+/** The eligible caps a parsed preset sets on its own (no other rules). */
 export function capsFromPreset(
   preset: unknown,
   eligible: readonly string[] = HELD_CAP_PACKAGES,
@@ -118,18 +121,18 @@ export function capsFromPreset(
   return capsFromRules(packageRulesOf(preset), eligible);
 }
 
-/** Fetch the org preset's text; null on any failure. */
-export type PresetReader = () => Promise<string | null>;
+/** Fetch a preset file from `reddoorla/.github` by its path; null on failure. */
+export type PresetReader = (file: string) => Promise<string | null>;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Three tries, 2 s then 4 s apart: one failed fetch would otherwise put every
  *  site's held package back in Watch for the night. */
-export const fetchOrgPreset: PresetReader = async () => {
+export const fetchOrgPreset: PresetReader = async (file) => {
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) await sleep(2_000 * attempt);
     try {
-      const res = await fetch(ORG_PRESET_URL, { signal: AbortSignal.timeout(15_000) });
+      const res = await fetch(presetUrl(file), { signal: AbortSignal.timeout(15_000) });
       if (res.ok) return await res.text();
     } catch {
       // try again
@@ -138,28 +141,43 @@ export const fetchOrgPreset: PresetReader = async () => {
   return null;
 };
 
-let memo: { reader: PresetReader; preset: unknown } | null = null;
+const memo = new WeakMap<PresetReader, Map<string, Promise<unknown>>>();
 
-/** The parsed org preset, read once per process per reader; null when unread.
- *  Only a successful read is kept, so a failure is retried for the next site. */
-export async function orgPreset(reader: PresetReader = fetchOrgPreset): Promise<unknown> {
-  if (memo?.reader === reader) return memo.preset;
-  let text: string | null;
-  try {
-    text = await reader();
-  } catch {
-    text = null;
+/** A preset file, parsed, read once per process per reader (a failure too: the
+ *  reader has already retried, and the next site would only wait again); null
+ *  when unread. The first failure prints one `DEPS_PRESET_UNREAD` line. */
+export function orgPreset(
+  reader: PresetReader = fetchOrgPreset,
+  file: string = ORG_PRESET.file,
+): Promise<unknown> {
+  let files = memo.get(reader);
+  if (!files) memo.set(reader, (files = new Map()));
+  let p = files.get(file);
+  if (!p) {
+    p = (async () => {
+      let text: string | null;
+      try {
+        text = await reader(file);
+      } catch {
+        text = null;
+      }
+      let preset: unknown = null;
+      try {
+        if (text !== null) preset = parseRenovateConfigText(text);
+      } catch {
+        preset = null;
+      }
+      if (!isObject(preset)) {
+        console.warn(
+          `DEPS_PRESET_UNREAD ${presetUrl(file)}: capped packages count as behind this run`,
+        );
+        return null;
+      }
+      return preset;
+    })();
+    files.set(file, p);
   }
-  if (text === null) return null;
-  let preset: unknown;
-  try {
-    preset = parseRenovateConfigText(text);
-  } catch {
-    return null;
-  }
-  if (!isObject(preset)) return null;
-  memo = { reader, preset };
-  return preset;
+  return p;
 }
 
 async function readText(path: string): Promise<string | null> {
@@ -196,11 +214,14 @@ export async function siteRenovateConfig(
   return null;
 }
 
+function extendsList(config: Record<string, unknown>): unknown[] {
+  const ext = config["extends"];
+  return typeof ext === "string" ? [ext] : Array.isArray(ext) ? ext : [];
+}
+
 /** True when a site config extends the org preset directly. */
 export function extendsOrgPreset(config: Record<string, unknown>): boolean {
-  const ext = config["extends"];
-  const presets = typeof ext === "string" ? [ext] : Array.isArray(ext) ? ext : [];
-  return presets.some((p) => {
+  return extendsList(config).some((p) => {
     if (typeof p !== "string") return false;
     const loc = presetFiles(p);
     return (
@@ -210,6 +231,48 @@ export function extendsOrgPreset(config: Record<string, unknown>): boolean {
       loc.files[0] === ORG_PRESET.file
     );
   });
+}
+
+/** A config whose rules this module cannot follow: `ignorePresets` (which drops
+ *  presets it would otherwise read) or `packageRules` nested under a manager or
+ *  any other key. */
+function unfollowable(config: Record<string, unknown>): boolean {
+  if (config["ignorePresets"] !== undefined) return true;
+  return Object.entries(config).some(
+    ([k, v]) => k !== "packageRules" && isObject(v) && v["packageRules"] !== undefined,
+  );
+}
+
+const PRESET_DEPTH = 5;
+
+/**
+ * Every `packageRules` entry Renovate applies to a config, in its order: each
+ * preset in `extends` (its own `extends` first), then the config's own rules.
+ * Built-in presets (`config:`, `helpers:`, `group:` …) are skipped; a preset in
+ * `reddoorla/.github` is read; anything else, or anything unreadable, returns
+ * null, because a rule it might hold is unknown.
+ */
+export async function rulesInOrder(
+  config: Record<string, unknown>,
+  reader: PresetReader,
+  depth = 0,
+): Promise<unknown[] | null> {
+  if (depth > PRESET_DEPTH || unfollowable(config)) return null;
+  const rules: unknown[] = [];
+  for (const p of extendsList(config)) {
+    if (typeof p !== "string") return null;
+    const loc = presetFiles(p);
+    if (loc.kind === "builtin") continue;
+    if (loc.kind !== "file" || loc.repo.toLowerCase() !== ORG_PRESET.repo) return null;
+    if (loc.files.length !== 1) return null;
+    const preset = await orgPreset(reader, loc.files[0]);
+    if (!isObject(preset)) return null;
+    const inner = await rulesInOrder(preset, reader, depth + 1);
+    if (inner === null) return null;
+    rules.push(...inner);
+  }
+  rules.push(...packageRulesOf(config));
+  return rules;
 }
 
 /** The major a version spec pins, or null when it does not pin exactly one:
@@ -243,18 +306,10 @@ export async function loadHoldRules(
 ): Promise<HoldRules> {
   const nodeMajor = await siteNodeMajor(sitePath);
   const site = await siteRenovateConfig(sitePath);
-  // The preset is fetched only for a site that extends it.
+  // Presets are fetched only for a site that extends the org preset.
   if (site === null || !extendsOrgPreset(site)) return { caps: new Map(), nodeMajor };
-  const preset = await orgPreset(reader);
-  if (preset === null) {
-    console.warn(`DEPS_PRESET_UNREAD ${ORG_PRESET_URL}: capped packages count as behind tonight`);
-    return { caps: new Map(), nodeMajor };
-  }
-  // Renovate applies the preset's rules, then the site's own: a site rule can lift a cap.
-  return {
-    caps: capsFromRules([...packageRulesOf(preset), ...packageRulesOf(site)]),
-    nodeMajor,
-  };
+  const rules = await rulesInOrder(site, reader);
+  return { caps: rules === null ? new Map() : capsFromRules(rules), nodeMajor };
 }
 
 export function majorOf(version: string): number {

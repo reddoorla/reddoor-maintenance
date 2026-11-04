@@ -102,6 +102,13 @@ describe("depsCountsFromResult", () => {
     });
   });
 
+  it("reads an older result with no held list as none held (P1-98)", () => {
+    expect(
+      depsCountsFromResult(depsResult([], { outdated: 1, major: 1, behind: ["vite@5"] } as never))
+        .heldPackages,
+    ).toEqual([]);
+  });
+
   it("throws if given a non-deps AuditResult", () => {
     const bad = { ...depsResult([]), audit: "a11y" } as AuditResult;
     expect(() => depsCountsFromResult(bad)).toThrow(/Expected a 'deps'/);
