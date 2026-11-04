@@ -18,6 +18,28 @@ Where it landed: this PR (branch `claude/1892-measure-lift`), which closes https
 
 **Mutations.** Each fix was reverted on its own against the final code, and each revert turned its own fixtures red and nothing else (the table is in the PR). A `keepNames` build turns the new dist check red with `__name is not defined`. Playwright sends the function to the page as source text, so a bundler helper breaks it only once built.
 
-**Defects review found.** Round 1 had three majors and a minor, all reproduced before they were fixed. `will-change: filter` on an inline span is a containing block. `flow-root list-item` is a block container. The probe could be reached by page CSS and was unscaled under zoom. And no fixture pinned a resolved inset (5c and 5d now do). REVIEW_LATER
+**Defects review found.** Round 1 had three majors and a minor, all reproduced before they were fixed. `will-change: filter` on an inline span is a containing block. `flow-root list-item` is a block container. The probe could be reached by page CSS and was unscaled under zoom. And no fixture pinned a resolved inset (5c and 5d now do).
+
+Rounds 2 to 5 were all dirty, and every finding was rebuilt here as a fixture that was red before its fix. The work moved to a second session at 300k tokens of context, after round 2.
+
+- **Round 2: two majors.**
+  - `insetRect` applied the insets to the axis-aligned bounding rect. On `scaleX(-1)` with `inset(0 0 0 50%)` it kept the wrong half, so a cut line read fine. On a mirrored, turned or skewed box, or under one, the clip now narrows only to the border box, as the site copy did. It does not narrow at all for a negative inset or a margin box (5g to 5k).
+  - `-webkit-box` and `-webkit-inline-box` lay out as flex boxes and draw no ellipsis (1d, 1e).
+- **Round 3: one major, a regression.** A clipping box's padding box came from `clientWidth`, which is in CSS pixels, against a rect in screen pixels. Under `zoom: 2` the section came out half as wide as it paints. Once round 1 scaled the inset, a zoomed inset inside a section left nothing, so cut text read fine. The site copy caught it. Both sides now use one screen-per-CSS-pixel ratio (5l, 5m).
+- **Round 4: two majors, both made by round 3's ratio.**
+  - An outer `<svg>` has no offset size, so its ratio was 1 under zoom (4b).
+  - A turned box's bounding rect is wider than the box, so the ratio stretched a rotated truncate box past the screen and its ellipsis read cut (1h). On a turned box the ratio is now 1, as in the site copy.
+- **Round 5: one major and a nit.**
+  - The major: text whose parent is `display: contents` was never measured, because `checkVisibility()` is false on a box-less element (7a, 7b, with the control 7c). It is fixed on the branch, but it is a hole the site copy has too, not one of the six, and it came after the fifth round. Whether to land without a sixth round went to the operator: workspace `decisions/2026-11-04-0315-1892-measure-round-5-hold.md`.
+  - The nit: the inset probe makes inset-heavy pages about 4× slower. It is filed as https://github.com/reddoorla/reddoor-maintenance/issues/1937.
+  - Folded in with the nit: `scripts/smoke-dist.mjs`'s pages now carry a doctype. They ran in quirks mode, where `clientWidth` is not the screen's.
+
+**More beliefs corrected on contact.**
+
+- **Round 2's suggested control was wrong against paint.** Tailwind's `line-clamp-1` with `white-space: nowrap` added paints cut, with no ellipsis. `-webkit-line-clamp` makes `display` compute as `flow-root` and `text-overflow` as `clip` in this Chromium. So the line-clamp gate the review proposed was not needed: a computed `-webkit-box` is never clamped. Tailwind's own `line-clamp-1` (no `nowrap`) is the fine control, 1f.
+- **Round 3's fix made round 4's defects.** Scaling every padding box by the bounding rect was right for zoom and a positive scale, and wrong for the two cases where the rect does not measure the box. The lesson is the one #1892 started from: each geometry rule needs its own fixture against paint, because the reasoning that justified the rule did not cover its edges.
 
 **What a visitor sees.** Nothing yet. The sites keep their inline copies until each adopts the export after the operator merges a release (#1934).
+
+Usage (first session, read 2026-11-04 01:58 UTC, slightly low): $6.17, 1185/81889 tokens, 14646108/279789 cache, rate limit allowed
+Usage (second session, read 2026-11-04 03:18 UTC): $10.05, 2581/159131 tokens, 18699631/544648 cache, rate limit allowed

@@ -599,14 +599,14 @@ await check("smoke/index.js measure() runs in a page as built", async () => {
     const page = await browser.newPage({ viewport: { width: 390, height: 400 } });
     const long = "Cabinetry and millwork for the whole house, from first sketch to final install";
     await page.setContent(
-      `<div style="overflow:hidden"><p style="white-space:nowrap">${long}</p></div>`,
+      `<!doctype html><div style="overflow:hidden"><p style="white-space:nowrap">${long}</p></div>`,
     );
     const cut = await measure(page);
     if (cut.cut.length !== 1) throw new Error(`a cut line gave ${JSON.stringify(cut)}`);
     // A short line, and a long one a clip-path inset() leaves nothing of on
     // screen: that runs the inset probe, the built function's largest branch.
     await page.setContent(
-      `<p>Short line.</p><div style="overflow:hidden"><div style="width:200px;clip-path:inset(calc(10% - 5px));white-space:nowrap;text-indent:300px">${long}</div></div>`,
+      `<!doctype html><p>Short line.</p><div style="overflow:hidden"><div style="width:200px;clip-path:inset(calc(10% - 5px));white-space:nowrap;text-indent:300px">${long}</div></div>`,
     );
     const fine = await measure(page);
     if (fine.cut.length !== 0) throw new Error(`a fine page gave ${JSON.stringify(fine)}`);

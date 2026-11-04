@@ -301,6 +301,24 @@ const FINDINGS: Record<string, Fixture> = {
     expected: "cut",
     html: `<div style="overflow:hidden;width:195px;transform:scale(2);transform-origin:0 0"><div style="padding-left:150px;white-space:nowrap;font-size:15px">${LONG}</div></div>`,
   },
+  // Review round 5 (the site copy has it too): a display: contents parent
+  // has no box, so checkVisibility() said no and its text was never measured.
+  "7a. text in a display: contents span": {
+    expected: "cut",
+    html: section(
+      `<p style="white-space:nowrap;margin:0"><span style="display:contents">${LONG}</span></p>`,
+    ),
+  },
+  "7b. fallback text in an empty shadow slot": {
+    expected: "cut",
+    html: shadow("", `<p style="white-space:nowrap;margin:0"><slot>${LONG}</slot></p>`),
+  },
+  "7c. a display: contents span keeps visibility: hidden": {
+    expected: "fine",
+    html: section(
+      `<p style="white-space:nowrap;margin:0"><span style="display:contents;visibility:hidden">${LONG}</span></p>`,
+    ),
+  },
   "6a. -webkit-mask-box-image masks to the border box": {
     expected: "fine",
     html: section(

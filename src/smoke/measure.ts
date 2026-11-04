@@ -357,7 +357,15 @@ export function measureInPage(): OverflowMeasure {
     for (const n of texts) {
       if (!n.textContent?.trim()) continue;
       const el = n.parentElement ?? (n.parentNode instanceof ShadowRoot ? n.parentNode.host : null);
-      if (!el || !el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
+      if (!el) continue;
+      // A display: contents parent (Tailwind's `contents`, a slot showing its
+      // fallback) has no box, and checkVisibility() is false on one, so it is
+      // asked of the nearest box; visibility is inherited, so el's own is
+      // still read (review round 5).
+      let shown: Element | null = el;
+      while (shown && getComputedStyle(shown).display === "contents") shown = up(shown);
+      if (!shown || getComputedStyle(el).visibility !== "visible") continue;
+      if (!shown.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
       // A slotted text node is laid out inside its slot, so its clips start there.
       const start = n.assignedSlot ?? el;
       // Text the page marks inert is out of use: a carousel's peeking
