@@ -212,13 +212,18 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "const r = removed[i];",
-        "replace": "const r = removed.find((x) => codeOf(x).code === codeOf(added[i]).code) ?? \"\";"
+        "find": "if (removed.length === 1 && added.length === 1) {",
+        "replace": "if (added.length === 1 && removed.length > 0) {"
+      },
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "const r = removed[0];",
+        "replace": "const r = removed.find((x) => codeOf(x).code === codeOf(added[0]).code) ?? \"\";"
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
-    "why": "#1617: the removed line is chosen by code anywhere in the block, not by position, so a swap in one block (R2) passes as two renames."
+    "why": "#1617, round 3 (rewritten): a rename is taken from a block of one added line and any number of removed lines, its removed line chosen by code anywhere in the block, not by position: the round-1 multiset pairing, which let a swap in one block pass as two renames."
   },
   {
     "id": "M-P182-3-rename-no-hunk-reset",
@@ -406,5 +411,36 @@
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
     "why": "#1617 r2: a rename does not use up its removed line, so one removed skip backs both a rename and an exact re-add."
+  },
+  {
+    "id": "M-P182-17-rename-any-block-shape",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "if (removed.length === 1 && added.length === 1) {",
+        "replace": "if (removed.length > 0 && added.length > 0) {"
+      },
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "&&\n          !running.has(testName(a))",
+        "replace": ""
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617 r3: a rename is paired in a block of any shape, by position, with no name check (the round-2 pairing back), so a skip of a running test's new name passes as a rename (G1, G2)."
+  },
+  {
+    "id": "M-P182-18-rename-name-was-running",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "&&\n          !running.has(testName(a))",
+        "replace": ""
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617 r3: a one-for-one title edit whose new name was already a running test's name is taken as a rename, so the skip is not flagged (G3)."
   }
 ]

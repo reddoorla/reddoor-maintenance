@@ -2328,6 +2328,50 @@ describe("land-prs: test changes", () => {
       expect(one('@@ -1,1 +1,2 @@\n+const re = /a\\/*b/;\n it("works", () => {')).toEqual([]);
       expect(one('@@ -1,1 +1,2 @@\n+const s = "a\\"/*";\n it("works", () => {')).toEqual([]);
     });
+
+    it("a deleted skip and a skip of another running test are not a rename of one into the other", () => {
+      // Old: it.skip("X") with its body, then it("Y"). New: it.skip("Y") in their place. The block has
+      // five removed lines and one added line, so it is not a one-for-one rename.
+      expect(
+        one(
+          '@@ -1,9 +1,5 @@\n describe("s", () => {\n-  it.skip("X", async () => {\n-    await run();\n-  });\n-\n-  it("Y", async () => {\n+  it.skip("Y", async () => {\n     expect(f()).toBe(2);\n   });\n });',
+        ),
+      ).toEqual([{ file: T, reasons: ['added skip: it.skip("Y", async () => {'] }]);
+    });
+
+    it("two removed and two added lines are not a rename, even when one pair lines up by position", () => {
+      expect(
+        one(
+          '@@ -1,2 +1,2 @@\n-  it.skip("X", run);\n-  it("Y", run);\n+  it.skip("Y", run);\n+  it("Z", run2);',
+        ),
+      ).toEqual([{ file: T, reasons: ['added skip: it.skip("Y", run);'] }]);
+    });
+
+    it("a one-for-one rename whose new name was a running test's name in the patch is an added skip", () => {
+      expect(
+        one(
+          '@@ -1,3 +1,2 @@\n keep();\n-it("Y", () => {\n   body();\n@@ -5,1 +4,1 @@\n-it.skip("X", () => {\n+it.skip("Y", () => {',
+        ),
+      ).toEqual([{ file: T, reasons: ['added skip: it.skip("Y", () => {'] }]);
+    });
+
+    it("a block with two removed lines and one added line is not a rename, even when the removed line that matches is not the first", () => {
+      expect(
+        one(
+          '@@ -1,3 +1,2 @@\n-it("Z", () => {\n-it.skip("X", () => {\n+it.skip("Y", () => {\n   body();',
+        ),
+      ).toEqual([{ file: T, reasons: ['added skip: it.skip("Y", () => {'] }]);
+    });
+
+    it("a removed skip backs one rename or one re-add, never both (a rename whose removed line is re-added)", () => {
+      // Hunk 1 renames it.skip("a") to it.skip("b"); hunk 2 adds it.skip("a") back. The one removed
+      // it.skip("a") backs the re-add, so the rename has no removed line left: the new skip "b" is flagged.
+      expect(
+        one(
+          '@@ -1,2 +1,2 @@\n-it.skip("a", () => {\n+it.skip("b", () => {\n   body();\n@@ -9,1 +9,2 @@\n+it.skip("a", () => {\n   more();',
+        ),
+      ).toEqual([{ file: T, reasons: ['added skip: it.skip("b", () => {'] }]);
+    });
   });
 
   describe("round-2 review findings", () => {

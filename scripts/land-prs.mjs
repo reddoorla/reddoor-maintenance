@@ -1025,42 +1025,64 @@ function onlyNameChanged(r, a) {
   return namesFirstArgument(a, al[0]);
 }
 
+/** The test's name of a trimmed line: its first string literal, with its quotes, when that
+ *  literal is the first argument of the call (see `namesFirstArgument`), else "" (#1617, round 3). */
+function testName(line) {
+  const lits = stringLiterals(line);
+  return lits.length > 0 && namesFirstArgument(line, lits[0]) ? lits[0].text : "";
+}
+
 /** The `{ removed, added }` pairs that rename a skip or an only (#1617). A change block is a maximal run of
- *  `-` lines followed by a maximal run of `+` lines; any other line, or a `@@`, ends one. Within
- *  a block the i-th removed line pairs with the i-th added line. A pair is a rename when the
- *  added line is a skip or an only, neither line is one `codeOf` gave up on (`retry`), its code
- *  (string contents blanked) equals the removed line's, that code is not empty, and only the
- *  test's name differs (see `onlyNameChanged`): `it.skip("a", …)` → `it.skip("b", …)` is a
- *  rename; `it("b", …)` → `it.skip("b", …)` is not, and neither is a change to a string after
- *  the test's name, such as `"webkit"` → `"chromium"` in `test.skip(browserName === "webkit")`. */
+ *  `-` lines followed by a maximal run of `+` lines; any other line, or a `@@`, ends one. A
+ *  rename counts only in a one-for-one block: exactly one removed line and exactly one added
+ *  line, a title edited in place. A block of any other shape yields no pairs, and every line in
+ *  it is checked as an added or removed line by `testChangeFlags`; nothing is paired by position.
+ *  A pair is a rename when the added line is a skip or an only, neither line is one `codeOf`
+ *  gave up on (`retry`), its code (string contents blanked) equals the removed line's, that code
+ *  is not empty, and only the test's name, the first-argument literal, differs (see
+ *  `onlyNameChanged`). A pair is also rejected when the added line's test name is the name of a
+ *  removed line anywhere in the same file's patch that is neither a skip nor an only: that line
+ *  was a running test with that name, so the skip is new. `it.skip("a", …)` → `it.skip("b", …)`
+ *  is a rename; `it("b", …)` → `it.skip("b", …)` is not, and neither is a change to a string
+ *  after the test's name, such as `"webkit"` → `"chromium"` in `test.skip(browserName === "webkit")`. */
 function renamedSkips(patch) {
   /** @type {{ removed: string, added: string }[]} */
   const out = [];
+  const lines = String(patch).split("\n");
+  // The names of the running tests in the patch: a removed line that is neither a skip nor an only.
+  const running = new Set();
+  for (const raw of lines) {
+    if (!raw.startsWith("-")) continue;
+    const t = raw.slice(1).trim();
+    const name = testName(t);
+    if (name !== "" && !hasCall(t, ONLY) && !hasCall(t, SKIP)) running.add(name);
+  }
   let removed = [];
   let added = [];
   const pair = () => {
-    const n = Math.min(removed.length, added.length);
-    for (let i = 0; i < n; i++) {
-      const r = removed[i];
-      const a = added[i];
-      if (r.length > MAX_LINE || a.length > MAX_LINE) continue;
-      const code = codeOf(a).code;
-      const sure = !codeOf(r).retry && !codeOf(a).retry;
-      if (
-        r !== a &&
-        sure &&
-        code !== "" &&
-        codeOf(r).code === code &&
-        onlyNameChanged(r, a) &&
-        (hasCall(a, ONLY) || hasCall(a, SKIP))
-      ) {
-        out.push({ removed: r, added: a });
+    if (removed.length === 1 && added.length === 1) {
+      const r = removed[0];
+      const a = added[0];
+      if (r.length <= MAX_LINE && a.length <= MAX_LINE) {
+        const code = codeOf(a).code;
+        const sure = !codeOf(r).retry && !codeOf(a).retry;
+        if (
+          r !== a &&
+          sure &&
+          code !== "" &&
+          codeOf(r).code === code &&
+          onlyNameChanged(r, a) &&
+          (hasCall(a, ONLY) || hasCall(a, SKIP)) &&
+          !running.has(testName(a))
+        ) {
+          out.push({ removed: r, added: a });
+        }
       }
     }
     removed = [];
     added = [];
   };
-  for (const raw of String(patch).split("\n")) {
+  for (const raw of lines) {
     if (raw.startsWith("@@")) pair();
     else if (raw.startsWith("-")) {
       if (added.length > 0) pair();
@@ -1203,10 +1225,10 @@ function renamedAway(before, after) {
  *  assertion is not); an added skip (see `SKIP`) that was not there before; a changed line
  *  too long to scan; and a changed test file whose patch GitHub left out (it does for a
  *  large diff), because nothing here can read it. Only a line's code counts: a
- *  commented-out call is neither (see `codeOf`). A skip whose line changed only inside its
- *  strings, paired by position in its change block, is a rename, not an added skip (see
- *  `renamedSkips`: only the test's name may differ, and a line whose code `codeOf` gave up on
- *  is not a rename). The first context line of each hunk that the PR's change puts inside a
+ *  commented-out call is neither (see `codeOf`). A skip whose line changed only in its test's
+ *  name (the first-argument literal) is a rename, not an added skip, when the change block holds
+ *  exactly one removed and one added line, and the new name was not a running test's name in the
+ *  file's patch (see `renamedSkips`; a line whose code `codeOf` gave up on is not a rename). The first context line of each hunk that the PR's change puts inside a
  *  block comment is flagged. A hunk starts inside a block comment only when its first line is a
  *  JSDoc continuation (`*`); otherwise it is assumed outside one, so a comment opened above the
  *  hunk is not seen. An added line wholly inside a block comment does not re-add a removed
