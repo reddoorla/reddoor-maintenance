@@ -5,6 +5,7 @@ Where it landed: reddoorla/reddoor-maintenance#1919, with the site side in reddo
 **Why.** reddoor's landing-page modal writes its own message for every lead. Step one is one fixed sentence, and the application repeats the survey's headings and options. So the fleet duplicate scan stored every lead after the first in 30 days as `duplicate-body`, silently. Even a headed staging submission whose Turnstile token passed landed `spam_auto` (`sub_4bc17c8e…`).
 
 **What it does now.**
+
 - The site marks its message `extra.composedMessage` and sends what the visitor typed as `extra.visitorText`.
 - On a gated site, with a token that passed on the site's own host, ingest scans only `visitorText`, and skips the scan when there is none.
 - A stored composed row is matched only by its `visitorText`. Only ingest decides what is stored as composed.
@@ -12,10 +13,11 @@ Where it landed: reddoorla/reddoor-maintenance#1919, with the site side in reddo
 - The classifier skips `visitorText` on a composed row, so a pasted URL scores once at ingest and on `submissions rescore`.
 
 **Five review rounds, every one dirty.** Each round ran 3 lenses on Opus.
+
 - **Round 1:** the application carries visitor-typed answers, so skipping the whole scan let a pitch through. Also, a tokenless copy could retro-bucket real leads, and a top-level flag counted.
-- **Round 2:** incoming visitorText was compared with stored *messages*, so a crafted step equal to the template retro-bucketed every real step one.
+- **Round 2:** incoming visitorText was compared with stored _messages_, so a crafted step equal to the template retro-bucketed every real step one.
 - **Round 3:** the stored half trusted a caller-set flag. Three copies of a pitch on an ungated site all landed `new`. Rescore also double-counted visitorText, 35 at ingest and 60 on rescore.
-- **Round 4:** a flagged copy that failed the gate kept its visitorText and scored 60 instead of 35. And "unverifiable" includes a *replayed* token.
+- **Round 4:** a flagged copy that failed the gate kept its visitorText and scored 60 instead of 35. And "unverifiable" includes a _replayed_ token.
 - **Round 5:** a token from another Cloudflare account's widget also comes back "unverifiable", as `invalid-input-secret`. Fixing that went to the operator.
 
 **Belief corrected.** In round 2 I widened the visitorText scan from "pass" to "pass or unverifiable". I had read "unverifiable" as an outage: a siteverify timeout or a missing secret, something a bot cannot choose. A bot can choose it two ways: by replaying one solved token, or by bringing a token from its own free widget. Either way, one token delivered unlimited step ones, each with an autoresponder to an address the sender picks. I patched the replay case in round 4, and round 5 found the second cause. The operator's original "only when the token passed" was right. Option 1 of `-2317-` restored it and deleted the round-4 `replayed` marker. The cost: during a real siteverify outage, the second and later genuine step ones are binned on the template, recoverable from the cockpit, exactly as before this PR.
