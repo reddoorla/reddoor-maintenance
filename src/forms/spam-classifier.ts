@@ -11,11 +11,20 @@ import { VENDORED_DISPOSABLE_DOMAINS } from "./disposable-domains.snapshot.js";
  * pitches) with 0-1 links — sums only 25-55 from content signals. 60 lets the
  * high-precision multi-word keyword phrases + the gibberish/bare-domain signals
  * below actually bite. No single signal buckets alone (each needs corroboration),
- * with ONE deliberate exception: lorem-ipsum filler (+60) is machine-generated
- * content with zero genuine use. `spam_auto` is recoverable, so a false positive
- * is a nuisance the operator can undo, not a lost lead.
+ * with deliberate exceptions: lorem-ipsum filler (+60) is machine-generated content
+ * with zero genuine use, and the blocked-domain, va-template and bot-rsvp signals
+ * are defined as SPAM_THRESHOLD. `spam_auto` is recoverable, so a false positive is a nuisance
+ * the operator can undo, not a lost lead.
+ *
+ * Lowered 60 → 50 (2026-11-03, forms spam review, recommendation 2): three spam
+ * notifications reached clients at `links:1,keywords:1` (55). No real lead in the
+ * stored record scored above 39, and three scored 20 to 39, so 40 is ruled out.
+ * Two signals that sat at exactly 50 were trimmed so neither buckets alone: two
+ * links now sum 45 and a forged Turnstile token scores 45 (the operator's answer,
+ * workspace `decisions/2026-11-03-2036-spam-threshold-50-two-link-invariant.md`).
+ * Non-Latin text went from 25 to 20, so with one link it sums 45, not 50.
  */
-export const SPAM_THRESHOLD = 60;
+export const SPAM_THRESHOLD = 50;
 
 export type SpamVerdict = { score: number; reasons: string[] };
 
@@ -34,7 +43,8 @@ export type SpamVerdict = { score: number; reasons: string[] };
  * live HERE at full weight (an SEO-help ask through the form is deliberately
  * filtered; `spam_auto` is recoverable and the operator prefers hand-delivering the
  * rare real one over receiving the flood). Each entry is +30, so TWO seller phrases
- * bucket; no single phrase can (max single non-lorem signal is turnstile-fail's 50).
+ * bucket; no single phrase can (apart from lorem-ipsum, blocked-domain, va-template and bot-rsvp,
+ * no single signal scores above 45).
  *
  * NOTE: entries must not be substrings of each other ("page one" + "page one of
  * google" would double-count one occurrence) and must be written hyphen-free (the
@@ -235,6 +245,73 @@ function countKeywordHits(text: string, keywords: readonly string[]): number {
   return keywords.filter((kw) => lower.includes(kw)).length;
 }
 
+/** Like countKeywordHits, but each phrase must start and end on a word boundary, so
+ *  "ever considered selling" does not match inside "never considered selling". Used
+ *  for CONTENT_FAMILIES only (phrases are plain words, no regex metacharacters). */
+function countPhraseHits(text: string, phrases: readonly string[]): number {
+  const lower = text.toLowerCase().replace(/[-–—]/g, " ");
+  return phrases.filter((p) => {
+    const escaped = p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`\\b${escaped}\\b`).test(lower);
+  }).length;
+}
+
+/**
+ * Weight of a corroborating content family: enough to bucket together with one other
+ * signal (a link +25, a seller keyword +30, a bare domain +20), never alone. Kept
+ * below SPAM_THRESHOLD so a family on its own is delivered (test-pinned).
+ */
+const CORROBORATING_FAMILY_WEIGHT = 30;
+
+/**
+ * Content families found in the 2026-11-03 forms spam review: polite prose with no
+ * link, every one scoring 0, mostly on ERP Industrials and Espada. Each family adds
+ * CORROBORATING_FAMILY_WEIGHT once, however many of its phrases appear.
+ *
+ * Corroborating only, by the operator's call (2026-11-03): Espada (industrial) and
+ * Vineyard (builder) can receive genuine bid invitations, so a family never buckets
+ * alone. It does bucket with one more signal, a link included (the brief: "enough
+ * together with a link or a free-mail sender"): a genuine RFQ that points at an
+ * attachment and links its documents scores 55 and goes to `spam_auto`. That is the trade the operator
+ * chose. There is no free-mail signal (shared mailbox providers are deliberately
+ * never scored), so the free-mail half of that sentence does not apply: a family from
+ * a gmail sender with nothing else scores 30 and is delivered. The
+ * classifier has no per-site weighting, so the same weight applies on every site,
+ * including ERP, which gets no product RFQs and could have taken full weight.
+ *
+ * Phrases are the templates' invariants, lowercase and hyphen-free like
+ * SPAM_KEYWORDS, and specific enough that a buyer describing their own project
+ * ("could you provide an estimate", "scope of work", "lead time") matches none.
+ * The bid-lure phrases point at documents the form cannot carry, so a genuine RFQ that
+ * says the same and carries a link buckets at 55: that is the accepted loss above.
+ * Everything a genuine lead or a reply to one also writes was left out: "interested
+ * in procuring", "interest in purchasing your products", "arrange for a sales
+ * representative", "appreciate a quotation", "seeking a qualified company" (review
+ * round 1), "proposed unit price", "invite your team to submit" (round 2), and, in
+ * round 4, "invitation to bid" and a bare "attached rfq" (a subcontractor replying
+ * "thanks for the invitation to bid / the attached RFQ") and "invite your team to
+ * submit a quote" (a homeowner asking a builder for a quote). Phrases match on word
+ * boundaries. The broker phrases
+ * are second-person and anchored to selling a business, so neither a collector asking
+ * a gallery "are you interested in selling", a broker with "buyers actively looking"
+ * for land, nor an owner who has "considered selling the business", nor one reporting
+ * that someone asked "if I'd ever considered selling the business" matches (rounds 2
+ * to 5).
+ */
+export const CONTENT_FAMILIES: Readonly<Record<string, readonly string[]>> = {
+  // Fake RFQ / procurement lures: a project or purchase that needs a quote, with the
+  // documents "attached" or "available for review" somewhere else (the form takes no
+  // attachments).
+  "bid-lure": ["review the attached rfq", "specifications are available for your review"],
+  // "I have buyers for your business" broker template.
+  "broker-template": [
+    "buyers interested in purchasing businesses",
+    "have you ever considered selling the business",
+    "considered selling your business",
+    "if selling has crossed your mind",
+  ],
+};
+
 /**
  * The virtual-assistant flood's second template (2026-09-24 onward): "a trained VA who
  * runs/operates our custom AI system". 12 live copies across seven sender domains; two
@@ -337,6 +414,13 @@ function isAllCaps(text: string): boolean {
 function hasGibberishToken(text: string, minLen: number): boolean {
   for (const run of text.match(/[A-Za-z]+/g) ?? []) {
     if (run.length < minLen) continue;
+    // A DNA or RNA sequence (a primer quoted to a genomics site) is all A/C/G/T/U (N is
+    // the "any base" code; the rest of the IUPAC set is all consonants, so it stays
+    // out, or real mash would be exempt) and
+    // is not keyboard mash. Scored as gibberish (+35) it bucketed a real inquiry with
+    // one link even at 60, and at 50 with a bare domain too (review round 2,
+    // 2026-11-03).
+    if (/^[ACGTUNacgtun]+$/.test(run)) continue;
     if (/[^aeiouyAEIOUY]{7,}/.test(run)) return true;
     let flips = 0;
     for (let i = 1; i < run.length; i++) {
@@ -449,21 +533,21 @@ export function classifySpam(input: {
     .join(" ");
   const body = extraText ? `${message} ${extraText}` : message;
 
-  // 50: post-#400 a "fail" is a FORGED token (invalid-input-response), near-certainly a
-  // bot — but kept below the 60 threshold so a forged token alone still needs one
+  // 45: post-#400 a "fail" is a FORGED token (invalid-input-response), near-certainly a
+  // bot — but kept below the threshold (50) so a forged token alone still needs one
   // corroborating content signal before auto-bucketing (fail-open caution). A benign
   // human never reaches here: expired/duplicate tokens are "unverifiable", not "fail".
   if (input.turnstile === "fail") {
-    score += 50;
+    score += 45;
     reasons.push("turnstile-fail");
   }
 
   const urls = countUrls(body);
   if (urls > 0) {
-    // Capped at 2 (max +50) so a genuine lead pasting two links (site + portfolio) stays
-    // under 60 on URLs alone; a third adds nothing. 25/link keeps one link well shy of a
-    // solo bucket.
-    score += Math.min(urls, 2) * 25;
+    // The first link is +25 and the second +20, capped at two (max +45), so a genuine
+    // lead pasting two links (site + portfolio) stays under the threshold (50) on URLs
+    // alone; a third adds nothing. One link plus one seller keyword (55) buckets.
+    score += urls === 1 ? 25 : 45;
     reasons.push(`links:${urls}`);
   } else if (BARE_DOMAIN_RE.test(body)) {
     // No real http/www URL, but a bare "brand.com" is pasted — the exact dodge spammers
@@ -485,7 +569,8 @@ export function classifySpam(input: {
   // buyer-compatible phrases in the same message to full weight — a pitch that says
   // "would you be interested" AND "within 24 hours" is corroborating itself.
   // WITHOUT a seller-voice phrase, buyer-compatible hits alone score a weak +10
-  // capped at +20, never enough to carry a message toward the threshold.
+  // capped at +20, never enough on their own; they can still top up another signal
+  // (a disposable sender 45 + 10, a content family 30 + 20) to the threshold.
   const seller = countKeywordHits(body, SPAM_KEYWORDS);
   const buyer = countKeywordHits(body, BUYER_KEYWORDS);
   if (seller > 0) {
@@ -498,8 +583,8 @@ export function classifySpam(input: {
   }
 
   // Lorem-ipsum form-tester bots: >=2 distinct filler stems is machine-generated
-  // content with zero genuine use, so this is the one signal allowed to bucket
-  // alone (+60) — the bodies are too short for the velocity signal and are real
+  // content with zero genuine use, so it may bucket alone (+60), as blocked-domain and
+  // va-template do — the bodies are too short for the velocity signal and are real
   // Latin words, invisible to the gibberish detector.
   if (countLoremStems(body) >= 2) {
     score += 60;
@@ -511,11 +596,20 @@ export function classifySpam(input: {
     reasons.push("va-template");
   }
 
+  for (const [family, phrases] of Object.entries(CONTENT_FAMILIES)) {
+    if (countPhraseHits(body, phrases) > 0) {
+      score += CORROBORATING_FAMILY_WEIGHT;
+      reasons.push(family);
+    }
+  }
+
   // Body only — a native-script NAME (王小明, Владимир) is not a spam signal.
-  // 25 (not 50): non-Latin alone must need corroboration from other signals
-  // before it can reach SPAM_THRESHOLD.
+  // 20: non-Latin alone must need corroboration from other signals before it can
+  // reach SPAM_THRESHOLD, and an international lead pasting its one site link (20 +
+  // 25 = 45) must stay deliverable at the threshold of 50 (2026-07-06 MEDIUM-4; cut
+  // from 25 with the 2026-11-03 threshold change, review round 1).
   if (nonLatinRatio(body) > 0.3) {
-    score += 25;
+    score += 20;
     reasons.push("non-latin");
   }
 

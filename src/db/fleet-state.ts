@@ -332,6 +332,55 @@ export async function mirrorSiteInsert(db: Db, rec: RawRecord, computedAt: strin
     .execute();
 }
 
+/** Each re-testable audit's columns, under the stamp its write carries. A sweep
+ *  (fleet-lighthouse, up to 75 minutes) writes every site at its end, and a re-test of
+ *  one site can land in between: whichever wrote last used to win, so a sweep's older
+ *  fail could undo a re-test's newer pass (#1886). A shared concurrency group would let a
+ *  re-test cancel a queued nightly, so the guard is on the write instead. */
+export const HEALTH_STAMPED_SETS: ReadonlyArray<{
+  stamp: keyof SiteHealthTable;
+  cols: ReadonlyArray<keyof SiteHealthTable>;
+}> = [
+  {
+    stamp: "browser_checked_at",
+    cols: [
+      "crossbrowser_ok",
+      "mobile_ok",
+      "links_ok",
+      "broken_links",
+      "uptime_reachable",
+      "titles_meta_ok",
+    ],
+  },
+  { stamp: "domain_checked_at", cols: ["cert_days_remaining"] },
+  { stamp: "deploy_checked_at", cols: ["deploy_status", "last_deploy_at", "deploy_log_url"] },
+  { stamp: "function_health_checked_at", cols: ["function_health", "cms_reachable"] },
+  {
+    stamp: "lighthouse_at",
+    cols: ["p_score", "r_score", "bp_score", "seo_score", "lighthouse_failing_audits"],
+  },
+];
+
+/** The patch, with each stamped set that carries its stamp written only when the stored
+ *  stamp is not newer: `col = CASE WHEN <stored stamp older or absent> THEN new ELSE col END`.
+ *  SQLite evaluates every SET expression against the row as it was, so the stamp and its
+ *  columns move together. A set whose stamp is absent or unparseable is written as before. */
+function guardStampedSets(patch: Record<string, string | number | null>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...patch };
+  for (const { stamp, cols } of HEALTH_STAMPED_SETS) {
+    const at = patch[stamp];
+    if (typeof at !== "string" || Number.isNaN(Date.parse(at))) continue;
+    const stored = sql.ref(`site_health.${stamp}`);
+    const notNewer = sql`(${stored} IS NULL OR julianday(${stored}) IS NULL OR julianday(${stored}) <= julianday(${at}))`;
+    for (const col of [stamp, ...cols]) {
+      if (!Object.hasOwn(patch, col)) continue;
+      out[col] =
+        sql`CASE WHEN ${notNewer} THEN ${patch[col]} ELSE ${sql.ref(`site_health.${col}`)} END`;
+    }
+  }
+  return out;
+}
+
 /** The nightly health writers' Turso write (#539 Phase 3). Takes the
  *  column-named FieldSet from the pure builders (`auditFields` /
  *  `gitHubSignalsFields`). Resolution + coercion come from the field map's
@@ -360,7 +409,7 @@ export async function mirrorHealthFields(
   if (Object.keys(patch).length === 0) return true;
   const res = await db
     .updateTable("site_health")
-    .set(patch as Updateable<SiteHealthTable>)
+    .set(guardStampedSets(patch) as Updateable<SiteHealthTable>)
     .where("site_id", "=", siteId)
     .executeTakeFirst();
   // kysely/libSQL reports numUpdatedRows as a BigInt — compare in BigInt.
