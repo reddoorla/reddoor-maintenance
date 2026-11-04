@@ -821,3 +821,16 @@ describe("Renovate shapes the audit does not model leave the cap unknown (round 
     expect(result).toMatchObject({ behind: [], held: ["typescript@6"] });
   });
 });
+
+describe("config file discovery follows Renovate 44's detectConfigFile (round 5)", () => {
+  it("reads .gitlab/renovate.json before .renovaterc, as Renovate does on GitHub", async () => {
+    const dir = await site({ outdated: TS6, renovate: null });
+    await mkdir(join(dir, ".gitlab"));
+    await writeFile(join(dir, ".gitlab/renovate.json"), JSON.stringify({}), "utf-8");
+    await writeFile(join(dir, ".renovaterc"), siteExtending(ORG), "utf-8");
+    const { spawn } = spawnFor(TS6);
+    const result = await scanOutdated(dir, spawn, await loadHoldRules(dir, reader()));
+    expect(result?.behind).toEqual(["typescript@6"]);
+    expect(result?.held).toEqual([]);
+  });
+});
