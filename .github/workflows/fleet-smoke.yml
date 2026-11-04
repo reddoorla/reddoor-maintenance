@@ -89,12 +89,6 @@ jobs:
           total=$(echo "$summary" | grep -oE "total=[0-9]+" | cut -d= -f2)
           echo "fleet smoke write-back: wrote=$wrote failed=$failed total=$total"
 
-          # Surface every partial miss as a visible annotation, even one within tolerance.
-          if [ "$failed" -gt 0 ]; then
-            notwritten=$(grep -oE "[0-9]+ site\(s\) not written:.*" "${RUNNER_TEMP:-/tmp}/smoke.out" | tail -n1 || true)
-            echo "::warning::fleet smoke: $failed/$total site(s) not written — $notwritten"
-          fi
-
           # A site that couldn't be prepared (bad URL/repo) is dropped from the run
           # rather than crashing it; raise it so the misconfigured site row is fixed.
           skipped=$(grep -oE "⚠ [0-9]+ site\(s\) skipped \(could not prepare\):.*" "${RUNNER_TEMP:-/tmp}/smoke.out" | tail -n1 || true)
@@ -125,6 +119,9 @@ jobs:
           fi
           unmeasured=$(echo "$unmeasured_line" | grep -oE "count=[0-9]+" | cut -d= -f2)
           if [ "$unmeasured" -gt 0 ]; then
+            # This exit comes before the gate's block below, so print the gate's warnings
+            # first: a failed write on the same night is named too (#1938 review round 2).
+            grep -E "^FLEET_WRITE_GATE_WARNING " "${RUNNER_TEMP:-/tmp}/smoke.out" | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet smoke: /' || true
             echo "::error::fleet smoke: $unmeasured site(s) never measured — $(echo "$unmeasured_line" | sed 's/.*sites=//')"
             exit 1
           fi

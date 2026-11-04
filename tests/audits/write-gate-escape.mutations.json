@@ -1,0 +1,227 @@
+[
+  {
+    "id": "W1-no-percent-escape",
+    "edits": [
+      {
+        "file": "src/audits/write-audits.ts",
+        "find": "return s.replaceAll(\"%\", \"%25\").replaceAll(\"\\r\", \"%0D\").replaceAll(\"\\n\", \"%0A\");",
+        "replace": "return s.replaceAll(\"\\r\", \"%0D\").replaceAll(\"\\n\", \"%0A\");"
+      }
+    ],
+    "test": [
+      "tests/audits/fleet-write-gate.test.ts",
+      "tests/build/fleet-write-gate-workflows.test.ts"
+    ],
+    "expect": "red",
+    "why": "Without the % escape a literal %0A in a site label reaches GitHub raw, and GitHub decodes it to a line break."
+  },
+  {
+    "id": "W2-percent-last",
+    "edits": [
+      {
+        "file": "src/audits/write-audits.ts",
+        "find": "return s.replaceAll(\"%\", \"%25\").replaceAll(\"\\r\", \"%0D\").replaceAll(\"\\n\", \"%0A\");",
+        "replace": "return s.replaceAll(\"\\r\", \"%0D\").replaceAll(\"\\n\", \"%0A\").replaceAll(\"%\", \"%25\");"
+      }
+    ],
+    "test": ["tests/audits/fleet-write-gate.test.ts"],
+    "expect": "red",
+    "why": "With % after the line breaks, the %0D and %0A this function just wrote are escaped again to %250D and %250A."
+  },
+  {
+    "id": "W3-no-newline-escape",
+    "edits": [
+      {
+        "file": "src/audits/write-audits.ts",
+        "find": "return s.replaceAll(\"%\", \"%25\").replaceAll(\"\\r\", \"%0D\").replaceAll(\"\\n\", \"%0A\");",
+        "replace": "return s.replaceAll(\"%\", \"%25\").replaceAll(\"\\r\", \"%0D\");"
+      }
+    ],
+    "test": ["tests/audits/fleet-write-gate.test.ts"],
+    "expect": "red",
+    "why": "A newline in a label splits the ::warning:: or ::error:: line and the rest of the label is lost."
+  },
+  {
+    "id": "W4-warnings-raw",
+    "edits": [
+      {
+        "file": "src/audits/write-audits.ts",
+        "find": "out += `\\nFLEET_WRITE_GATE_WARNING ${annotationText(w)}`;",
+        "replace": "out += `\\nFLEET_WRITE_GATE_WARNING ${w}`;"
+      }
+    ],
+    "test": [
+      "tests/audits/fleet-write-gate.test.ts",
+      "tests/build/fleet-write-gate-workflows.test.ts"
+    ],
+    "expect": "red",
+    "why": "Warnings printed without the escape reach the annotation raw (a literal %0A in a label becomes a line break), while reasons stay escaped."
+  },
+  {
+    "id": "W5-security-shared-tmp",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-security.yml",
+        "find": "tee \"${RUNNER_TEMP:-/tmp}/audit.out\" || true",
+        "replace": "tee /tmp/audit.out || true"
+      }
+    ],
+    "test": "tests/build/fleet-write-gate-workflows.test.ts",
+    "expect": "red",
+    "why": "#1651 item 4: the security gate writes the shared /tmp/audit.out again, so parallel runs race on it."
+  },
+  {
+    "id": "W6-warning-no-names",
+    "edits": [
+      {
+        "file": "src/audits/write-audits.ts",
+        "find": "${failed} of ${owed} site(s) not written: ${failedList(result)}`",
+        "replace": "${failed} of ${owed} site(s) not written`"
+      }
+    ],
+    "test": [
+      "tests/audits/fleet-write-gate.test.ts",
+      "tests/build/fleet-write-gate-workflows.test.ts"
+    ],
+    "expect": "red",
+    "why": "#1651 item 1: the gate's not-written warning must name the sites and their errors, since the workflow's own line that did is gone."
+  },
+  {
+    "id": "W7-bash-warning-back",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-lighthouse.yml",
+        "find": "          # A site that couldn't even be prepared (bad/scheme-less URL + no repo)\n",
+        "replace": "          if [ \"$failed\" -gt 0 ]; then\n            notwritten=$(grep -oE \"[0-9]+ site\\(s\\) not written:.*\" \"${RUNNER_TEMP:-/tmp}/audit.out\" | tail -n1 || true)\n            echo \"::warning::fleet Lighthouse: $failed/$total site(s) not written \u2014 $notwritten\"\n          fi\n\n          # A site that couldn't even be prepared (bad/scheme-less URL + no repo)\n"
+      }
+    ],
+    "test": "tests/build/fleet-write-gate-workflows.test.ts",
+    "expect": "red",
+    "why": "#1651 item 1: the deleted per-workflow bash warning, put back, prints a second not-written line for the same miss."
+  },
+  {
+    "id": "W8-no-load-naming",
+    "edits": [
+      {
+        "file": "src/cli/fleet/resolve-sites.ts",
+        "find": "    const name = derived[i];\n    if (name === undefined || explicit.has(name) || derivedCount.get(name) !== 1) return site;\n    return { ...site, name };",
+        "replace": "    return site;"
+      }
+    ],
+    "test": ["tests/cli/fleet/resolve-sites.test.ts", "tests/cli/fleet/clone-if-needed.test.ts"],
+    "expect": "red",
+    "why": "#1650 item 2: without load-time naming the gate sees a nameless site as missing and then as a permanent failure."
+  },
+  {
+    "id": "W9-name-throws",
+    "edits": [
+      {
+        "file": "src/cli/fleet/clone-if-needed.ts",
+        "find": "  try {\n    const repoUrl = resolveCloneUrl(site);\n    if (!repoUrl) return undefined;\n    const name = deriveNameFromRepoUrl(repoUrl);\n    assertSafeName(name);\n    return name;\n  } catch {\n    return undefined;\n  }",
+        "replace": "  const repoUrl = resolveCloneUrl(site);\n  if (!repoUrl) return undefined;\n  const name = deriveNameFromRepoUrl(repoUrl);\n  assertSafeName(name);\n  return name;"
+      }
+    ],
+    "test": "tests/cli/fleet/resolve-sites.test.ts",
+    "expect": "red",
+    "why": "#1650 item 2: nameFromRepo must never throw, so one bad entry cannot kill the whole inventory load."
+  },
+  {
+    "id": "W10-overwrite-name",
+    "edits": [
+      {
+        "file": "src/cli/fleet/resolve-sites.ts",
+        "find": "  const derived = sites.map((s) => (s.name ? undefined : nameFromRepo(s)));",
+        "replace": "  const derived = sites.map((s) => nameFromRepo(s));"
+      },
+      {
+        "file": "src/cli/fleet/resolve-sites.ts",
+        "find": "    if (site.name) return site;\n    const name = derived[i];",
+        "replace": "    const name = derived[i];"
+      }
+    ],
+    "test": "tests/cli/fleet/resolve-sites.test.ts",
+    "expect": "red",
+    "why": "#1650 item 2: a site that already has a name keeps it; the repo's name must not overwrite it."
+  },
+  {
+    "id": "W7b-drift-bash-warning-back",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-prismic-drift.yml",
+        "find": "          if [ \"$wrote\" -eq 0 ]; then\n",
+        "replace": "          if [ \"$failed\" -gt 0 ]; then\n            notwritten=$(grep -oE \"[0-9]+ site\\(s\\) not written:.*\" \"$out\" | tail -n1 || true)\n            echo \"::warning::fleet prismic drift: $failed/$total verdict(s) not written \u2014 $notwritten\"\n          fi\n\n          if [ \"$wrote\" -eq 0 ]; then\n"
+      }
+    ],
+    "test": "tests/build/fleet-write-gate-workflows.test.ts",
+    "expect": "red",
+    "why": "#1651 item 1: the deleted prismic-drift bash warning, put back, prints a second not-written line for the same miss."
+  },
+  {
+    "id": "W11-red-night-no-names",
+    "edits": [
+      {
+        "file": "src/audits/write-audits.ts",
+        "find": "  if (failed > 0) warnings.push(`${failed} of ${owed} site(s) not written: ${failedList(result)}`);\n  const short = failed + missing.length;\n  if (short * 4 > owed) {\n    reasons.push(`${short} of ${owed} site(s) not written or missing (>25%)`);\n  } else if (missing.length > 0) {\n    warnings.push(\n      `${missing.length} of ${owed} site(s) never reached write-back: ${missing.join(\", \")}`,\n    );\n  }\n  const permanent = permanentFailures(result);",
+        "replace": "  const short = failed + missing.length;\n  if (short * 4 > owed) {\n    reasons.push(`${short} of ${owed} site(s) not written or missing (>25%)`);\n  } else {\n    if (failed > 0) warnings.push(`${failed} of ${owed} site(s) not written: ${failedList(result)}`);\n    if (missing.length > 0) {\n      warnings.push(\n        `${missing.length} of ${owed} site(s) never reached write-back: ${missing.join(\", \")}`,\n      );\n    }\n  }\n  const permanent = permanentFailures(result);"
+      }
+    ],
+    "test": [
+      "tests/audits/fleet-write-gate.test.ts",
+      "tests/build/fleet-write-gate-workflows.test.ts"
+    ],
+    "expect": "red",
+    "why": "The not-written warning put back inside the else: a red night names no site, as the reviewer reproduced."
+  },
+  {
+    "id": "W12-drift-no-early-warning",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-prismic-drift.yml",
+        "find": "            grep -E \"^FLEET_WRITE_GATE_WARNING \" \"$out\" | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet prismic drift: /' || true\n            echo \"::error::fleet prismic drift: $failed/$total",
+        "replace": "            echo \"::error::fleet prismic drift: $failed/$total"
+      }
+    ],
+    "test": "tests/build/fleet-write-gate-workflows.test.ts",
+    "expect": "red",
+    "why": "The >25% exit prints no names: the gate's warnings never reach the annotation on a red night."
+  },
+  {
+    "id": "W13-load-name-collides",
+    "edits": [
+      {
+        "file": "src/cli/fleet/resolve-sites.ts",
+        "find": "    if (name === undefined || explicit.has(name) || derivedCount.get(name) !== 1) return site;",
+        "replace": "    if (name === undefined) return site;"
+      }
+    ],
+    "test": "tests/cli/fleet/resolve-sites.test.ts",
+    "expect": "red",
+    "why": "Without the collision check, two sites deriving one name share a label and merge through expectedSites' Set."
+  },
+  {
+    "id": "W14-summary-not-last",
+    "edits": [
+      {
+        "file": "src/audits/write-audits.ts",
+        "find": "  if (printGate) {\n    const gate = fleetWriteGate(result);\n    out += `\\nFLEET_WRITE_GATE verdict=${gate.red ? \"red\" : \"green\"}`;\n    for (const r of gate.reasons) out += `\\nFLEET_WRITE_GATE_REASON ${annotationText(r)}`;\n    for (const w of gate.warnings) out += `\\nFLEET_WRITE_GATE_WARNING ${annotationText(w)}`;\n  }\n  out += `\\nFLEET_WRITE_SUMMARY wrote=${wrote} failed=${failed} total=${total}`;\n  // Mirror counts APPEND so the fleet workflows' `grep -oE \"FLEET_WRITE_SUMMARY\n  // wrote=... total=[0-9]+\"` extraction still matches its prefix untouched.\n  if (result.mirrored !== undefined) {\n    out += ` mirrored=${result.mirrored} mirror_failed=${result.mirrorFailed ?? 0}`;\n    out += ` mirror_missed=${result.mirrorMissed ?? 0}`;\n  }\n  out += ` na=${na.length} missing=${missing.length} kept=${kept.length}`;\n  return out;",
+        "replace": "  out += `\\nFLEET_WRITE_SUMMARY wrote=${wrote} failed=${failed} total=${total}`;\n  // Mirror counts APPEND so the fleet workflows' `grep -oE \"FLEET_WRITE_SUMMARY\n  // wrote=... total=[0-9]+\"` extraction still matches its prefix untouched.\n  if (result.mirrored !== undefined) {\n    out += ` mirrored=${result.mirrored} mirror_failed=${result.mirrorFailed ?? 0}`;\n    out += ` mirror_missed=${result.mirrorMissed ?? 0}`;\n  }\n  out += ` na=${na.length} missing=${missing.length} kept=${kept.length}`;\n  if (printGate) {\n    const gate = fleetWriteGate(result);\n    out += `\\nFLEET_WRITE_GATE verdict=${gate.red ? \"red\" : \"green\"}`;\n    for (const r of gate.reasons) out += `\\nFLEET_WRITE_GATE_REASON ${annotationText(r)}`;\n    for (const w of gate.warnings) out += `\\nFLEET_WRITE_GATE_WARNING ${annotationText(w)}`;\n  }\n  return out;"
+      }
+    ],
+    "test": ["tests/audits/fleet-write-gate.test.ts", "tests/audits/write-fleet-audits.test.ts"],
+    "expect": "red",
+    "why": "The gate block printed after the summary line: a decoy in an error string becomes the last summary match."
+  },
+  {
+    "id": "W15-smoke-unmeasured-no-names",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-smoke.yml",
+        "find": "            grep -E \"^FLEET_WRITE_GATE_WARNING \" \"${RUNNER_TEMP:-/tmp}/smoke.out\" | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet smoke: /' || true\n            echo \"::error::fleet smoke: $unmeasured",
+        "replace": "            echo \"::error::fleet smoke: $unmeasured"
+      }
+    ],
+    "test": "tests/build/fleet-write-gate-workflows.test.ts",
+    "expect": "red",
+    "why": "#1938 r2: smoke's never-measured exit prints no gate warnings, so a failed write on the same night reaches no annotation (S1)."
+  }
+]
