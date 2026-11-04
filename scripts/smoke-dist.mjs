@@ -121,6 +121,7 @@ const subpathEntries = {
   "configs/prettier.js": resolve(repoRoot, "dist/configs/prettier.js"),
   "configs/playwright-a11y.js": resolve(repoRoot, "dist/configs/playwright-a11y.js"),
   "configs/svelte.js": resolve(repoRoot, "dist/configs/svelte.js"),
+  "smoke/index.js": resolve(repoRoot, "dist/smoke/index.js"),
 };
 
 for (const [label, entry] of Object.entries(subpathEntries)) {
@@ -584,6 +585,31 @@ for (const file of handlerFiles) {
     }
   });
 }
+
+// `measureInPage` reaches the page as source text, so the BUILT function has
+// to stand alone: a bundler helper esbuild inserts (`__name`, a down-levelled
+// `??`) is defined in the module, not in the page, and would throw there while
+// every vitest run against src stayed green. Run the dist copy in a real page:
+// a cut line must be caught and a short one passed.
+await check("smoke/index.js measure() runs in a page as built", async () => {
+  const { measure } = await import(pathToFileURL(resolve(repoRoot, "dist/smoke/index.js")).href);
+  const { chromium } = await import("@playwright/test");
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({ viewport: { width: 390, height: 400 } });
+    const long = "Cabinetry and millwork for the whole house, from first sketch to final install";
+    await page.setContent(
+      `<div style="overflow:hidden"><p style="white-space:nowrap">${long}</p></div>`,
+    );
+    const cut = await measure(page);
+    if (cut.cut.length !== 1) throw new Error(`a cut line gave ${JSON.stringify(cut)}`);
+    await page.setContent(`<p>Short line.</p>`);
+    const fine = await measure(page);
+    if (fine.cut.length !== 0) throw new Error(`a short line gave ${JSON.stringify(fine)}`);
+  } finally {
+    await browser.close();
+  }
+});
 
 if (failures.length) {
   process.stderr.write(`\nsmoke-dist: ${failures.length} failure(s)\n`);
