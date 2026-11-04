@@ -19,12 +19,15 @@ overrides:
   # versions. None are on the published package's runtime surface. Cleared 2026-06-25.
   #   - vite <8.0.16: server.fs.deny bypass + launch-editor NTLM (GHSA-fx2h-pf6j-xcff / -v6wh-96g9-6wx3);
   #     exact-pinned (not a range) because vite is peer-resolved (vitest/SvelteKit) and a range
-  #     override was silently ignored — Renovate maintains the exact pin going forward.
+  #     override was silently ignored. "$vite" takes the exact pin from package.json's
+  #     devDependency, the one Renovate bumps: the shared preset disables Renovate on
+  #     pnpm-workspace overrides, so a literal pin here went stale (8.2.4 under
+  #     package.json's 8.3.5 from #1721 on 2026-10-26, which broke #1894's lockfile).
   #   - esbuild <0.28.1: dev-server arbitrary file read on Windows (GHSA-g7r4-m6w7-qqqr)
   #   - cookie <0.7.0: out-of-bounds chars in name/path/domain (GHSA-pxg6-pf52-xh8x)
   #   - js-yaml 4.x <4.2.0: quadratic-complexity DoS in merge keys (GHSA-h67p-54hq-rp68);
   #     scoped to >=4.0.0 so the 3.x instance stays on its own 3.x backport line below.
-  vite: "8.2.4"
+  vite: "$vite"
   esbuild@<0.28.1: ">=0.28.1 <0.29"
   cookie@<0.7.0: ">=0.7.0 <1"
   # 2026-07-24: re-pinned 4.2.0 → 4.3.0. The original merge-key DoS fix in 4.2.0
