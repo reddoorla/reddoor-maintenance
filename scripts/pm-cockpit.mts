@@ -42,6 +42,7 @@ import {
   deadLetterEscalatesAt,
   directVulnEscalatesAt,
   transitiveVulnEscalatesAt,
+  transitiveVulnAttentionAt,
 } from "../src/alerts/waiting.js";
 import { levelOf, RENOVATE_ATTENTION_DAYS, type Level } from "../src/alerts/ladder.js";
 import { loadCredentialsIntoEnv } from "../src/util/credentials.js";
@@ -231,7 +232,9 @@ function askedFrom(it: AttentionItem, prior: DigestSnapshot, today: string): Dat
   if (it.kind === "vuln") {
     const at =
       it.transitiveOnly === true
-        ? transitiveVulnEscalatesAt(was.firstFlaggedAt)
+        ? it.transitiveStuck === true
+          ? transitiveVulnAttentionAt(was.firstFlaggedAt)
+          : transitiveVulnEscalatesAt(was.firstFlaggedAt)
         : directVulnEscalatesAt(was.firstFlaggedAt);
     if (at !== null)
       return { text: it.title, day: at.toISOString().slice(0, 10), how: "escalated" };

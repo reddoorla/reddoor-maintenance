@@ -444,7 +444,8 @@ button.override-submit:disabled {
   font-size: 0.8rem;
   color: var(--ink-muted);
 }
-button.trigger-renovate {
+button.trigger-renovate,
+button.site-retest {
   font: inherit;
   font-size: 0.8rem;
   padding: 0.15rem 0.6rem;
@@ -458,15 +459,18 @@ button.trigger-renovate {
     background-color 0.12s ease,
     border-color 0.12s ease;
 }
-button.trigger-renovate:hover:not(:disabled) {
+button.trigger-renovate:hover:not(:disabled),
+button.site-retest:hover:not(:disabled) {
   background: var(--band);
   border-color: var(--ink);
 }
-button.trigger-renovate:focus-visible {
+button.trigger-renovate:focus-visible,
+button.site-retest:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
-button.trigger-renovate:disabled {
+button.trigger-renovate:disabled,
+button.site-retest:disabled {
   opacity: 0.6;
   cursor: default;
 }

@@ -71,7 +71,7 @@ export type AttentionItem = {
     /** P1-78c, the production signals the nightly audits store. Broken: `uptime:`
      *  (site down), `domain:` (no resolve or no usable TLS), `cert-expiring:` (7 days
      *  or fewer), `function-health:`, `cms:`, `render:`, `form:`. Attention: `cert:`
-     *  (8 to 30 days), `links:`, `titles:`, `a11y:`, `deps-far:` (a package behind for
+     *  (8 to 20 days), `links:`, `titles:`, `a11y:`, `deps-far:` (a package behind for
      *  over 90 days). Watch: `deps:`, `smoke:`, `search-console:`. */
     | "uptime"
     | "domain"
@@ -103,6 +103,10 @@ export type AttentionItem = {
   /** Set by collectVulnAlerts when every critical/high advisory is transitive, so the
    *  fix rides Renovate's weekly lock-file window rather than a direct bump. */
   transitiveOnly?: boolean;
+  /** Set by `markWaiting` on a transitive-only vuln still present after
+   *  TRANSITIVE_ATTENTION_WINDOWS lockfile windows: it goes back to Attention
+   *  (the operator, 2026-11-03). */
+  transitiveStuck?: boolean;
   /** Set by `markWaiting` (src/alerts/waiting.ts): a scheduled job is still fixing
    *  this and its own threshold has not passed. Shown on the site page only; kept off
    *  the cockpit's tiers, the Needs-you feed and the digest's asks. */

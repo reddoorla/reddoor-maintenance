@@ -2178,3 +2178,135 @@ describe("audits/a11y — a port taken between the pick and the bind is retried 
     expect(spawn.calls).toBe(1);
   }, 180_000);
 });
+
+/**
+ * #948's residual race, closed. #948 moved the scan onto a production preview,
+ * but nothing between `page.goto` and axe waited for the bundle to hydrate:
+ * `goto` resolves at `load`, and SvelteKit hydrates after it, from a dynamic
+ * import. On roalson-interests' `/dev/a11y-fixtures` the preview gate read 208
+ * twelve times and 217 twice, the two 217s scanned mid-hydration, while a
+ * variant that waited for the marker read 208 ten times out of ten
+ * (docs/workJournal.md, 2026-09-30, #948). The 191s were the dev gate's.
+ *
+ * A page here "hydrates" 2 s after `load`, the way a slow bundle would: it
+ * makes two of its three faint (#aaa on white, 2.32:1) paragraphs legible and
+ * then writes the starter's `html[data-hydrated]` (reddoor-starter#184), as the
+ * root layout's `onMount` does, after every child has mounted. So the
+ * server-rendered page has 3 contrast nodes and the hydrated page has 1
+ * (`#stays-faint`). Two such routes, because a wait on the first route only
+ * would pass on one. The two `/dev` fixtures write the marker at once, as
+ * every route of a site that writes it does.
+ *
+ * The site's CSP has no 'unsafe-eval', like the starter's. Playwright evals a
+ * string predicate inside the page, so a wait written as a string is refused
+ * in milliseconds there and returns without waiting: measured on this page,
+ * 35 ms and still faint, against 2003 ms and hydrated for a function.
+ */
+const HYDRATE_AFTER_LOAD_MS = 2000;
+
+function hydratingPage(title: string, delayMs: number): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title>
+<style>body { margin: 0; background: #fff; color: #111; font: 16px/1.5 sans-serif; } .faint { color: #aaa; }</style></head>
+<body><main><h1>${title}</h1>
+<p id="fixed-a" class="faint">${T}</p>
+<p id="fixed-b" class="faint">${T}</p>
+<p id="stays-faint" class="faint">${T}</p>
+</main>
+<script>
+  addEventListener("load", () => setTimeout(() => {
+    for (const id of ["fixed-a", "fixed-b"]) document.getElementById(id).classList.remove("faint");
+    document.documentElement.setAttribute("data-hydrated", "");
+  }, ${delayMs}));
+</script></body></html>`;
+}
+
+const SITE_HY: SiteConfig = {
+  pages: {
+    "/dev/a11y-fixtures": hydratingPage("Fixtures", 0).replaceAll('class="faint"', ""),
+    "/dev/animate-in": hydratingPage("Animate-in", 0).replaceAll('class="faint"', ""),
+    "/": plainPage("Home"),
+    "/hydrates-late": hydratingPage("Hydrates late", HYDRATE_AFTER_LOAD_MS),
+    "/hydrates-late-too": hydratingPage("Hydrates late too", HYDRATE_AFTER_LOAD_MS),
+  },
+  a11yRoutes: ["/hydrates-late", "/hydrates-late-too"],
+};
+
+/** A site that never writes the marker: every route is the starter's from
+ *  before reddoor-starter#184. */
+const SITE_NM: SiteConfig = {
+  pages: {
+    "/dev/a11y-fixtures": plainPage("Fixtures"),
+    "/dev/animate-in": plainPage("Animate-in"),
+    "/": plainPage("Home"),
+    "/faint": sitePage("Faint", `<p id="faint" style="color: #aaa">${T}</p>`),
+  },
+  a11yRoutes: ["/faint"],
+};
+
+type HydrationWait = { route: string; wait: string };
+
+const contrastNodesByRoute = (r: AuditResult | undefined): Record<string, string[]> => {
+  const out: Record<string, string[]> = {};
+  for (const v of (r?.details as { violations?: Violation[] } | undefined)?.violations ?? []) {
+    if (v.id !== "color-contrast") continue;
+    out[v.route] = (v.nodes ?? []).map((n) => (n.target ?? []).join(" ")).sort();
+  }
+  return out;
+};
+
+describe("audits/a11y — the scan waits for html[data-hydrated] (#948's residual race)", () => {
+  const COLD_RUNS = 3;
+  const sites: string[] = [];
+  const runs: AuditResult[] = [];
+  let markerless: AuditResult | undefined;
+
+  beforeAll(async () => {
+    // Each run is its own build, preview server and browser: cold, as #948's were.
+    for (let i = 0; i < COLD_RUNS; i++) {
+      const site = await makeFixtureSite(SITE_HY);
+      sites.push(site);
+      runs.push(await a11yAudit({ site: { path: site }, spawn: livePlaywright }));
+    }
+    const site = await makeFixtureSite(SITE_NM);
+    sites.push(site);
+    markerless = await a11yAudit({ site: { path: site }, spawn: livePlaywright });
+  }, 300_000);
+
+  afterAll(async () => {
+    for (const site of sites) await rm(site, { recursive: true, force: true });
+  });
+
+  it("gives the hydrated contrast count on every route, on every cold run", () => {
+    expect(runs).toHaveLength(COLD_RUNS);
+    for (const run of runs) {
+      expect(contrastNodesByRoute(run)).toEqual({
+        "/hydrates-late": ["#stays-faint"],
+        "/hydrates-late-too": ["#stays-faint"],
+      });
+    }
+  });
+
+  it("records that each scanned route was waited for by its marker, not by the cap", () => {
+    for (const run of runs) {
+      expect((run.details as { hydration?: HydrationWait[] }).hydration).toEqual([
+        { route: "a11y fixtures", wait: "marker" },
+        { route: "animate-in demo", wait: "marker" },
+        { route: "/hydrates-late", wait: "marker" },
+        { route: "/hydrates-late-too", wait: "marker" },
+      ]);
+    }
+  });
+
+  it("still scans every route of a site that never writes the marker", () => {
+    expect(contrastNodesByRoute(markerless)).toEqual({ "/faint": ["#faint"] });
+    expect(markerless?.summary).toMatch(/across 3 routes/);
+  });
+
+  it("pays the cap once on a site without the marker, not once per route", () => {
+    expect((markerless?.details as { hydration?: HydrationWait[] }).hydration).toEqual([
+      { route: "a11y fixtures", wait: "settled" },
+      { route: "animate-in demo", wait: "not-waited" },
+      { route: "/faint", wait: "not-waited" },
+    ]);
+  });
+});

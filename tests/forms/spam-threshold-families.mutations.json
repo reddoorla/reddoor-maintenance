@@ -1,0 +1,405 @@
+[
+  {
+    "id": "m1-threshold-60",
+    "why": "The threshold goes back to 60, so the one-link-plus-one-keyword pattern (55) reaches clients again",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "export const SPAM_THRESHOLD = 50;",
+        "replace": "export const SPAM_THRESHOLD = 60;"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m2-lure-full-weight",
+    "why": "The bid/RFQ lure blocks alone, so a genuine RFQ to Espada or Vineyard is silently bucketed",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "      score += CORROBORATING_FAMILY_WEIGHT;\n      reasons.push(family);",
+        "replace": "      score += family === \"bid-lure\" ? SPAM_THRESHOLD : CORROBORATING_FAMILY_WEIGHT;\n      reasons.push(family);"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m3-remove-lure",
+    "why": "The bid/RFQ lure family is gone, so a lure with a link (55) is delivered",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    if (countPhraseHits(body, phrases) > 0) {",
+        "replace": "    if (family !== \"bid-lure\" && countPhraseHits(body, phrases) > 0) {"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m4-remove-broker",
+    "why": "The business-broker family is gone, so a broker pitch with a link (55) is delivered",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    if (countPhraseHits(body, phrases) > 0) {",
+        "replace": "    if (family !== \"broker-template\" && countPhraseHits(body, phrases) > 0) {"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m5-family-stacks-per-phrase",
+    "why": "A family adds its weight per phrase, so a genuine RFQ using two lure phrases scores 60 and is bucketed",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    if (countPhraseHits(body, phrases) > 0) {\n      score += CORROBORATING_FAMILY_WEIGHT;",
+        "replace": "    if (countPhraseHits(body, phrases) > 0) {\n      score += CORROBORATING_FAMILY_WEIGHT * countPhraseHits(body, phrases);"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m6-generic-estimate-phrase",
+    "why": "A generic buyer phrase joins the lure family, so a homeowner asking for an estimate with one link scores 55 and is bucketed",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "  \"bid-lure\": [\"review the attached rfq\", \"specifications are available for your review\"],",
+        "replace": "  \"bid-lure\": [\"review the attached rfq\", \"specifications are available for your review\", \"provide an estimate\"],"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m7-second-link-25",
+    "why": "The second link goes back to +25, so a genuine site-plus-portfolio lead scores 50 and is bucketed",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    score += urls === 1 ? 25 : 45;",
+        "replace": "    score += Math.min(urls, 2) * 25;"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m8-forged-token-50",
+    "why": "A forged Turnstile token goes back to 50, so it buckets alone with no corroborating signal",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "  if (input.turnstile === \"fail\") {\n    score += 45;",
+        "replace": "  if (input.turnstile === \"fail\") {\n    score += 50;"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m9-buyer-voice-lure-phrase",
+    "why": "A buyer-voice phrase joins the lure family, so a genuine purchase inquiry with a link scores 55 and is bucketed",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "  \"bid-lure\": [\"review the attached rfq\", \"specifications are available for your review\"],",
+        "replace": "  \"bid-lure\": [\"review the attached rfq\", \"specifications are available for your review\", \"interested in procuring\"],"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m10-non-latin-25",
+    "why": "Non-Latin goes back to 25, so an international lead with one site link scores 50 and is bucketed",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "  if (nonLatinRatio(body) > 0.3) {\n    score += 20;",
+        "replace": "  if (nonLatinRatio(body) > 0.3) {\n    score += 25;"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m11-drop-specifications",
+    "why": "A lure phrase is dropped from its family, so that lure no longer corroborates",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "  \"bid-lure\": [\"review the attached rfq\", \"specifications are available for your review\"],",
+        "replace": "  \"bid-lure\": [\"review the attached rfq\"],"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m12-typo-in-phrase",
+    "why": "A family phrase carries a typo and can never match",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "  \"bid-lure\": [\"review the attached rfq\", \"specifications are available for your review\"],",
+        "replace": "  \"bid-lure\": [\"review the attached rqf\", \"specifications are available for your review\"],"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m13-lead-time-joins-lure",
+    "why": "A buyer phrase (lead time) joins the lure family, so a homeowner with a link is bucketed",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "  \"bid-lure\": [\"review the attached rfq\", \"specifications are available for your review\"],",
+        "replace": "  \"bid-lure\": [\"review the attached rfq\", \"specifications are available for your review\", \"lead time\"],"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m14-families-scan-message-only",
+    "why": "Families ignore extra free-text fields, so a lure in a custom field is invisible",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    if (countPhraseHits(body, phrases) > 0) {",
+        "replace": "    if (countPhraseHits(message, phrases) > 0) {"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m15-threshold-55",
+    "why": "The threshold moves to 55, so a score of exactly 50 is delivered",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "export const SPAM_THRESHOLD = 50;",
+        "replace": "export const SPAM_THRESHOLD = 55;"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m16-broaden-attached-rfq",
+    "why": "\"review the attached rfq\" broadens to \"attached rfq\", so a subcontractor thanking a client for its RFQ, with a link, buckets",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "  \"bid-lure\": [\"review the attached rfq\", \"specifications are available for your review\"],",
+        "replace": "  \"bid-lure\": [\"attached rfq\", \"specifications are available for your review\"],"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m17-readd-invitation-to-bid",
+    "why": "\"invitation to bid\" is added back, so a subcontractor thanking a client for the invitation, with a link, buckets",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "  \"bid-lure\": [\"review the attached rfq\", \"specifications are available for your review\"],",
+        "replace": "  \"bid-lure\": [\"review the attached rfq\", \"specifications are available for your review\", \"invitation to bid\"],"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m18-readd-invite-to-quote",
+    "why": "\"invite your team to submit a quote\" is added back, so a homeowner asking a builder for a quote with a photo link buckets",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "  \"bid-lure\": [\"review the attached rfq\", \"specifications are available for your review\"],",
+        "replace": "  \"bid-lure\": [\"review the attached rfq\", \"specifications are available for your review\", \"invite your team to submit a quote\"],"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m19-broaden-broker-buyers",
+    "why": "\"buyers interested in purchasing businesses\" broadens to \"buyers interested in purchasing\", so a real-estate broker with a real buyer and a link buckets",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    \"buyers interested in purchasing businesses\",",
+        "replace": "    \"buyers interested in purchasing\","
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m20-readd-interested-in-selling",
+    "why": "\"are you interested in selling\" is added back, so a collector asking a gallery to sell a print buckets with a link",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    \"if selling has crossed your mind\",",
+        "replace": "    \"if selling has crossed your mind\",\n    \"are you interested in selling\","
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m21-first-family-only",
+    "why": "Only the first family that matches scores, so a message hitting both scores 30, not 60",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "      reasons.push(family);\n",
+        "replace": "      reasons.push(family);\n      break;\n"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m22-dna-is-gibberish",
+    "why": "DNA sequences count as gibberish again, so a genomics inquiry quoting a primer with a bare domain scores 55 and buckets",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    if (/^[ACGTUNacgtun]+$/.test(run)) continue;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m23-dna-exempts-whole-body",
+    "why": "One DNA run exempts the whole body, so a bot prepends a primer to its mash and loses +35",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    if (/^[ACGTUNacgtun]+$/.test(run)) continue;",
+        "replace": "    if (/^[ACGTUacgtu]+$/.test(run)) return false;"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m24-dna-uppercase-only",
+    "why": "Only an uppercase primer is exempt, so a lowercase one is still scored as gibberish",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    if (/^[ACGTUNacgtun]+$/.test(run)) continue;",
+        "replace": "    if (/^[ACGTU]+$/.test(run)) continue;"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m25-first-person-broker",
+    "why": "\"ever considered selling the business\" broadens back, so an owner who has considered selling and wants a new site buckets with a link",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    \"have you ever considered selling the business\",",
+        "replace": "    \"considered selling the business\","
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m26-substring-match",
+    "why": "Family phrases match as substrings, so \"never considered selling the business\" hits the broker family",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    return new RegExp(`\\\\b${escaped}\\\\b`).test(lower);",
+        "replace": "    return lower.includes(p);"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m27-dna-no-start-anchor",
+    "why": "The DNA test loses its start anchor, so any mash ending in A/C/G/T/U is exempt",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    if (/^[ACGTUNacgtun]+$/.test(run)) continue;",
+        "replace": "    if (/[ACGTUNacgtun]+$/.test(run)) continue;"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m28-dna-no-rna",
+    "why": "U is dropped, so an RNA primer is scored as gibberish",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    if (/^[ACGTUNacgtun]+$/.test(run)) continue;",
+        "replace": "    if (/^[ACGTNacgtn]+$/.test(run)) continue;"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m29-iupac-exempt",
+    "why": "The whole IUPAC set is exempt, so a mash run of consonant codes loses its +35",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    if (/^[ACGTUNacgtun]+$/.test(run)) continue;",
+        "replace": "    if (/^[ACGTURYSWKMBDHVNacgturyswkmbdhvn]+$/.test(run)) continue;"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m30-no-trailing-boundary",
+    "why": "The trailing word boundary is dropped, so \"considered selling your businesses\" matches the broker family",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    return new RegExp(`\\\\b${escaped}\\\\b`).test(lower);",
+        "replace": "    return new RegExp(`\\\\b${escaped}`).test(lower);"
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "m31-reported-speech-broker",
+    "why": "The broker phrase loses \"have you\", so a lead reporting that someone asked if they'd ever considered selling buckets with a link",
+    "edits": [
+      {
+        "file": "src/forms/spam-classifier.ts",
+        "find": "    \"have you ever considered selling the business\",",
+        "replace": "    \"ever considered selling the business\","
+      }
+    ],
+    "test": "tests/forms/spam-classifier.test.ts",
+    "expect": "red"
+  }
+]

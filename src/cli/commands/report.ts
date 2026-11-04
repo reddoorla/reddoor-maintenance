@@ -23,8 +23,25 @@ export type ReportCommandOptions = {
   sendReady?: boolean;
   digest?: boolean;
   rerender?: string;
+  /** P1-33(c): email the operator alone the [TEST] render of one report. */
+  testSend?: string;
+  /** P1-33(c): record the operator's verdict on one test send; the verdict is
+   *  the positional argument (`clean`, or what was wrong). */
+  testVerdict?: string;
+  /** P1-33(c): print the clean-send streak from `report_test_sends`. */
+  testStreak?: boolean;
   type?: string;
   cwd?: string;
+  /** Every positional word cac parsed (`cli.args`). The `[site]` argument keeps
+   *  only the first, so an unquoted `--test-verdict ts_x header is broken` would
+   *  record "header"; the test modes refuse more than one word instead. */
+  positionals?: string[];
+  /** Never accepted: present only so `--test-send` can refuse it by name. cac
+   *  already rejects these as unknown options; this guards direct callers of
+   *  `runReportCommand`, which bypass the parser. */
+  to?: unknown;
+  cc?: unknown;
+  bcc?: unknown;
 };
 
 /**
@@ -84,6 +101,10 @@ export async function runReportCommand(
   slug: string | undefined,
   opts: ReportCommandOptions,
 ): Promise<{ output: string; code: number }> {
+  if (opts.testSend !== undefined || opts.testVerdict !== undefined || opts.testStreak) {
+    return runTestCommand(slug, opts);
+  }
+
   if (opts.digest) {
     const { runDigest } = await import("../../reports/digest.js");
     // #646 step 4: the digest's two datasets come from Turso. ONE connection for
@@ -228,6 +249,112 @@ export async function runReportCommand(
       exitCode: 2,
     },
   );
+}
+
+function usage(message: string): never {
+  throw Object.assign(new Error(message), { exitCode: 2 });
+}
+
+/** `--test-send`, `--test-verdict` and `--test-streak` (P1-33(c)). Checked
+ *  before any store opens, so a refused invocation needs no credentials. */
+async function runTestCommand(
+  positional: string | undefined,
+  opts: ReportCommandOptions,
+): Promise<{ output: string; code: number }> {
+  const modes = [
+    opts.testSend !== undefined,
+    opts.testVerdict !== undefined,
+    Boolean(opts.testStreak),
+  ];
+  const others = [
+    opts.due,
+    opts.sendReady,
+    opts.digest,
+    opts.rerender !== undefined,
+    opts.preview,
+    opts.enrich,
+    opts.type !== undefined,
+  ];
+  if (modes.filter(Boolean).length > 1 || others.some(Boolean)) {
+    usage("--test-send, --test-verdict and --test-streak each run alone");
+  }
+  if ((opts.positionals?.length ?? 0) > 1) {
+    usage(
+      `got ${opts.positionals!.length} words (${opts.positionals!.join(" ")}): quote the verdict, ` +
+        `e.g. report --test-verdict <sendId> "header is broken"`,
+    );
+  }
+  for (const flag of ["to", "cc", "bcc"] as const) {
+    if (opts[flag] !== undefined) {
+      usage(`--${flag} is refused: a test send goes to operatorEmail() and nobody else`);
+    }
+  }
+
+  const { openDb, readDbConfig } = await import("../../db/client.js");
+  const testSends = await import("../../db/test-sends.js");
+
+  if (opts.testStreak) {
+    if (positional !== undefined) usage("--test-streak takes no argument");
+    const db = await openDb(readDbConfig());
+    try {
+      return { output: testSends.formatTestStreak(await testSends.listTestSends(db)), code: 0 };
+    } finally {
+      await db.destroy();
+    }
+  }
+
+  if (opts.testVerdict !== undefined) {
+    const id = String(opts.testVerdict).trim();
+    if (id === "" || id === "true")
+      usage('Usage: report --test-verdict <sendId> clean|"<what was wrong>"');
+    const verdict = testSends.parseVerdict(positional);
+    const db = await openDb(readDbConfig());
+    try {
+      const before = await testSends.setTestSendVerdict(db, id, verdict, new Date());
+      if (!before) return { output: `No test send ${id}`, code: 1 };
+      const now = verdict.verdict === "clean" ? "clean" : `problem: ${verdict.problem}`;
+      const was =
+        before.verdict === "awaiting"
+          ? ""
+          : ` (was ${before.verdict === "clean" ? "clean" : `problem: ${before.problem ?? ""}`})`;
+      return { output: `TEST_SEND_VERDICT send=${id} ${now}${was}`, code: 0 };
+    } finally {
+      await db.destroy();
+    }
+  }
+
+  const ref = String(opts.testSend).trim();
+  if (ref === "" || ref === "true") usage("Usage: report --test-send <reportId|slug>");
+  if (positional !== undefined)
+    usage("--test-send takes its report id or slug as the flag's value");
+  const { testSendReport, formatTestSendResult } = await import("../../reports/send/test-send.js");
+  const { renderReportFromRow } = await import("../../reports/send/render-from-row.js");
+  const { defaultResendClient } = await import("../../reports/send/resend.js");
+  const { getReportById, getSiteById, getSiteBySlug, listReportsForSite } =
+    await import("../../db/fleet-state.js");
+  const { loadHeaderImage } = await import("../../db/header-images.js");
+  const db = await openDb(readDbConfig());
+  try {
+    const result = await testSendReport(
+      {
+        getReport: (id) => getReportById(db, id),
+        getSite: (id) => getSiteById(db, id),
+        getSiteBySlug: (s) => getSiteBySlug(db, s),
+        listReportsForSite: (siteId) => listReportsForSite(db, siteId),
+        loadHeaderPlate: async (siteId) => (await loadHeaderImage(db, siteId))?.bytes ?? null,
+        render: (site, report, plate) => renderReportFromRow(site, report, plate),
+        client: defaultResendClient(),
+        log: (row) => testSends.insertTestSend(db, row),
+        operator: operatorEmail,
+        newId: testSends.newTestSendId,
+        now: () => new Date(),
+      },
+      ref,
+    );
+    return { output: formatTestSendResult(result), code: 0 };
+  } finally {
+    await db.destroy();
+  }
 }
 
 async function runDueDraft(): Promise<{ output: string; code: number }> {

@@ -8,6 +8,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import {
   collectA11yAlerts,
+  collectA11yCoverageAlerts,
   collectDepsAlerts,
   collectDomainAlerts,
   collectFormTestAlerts,
@@ -22,7 +23,11 @@ import {
 } from "../../src/alerts/production-signals.js";
 import { levelOf } from "../../src/alerts/ladder.js";
 import type { AttentionItem } from "../../src/alerts/attention.js";
-import { buildCockpitModel } from "../../src/dashboard/fleet-cockpit.js";
+import {
+  buildCockpitModel,
+  buildNeedsYouFeed,
+  buildSiteAlarmContext,
+} from "../../src/dashboard/fleet-cockpit.js";
 import { collectAttention } from "../../src/reports/digest.js";
 import { summarizeBrowser } from "../../src/audits/browser.js";
 import { browserFieldsFromAudit } from "../../src/audits/browser-fields.js";
@@ -153,15 +158,19 @@ describe("the writer stores null when nothing was sampled", () => {
 });
 
 describe("domain and certificate", () => {
-  it("a certificate at 7 days is Broken, at 8 Attention, at 30 Attention, at 31 nothing", () => {
+  // Netlify renews at about 30 days left (2026-11-03: Data Dynamiq and MSOT read 30 and
+  // renewed that day), so 21 to 30 is renewal's usual lag: no alarm ("just wait").
+  it("a certificate at 7 days is Broken, at 8 Attention, at 20 Attention, at 21 and 30 nothing", () => {
     const at = (days: number) =>
       collectDomainAlerts([site({ certDaysRemaining: days, domainCheckedAt: FRESH })], BASE, NOW);
     expect(at(7).map(level)).toEqual(["broken"]);
     expect(keys(at(7))).toEqual(["cert-expiring:recS"]);
     expect(at(8).map(level)).toEqual(["attention"]);
     expect(keys(at(8))).toEqual(["cert:recS"]);
-    expect(at(30).map(level)).toEqual(["attention"]);
-    expect(at(31)).toEqual([]);
+    expect(at(20).map(level)).toEqual(["attention"]);
+    expect(keys(at(20))).toEqual(["cert:recS"]);
+    expect(at(21)).toEqual([]);
+    expect(at(30)).toEqual([]);
   });
 
   it("an expired certificate is Broken and says so", () => {
@@ -400,6 +409,132 @@ describe("accessibility (Attention, weekly)", () => {
         NOW,
       ),
     ).toEqual([]);
+  });
+});
+
+describe("accessibility coverage lost (#910, Attention)", () => {
+  const halfScanned = { a11yViolations: 0, a11yRoutesScanned: 1, a11yRoutesTotal: 2 };
+
+  it("a fresh run that scanned 1 of 2 routes is Attention, keyed apart from findings", () => {
+    const [it, ...rest] = collectA11yCoverageAlerts(
+      [site({ ...halfScanned, a11yCheckedAt: ago(5) })],
+      BASE,
+      NOW,
+    );
+    expect(rest).toEqual([]);
+    expect(it!.key).toBe("a11y-coverage:recS");
+    expect(level(it!)).toBe("attention");
+    expect(it!.title).toBe("accessibility scan reached only 1 of 2 routes");
+    expect(it!.metric).toBe(1);
+  });
+
+  it("a run that scanned every route it was given raises nothing", () => {
+    expect(
+      collectA11yCoverageAlerts(
+        [site({ ...halfScanned, a11yRoutesScanned: 2, a11yCheckedAt: FRESH })],
+        BASE,
+        NOW,
+      ),
+    ).toEqual([]);
+  });
+
+  it("0 of 2 is a coverage loss too, metric the routes lost", () => {
+    const items = collectA11yCoverageAlerts(
+      [site({ ...halfScanned, a11yRoutesScanned: 0, a11yCheckedAt: FRESH })],
+      BASE,
+      NOW,
+    );
+    expect(keys(items)).toEqual(["a11y-coverage:recS"]);
+    expect(items[0]!.metric).toBe(2);
+  });
+
+  it("a stale, missing or count-less run claims nothing", () => {
+    for (const over of [
+      { a11yCheckedAt: ago(8.1) },
+      { a11yCheckedAt: null },
+      { a11yCheckedAt: FRESH, a11yRoutesScanned: null },
+      { a11yCheckedAt: FRESH, a11yRoutesTotal: null },
+    ]) {
+      expect(collectA11yCoverageAlerts([site({ ...halfScanned, ...over })], BASE, NOW)).toEqual([]);
+    }
+  });
+
+  it("a partial run's findings raise the same a11y item a complete run does, metric the count", () => {
+    const partial = site({ ...halfScanned, a11yViolations: 4, a11yCheckedAt: FRESH });
+    expect(collectA11yAlerts([partial], BASE, NOW)).toEqual([]);
+    const items = collectA11yCoverageAlerts([partial], BASE, NOW);
+    expect(keys(items)).toEqual(["a11y-coverage:recS", "a11y:recS"]);
+    expect(items[0]!.title).toBe("accessibility scan reached only 1 of 2 routes");
+    const findings = items[1]!;
+    expect(findings.title).toBe("4 accessibility findings from a partial scan");
+    expect(findings.metric).toBe(4);
+    expect(level(findings)).toBe("attention");
+    const one = collectA11yCoverageAlerts(
+      [
+        site({
+          a11yViolations: 1,
+          a11yRoutesScanned: 2,
+          a11yRoutesTotal: 3,
+          a11yCheckedAt: FRESH,
+        }),
+      ],
+      BASE,
+      NOW,
+    );
+    expect(one[1]!.title).toBe("1 accessibility finding from a partial scan");
+  });
+
+  // Round 3: the NEW/WORSE diff reads key and metric, never the title.
+  it("a rise in a partial run's findings reads WORSE, and so does losing another route", () => {
+    const week = (violations: number, scanned: number) =>
+      collectA11yCoverageAlerts(
+        [
+          site({
+            a11yViolations: violations,
+            a11yRoutesScanned: scanned,
+            a11yRoutesTotal: 3,
+            a11yCheckedAt: FRESH,
+          }),
+        ],
+        BASE,
+        NOW,
+      );
+    const byKey = (items: AttentionItem[]) =>
+      Object.fromEntries(items.map((i) => [i.key, i.metric]));
+    expect(byKey(week(0, 2))).toEqual({ "a11y-coverage:recS": 1 });
+    expect(byKey(week(4, 2))).toEqual({ "a11y-coverage:recS": 1, "a11y:recS": 4 });
+    expect(byKey(week(4, 1))).toEqual({ "a11y-coverage:recS": 2, "a11y:recS": 4 });
+  });
+
+  it("says what clears it", () => {
+    const [it] = collectA11yCoverageAlerts(
+      [site({ ...halfScanned, a11yCheckedAt: FRESH })],
+      BASE,
+      NOW,
+    );
+    expect(it!.ask).toContain("reddoor.absentFixtures");
+  });
+
+  it("reaches the cockpit card, the Needs-you feed, the site page and the digest", async () => {
+    const partial = site({ ...halfScanned, a11yCheckedAt: FRESH });
+    const m = buildCockpitModel([partial], [], {}, BASE, NOW);
+    expect(keys(m.cards[0]!.items)).toContain("a11y-coverage:recS");
+    expect(m.cards[0]!.tier).toBe("attention");
+    const feed = buildNeedsYouFeed(m).find((f) => f.slug === "sonder");
+    expect(feed?.group).toBe("attention");
+    expect(feed?.reasons).toContain("accessibility scan reached only 1 of 2 routes");
+    expect(keys(buildSiteAlarmContext(partial, [], BASE, NOW).items)).toContain(
+      "a11y-coverage:recS",
+    );
+    const digest = await collectAttention({
+      baseUrl: BASE,
+      websites: [partial],
+      reports: [],
+      now: NOW,
+      notifyBounces: new Map(),
+      deadLetters: new Map(),
+    });
+    expect(keys(digest)).toContain("a11y-coverage:recS");
   });
 });
 

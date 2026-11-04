@@ -22,6 +22,7 @@ import {
 } from "../alerts/digest-collectors.js";
 import {
   collectA11yAlerts,
+  collectA11yCoverageAlerts,
   collectDepsAlerts,
   collectDomainAlerts,
   collectFunctionHealthAlerts,
@@ -745,6 +746,7 @@ export async function collectAttention(deps: CollectAttentionDeps): Promise<Atte
     ...runCollector("links", () => collectLinkAlerts(websites, deps.baseUrl, now)),
     ...runCollector("titles", () => collectTitleMetaAlerts(websites, deps.baseUrl, now)),
     ...runCollector("a11y", () => collectA11yAlerts(websites, deps.baseUrl, now)),
+    ...runCollector("a11y-coverage", () => collectA11yCoverageAlerts(websites, deps.baseUrl, now)),
     ...runCollector(
       "deps",
       () => collectDepsAlerts(websites, deps.fleetDeps ?? null, deps.baseUrl, now).far,

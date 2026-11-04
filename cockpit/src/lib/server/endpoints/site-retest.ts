@@ -1,7 +1,7 @@
 import type { Context } from "@netlify/functions";
 import { openDb, readDbConfig } from "../../../../../src/db/client.js";
 import { getSiteBySlug } from "../../../../../src/db/fleet-state.js";
-import { requireOperator, denialResponse } from "../../../../../src/dashboard/index.js";
+import { requireOperator, denialResponse } from "../../../../../src/dashboard/auth/require.js";
 import { triggerSiteRetest } from "../../../../../src/dashboard/site-retest-trigger.js";
 import { isCsrfAllowed } from "../../../../../src/dashboard/csrf.js";
 import { handlerError } from "../../../../../src/dashboard/handler-helpers.js";

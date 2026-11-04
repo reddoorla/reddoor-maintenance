@@ -4,6 +4,9 @@ import {
   SPAM_THRESHOLD,
   BLOCKED_EMAIL_DOMAINS,
   DISPOSABLE_EMAIL_DOMAINS,
+  CONTENT_FAMILIES,
+  SPAM_KEYWORDS,
+  BUYER_KEYWORDS,
 } from "../../src/forms/spam-classifier.js";
 import {
   VENDORED_DISPOSABLE_DOMAINS,
@@ -50,17 +53,17 @@ const SHARED_MAILBOX_PROVIDERS: readonly string[] = [
 ];
 
 describe("classifySpam", () => {
-  it("exports SPAM_THRESHOLD = 60", () => {
-    expect(SPAM_THRESHOLD).toBe(60);
+  it("exports SPAM_THRESHOLD = 50", () => {
+    expect(SPAM_THRESHOLD).toBe(50);
   });
 
   it("scores a clean submission 0 with no reasons", () => {
     expect(clean()).toEqual({ score: 0, reasons: [] });
   });
 
-  it("turnstile 'fail' adds 50 (turnstile-fail); pass/unverifiable/absent add 0", () => {
+  it("turnstile 'fail' adds 45 (turnstile-fail); pass/unverifiable/absent add 0", () => {
     expect(clean({ turnstile: "fail" as TurnstileOutcome })).toEqual({
-      score: 50,
+      score: 45,
       reasons: ["turnstile-fail"],
     });
     expect(clean({ turnstile: "pass" as TurnstileOutcome })).toEqual({ score: 0, reasons: [] });
@@ -77,14 +80,14 @@ describe("classifySpam", () => {
     });
   });
 
-  it("caps link points at 50 (two-plus bare links) but reports the real count", () => {
+  it("caps link points at 45 (two-plus bare links) but reports the real count", () => {
     expect(clean({ message: "http://a.com http://b.com http://c.com" })).toEqual({
-      score: 50,
+      score: 45,
       reasons: ["links:3"],
     });
-    // more than two URLs still caps points at 50; reason shows the actual count
+    // more than two URLs still caps points at 45; reason shows the actual count
     const five = clean({ message: "www.a.com www.b.com www.c.com www.d.com www.e.com" });
-    expect(five.score).toBe(50);
+    expect(five.score).toBe(45);
     expect(five.reasons).toEqual(["links:5"]);
   });
 
@@ -93,20 +96,20 @@ describe("classifySpam", () => {
       score: 25,
       reasons: ["links:1"],
     });
-    // two scheme+www links must score as 2 links, not 4 (capped at 50)
+    // two scheme+www links must score as 2 links, not 4 (capped at 45)
     expect(clean({ message: "see https://www.a.com and https://www.b.com for details" })).toEqual({
-      score: 50,
+      score: 45,
       reasons: ["links:2"],
     });
   });
 
   it("counts comma/semicolon-glued URLs individually (bots pack links with no separators)", () => {
     expect(clean({ message: "deals at http://a.com,http://b.com today" })).toEqual({
-      score: 50,
+      score: 45,
       reasons: ["links:2"],
     });
     const glued = clean({ message: "grab www.a.com,www.b.com;www.c.com now" });
-    expect(glued.score).toBe(50); // 3 links, capped at 50
+    expect(glued.score).toBe(45); // 3 links, capped at 45
     expect(glued.reasons).toEqual(["links:3"]);
   });
 
@@ -202,24 +205,24 @@ describe("classifySpam", () => {
     // POLICY CHANGE (operator 2026-07-15): "backlinks" is now a seller keyword —
     // SEO-topic asks through the public form are deliberately filtered (clients ask
     // the agency directly; the fleet's sites rank top for their own specific names).
-    // One phrase alone still scores 30 < 60, so a lone audit ask is DELIVERED —
+    // One phrase alone still scores 30 < 50, so a lone audit ask is DELIVERED —
     // it only buckets alongside a second solicitation signal.
     const backlinkAsk = clean({ message: "Can you audit the backlinks pointing to our domain?" });
     expect(backlinkAsk).toEqual({ score: 30, reasons: ["keywords:1"] });
     expect(backlinkAsk.score >= SPAM_THRESHOLD).toBe(false);
   });
 
-  it("legit vertical mention + two links stays under threshold (links 50 only, no keyword hit)", () => {
+  it("legit vertical mention + two links stays under threshold (links 45 only, no keyword hit)", () => {
     const wellness = clean({
       message: "I run a weight loss studio, here are our sites: http://a.com http://b.com",
     });
-    expect(wellness).toEqual({ score: 50, reasons: ["links:2"] });
+    expect(wellness).toEqual({ score: 45, reasons: ["links:2"] });
     expect(wellness.score >= SPAM_THRESHOLD).toBe(false);
 
     const resort = clean({
       message: "Our resort has a casino, portfolio at http://a.com and http://b.com",
     });
-    expect(resort).toEqual({ score: 50, reasons: ["links:2"] });
+    expect(resort).toEqual({ score: 45, reasons: ["links:2"] });
     expect(resort.score >= SPAM_THRESHOLD).toBe(false);
   });
 
@@ -237,9 +240,9 @@ describe("classifySpam", () => {
     }
   });
 
-  it("flags >30% non-latin script in the message body at 25 (non-latin); the name never scores", () => {
+  it("flags >30% non-latin script in the message body at 20 (non-latin); the name never scores", () => {
     expect(clean({ message: "Привет это спам сообщение" })).toEqual({
-      score: 25,
+      score: 20,
       reasons: ["non-latin"],
     });
     // a native-script name is not a spam signal
@@ -247,18 +250,25 @@ describe("classifySpam", () => {
     expect(clean({ name: "Владимир" })).toEqual({ score: 0, reasons: [] });
   });
 
-  it("non-latin still needs corroboration: native-script name + two links = 50 -> under; non-latin body + two links = 75 -> over (threshold 60)", () => {
+  it("non-latin still needs corroboration: native-script name + two links = 45 -> under; non-latin body + one link = 45 -> under; non-latin body + two links = 65 -> over (threshold 50)", () => {
     const nameCase = clean({ name: "王小明", message: "see http://a.com and http://b.com" });
-    expect(nameCase).toEqual({ score: 50, reasons: ["links:2"] });
+    expect(nameCase).toEqual({ score: 45, reasons: ["links:2"] });
     expect(nameCase.score >= SPAM_THRESHOLD).toBe(false);
 
-    // A non-latin body PLUS two links now crosses the lowered 60 threshold (25 + 50).
+    // An international lead pasting its one site link stays deliverable (20 + 25).
+    const oneLink = clean({
+      message: "Здравствуйте, мы хотим заказать продукцию, наш сайт https://example.ru",
+    });
+    expect(oneLink).toEqual({ score: 45, reasons: ["links:1", "non-latin"] });
+    expect(oneLink.score >= SPAM_THRESHOLD).toBe(false);
+
+    // A non-latin body PLUS two links crosses the threshold (20 + 45).
     // For an LA-fleet creative site a native-script message with multiple pasted links
     // is far more likely a bot than a lead — and spam_auto is recoverable.
     const bodyCase = clean({
       message: "Портфолио: http://a.com http://b.com — жду вашего ответа, спасибо",
     });
-    expect(bodyCase).toEqual({ score: 75, reasons: ["links:2", "non-latin"] });
+    expect(bodyCase).toEqual({ score: 65, reasons: ["links:2", "non-latin"] });
     expect(bodyCase.score >= SPAM_THRESHOLD).toBe(true);
   });
 
@@ -398,9 +408,9 @@ describe("classifySpam", () => {
     });
     // Guardrail: URL_RE stops at `,`/`;` (2 links) but ONLY_URL_RE deliberately
     // keeps `\S+`, so a comma-glued URL body is still one token => degenerate.
-    // links (2 -> capped 50) + degenerate (40) = 90.
+    // links (2 -> capped 45) + degenerate (40) = 85.
     expect(clean({ name: "Jane", message: "http://a.com,http://b.com" })).toEqual({
-      score: 90,
+      score: 85,
       reasons: ["links:2", "degenerate"],
     });
   });
@@ -431,26 +441,32 @@ describe("classifySpam", () => {
     ).toEqual({ score: 0, reasons: [] });
   });
 
-  it("threshold boundaries (60): forged-token 'fail' + one link = 75 -> spam; two links alone = 50 -> under", () => {
+  it("threshold boundaries (50): forged-token 'fail' + one link = 70 -> spam; 'fail' alone = 45 and two links alone = 45 -> under", () => {
     // Post-#400 a "fail" is a FORGED token (invalid-input-response) — near-certainly a
-    // bot — so fail (50) + one pasted link (25) crossing 60 is correct. A real human's
+    // bot — so fail (45) + one pasted link (25) crossing 50 is correct. A real human's
     // expired/duplicate token is "unverifiable", never "fail".
     const failPlusLink = clean({
       turnstile: "fail" as TurnstileOutcome,
       message: "visit http://a.com",
     });
-    expect(failPlusLink).toEqual({ score: 75, reasons: ["turnstile-fail", "links:1"] });
+    expect(failPlusLink).toEqual({ score: 70, reasons: ["turnstile-fail", "links:1"] });
     expect(failPlusLink.score >= SPAM_THRESHOLD).toBe(true);
 
+    // A forged token alone still needs one corroborating signal (Operator decisions,
+    // 2026-11-03: trimmed 50 -> 45 when the threshold dropped to 50).
+    const failAlone = clean({ turnstile: "fail" as TurnstileOutcome });
+    expect(failAlone).toEqual({ score: 45, reasons: ["turnstile-fail"] });
+    expect(failAlone.score >= SPAM_THRESHOLD).toBe(false);
+
     // The URL cap protects a genuine lead pasting their site + portfolio: two links
-    // alone score 50, under the 60 threshold — never auto-bucketed on links alone.
+    // alone score 45, under the 50 threshold — never auto-bucketed on links alone.
     const twoLinks = clean({ message: "http://a.com http://b.com" });
-    expect(twoLinks).toEqual({ score: 50, reasons: ["links:2"] });
+    expect(twoLinks).toEqual({ score: 45, reasons: ["links:2"] });
     expect(twoLinks.score >= SPAM_THRESHOLD).toBe(false);
 
-    // three+ links still cap at 50, still under
+    // three+ links still cap at 45, still under
     const threeLinks = clean({ message: "http://a.com http://b.com http://c.com" });
-    expect(threeLinks.score).toBe(50);
+    expect(threeLinks.score).toBe(45);
     expect(threeLinks.score >= SPAM_THRESHOLD).toBe(false);
   });
 });
@@ -520,7 +536,7 @@ describe("classifySpam — cold-outreach / gibberish / bare-domain tuning (2026-
 
   it("buckets each observed live-flood family (2026-07-15 miss corpus)", () => {
     // Every message here is a (lightly trimmed) real submission the previous
-    // classifier delivered; each family must now reach >= 60.
+    // classifier delivered; each family must now reach the threshold.
     const families: Record<string, string> = {
       mavis:
         "I'm Amanda with Trusted Virtual Team. We offer MAVIS (My Advanced Virtual Intelligent System), that easily replaces a 20-man team.",
@@ -587,7 +603,7 @@ describe("classifySpam — cold-outreach / gibberish / bare-domain tuning (2026-
   });
 
   it("does NOT bucket a single ambiguous outreach phrase on its own (needs corroboration)", () => {
-    // A genuine lead can plausibly ask for a "free consultation" — weak +10, < 60.
+    // A genuine lead can plausibly ask for a "free consultation" — weak +10, < 50.
     const v = clean({ message: "Could I get a free consultation about a new website?" });
     expect(v.reasons).toContain("keywords-buyer:1");
     expect(v.score).toBeLessThan(SPAM_THRESHOLD);
@@ -707,14 +723,13 @@ describe("classifySpam — cold-outreach / gibberish / bare-domain tuning (2026-
     );
   });
 
-  it("URL cap protects a genuine two-link lead: site + portfolio = 50 < 60", () => {
-    expect(clean({ message: "our site http://a.com and portfolio http://b.com" })).toEqual({
-      score: 50,
-      reasons: ["links:2"],
-    });
+  it("URL cap protects a genuine two-link lead: site + portfolio = 45 < 50", () => {
+    const lead = clean({ message: "our site http://a.com and portfolio http://b.com" });
+    expect(lead).toEqual({ score: 45, reasons: ["links:2"] });
+    expect(lead.score).toBeLessThan(SPAM_THRESHOLD);
   });
 
-  it("buckets a representative multi-phrase SEO outreach pitch (>= 60)", () => {
+  it("buckets a representative multi-phrase SEO outreach pitch (>= threshold)", () => {
     // "position your brand" + "above competitors" (seller) + "within 24 hours"
     // (buyer, promoted) = 3 hits -> 90
     const v = clean({
@@ -722,5 +737,254 @@ describe("classifySpam — cold-outreach / gibberish / bare-domain tuning (2026-
     });
     expect(v.reasons).toContain("keywords:3");
     expect(v.score).toBeGreaterThanOrEqual(SPAM_THRESHOLD);
+  });
+});
+
+// 2026-11-03 forms spam review, recommendations 2 and 3. Every fixture below is
+// synthetic: written for this file, not copied from a stored submission.
+describe("classifySpam — threshold 50 and corroborating content families (2026-11-03)", () => {
+  it("one link plus one seller keyword (55) now buckets — the pattern three notifications reached clients with", () => {
+    const v = clean({
+      message: "Would you be interested in our new canvas tote bags? See http://totes.example",
+    });
+    expect(v).toEqual({ score: 55, reasons: ["links:1", "keywords:1"] });
+    expect(v.score >= SPAM_THRESHOLD).toBe(true);
+  });
+
+  it("exactly 50 buckets: one seller keyword plus a bare domain (30 + 20)", () => {
+    const v = clean({ message: "Would you be open to a call next week? I run pitchdesk.co" });
+    expect(v).toEqual({ score: 50, reasons: ["bare-domain", "keywords:1"] });
+    expect(v.score >= SPAM_THRESHOLD).toBe(true);
+  });
+
+  it("every family phrase fires on its own, as its family, once", () => {
+    // Literal sentences, one per phrase, so dropping or misspelling a phrase in the
+    // source goes red (a table built from CONTENT_FAMILIES itself could not).
+    const cases: ReadonlyArray<[string, string]> = [
+      ["Please review the attached RFQ before Friday.", "bid-lure"],
+      ["The specifications are available for your review online.", "bid-lure"],
+      ["I have buyers interested in purchasing businesses nearby.", "broker-template"],
+      ["Have you ever considered selling the business?", "broker-template"],
+      ["Have you considered selling your business this year?", "broker-template"],
+      ["If selling has crossed your mind, call me.", "broker-template"],
+    ];
+    expect(cases.length).toBe(Object.values(CONTENT_FAMILIES).flat().length);
+    for (const [message, family] of cases) {
+      expect(clean({ message }), message).toEqual({ score: 30, reasons: [family] });
+    }
+  });
+
+  it("a family phrase in an extra free-text field scores like one in the message", () => {
+    const v = clean({ message: "", extraFields: { details: "Please review the attached RFQ." } });
+    expect(v).toEqual({ score: 30, reasons: ["bid-lure"] });
+  });
+
+  it("a bid/RFQ lure alone scores 30 and is delivered; with a link it buckets", () => {
+    const alone = clean({
+      message:
+        "Hello, we have a new project. Please review the attached RFQ and reply if interested.",
+    });
+    expect(alone).toEqual({ score: 30, reasons: ["bid-lure"] });
+    expect(alone.score >= SPAM_THRESHOLD).toBe(false);
+
+    const withLink = clean({
+      message: "Hello, please review the attached RFQ. Project files: https://files.example/bid",
+    });
+    expect(withLink).toEqual({ score: 55, reasons: ["links:1", "bid-lure"] });
+    expect(withLink.score >= SPAM_THRESHOLD).toBe(true);
+  });
+
+  it("a business-broker template alone scores 30 and is delivered; with a link it buckets", () => {
+    const alone = clean({
+      message:
+        "Hi, I represent several buyers interested in purchasing businesses in your area. Would selling suit you?",
+    });
+    expect(alone).toEqual({ score: 30, reasons: ["broker-template"] });
+    expect(alone.score >= SPAM_THRESHOLD).toBe(false);
+
+    const withLink = clean({
+      message:
+        "If selling has crossed your mind, our buyers are ready. Book a call: https://calendar.example/broker",
+    });
+    expect(withLink).toEqual({ score: 55, reasons: ["links:1", "broker-template"] });
+    expect(withLink.score >= SPAM_THRESHOLD).toBe(true);
+  });
+
+  it("a genuine RFQ to an industrial site is delivered, even when it uses two lure phrases", () => {
+    // Espada and Vineyard can receive real bid invitations (the operator, 2026-11-03),
+    // so the family is corroborating only and adds its weight ONCE however many of its
+    // phrases appear.
+    const rfq = clean({
+      name: "Dana Ortiz",
+      email: "dana@ortiz-fabrication.example",
+      message:
+        "We are a fabrication shop in San Antonio. Please review the attached RFQ for 40 steel brackets; the specifications are available for your review at our office. Include your lead time.",
+    });
+    expect(rfq).toEqual({ score: 30, reasons: ["bid-lure"] });
+    expect(rfq.score >= SPAM_THRESHOLD).toBe(false);
+  });
+
+  it("a homeowner asking for an estimate with one link matches no family", () => {
+    const lead = clean({
+      message:
+        "We just bought a lot in Eagle and would love a quote. Could you provide an estimate and a lead time? The scope of work is a 3,000 sq ft single story. Listing: https://listing.example/lot-12",
+    });
+    expect(lead).toEqual({ score: 25, reasons: ["links:1"] });
+  });
+
+  it("genuine buyer, seller and broker messages with one link match no family", () => {
+    // Each is how a real lead to this fleet writes, and each sits one word away from a
+    // family phrase, so a broadened phrase goes red here.
+    for (const message of [
+      "Please quote 200 units; we need a unit price and an RFQ number for our PO. We plan to bid on the city contract. https://co.example",
+      "Please send your proposed unit price for 2,000 machined brackets per the drawing at https://mfg.example/rfq/123",
+      "Our foundation would like to invite your team to submit a proposal. The RFP is here: https://foundation.example/rfp",
+      "I saw the large print in your window. Are you interested in selling it? My collection: https://collector.example",
+      "We are interested in selling your products in our store and are actively looking for suppliers. https://store.example",
+      "I represent buyers interested in purchasing multifamily assets in Pasadena. Details: https://broker.example/buyers",
+      "I have buyers actively looking for industrial land near your parcel. See https://broker.example",
+      "We've considered selling the business in a few years, so we want a refreshed site first. https://owner.example",
+      "We had never considered selling the business until my partner retired. Can you value it? https://owner.example",
+      "My accountant asked if I'd ever considered selling the business along with our building. https://owner.example",
+      "If you ever considered selling the business, would the lease transfer? We are a tenant at https://tenant.example",
+      "Have you considered selling your businesses to a REIT? We are comparing advisors. https://advisor.example",
+      "Thanks for the invitation to bid on the Elm St remodel. Our numbers: https://sub.example/elm",
+      "Thanks for the attached RFQ; our quote is at https://sub.example/q/1",
+      "We would like to invite your team to submit a quote for a kitchen remodel. Photos: https://photos.example/abc",
+    ]) {
+      expect(clean({ message }), message).toEqual({ score: 25, reasons: ["links:1"] });
+    }
+  });
+
+  it("a family plus two buyer phrases tops up to exactly 50 and buckets", () => {
+    const v = clean({
+      message:
+        "Please review the attached RFQ. Do you offer a free consultation? We need it within 24 hours.",
+    });
+    expect(v).toEqual({ score: 50, reasons: ["keywords-buyer:2", "bid-lure"] });
+    expect(v.score >= SPAM_THRESHOLD).toBe(true);
+  });
+
+  it("a message that hits both families scores both (60)", () => {
+    const v = clean({
+      message: "If selling has crossed your mind, review the attached RFQ from our acquirer.",
+    });
+    expect(v).toEqual({ score: 60, reasons: ["bid-lure", "broker-template"] });
+  });
+
+  it("a DNA primer quoted to a genomics site is not gibberish", () => {
+    const v = clean({
+      message:
+        "Does your kit work with primer GCTTCGGCCTTCGGTCCGTT? Saw the protocol on kitprotocols.com",
+    });
+    expect(v).toEqual({ score: 20, reasons: ["bare-domain"] });
+    // lowercase and short primers too
+    expect(clean({ message: "primer gcttcggccttcgg please" })).toEqual({ score: 0, reasons: [] });
+    expect(clean({ message: "primer GCTTCGGCCTTC please" })).toEqual({ score: 0, reasons: [] });
+    // real mash is still caught, beside a primer and when it merely contains A/C/G/T
+    expect(clean({ message: "OsDMQohNGefhfCqqQCwr" }).reasons).toContain("gibberish-body");
+    expect(clean({ message: "GATTACAGATTACA OsDMQohNGefhfCqqQCwr" }).reasons).toContain(
+      "gibberish-body",
+    );
+    expect(clean({ message: "GTCAGTCAQXZWKMB" }).reasons).toContain("gibberish-body");
+    expect(clean({ message: "OsDMQohNGefhfCqqQCwt" }).reasons).toContain("gibberish-body");
+    // the other IUPAC codes are all consonants: a run of them is still mash
+    expect(clean({ message: "KMRWSYBDHVKMRW" }).reasons).toContain("gibberish-body");
+    // RNA, and the N "any base" code
+    expect(clean({ message: "primer GCCGCGGCCUGCGGCCGCG please" })).toEqual({
+      score: 0,
+      reasons: [],
+    });
+    expect(clean({ message: "primer ATGCGTCCTGGATCCNNNNACGT please" })).toEqual({
+      score: 0,
+      reasons: [],
+    });
+  });
+
+  it("a buyer-voice purchase inquiry with one link matches no family", () => {
+    const lab = clean({
+      message:
+        "Our lab is interested in procuring two units of your system and would appreciate a quotation. Could you arrange for a sales representative to call? Institution: https://lab.example",
+    });
+    expect(lab).toEqual({ score: 25, reasons: ["links:1"] });
+  });
+
+  it("family phrases match case-insensitively and across hyphens", () => {
+    expect(clean({ message: "Please review the Attached RFQ today." }).reasons).toEqual([
+      "bid-lure",
+    ]);
+    expect(clean({ message: "Have you ever considered–selling–the-business?" }).reasons).toEqual([
+      "broker-template",
+    ]);
+  });
+
+  it("family phrases are lowercase, hyphen-free, distinct, and never overlap another phrase list", () => {
+    const all = Object.values(CONTENT_FAMILIES).flat();
+    for (const phrase of all) {
+      expect(phrase, phrase).toBe(phrase.toLowerCase());
+      expect(phrase, phrase).not.toMatch(/[-–—]/);
+      const others = [...SPAM_KEYWORDS, ...BUYER_KEYWORDS, ...all.filter((p) => p !== phrase)];
+      for (const kw of others) {
+        expect(phrase.includes(kw) || kw.includes(phrase), `${phrase} / ${kw}`).toBe(false);
+      }
+    }
+    expect(new Set(all).size).toBe(all.length);
+  });
+});
+
+// Recommendation 4 of reddoor-workspace reports/2026-11-03-forms-spam-review. Every
+// name and address here is synthetic: the shapes copy the seven bot RSVPs (a one-word
+// random name, a gmail local part with 3+ dots, 13 to 161 guests), not their values.
+describe("bot-rsvp: all three of random name, dotted gmail and a party over 10", () => {
+  function rsvp(name: string, email: string, guests: string | number, formType = "rsvp") {
+    return classifySpam({
+      name,
+      email,
+      formType: formType as FormType,
+      extraFields: { event: "Spring Opening", event_uid: "spring-opening", guests },
+      turnstile: "unverifiable" as TurnstileOutcome,
+    });
+  }
+  const blocked = (v: ReturnType<typeof classifySpam>) =>
+    v.score >= SPAM_THRESHOLD && v.reasons.includes("bot-rsvp");
+
+  it.each([
+    ["Qzvbrta", "q.z.v.brta@gmail.com", "13"], // odd pairs zv, vb
+    ["Xkwdolm", "xk.wd.ol.m@gmail.com", "161"],
+    ["Ulpmar", "u.l.p.m.ar@gmail.com", "26"], // only odd pair: pm
+    ["Owlinq", "o.wl.in.q@gmail.com", "87"], // no odd pair; ends on a q
+    ["Taqrino", "t.a.q.r.i.n.o@googlemail.com", "51"], // q followed by r
+    ["Bgfhte", "bg.f.h.te@GMAIL.com", 20], // a numeric guests field
+  ])("blocks %s", (name, email, guests) => {
+    expect(blocked(rsvp(name, email, guests))).toBe(true);
+  });
+
+  it("blocks at exactly 3 dots and 11 guests, the edges of the rule", () => {
+    expect(blocked(rsvp("Qzvbrta", "q.z.v.brta@gmail.com", "11"))).toBe(true);
+  });
+
+  it.each([
+    // Each of these drops exactly one condition; a mutation that drops that condition
+    // from the rule turns its row red.
+    ["a real guest's two-word name", "Maria Lopez", "m.a.r.i.a.lopez@gmail.com", "14", "rsvp"],
+    ["a real one-word name", "Brianna", "b.r.i.anna@gmail.com", "25", "rsvp"],
+    ["a dotless gmail", "Qzvbrta", "qzvbrta@gmail.com", "40", "rsvp"],
+    ["only 2 dots", "Qzvbrta", "q.zv.brta@gmail.com", "40", "rsvp"],
+    ["a dotted non-gmail address", "Qzvbrta", "q.z.v.brta@outlook.com", "40", "rsvp"],
+    ["a party of 2", "Qzvbrta", "q.z.v.brta@gmail.com", "2", "rsvp"],
+    ["a party of exactly 10", "Qzvbrta", "q.z.v.brta@gmail.com", "10", "rsvp"],
+    ["a guests field that is not a number", "Qzvbrta", "q.z.v.brta@gmail.com", "lots", "rsvp"],
+    ["a contact form, not an RSVP", "Qzvbrta", "q.z.v.brta@gmail.com", "40", "contact"],
+  ])("does not block %s", (_label, name, email, guests, formType) => {
+    const v = rsvp(name, email, guests, formType);
+    expect(v.reasons).not.toContain("bot-rsvp");
+    expect(v.score).toBeLessThan(SPAM_THRESHOLD);
+  });
+
+  it("does not block a real guest with an odd-pair name and a big party on a plain address", () => {
+    // Farooq ends on a q, so the name signal fires, and 12 guests clears the party bar; what
+    // holds this back is the one-dot address alone. A real single-name guest who also used a
+    // 3-dot gmail would be blocked (the disclosed false positive; see the PR body).
+    expect(blocked(rsvp("Farooq", "farooq.khan@gmail.com", "12"))).toBe(false);
   });
 });

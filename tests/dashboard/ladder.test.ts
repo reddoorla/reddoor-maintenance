@@ -131,6 +131,14 @@ describe("levelOf places every existing signal", () => {
     expect(levelOf({ ...it_("vuln:recS", "vuln"), transitiveOnly: false }, TODAY, NOW)).toBe(
       "attention",
     );
+    // The operator, 2026-11-03: still present after 4 lockfile windows, Attention again.
+    expect(
+      levelOf(
+        { ...it_("vuln:recS", "vuln"), transitiveOnly: true, transitiveStuck: true },
+        TODAY,
+        NOW,
+      ),
+    ).toBe("attention");
   });
 
   it("a Renovate PR is Watch until it has been red 7 days, then Attention", () => {
@@ -206,6 +214,17 @@ describe("one signal per site: tier and Needs-you group", () => {
     expect(m.cards[0]!.items.map((i) => [i.key, i.level])).toEqual([["vuln:recS", "watch"]]);
     expect(buildNeedsYouFeed(m)[0]!.reasons).toEqual([
       "1 critical/high vuln — transitive-only, still present after the 2026-10-12 lockfile window",
+    ]);
+  });
+
+  it("a transitive-only vulnerability still present after 4 windows is Attention again", () => {
+    // First flagged 09-10; its fourth window closed 10-05, so it rose 10-07. NOW is 10-26.
+    const m = model([site({ securityVulnsHigh: 1, securityAdvisories: [transitiveHigh] })], {
+      prior: { "vuln:recS": { metric: 1, firstFlaggedAt: "2026-09-10" } },
+    });
+    expect(verdictOf(m)).toEqual({ tier: "attention", group: "attention" });
+    expect(buildNeedsYouFeed(m)[0]!.reasons).toEqual([
+      "1 critical/high vuln — transitive-only, flagged since 2026-09-10 and through 4 lockfile windows (the last closed 2026-10-05)",
     ]);
   });
 

@@ -143,6 +143,8 @@ export interface SiteHealthTable {
   a11y_violations: number | null;
   a11y_routes_scanned: number | null;
   a11y_routes_total: number | null;
+  /** JSON `[{ route, reason, path? }]` (#910). */
+  a11y_routes_skipped: string | null;
   a11y_checked_at: string | null;
   deps_drifted: number | null;
   deps_major_behind: number | null;
@@ -317,6 +319,24 @@ export interface CockpitVersionTable {
   n: number;
 }
 
+/** Migration 0054 (P1-33(c)): one row per `report --test-send`. */
+export interface ReportTestSendsTable {
+  id: string;
+  /** `reports.id` of the row that was rendered. */
+  report_id: string;
+  site_id: string;
+  /** The subject as sent, `[TEST] ` prefix included. */
+  subject: string;
+  /** The one address it went to: `operatorEmail()` at send time. */
+  sent_to: string;
+  resend_message_id: string | null;
+  sent_at: string;
+  verdict: "awaiting" | "clean" | "problem";
+  /** What was wrong, when `verdict` is 'problem'. */
+  problem: string | null;
+  verdict_at: string | null;
+}
+
 /** Every table the app owns, as a RUNTIME value (#612 review).
  *
  *  The `Database` interface below is types-only, so nothing could assert that a
@@ -338,6 +358,7 @@ export const DATABASE_TABLES = [
   "digest_state",
   "cockpit_version",
   "fleet_daily",
+  "report_test_sends",
 ] as const;
 
 export type DatabaseTable = (typeof DATABASE_TABLES)[number];
@@ -356,6 +377,7 @@ export interface Database {
   digest_state: DigestStateTable;
   cockpit_version: CockpitVersionTable;
   fleet_daily: FleetDailyTable;
+  report_test_sends: ReportTestSendsTable;
 }
 
 /** Compile-time exhaustiveness: if a table is added to `Database` and not to

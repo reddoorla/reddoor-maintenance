@@ -538,6 +538,27 @@ function spam(
   ];
 }
 
+/** How many skipped routes the a11y tile names before "+N more". */
+const A11Y_SKIPS_NAMED = 3;
+
+/** "not scanned: animate-in demo at /dev/animate-in (reason), /b (reason)", or null when nothing was skipped or nothing stored.
+ *  Worded "not scanned", not "skipped": a declared skip is out of the counts, so the tile
+ *  reads "1 of 1 routes scanned; not scanned: animate-in demo at /dev/animate-in (…)" without contradicting. */
+export function a11ySkipNote(skipped: WebsiteRow["a11yRoutesSkipped"]): string | null {
+  if (skipped === null || skipped.length === 0) return null;
+  // The path is what a `reddoor.absentFixtures` declaration names, so the coverage item's ask
+  // can be followed from this line; a route whose name is its path says it once.
+  const named = skipped
+    .slice(0, A11Y_SKIPS_NAMED)
+    .map((r) =>
+      r.path !== undefined && r.path !== r.route
+        ? `${r.route} at ${r.path} (${r.reason})`
+        : `${r.route} (${r.reason})`,
+    );
+  const more = skipped.length - named.length;
+  return `not scanned: ${named.join(", ")}${more > 0 ? ` +${more} more` : ""}`;
+}
+
 export function buildSiteView(
   site: WebsiteRow,
   reports: ReportRow[],
@@ -545,6 +566,10 @@ export function buildSiteView(
   spamTotals: ScreenOutTotals | null,
   now: Date,
   siteAlarm: SiteAlarmContext | null,
+  /** The stored `sites.slug` the page was addressed by. The action endpoints look the
+   *  site up by it (`getSiteBySlug`), and a rename leaves it while the Name-derived slug
+   *  moves, so the URLs must use it (#1887). Absent only where no stored slug was read. */
+  storedSlug?: string,
 ): SiteView {
   const allScoresNull =
     site.pScore === null && site.rScore === null && site.bpScore === null && site.seoScore === null;
@@ -553,12 +578,21 @@ export function buildSiteView(
   const allHealthNull =
     site.a11yViolations === null && site.depsDrifted === null && secTotal === null;
   const { a11yRoutesScanned: scanned, a11yRoutesTotal: total } = site;
-  const a11ySub =
+  const a11yCoverage =
     scanned === null || total === null
       ? null
       : scanned < total
         ? `only ${scanned} of ${total} routes scanned`
         : `${scanned} of ${total} routes scanned`;
+  // #910: the counts say coverage dropped; the stored list says where and why. A skip the
+  // site declared is out of both counts, so this is the only place it shows.
+  const skipNote = a11ySkipNote(site.a11yRoutesSkipped);
+  const a11ySub =
+    a11yCoverage === null
+      ? skipNote
+      : skipNote === null
+        ? a11yCoverage
+        : `${a11yCoverage}; ${skipNote}`;
   const depsSub =
     site.depsMajorBehind === null || site.depsMajorBehind === 0
       ? null
@@ -569,7 +603,10 @@ export function buildSiteView(
       : `${site.securityVulnsCritical ?? 0}C / ${site.securityVulnsHigh ?? 0}H / ${site.securityVulnsModerate ?? 0}M / ${site.securityVulnsLow ?? 0}L`;
 
   const { score, total: setupTotal } = onboardingStatus(site, now);
-  const slug = siteSlug(site.name);
+  // The /api/sites/:slug endpoints resolve the stored slug; /submissions filters by the
+  // Name-derived one. Encoded although the endpoints refuse any non-slug (#1889).
+  const slug = encodeURIComponent(storedSlug ?? siteSlug(site.name));
+  const nameSlug = encodeURIComponent(siteSlug(site.name));
 
   // The report-history table is the only place the "recent 6" slice belongs;
   // the pending list sees the FULL set, so an old pending report stays approvable.
@@ -631,7 +668,7 @@ export function buildSiteView(
         : {
             total: visible.length,
             shown: shown.map((s) => buildSubmissionRowView(s, now)),
-            viewAllHref: `/submissions?site=${slug}`,
+            viewAllHref: `/submissions?site=${nameSlug}`,
           },
   };
 }

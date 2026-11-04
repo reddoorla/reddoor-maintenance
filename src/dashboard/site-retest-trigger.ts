@@ -6,7 +6,6 @@
 // dispatches anything in the site's own repo (that is the Renovate button's job), so
 // a re-test cannot fire Renovate (backlog P0-1).
 import type { WebsiteRow } from "../fleet/site-row.js";
-import { siteSlug } from "../fleet/site-row.js";
 import { buildSiteAlarmContext } from "./fleet-cockpit.js";
 import { retestPlanForRow, SITE_RETEST_WORKFLOW, SLUG_PATTERN } from "../retest/site-retest.js";
 
@@ -32,15 +31,13 @@ export async function triggerSiteRetest(
   if (!SLUG_PATTERN.test(slug)) return { status: "bad-slug", slug };
   const site = await deps.getSite(slug);
   if (!site) return { status: "not-found", slug };
-  // The workflow finds the site by the slug the roster derives from its Name (as the
-  // fleet audits do), which a stored slug need not equal; send that one.
-  const target = siteSlug(site.name);
-  if (!SLUG_PATTERN.test(target)) return { status: "not-found", slug };
   const now = (deps.now ?? (() => new Date()))();
   const plan = retestPlanForRow(site, buildSiteAlarmContext(site, [], "", now).items);
   if (plan.audits.length === 0) return { status: "nothing-to-retest", slug };
   try {
-    await deps.dispatch(SITE_RETEST_WORKFLOW, { site: target });
+    // The stored slug this endpoint was addressed by: unique in Turso, and the command
+    // resolves it as well as the Name-derived one (#1887).
+    await deps.dispatch(SITE_RETEST_WORKFLOW, { site: slug });
     return { status: "dispatched", slug };
   } catch (e) {
     return { status: "failed", slug, error: e instanceof Error ? e.message : String(e) };

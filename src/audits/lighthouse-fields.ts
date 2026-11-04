@@ -74,6 +74,14 @@ export function lighthouseScoresFromResult(result: AuditResult): LighthouseScore
   };
 }
 
+/** When the lighthouse run measured these scores (`details.checkedAt`, set as lhci starts),
+ *  or undefined for a result that carries none: the write-back then stamps write time. */
+export function lighthouseCheckedAtFromResult(result: AuditResult): string | undefined {
+  if (result.audit !== "lighthouse") return undefined;
+  const at = (result.details as { checkedAt?: unknown } | undefined)?.checkedAt;
+  return typeof at === "string" && !Number.isNaN(Date.parse(at)) ? at : undefined;
+}
+
 type LighthouseFailureDetails = {
   assertions?: Array<{ category: string; actual: number | null; expected: number }>;
   failingAudits?: FailingAudit[];

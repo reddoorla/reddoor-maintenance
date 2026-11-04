@@ -39,7 +39,7 @@ export function daysFlagged(firstFlaggedAt: string | undefined, now: Date): numb
  * PURE.
  */
 export function levelOf(
-  it: Pick<AttentionItem, "kind" | "key" | "transitiveOnly">,
+  it: Pick<AttentionItem, "kind" | "key" | "transitiveOnly" | "transitiveStuck">,
   firstFlaggedAt: string | undefined,
   now: Date,
 ): Level {
@@ -57,8 +57,10 @@ export function levelOf(
       // The operator, 2026-10-29: "transitives should be watch not attention". A
       // transitive-only vuln that outlived its lockfile window is Watch: the weekly
       // lockfile run is the fix, and nobody outside sees it. A direct vuln past its
-      // wait, or one whose auto-fix is exhausted, needs him this week.
-      return it.transitiveOnly === true ? "watch" : "attention";
+      // wait, or one whose auto-fix is exhausted, needs him this week. And a transitive
+      // one still present after TRANSITIVE_ATTENTION_WINDOWS windows (markWaiting sets
+      // transitiveStuck) is Attention again (the operator, 2026-11-03).
+      return it.transitiveOnly === true && it.transitiveStuck !== true ? "watch" : "attention";
     case "preflight":
     case "delivery":
     case "ci":
@@ -78,7 +80,7 @@ export function levelOf(
     case "form":
       return "broken";
     case "cert":
-      // Two flavours: 7 days or fewer (or expired) is Broken, 8 to 30 Attention.
+      // Two flavours: 7 days or fewer (or expired) is Broken, 8 to 20 Attention.
       return it.key.startsWith("cert-expiring:") ? "broken" : "attention";
     case "links":
     case "titles":

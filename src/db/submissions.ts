@@ -397,6 +397,31 @@ function jaccard(a: Set<string>, b: Set<string>): number {
  *  or different-sender copies are spray evidence. */
 export type DuplicateMatch = { id: string; status: string; siteId: string; email: string };
 
+/** The bodies a stored row is compared by. A row whose site composed its message
+ *  (`extra_fields.composedMessage === true`, ingest.ts `isComposedMessage`) is
+ *  compared ONLY by its stored `visitorText`, never by its message: the message is
+ *  the site's template, identical for every lead, so matching it let any later copy
+ *  of the template — a bot's crafted step, a plain POST to another fleet site —
+ *  mark the row a duplicate and retro-bucket it. With no visitorText it is compared
+ *  by nothing. Every other row is compared by its message, as before. A malformed
+ *  JSON column reads as not composed: one bad row must not blind the whole scan. */
+function storedBodies(message: string | null, extraFields: string | null): string[] {
+  let extra: Record<string, unknown> | null = null;
+  if (extraFields) {
+    try {
+      const parsed: unknown = JSON.parse(extraFields);
+      if (parsed && typeof parsed === "object") extra = parsed as Record<string, unknown>;
+    } catch {
+      extra = null;
+    }
+  }
+  if (extra?.composedMessage === true) {
+    const v = extra.visitorText;
+    return typeof v === "string" && v.trim() !== "" ? [v] : [];
+  }
+  return [message ?? ""];
+}
+
 export async function findRecentDuplicateSubmissions(
   db: Db,
   message: string,
@@ -414,7 +439,7 @@ export async function findRecentDuplicateSubmissions(
 
   const rows = await db
     .selectFrom("submissions")
-    .select(["id", "status", "message", "site_id", "email"])
+    .select(["id", "status", "message", "site_id", "email", "extra_fields"])
     .where("message", "is not", null)
     .where("submitted_at", ">=", sinceDate)
     .orderBy("submitted_at", "desc")
@@ -424,23 +449,26 @@ export async function findRecentDuplicateSubmissions(
   const exact: DuplicateMatch[] = [];
   const similar: DuplicateMatch[] = [];
   for (const row of rows) {
-    const stored = normalizeBody(row.message ?? "");
+    const stored = storedBodies(row.message, row.extra_fields).map(normalizeBody);
     const match: DuplicateMatch = {
       id: row.id,
       status: row.status,
       siteId: row.site_id,
       email: row.email,
     };
-    if (exactEligible && stored === incoming) {
+    if (exactEligible && stored.includes(incoming)) {
       exact.push(match);
       continue; // an exact match must not also appear in similar
     }
     if (!similarEligible) continue;
-    const storedTokens = tokenSet(stored);
-    if (storedTokens.size < MIN_SIMILAR_TOKENS) continue;
-    if (jaccard(incomingTokens, storedTokens) >= SIMILARITY_THRESHOLD) {
-      similar.push(match);
-    }
+    const isSimilar = stored.some((body) => {
+      const storedTokens = tokenSet(body);
+      return (
+        storedTokens.size >= MIN_SIMILAR_TOKENS &&
+        jaccard(incomingTokens, storedTokens) >= SIMILARITY_THRESHOLD
+      );
+    });
+    if (isSimilar) similar.push(match);
   }
   return { exact, similar };
 }

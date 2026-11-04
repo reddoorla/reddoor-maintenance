@@ -748,4 +748,45 @@ export const MIGRATIONS: Migration[] = [
     id: "0052_site_health_a11y_checked_at",
     sql: `ALTER TABLE site_health ADD COLUMN a11y_checked_at TEXT;`,
   },
+  {
+    // #910: the routes the last a11y run navigated to and did not scan, with why,
+    // as JSON `[{ route, reason, path? }]`. The counts say coverage dropped; this says where.
+    // A skip the site declared leaves the stored total too, so this is the only
+    // column that still names it.
+    id: "0053_site_health_a11y_routes_skipped",
+    sql: `ALTER TABLE site_health ADD COLUMN a11y_routes_skipped TEXT;`,
+  },
+  {
+    // P1-33(c): one row per `report --test-send`, the [TEST] email a report's
+    // render sends to the operator alone. `verdict` is the operator's read of it:
+    // 'awaiting' until `report --test-verdict` records 'clean' or 'problem' (with
+    // `problem` saying what was wrong). `report --test-streak` counts clean rows
+    // back from the newest, in (sent_at, id) order, which the index serves.
+    // Counted by cockpit_version like every other table, so its triggers come in
+    // the same migration as the table.
+    id: "0054_report_test_sends",
+    sql: [
+      `CREATE TABLE IF NOT EXISTS report_test_sends (
+        id TEXT PRIMARY KEY,
+        report_id TEXT NOT NULL,
+        site_id TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        sent_to TEXT NOT NULL,
+        resend_message_id TEXT,
+        sent_at TEXT NOT NULL,
+        verdict TEXT NOT NULL DEFAULT 'awaiting'
+          CHECK (verdict IN ('awaiting', 'clean', 'problem')),
+        problem TEXT,
+        verdict_at TEXT
+      );`,
+      `CREATE INDEX IF NOT EXISTS idx_report_test_sends_sent
+        ON report_test_sends (sent_at, id);`,
+      ...(["INSERT", "UPDATE", "DELETE"] as const).map(
+        (op) =>
+          `CREATE TRIGGER IF NOT EXISTS cockpit_version_report_test_sends_${op.toLowerCase()}
+            AFTER ${op} ON report_test_sends
+            BEGIN UPDATE cockpit_version SET n = n + 1 WHERE id = 1; END;`,
+      ),
+    ].join("\n"),
+  },
 ];
