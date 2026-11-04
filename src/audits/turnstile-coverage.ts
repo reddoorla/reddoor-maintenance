@@ -188,7 +188,11 @@ type CoveragePage = {
   url: () => string;
   evaluate: <T>(expr: string) => Promise<T>;
   waitForLoadState: (state: "load", opts: { timeout: number }) => Promise<unknown>;
-  waitForFunction: (expr: string, arg: unknown, opts: { timeout: number }) => Promise<unknown>;
+  waitForFunction: (
+    expr: string | (() => boolean),
+    arg: unknown,
+    opts: { timeout: number },
+  ) => Promise<unknown>;
 };
 
 export type CoverageOpts = {
