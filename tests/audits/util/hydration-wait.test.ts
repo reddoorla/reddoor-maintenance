@@ -93,9 +93,10 @@ describe("waitForHydration — under the starter's CSP (no 'unsafe-eval')", () =
 
     // The instrument first: the policy is live on this page, so a string predicate that
     // has to poll is refused. Without this, a page whose CSP did not apply would pass on
-    // today's code. The predicate must be false on its first check: Playwright answers a
-    // first check that is already true without the in-page eval, so `"true"` resolves
-    // even under this policy (measured 2026-11-04).
+    // today's code. The predicate must be false on its first check: Playwright's first
+    // eval runs inside the protocol call, which the CSP exempts, so `"true"` resolves
+    // even under this policy; only the re-eval on a later poll is refused (measured
+    // 2026-11-04).
     await expect(
       page.waitForFunction(`document.documentElement.hasAttribute("data-never")`, null, {
         timeout: 1000,
