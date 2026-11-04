@@ -2183,8 +2183,10 @@ describe("audits/a11y — a port taken between the pick and the bind is retried 
  * #948's residual race, closed. #948 moved the scan onto a production preview,
  * but nothing between `page.goto` and axe waited for the bundle to hydrate:
  * `goto` resolves at `load`, and SvelteKit hydrates after it, from a dynamic
- * import. On roalson-interests' `/dev/a11y-fixtures` that race read 191, 201,
- * 191, 208 and 191 contrast nodes across five cold runs against 208 hydrated.
+ * import. On roalson-interests' `/dev/a11y-fixtures` the preview gate read 208
+ * twelve times and 217 twice, the two 217s scanned mid-hydration, while a
+ * variant that waited for the marker read 208 ten times out of ten
+ * (docs/workJournal.md, 2026-09-30, #948). The 191s were the dev gate's.
  *
  * A page here "hydrates" 2 s after `load`, the way a slow bundle would: it
  * makes two of its three faint (#aaa on white, 2.32:1) paragraphs legible and

@@ -73,12 +73,13 @@ export type SkippedRoute = {
 /** One route's reveal pass (#100), as the spec records it in the artifact. */
 export type RevealRecord = RevealPass & { route: string };
 
-/** Violation nodes inside cross-origin frames that one scanned route did not
- *  count (#100 review): how many, and under which rules. */
 /** How the scan of one route waited for hydration: on the marker, until the
  *  cap ran out ("settled"), or not at all, because an earlier route had already
  *  shown the site does not write the marker. */
 export type HydrationWait = { route: string; wait: "marker" | "settled" | "not-waited" };
+
+/** Violation nodes inside cross-origin frames that one scanned route did not
+ *  count (#100 review): how many, and under which rules. */
 export type FrameNodesDropped = { route: string; count: number; rules: string[] };
 
 /** An uncaught error that a cross-origin frame's own log recorded (#100
