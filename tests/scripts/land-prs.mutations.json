@@ -393,5 +393,18 @@
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
     "why": "#1617 r1: an escaped quote ends a string, so the `/*` after it opens a comment (F3b)."
+  },
+  {
+    "id": "M-P182-16-rename-reuses-removed",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "(p) => p.added === t && takeOne(removedLeft, matchKey(p.removed)),",
+        "replace": "(p) => p.added === t,"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1617 r2: a rename does not use up its removed line, so one removed skip backs both a rename and an exact re-add."
   }
 ]

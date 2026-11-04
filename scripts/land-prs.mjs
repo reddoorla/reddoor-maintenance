@@ -1025,7 +1025,7 @@ function onlyNameChanged(r, a) {
   return namesFirstArgument(a, al[0]);
 }
 
-/** The added lines that rename a skip or an only (#1617). A change block is a maximal run of
+/** The `{ removed, added }` pairs that rename a skip or an only (#1617). A change block is a maximal run of
  *  `-` lines followed by a maximal run of `+` lines; any other line, or a `@@`, ends one. Within
  *  a block the i-th removed line pairs with the i-th added line. A pair is a rename when the
  *  added line is a skip or an only, neither line is one `codeOf` gave up on (`retry`), its code
@@ -1034,6 +1034,7 @@ function onlyNameChanged(r, a) {
  *  rename; `it("b", …)` → `it.skip("b", …)` is not, and neither is a change to a string after
  *  the test's name, such as `"webkit"` → `"chromium"` in `test.skip(browserName === "webkit")`. */
 function renamedSkips(patch) {
+  /** @type {{ removed: string, added: string }[]} */
   const out = [];
   let removed = [];
   let added = [];
@@ -1053,7 +1054,7 @@ function renamedSkips(patch) {
         onlyNameChanged(r, a) &&
         (hasCall(a, ONLY) || hasCall(a, SKIP))
       ) {
-        out.push(a);
+        out.push({ removed: r, added: a });
       }
     }
     removed = [];
@@ -1209,7 +1210,11 @@ function renamedAway(before, after) {
  *  block comment is flagged. A hunk starts inside a block comment only when its first line is a
  *  JSDoc continuation (`*`); otherwise it is assumed outside one, so a comment opened above the
  *  hunk is not seen. An added line wholly inside a block comment does not re-add a removed
- *  assertion (see `blockCommentShifts`). */
+ *  assertion (see `blockCommentShifts`). Two rare false flags are known, each costing the
+ *  author one line: a hunk that starts on a line beginning with `*` is taken to start inside a
+ *  JSDoc block, so a Markdown bullet inside a template literal there can deny credit for a
+ *  re-added line; and a hunk that starts inside a multi-line template literal is read as code,
+ *  so a glob such as `src/*` added there can be flagged as a wrap. */
 export function testChangeFlags(files) {
   const out = [];
   for (const f of Array.isArray(files) ? files : []) {
@@ -1276,10 +1281,14 @@ export function testChangeFlags(files) {
     const addedLeft = lineCounts(added.map(matchKey));
     const removedLeft = lineCounts(removed.map(matchKey));
     const valueLeft = lineCounts(valueLines(f.patch));
-    const renamed = lineCounts(renamedSkips(f.patch));
+    const renamePairs = renamedSkips(f.patch);
     const shifts = blockCommentShifts(f.patch);
     for (const c of shifts.commented) takeOne(addedLeft, matchKey(c));
     const reasons = away ? [away] : [];
+    // A skip or only not matched by a removed line is flagged unless it is a rename whose
+    // removed line is still unused: each pair backs one added line, and each removed line
+    // backs one of an exact re-add or a rename, never both (#1617, review round 2).
+    const unmatched = [];
     const tooLong = (t) => `a changed line of ${t.length} characters, too long to scan: read it`;
     for (const t of removed) {
       if (t.length > MAX_LINE) {
@@ -1298,9 +1307,14 @@ export function testChangeFlags(files) {
       }
       const only = hasCall(t, ONLY);
       if (!only && !hasCall(t, SKIP) && !SKIP_BRACKET.test(t)) continue;
-      if (!takeOne(removedLeft, matchKey(t)) && !takeOne(renamed, t)) {
-        reasons.push(only ? `added .only: ${t}` : `added skip: ${t}`);
-      }
+      if (!takeOne(removedLeft, matchKey(t))) unmatched.push({ t, only });
+    }
+    for (const { t, only } of unmatched) {
+      const k = renamePairs.findIndex(
+        (p) => p.added === t && takeOne(removedLeft, matchKey(p.removed)),
+      );
+      if (k >= 0) renamePairs.splice(k, 1);
+      else reasons.push(only ? `added .only: ${t}` : `added skip: ${t}`);
     }
     for (const w of shifts.wrapped) reasons.push(`existing line now inside a block comment: ${w}`);
     if (reasons.length > 0) out.push({ file, reasons });

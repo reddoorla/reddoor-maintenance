@@ -2211,6 +2211,17 @@ describe("land-prs: test changes", () => {
       ).toEqual([{ file: T, reasons: ['added skip: it.skip("b", () => {});'] }]);
     });
 
+    it("a removed skip line backs one rename or one re-add, never both", () => {
+      // Old: it.skip("b") (body 1), it("c") (body 2). New: it.skip("c") (body 1), it.skip("b") (body 2).
+      // The exact re-add of it.skip("b") takes the removed it.skip("b") first, so the rename pair
+      // it.skip("b") -> it.skip("c") finds no removed line left and stays flagged: one flag.
+      expect(
+        one(
+          '@@ -1,6 +1,6 @@\n-it.skip("b", () => {\n+it.skip("c", () => {\n   expect(1).toBe(1);\n });\n-it("c", () => {\n+it.skip("b", () => {\n   expect(2).toBe(2);\n });',
+        ),
+      ).toEqual([{ file: T, reasons: ['added skip: it.skip("c", () => {'] }]);
+    });
+
     it("a comment opened around existing lines is flagged, and its closer may be out of the patch", () => {
       expect(
         one(
