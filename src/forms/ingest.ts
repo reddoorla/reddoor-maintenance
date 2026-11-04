@@ -270,17 +270,19 @@ export async function ingestSubmission(
   // row is only ever matched by its visitorText, on every scan path, so no later
   // copy of the template can mark it or retro-bucket it. The INCOMING half is
   // here: on a site that requires Turnstile, a flagged copy whose token passed on
-  // the site's own host, or came back "unverifiable" (a siteverify outage, a
-  // Cloudflare internal error, a missing or wrong secret — which turnstile.ts
-  // holds must never punish a possibly-real visitor), is scanned on its
-  // visitorText alone, and not at all when there is none. A REPLAYED token
-  // (`timeout-or-duplicate`, also "unverifiable") is not let through this way:
-  // one solved token, replayed, would deliver every flagged copy, each with an
-  // autoresponder to an address the sender picks (review round 4). A genuine
-  // double-submit is covered by the own-resend exemption on any scan path. What a bot controls is in visitorText either way,
-  // so a pitch typed into an answer is still caught as a spray. Every other path
-  // — visitor-typed messages, ungated sites, an absent or failed token, a
-  // foreign-host pass — scans the whole message, exactly as before.
+  // the site's own host is scanned on its visitorText alone, and not at all when
+  // there is none. Only a pass counts (the operator, 2026-11-03, decisions
+  // -2043 option a and -2317 option 1). "Unverifiable" was let through in review
+  // round 2, to spare real leads during a siteverify outage, and failed review
+  // twice: a bot can choose it, by replaying one solved token
+  // (`timeout-or-duplicate`, round 4) or by sending a token from its own
+  // Cloudflare widget (`invalid-input-secret`, round 5), and either way one token
+  // delivered unlimited step ones, each with an autoresponder. An unverifiable
+  // flagged copy is now judged like any other copy. What a bot controls is in
+  // visitorText on the verified path, so a pitch typed into an answer is still
+  // caught as a spray. Every other path — visitor-typed messages, ungated sites,
+  // an absent, failed or unverifiable token, a foreign-host pass — scans the
+  // whole message, exactly as before.
   //
   // Retro-bucketing is left to a flagged copy only when its token passed on the
   // site's own host: an unproven copy may be judged, but may not judge others.
@@ -301,9 +303,7 @@ export async function ingestSubmission(
     turnstile === "pass" &&
     (verification.hostname === null ||
       turnstileHostnameAcceptable(verification.hostname, site.url));
-  const scanVisitorText =
-    gatedComposed &&
-    (passedOnSiteHost || (turnstile === "unverifiable" && verification.replayed !== true));
+  const scanVisitorText = gatedComposed && passedOnSiteHost;
   const scanText = scanVisitorText ? composedVisitorText(rawPayload) : n.message;
   const mayRetroBucket = !composedFlag || (gatedComposed && passedOnSiteHost);
   const stored: NormalizedSubmission = {

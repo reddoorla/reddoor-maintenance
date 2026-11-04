@@ -238,24 +238,6 @@ describe("verifyTurnstile", () => {
     expect(out.outcome).toBe("unverifiable");
   });
 
-  it("marks timeout-or-duplicate as replayed (still 'unverifiable'), other codes not", async () => {
-    const dup = vi
-      .fn()
-      .mockResolvedValue(
-        jsonResponse(200, { success: false, "error-codes": ["timeout-or-duplicate"] }),
-      );
-    const out = await verifyTurnstile({ secret: "sk", token: "tok", fetch: dup });
-    expect(out.outcome).toBe("unverifiable");
-    expect(out.replayed).toBe(true);
-
-    const other = vi
-      .fn()
-      .mockResolvedValue(jsonResponse(200, { success: false, "error-codes": ["internal-error"] }));
-    const out2 = await verifyTurnstile({ secret: "sk", token: "tok", fetch: other });
-    expect(out2.outcome).toBe("unverifiable");
-    expect(out2.replayed).toBeUndefined();
-  });
-
   it("marks invalid-input-secret as wrongSecret (still 'unverifiable'), other config codes not", async () => {
     const wrong = vi
       .fn()

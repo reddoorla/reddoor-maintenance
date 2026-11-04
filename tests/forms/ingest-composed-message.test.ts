@@ -139,21 +139,29 @@ describe("ingestSubmission — a site-composed message on a Turnstile-gated site
     },
   );
 
-  // "unverifiable" is an expired token, a siteverify outage or a missing secret:
-  // turnstile.ts holds it must never punish a possibly-real visitor, so a flagged
-  // copy gets the visitorText scan, and the template never sinks it.
-  it("delivers a flagged step one whose token is unverifiable, scanning only its visitorText", async () => {
-    const { d, findRecentDuplicates, retroBucket } = setup();
-    await ingestSubmission(
-      d,
-      "reddoor",
-      payload({ composedMessage: true, visitorText: "The Diagnosis" }),
-      "unverifiable",
-    );
-    expect(findRecentDuplicates).toHaveBeenCalledWith("The Diagnosis", expect.any(Date));
-    expect(stored(d)).toMatchObject({ status: "new", spamReason: null });
-    expect(retroBucket).not.toHaveBeenCalled();
-  });
+  // "Unverifiable" can be chosen by a bot: a replayed token (timeout-or-duplicate)
+  // or a token from its own Cloudflare widget (invalid-input-secret). Review rounds
+  // 4 and 5 showed either delivered unlimited step ones with autoresponders when
+  // it got the visitorText scan, so only a pass gets it (decision -2317 option 1).
+  it.each<TurnstileVerification>([
+    { outcome: "unverifiable", hostname: null },
+    { outcome: "unverifiable", hostname: null, wrongSecret: true },
+  ])(
+    "scans a flagged step one whose token is unverifiable on the whole message, retro-bucketing nothing (%o)",
+    async (verification) => {
+      const { d, findRecentDuplicates, retroBucket } = setup();
+      await ingestSubmission(
+        d,
+        "reddoor",
+        payload({ composedMessage: true, visitorText: "" }),
+        verification,
+      );
+      expect(findRecentDuplicates).toHaveBeenCalledWith(STEP_ONE, expect.any(Date));
+      expect(stored(d)).toMatchObject({ status: "spam_auto", spamReason: "duplicate-body" });
+      expect(stored(d).extraFields).not.toHaveProperty("composedMessage");
+      expect(retroBucket).not.toHaveBeenCalled();
+    },
+  );
 
   it("still runs the scan for a flagged message whose passing token was solved on a foreign host, without retro-bucketing", async () => {
     const { d, findRecentDuplicates, retroBucket } = setup();
@@ -381,8 +389,17 @@ describe("ingestSubmission — a composed application is scanned on what the vis
     expect(retroBucket).toHaveBeenCalledWith([prior], "retro:duplicate-body");
   });
 
-  it("an unverifiable flagged application is still judged on its visitorText, without retro-bucketing", async () => {
-    await seedApplication("bot1@spam.example", PITCH, `The Diagnosis ${PITCH}`);
+  it("catches a pitch sprayed through unverifiable tokens from the second copy, without retro-bucketing", async () => {
+    // How the first such copy is stored: unflagged, matched by its message.
+    await createSubmission(db, {
+      siteId: SITE_ID,
+      formType: "inquiry",
+      name: "bot1",
+      email: "bot1@spam.example",
+      message: appMessage(PITCH),
+      status: "new",
+      submittedAt: new Date(NOW.getTime() - 3_600_000),
+    });
     const { d, retroBucket } = setup();
     await ingestSubmission(
       d,
@@ -393,7 +410,6 @@ describe("ingestSubmission — a composed application is scanned on what the vis
     expect(stored(d)).toMatchObject({ status: "spam_auto", spamReason: "duplicate-body" });
     expect(retroBucket).not.toHaveBeenCalled();
   });
-
   it("exempts the same sender's own resend on the same site on the visitorText path", async () => {
     await seedApplication("applicant@example.com", PITCH, `The Diagnosis ${PITCH}`);
     const { d, retroBucket } = setup();
@@ -562,15 +578,15 @@ describe("ingestSubmission — only ingest decides what is stored as composed", 
     expect(stored(d).extraFields).toMatchObject({ visitorText: "hello" });
   });
 
-  it("does not give a REPLAYED token (timeout-or-duplicate) the visitorText scan", async () => {
-    const { d, findRecentDuplicates } = setup();
-    await ingestSubmission(d, "reddoor", payload({ composedMessage: true, visitorText: "" }), {
-      outcome: "unverifiable",
-      hostname: null,
-      replayed: true,
-    });
-    expect(findRecentDuplicates).toHaveBeenCalledWith(STEP_ONE, expect.any(Date));
-    expect(stored(d)).toMatchObject({ status: "spam_auto", spamReason: "duplicate-body" });
+  it("drops visitorText from a flagged copy on a site that does not require Turnstile", async () => {
+    const { d } = setup({ requireTurnstile: false });
+    await ingestSubmission(
+      d,
+      "reddoor",
+      appPayload("https://ada-clinic.example", "https://ada-clinic.example"),
+      pass(),
+    );
+    expect(stored(d).extraFields).not.toHaveProperty("visitorText");
     expect(stored(d).extraFields).not.toHaveProperty("composedMessage");
   });
 
