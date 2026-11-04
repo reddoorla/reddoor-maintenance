@@ -264,7 +264,7 @@ export type FormE2eResult = {
   turnstileWidget?: "pass" | "fail" | null;
 };
 
-function scoreFields(scores: LighthouseScoreWriteback): FieldSet {
+function scoreFields(scores: LighthouseScoreWriteback, checkedAt?: string): FieldSet {
   // A null score CLEARS the cell (→ dashboard "—"), distinguishing a metric that
   // errored this run (e.g. NO_LCP → null performance) from a real low score. This
   // intentionally overwrites a prior value: a run that couldn't measure the metric
@@ -274,7 +274,9 @@ function scoreFields(scores: LighthouseScoreWriteback): FieldSet {
     rScore: scores.accessibility,
     bpScore: scores.bestPractices,
     seoScore: scores.seo,
-    "Last lighthouse audit at": new Date().toISOString(),
+    // The measurement's own time when the result carries it (#1886): the stamp guard in
+    // mirrorHealthFields compares it with the stored one.
+    "Last lighthouse audit at": checkedAt ?? new Date().toISOString(),
   };
   return fields as FieldSet;
 }
@@ -481,6 +483,8 @@ export type CellValue = string | boolean | string[];
  */
 export type AuditFieldInputs = {
   scores?: LighthouseScoreWriteback;
+  /** When lighthouse measured `scores` (its result's `details.checkedAt`). */
+  lighthouseCheckedAt?: string;
   lighthouseFailingAudits?: string | null;
   a11y?: A11yCounts;
   deps?: DepsCounts;
@@ -502,7 +506,7 @@ export type AuditFieldInputs = {
 
 export function auditFields(audits: AuditFieldInputs): FieldSet {
   const fields: FieldSet = {};
-  if (audits.scores) Object.assign(fields, scoreFields(audits.scores));
+  if (audits.scores) Object.assign(fields, scoreFields(audits.scores, audits.lighthouseCheckedAt));
   if (audits.lighthouseFailingAudits !== undefined)
     fields["Lighthouse failing audits"] = audits.lighthouseFailingAudits;
   if (audits.a11y) Object.assign(fields, a11yFields(audits.a11y));

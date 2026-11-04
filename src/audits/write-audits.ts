@@ -9,6 +9,7 @@ import {
 } from "../fleet/site-fields.js";
 import {
   hasRealScores,
+  lighthouseCheckedAtFromResult,
   lighthouseFailingAuditsFromResult,
   lighthouseScoresFromResult,
   missingLighthouseCategories,
@@ -144,6 +145,8 @@ export function planAuditWrite(args: {
   if (lhResult && lhHasScores) {
     const scores = lighthouseScoresFromResult(lhResult);
     audits.scores = scores;
+    const at = lighthouseCheckedAtFromResult(lhResult);
+    if (at !== undefined) audits.lighthouseCheckedAt = at;
     const failingAudits = lighthouseFailingAuditsFromResult(lhResult);
     if (failingAudits !== undefined) audits.lighthouseFailingAudits = failingAudits;
     writes.push({ audit: "lighthouse", counts: scores });
@@ -359,7 +362,9 @@ export async function writeBackOneSite(args: {
 
 export type FleetWriteResult = {
   written: WriteSummary[];
-  failed: Array<{ slug: string; error: string }>;
+  /** `audit` is set when the row WAS written and only that audit failed (a Lighthouse miss,
+   *  filed after the write): a reader asking about another audit may count it measured. */
+  failed: Array<{ slug: string; error: string; audit?: AuditName }>;
   /** Turso write counts (#539 Phase 3). Present ONLY when a
    *  mirror was wired — absent means mirroring was not attempted (no libSQL
    *  creds), which must stay distinguishable from `mirrored=0` (a wired mirror
@@ -672,7 +677,7 @@ export async function writeFleetAudits(args: {
       }
     }
     if (plan.lighthouseMiss) {
-      failed.push({ slug, error: plan.lighthouseMiss.message });
+      failed.push({ slug, error: plan.lighthouseMiss.message, audit: "lighthouse" });
       continue;
     }
     written.push(summary);

@@ -517,7 +517,18 @@ export function classifySpam(input: {
   // signals as message — fold every STRING extraFields value into the scanned
   // body so a site with a custom "comments"/"details" field isn't a blind spot.
   // Non-string values (numbers, booleans, nested objects) are ignored.
-  const extraText = Object.values(input.extraFields ?? {})
+  //
+  // On a row ingest stored as site-composed (`composedMessage: true`, which only
+  // ingest sets — see ingest.ts `storedExtraFields`), `visitorText` repeats part
+  // of the message, so it is left out: folding it in counted a pasted URL twice
+  // (a genuine reddoor applicant went from links:1, 25, to links:2, 50, and to 60
+  // with one buyer keyword on `submissions rescore`). Everywhere else a
+  // `visitorText` key is just another free-text field and is scored.
+  const fields = input.extraFields ?? {};
+  const skipVisitorText = fields.composedMessage === true;
+  const extraText = Object.entries(fields)
+    .filter(([k]) => !(skipVisitorText && k === "visitorText"))
+    .map(([, v]) => v)
     .filter((v): v is string => typeof v === "string")
     .join(" ");
   const body = extraText ? `${message} ${extraText}` : message;

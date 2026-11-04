@@ -19,6 +19,7 @@ export const load: PageLoad = ({ parent, params }) =>
         data.spamTotals,
         now,
         data.alarm,
+        params.slug,
       ),
     };
   });
