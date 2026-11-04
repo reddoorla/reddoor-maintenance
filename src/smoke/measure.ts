@@ -5,7 +5,8 @@
  * tested once. Taken from reddoorla/composition-hospitality
  * `tests/smoke/mobile-overflow.spec.ts` at 63f5fcb (#47, 2026-11-03), whose
  * body matches reddoorla/williamson-construction-co#46's but for the layout of
- * the returned object.
+ * the returned object, with #1892's six findings fixed. Each fix has a fixture
+ * in `tests/smoke/measure.test.ts` that turns red when the fix is reverted.
  *
  * Two assertions use it: the page is no wider than the screen
  * (`scrollWidth <= clientWidth`), and no text a visitor can see straddles the
@@ -18,7 +19,15 @@
  * not paint (hidden, or opacity 0), text inside an inert subtree (a carousel's
  * peeking slide), and a line the ancestors that clip it leave nothing of (the
  * sr-only pattern, a slider's parked slides) are skipped. A box the visitor can
- * scroll (overflow auto or scroll) hides nothing they can scroll to.
+ * scroll (overflow auto or scroll) hides nothing they can scroll to. A line a
+ * box cuts inside the screen still counts when the line runs past the edge:
+ * the visitor sees it cut mid-word.
+ *
+ * Not handled (#1892): closed shadow roots, `overflow-clip-margin`, text cut
+ * at the left edge, and a scroll container whose own content straddles the
+ * edge (a wide table in an `overflow-x: auto` wrapper is reported cut). The
+ * inert skip is broad: a parked slide that is the only thing straddling the
+ * edge, or on-screen content marked inert, is skipped too.
  */
 
 export type OverflowMeasure = {
@@ -66,13 +75,108 @@ export function measureInPage(): OverflowMeasure {
     a.assignedSlot ??
     a.parentElement ??
     (a.parentNode instanceof ShadowRoot ? a.parentNode.host : null);
-  // clip-path and mask-image clip whatever they paint, out-of-flow boxes
-  // included, so they apply on every ancestor. Both are taken at the border
-  // box: a mask paints nothing outside it, and clip-path is narrowed only for
-  // an inset() with no negative inset (`inset(0 -100vmax)` reaches past the
-  // box); any other shape leaves the line as it is.
-  const clipsToBorderBox = (cs: CSSStyleDeclaration) =>
-    cs.maskImage !== "none" || (/^inset\(/.test(cs.clipPath) && !cs.clipPath.includes("-"));
+  // A plain inline box: inline, inline list-item, and ruby and its parts.
+  // Overflow, containment and text-overflow do not apply to one, and of the
+  // properties that make a containing block for fixed descendants only filter
+  // and backdrop-filter do (#1892 findings 2 and 3; transform, contain and
+  // will-change do not, checked against paint). An outer <svg> computes
+  // display: inline too, but it is a replaced box and clips its content to
+  // its own box (finding 4).
+  const plainInline = (a: Element, cs: CSSStyleDeclaration) =>
+    /^(inline|inline list-item|ruby(-.*)?)$/.test(cs.display) &&
+    !(a instanceof SVGSVGElement && !a.ownerSVGElement);
+  // The block containers, which alone take text-overflow. A flex, grid or
+  // table container's own text sits in an anonymous item that does not draw
+  // the container's ellipsis (finding 1). An anonymous block beside a block
+  // child does draw it, in Chromium: that part of #1892's finding 1 did not
+  // hold against paint.
+  const blockContainer =
+    /^(block|inline-block|list-item|flow-root|inline flow-root|table-cell|table-caption|-webkit-box|-webkit-inline-box)$/;
+  // mask-image, and -webkit-mask-box-image with no outset, paint nothing
+  // outside the border box (finding 6: a mask-box-image leaves mask-image at
+  // none). mask-border, its standard name, is not in Chromium.
+  const masksToBorderBox = (cs: CSSStyleDeclaration) =>
+    cs.maskImage !== "none" ||
+    (!/^(none)?$/.test(cs.getPropertyValue("-webkit-mask-box-image-source")) &&
+      cs
+        .getPropertyValue("-webkit-mask-box-image-outset")
+        .split(" ")
+        .every((v) => parseFloat(v) === 0));
+  // A probe the clip-path insets are resolved on, so calc() and percentages
+  // come out as the browser computes them (finding 5). Fixed, so it adds
+  // nothing to the page's scroll width; removed before the page is measured.
+  const probe: { box?: HTMLElement; child?: HTMLElement } = {};
+  // The rect a clip-path inset() leaves of a box, or null for any other
+  // shape, which leaves the line as it is. A negative inset reaches past the
+  // box (`inset(0 -100vmax)`), as it does on screen. `round` is ignored, since
+  // rounded corners only take more away.
+  const insetRect = (cs: CSSStyleDeclaration, b: DOMRect): number[] | null => {
+    const m = /^inset\((.*)\)\s*([a-z-]*)$/.exec(cs.clipPath);
+    if (!m) return null;
+    const args: string[] = [];
+    let [depth, word] = [0, ""];
+    for (const ch of m[1]!) {
+      if (ch === "(") depth++;
+      if (ch === ")") depth--;
+      if (ch === " " && depth === 0) {
+        if (word) args.push(word);
+        word = "";
+      } else word += ch;
+    }
+    if (word) args.push(word);
+    const round = args.indexOf("round");
+    if (round >= 0) args.length = round;
+    if (args.length < 1 || args.length > 4) return null;
+    const [top, right = top, bottom = top, left = right] = args as [string, ...string[]];
+    // The reference box: border-box unless named. fill-box, stroke-box and
+    // view-box are the border box on a CSS box.
+    const px = (p: string) => parseFloat(cs.getPropertyValue(p)) || 0;
+    const sides = (f: (side: string) => number) => [f("left"), f("right"), f("top"), f("bottom")];
+    const grow = (by: number[], sign: number) =>
+      [-sign * by[0]!, sign * by[1]!, -sign * by[2]!, sign * by[3]!] as const;
+    let r = [b.left, b.right, b.top, b.bottom];
+    const add = (d: readonly number[]) => (r = r.map((v, i) => v + d[i]!));
+    const box = m[2] || "border-box";
+    if (box === "margin-box")
+      add(
+        grow(
+          sides((s) => px(`margin-${s}`)),
+          1,
+        ),
+      );
+    if (box === "padding-box" || box === "content-box")
+      add(
+        grow(
+          sides((s) => px(`border-${s}-width`)),
+          -1,
+        ),
+      );
+    if (box === "content-box")
+      add(
+        grow(
+          sides((s) => px(`padding-${s}`)),
+          -1,
+        ),
+      );
+    if (!/^(margin|border|padding|content|fill|stroke|view)-box$/.test(box)) return null;
+    probe.box ??= document.body.appendChild(document.createElement("div"));
+    probe.child ??= probe.box.appendChild(document.createElement("div"));
+    probe.box.style.cssText = `position:fixed;left:0;top:0;width:${r[1]! - r[0]!}px;height:${r[3]! - r[2]!}px;visibility:hidden;pointer-events:none`;
+    const child = probe.child;
+    const resolve = (prop: "left" | "top", v: string) => {
+      child.style.cssText = "position:absolute";
+      child.style.setProperty(prop, v);
+      return parseFloat(getComputedStyle(child)[prop]);
+    };
+    const [l, rt, t, bt] = [
+      resolve("left", left),
+      resolve("left", right),
+      resolve("top", top),
+      resolve("top", bottom),
+    ];
+    if (![l, rt, t, bt].every(Number.isFinite)) return null;
+    return [r[0]! + l, r[1]! - rt, r[2]! + t, r[3]! - bt];
+  };
   // How far right a line box can be seen, or null when none of it can be seen
   // on the screen. Each ancestor that clips narrows the line, axis by axis:
   // overflow hidden and clip and paint containment show only the ancestor's
@@ -92,9 +196,11 @@ export function measureInPage(): OverflowMeasure {
     // The block container whose inline content the line is: the only box
     // whose text-overflow draws an ellipsis on it.
     let blockOf: Element | null = start;
-    while (blockOf && /^(inline|contents)$/.test(getComputedStyle(blockOf).display)) {
-      blockOf = up(blockOf);
+    for (; blockOf; blockOf = up(blockOf)) {
+      const cs = getComputedStyle(blockOf);
+      if (cs.display !== "contents" && !plainInline(blockOf, cs)) break;
     }
+    if (blockOf && !blockContainer.test(getComputedStyle(blockOf).display)) blockOf = null;
     // An absolute box skips static ancestors up to its containing block; a
     // fixed box skips everything up to an ancestor that forms one by
     // transform, filter or containment (usually none: then nothing clips it).
@@ -103,18 +209,24 @@ export function measureInPage(): OverflowMeasure {
       const cs = getComputedStyle(a);
       if (cs.display === "contents") continue;
       const b = a.getBoundingClientRect();
-      if (clipsToBorderBox(cs)) {
-        [x0, x1] = [Math.max(x0, b.left), Math.min(x1, b.right)];
-        [y0, y1] = [Math.max(y0, b.top), Math.min(y1, b.bottom)];
+      // clip-path and masks clip whatever they paint, out-of-flow boxes
+      // included, so they apply on every ancestor.
+      const clips = [insetRect(cs, b)];
+      if (masksToBorderBox(cs)) clips.push([b.left, b.right, b.top, b.bottom]);
+      for (const c of clips) {
+        if (!c) continue;
+        [x0, x1] = [Math.max(x0, c[0]!), Math.min(x1, c[1]!)];
+        [y0, y1] = [Math.max(y0, c[2]!), Math.min(y1, c[3]!)];
       }
-      const block = formsBlock(cs);
+      const inline = plainInline(a, cs);
+      const block = inline ? cs.filter !== "none" || cs.backdropFilter !== "none" : formsBlock(cs);
       const containing =
         escaped === "fixed"
           ? block
           : escaped === "absolute"
             ? cs.position !== "static" || block
             : true;
-      if (containing && cs.display !== "inline") {
+      if (containing && !inline) {
         escaped = "";
         // The padding box, which overflow and paint containment clip to.
         const pl = b.left + a.clientLeft;
@@ -169,13 +281,16 @@ export function measureInPage(): OverflowMeasure {
     if (!n.textContent?.trim()) continue;
     const el = n.parentElement ?? (n.parentNode instanceof ShadowRoot ? n.parentNode.host : null);
     if (!el || !el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
-    // Text the page marks inert is out of use: a carousel's peeking
-    // next slide (a designed peek, not a cut), or a parked panel.
-    if (el.closest("[inert]")) continue;
-    const range = document.createRange();
-    range.selectNodeContents(n);
     // A slotted text node is laid out inside its slot, so its clips start there.
     const start = n.assignedSlot ?? el;
+    // Text the page marks inert is out of use: a carousel's peeking
+    // next slide (a designed peek, not a cut), or a parked panel. inert
+    // reaches into shadow trees, which closest() does not (finding 6).
+    let inert = false;
+    for (let a: Element | null = start; a && !inert; a = up(a)) inert = a.hasAttribute("inert");
+    if (inert) continue;
+    const range = document.createRange();
+    range.selectNodeContents(n);
     // A line counts when some of it can be seen on the screen and it
     // straddles the right edge.
     const cuts = [...range.getClientRects()].some((r) => {
@@ -184,6 +299,7 @@ export function measureInPage(): OverflowMeasure {
     });
     if (cuts) cut.push(`<${el.tagName.toLowerCase()}> "${n.textContent.trim().slice(0, 60)}"`);
   }
+  probe.box?.remove();
   return {
     scrollWidth: document.documentElement.scrollWidth,
     clientWidth: vw,
