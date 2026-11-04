@@ -46,6 +46,10 @@ export default defineConfig({
     "src/configs/prettier.ts",
     "src/configs/playwright-a11y.ts",
     "src/configs/svelte.ts",
+    // The smoke specs' in-page checks (`measure()`, #1892). Dependency-free:
+    // `measureInPage` is sent to the page as source text, so it reaches
+    // nothing outside its own body.
+    "src/smoke/index.ts",
     "src/images/index.ts",
     "src/util/git.ts",
     "src/util/pkg.ts",
