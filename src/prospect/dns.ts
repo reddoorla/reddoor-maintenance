@@ -100,18 +100,165 @@ async function rdapBaseFor(domain: string): Promise<string | null> {
   return null;
 }
 
-/** Node's resolver plus the registry RDAP service for the domain's TLD.
- *  Nothing here is influenced by the content of the site being audited. */
-export function defaultDnsDeps(): DnsDeps {
+/** One way of asking DNS. Throws with the codes Node's resolver uses:
+ *  `ENOTFOUND` (no such name), `ENODATA` (the name exists, no such record),
+ *  anything else for "we could not ask". */
+export type DnsBackend = Pick<DnsDeps, "resolveTxt" | "resolveMx">;
+
+/**
+ * A name that certainly publishes MX records and a `v=spf1` TXT record. A
+ * resolver that cannot find gmail.com's mail servers or its SPF is not telling
+ * us anything about anyone else's domain.
+ */
+export const CONTROL_MX_DOMAIN = "gmail.com";
+
+const dnsError = (code: string, name: string): Error & { code: string } =>
+  Object.assign(new Error(`${code} ${name}`), { code });
+
+/**
+ * The machine's own resolver, via Node.
+ *
+ * On its own this is NOT a trustworthy instrument. In a cloud session behind
+ * the egress proxy, the resolver answers ENODATA for every name it is asked —
+ * gmail.com and google.com included — and ENODATA is the code that means
+ * "this name has no such record". The 2026-11-04 audit of
+ * medicalsolutionsoftx.com read that as "no MX record" and "no v=spf1 record",
+ * while dns.google answered both. Hence `defaultDnsDeps` proves it first.
+ */
+export const systemDnsBackend: DnsBackend = {
+  async resolveTxt(name) {
+    const { resolveTxt } = await import("node:dns/promises");
+    return resolveTxt(name);
+  },
+  async resolveMx(name) {
+    const { resolveMx } = await import("node:dns/promises");
+    return resolveMx(name);
+  },
+};
+
+/**
+ * DNS over HTTPS, via Google's JSON API. It goes out as an ordinary HTTPS
+ * request, so it works wherever the audit can fetch the site at all —
+ * including through an egress proxy that gives the system resolver nothing.
+ */
+export function dohDnsBackend(
+  fetchImpl: typeof fetch = (...a) => fetch(...a),
+  endpoint = "https://dns.google/resolve",
+): DnsBackend {
+  type DohAnswer = { type?: number; data?: string };
+  async function query(name: string, type: 15 | 16): Promise<string[]> {
+    let body: { Status?: number; Answer?: DohAnswer[] };
+    try {
+      const res = await fetchImpl(`${endpoint}?name=${encodeURIComponent(name)}&type=${type}`, {
+        headers: { accept: "application/dns-json" },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) throw dnsError("ESERVFAIL", name);
+      body = (await res.json()) as typeof body;
+    } catch (err) {
+      if ((err as { code?: string }).code === "ESERVFAIL") throw err;
+      throw dnsError("ECONNREFUSED", name);
+    }
+    // Status is the DNS RCODE: 0 NOERROR, 3 NXDOMAIN. Anything else (SERVFAIL,
+    // REFUSED) is a failure to ask, not an answer about their domain.
+    if (body.Status === 3) throw dnsError("ENOTFOUND", name);
+    if (body.Status !== 0) throw dnsError("ESERVFAIL", name);
+    // Answer can carry a CNAME chain too; keep only the type asked for.
+    const data = (body.Answer ?? [])
+      .filter((a) => a.type === type && typeof a.data === "string")
+      .map((a) => a.data!);
+    if (data.length === 0) throw dnsError("ENODATA", name);
+    return data;
+  }
   return {
     async resolveTxt(name) {
-      const { resolveTxt } = await import("node:dns/promises");
-      return resolveTxt(name);
+      // Google's JSON joins a record's chunks and drops the quotes; strip any a
+      // different endpoint leaves, so `v=spf1` still matches at the start.
+      return (await query(name, 16)).map((d) => [d.replace(/^"|"$/g, "").replace(/"\s*"/g, "")]);
     },
     async resolveMx(name) {
-      const { resolveMx } = await import("node:dns/promises");
-      return resolveMx(name);
+      return (await query(name, 15)).map((d) => {
+        const [priority = "", exchange = ""] = d.trim().split(/\s+/);
+        return { priority: Number(priority), exchange: exchange.replace(/\.$/, "") };
+      });
     },
+  };
+}
+
+/** How long a backend gets to pass the control. Node's resolver retries with
+ *  backoff by default, and a hung one must not hold the fallback for tens of
+ *  seconds; one that is merely slow fails over to the next candidate. */
+const CONTROL_TIMEOUT_MS = 5_000;
+
+/**
+ * Whether this backend can find what is certainly there, for BOTH record types
+ * the audit asks for: a resolver that answers MX but gives ENODATA for every
+ * TXT name would otherwise pass an MX-only control and report "no SPF" again.
+ */
+async function passesControl(backend: DnsBackend): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<boolean>((resolve) => {
+    timer = setTimeout(() => resolve(false), CONTROL_TIMEOUT_MS);
+  });
+  const control = (async () => {
+    try {
+      const [mx, txt] = await Promise.all([
+        backend.resolveMx(CONTROL_MX_DOMAIN),
+        backend.resolveTxt(CONTROL_MX_DOMAIN),
+      ]);
+      return mx.length > 0 && joinTxt(txt).some((r) => /^v=spf1\b/i.test(r.trim()));
+    } catch {
+      return false;
+    }
+  })();
+  try {
+    return await Promise.race([control, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * The first backend that passes the control, or a stand-in that refuses every
+ * question. A refusal throws `EUNPROVEN`, which `lookupDns` reads as
+ * unmeasured — "we couldn't check", never "you have no record".
+ *
+ * Proven once per deps object (one audit), lazily, on the first DNS question.
+ */
+export function provenDnsBackend(candidates: DnsBackend[]): DnsBackend {
+  let chosen: Promise<DnsBackend | null> | null = null;
+  const pick = () =>
+    (chosen ??= (async () => {
+      for (const b of candidates) if (await passesControl(b)) return b;
+      return null;
+    })());
+  return {
+    async resolveTxt(name) {
+      const b = await pick();
+      if (!b) throw dnsError("EUNPROVEN", name);
+      return b.resolveTxt(name);
+    },
+    async resolveMx(name) {
+      const b = await pick();
+      if (!b) throw dnsError("EUNPROVEN", name);
+      return b.resolveMx(name);
+    },
+  };
+}
+
+/** The resolvers an audit tries, in order: the machine's, then DNS over HTTPS. */
+export function defaultDnsBackends(): DnsBackend[] {
+  return [systemDnsBackend, dohDnsBackend()];
+}
+
+/** A proven resolver (the system's, else DNS over HTTPS) plus the registry RDAP
+ *  service for the domain's TLD. Nothing here is influenced by the content of
+ *  the site being audited. */
+export function defaultDnsDeps(backends: DnsBackend[] = defaultDnsBackends()): DnsDeps {
+  const dns = provenDnsBackend(backends);
+  return {
+    resolveTxt: (name) => dns.resolveTxt(name),
+    resolveMx: (name) => dns.resolveMx(name),
     async rdap(domain) {
       const base = await rdapBaseFor(domain);
       if (!base) return null;
