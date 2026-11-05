@@ -1,5 +1,17 @@
 # @reddoorla/maintenance
 
+## 0.114.0
+
+### Minor Changes
+
+- fdc5912: The deps audit no longer counts a major the fleet holds on purpose as "a major behind" (P1-98). `typescript` is held when the org Renovate preset (`reddoorla/.github` `renovate-config.json`, read at audit time) caps it with `allowedVersions` and the site already runs the newest major the cap allows; `@types/node` is held when its major equals the site's Node runtime major from `.nvmrc` (else `engines.node`). Held packages leave `deps_behind_packages`, `deps_major_outdated` and the cockpit's Watch count, and are stored in a new `site_health.deps_held_packages` column (migration 0055) and named in the audit summary. An unread preset, a site that does not extend it, a Renovate config shape the audit does not model, or an unevaluable cap holds no capped package; an unreadable runtime holds no `@types/node`.
+
+### Patch Changes
+
+- 1e7f66a: `waitForHydration`, the wait form-e2e and turnstile-coverage make before they touch a page, now waits on a site whose CSP has no `'unsafe-eval'`, which includes every starter site (#1923). It passed its check to Playwright as a string, which Playwright `eval`s in the page once the check has to poll. The starter's CSP refused that, so whenever the marker was not already written, the wait returned `"settled"` within milliseconds instead of waiting for `html[data-hydrated]`. It now passes a function, which Playwright `eval`s once where the CSP does not apply and then polls without `eval`. On a test page served with the starter's `script-src` that writes the marker 1.5 s after `load`, the test failed within about 120 ms on the old code (the string was refused in about 7 ms) and the new code returns the marker at about 1.6 s.
+- f1c3447: The write gate's REASON and WARNING text is escaped for GitHub's workflow commands, so a `%` or a newline in a site label reaches the annotation as written.
+- f1c3447: The gate's not-written warning now names the sites and their errors, replacing each fleet workflow's own duplicate line. A nameless site in a JSON or module inventory takes its repo's name when the inventory loads (#1651, #1650).
+
 ## 0.113.0
 
 ### Minor Changes
