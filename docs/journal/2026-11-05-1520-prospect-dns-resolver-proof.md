@@ -19,3 +19,5 @@ The 11-04 audit of medicalsolutionsoftx.com told the prospect it had no MX recor
 **Not touched:** `src/audits/domain.ts` (fleet audit) uses `dns.lookup` and was not checked against a blind resolver; it is out of this task's scope.
 
 Usage: not readable
+
+**Review round 1** (Opus, three lenses) found no blocker, critical or major. Two minors and one nit were folded in. The control now also requires gmail.com's `v=spf1` TXT, because an MX-only control would have passed a resolver that answers MX but gives ENODATA for every TXT name, and that brings back "no SPF". The control also gets a 5 s cap, so a hung resolver cannot hold up the fallback. A new test drives the no-argument `defaultDnsDeps()` that production calls, with Node's resolver mocked blind and `fetch` stubbed as dns.google. Mutations on the new tests: a control that never asks TXT (1 red); no cap (1 red); a default list without DoH (1 red). My first try at the TXT mutation survived because it left the TXT lookup in place, where it still threw; it was the wrong mutation, not a weak test. Re-proved live at 15:38 UTC with the same results as above. The two leftover nits are filed as issues.

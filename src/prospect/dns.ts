@@ -106,8 +106,9 @@ async function rdapBaseFor(domain: string): Promise<string | null> {
 export type DnsBackend = Pick<DnsDeps, "resolveTxt" | "resolveMx">;
 
 /**
- * A name that certainly publishes MX records. A resolver that cannot find mail
- * servers for gmail.com is not telling us anything about anyone else's domain.
+ * A name that certainly publishes MX records and a `v=spf1` TXT record. A
+ * resolver that cannot find gmail.com's mail servers or its SPF is not telling
+ * us anything about anyone else's domain.
  */
 export const CONTROL_MX_DOMAIN = "gmail.com";
 
@@ -184,12 +185,36 @@ export function dohDnsBackend(
   };
 }
 
-/** Whether this backend can find what is certainly there. */
+/** How long a backend gets to pass the control. Node's resolver retries with
+ *  backoff by default, and a hung one must not hold the fallback for tens of
+ *  seconds; one that is merely slow fails over to the next candidate. */
+const CONTROL_TIMEOUT_MS = 5_000;
+
+/**
+ * Whether this backend can find what is certainly there, for BOTH record types
+ * the audit asks for: a resolver that answers MX but gives ENODATA for every
+ * TXT name would otherwise pass an MX-only control and report "no SPF" again.
+ */
 async function passesControl(backend: DnsBackend): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<boolean>((resolve) => {
+    timer = setTimeout(() => resolve(false), CONTROL_TIMEOUT_MS);
+  });
+  const control = (async () => {
+    try {
+      const [mx, txt] = await Promise.all([
+        backend.resolveMx(CONTROL_MX_DOMAIN),
+        backend.resolveTxt(CONTROL_MX_DOMAIN),
+      ]);
+      return mx.length > 0 && joinTxt(txt).some((r) => /^v=spf1\b/i.test(r.trim()));
+    } catch {
+      return false;
+    }
+  })();
   try {
-    return (await backend.resolveMx(CONTROL_MX_DOMAIN)).length > 0;
-  } catch {
-    return false;
+    return await Promise.race([control, timeout]);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -221,12 +246,15 @@ export function provenDnsBackend(candidates: DnsBackend[]): DnsBackend {
   };
 }
 
+/** The resolvers an audit tries, in order: the machine's, then DNS over HTTPS. */
+export function defaultDnsBackends(): DnsBackend[] {
+  return [systemDnsBackend, dohDnsBackend()];
+}
+
 /** A proven resolver (the system's, else DNS over HTTPS) plus the registry RDAP
  *  service for the domain's TLD. Nothing here is influenced by the content of
  *  the site being audited. */
-export function defaultDnsDeps(
-  backends: DnsBackend[] = [systemDnsBackend, dohDnsBackend()],
-): DnsDeps {
+export function defaultDnsDeps(backends: DnsBackend[] = defaultDnsBackends()): DnsDeps {
   const dns = provenDnsBackend(backends);
   return {
     resolveTxt: (name) => dns.resolveTxt(name),

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CONTROL_MX_DOMAIN,
   defaultDnsDeps,
@@ -272,7 +272,10 @@ describe("defaultDnsDeps — the resolver proves itself before a 'none' counts",
   // A working resolver for a world holding the control and MSOT's real records.
   const world: Record<string, { mx?: { exchange: string; priority: number }[]; txt?: string[][] }> =
     {
-      "gmail.com": { mx: [{ exchange: "gmail-smtp-in.l.google.com", priority: 5 }] },
+      "gmail.com": {
+        mx: [{ exchange: "gmail-smtp-in.l.google.com", priority: 5 }],
+        txt: [["v=spf1 redirect=_spf.google.com"]],
+      },
       "medicalsolutionsoftx.com": {
         mx: [{ exchange: "medicalsolutionsoftx-com.mail.protection.outlook.com", priority: 0 }],
         txt: [
@@ -344,6 +347,39 @@ describe("defaultDnsDeps — the resolver proves itself before a 'none' counts",
     expect(r.spf).toBeNull();
     expect(status(r, "dns-mx")).toBe("fail");
     expect(status(r, "dns-spf")).toBe("fail");
+  });
+
+  it("does not trust a resolver that answers MX but no TXT, so SPF is not reported missing", async () => {
+    const mxOnly: DnsBackend = {
+      resolveMx: working.resolveMx,
+      resolveTxt: emptyForEveryName.resolveTxt,
+    };
+    const r = await lookupDns("https://medicalsolutionsoftx.com/", [], withBackends([mxOnly]));
+    expect(r.spf).toBeUndefined();
+    expect(r.dmarc).toBeUndefined();
+    expect(status(r, "dns-spf")).toBe("unmeasured");
+    expect(status(r, "dns-dmarc")).toBe("unmeasured");
+  });
+
+  it("falls through past a resolver that hangs instead of failing", async () => {
+    vi.useFakeTimers();
+    try {
+      const hung: DnsBackend = {
+        resolveMx: () => new Promise(() => {}),
+        resolveTxt: () => new Promise(() => {}),
+      };
+      const pending = lookupDns(
+        "https://medicalsolutionsoftx.com/",
+        [],
+        withBackends([hung, working]),
+      );
+      await vi.advanceTimersByTimeAsync(5_000);
+      const r = await pending;
+      expect(status(r, "dns-mx")).toBe("pass");
+      expect(status(r, "dns-spf")).toBe("pass");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("asks the control once per audit, not once per question", async () => {
@@ -418,5 +454,53 @@ describe("dohDnsBackend — Google's JSON answers, read as Node's codes", () => 
       expect(asNone.has(String(await code(b.resolveMx("a.example"))))).toBe(false);
       expect(asNone.has(String(await code(b.resolveTxt("a.example"))))).toBe(false);
     }
+  });
+});
+
+describe("defaultDnsDeps() with no arguments — the path production calls", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.doUnmock("node:dns/promises");
+    vi.resetModules();
+  });
+
+  it("falls back to DNS over HTTPS when the machine's resolver answers ENODATA for every name", async () => {
+    // The 2026-11-04 cloud session, reproduced through the real default path:
+    // Node's resolver is blind, dns.google is reachable over HTTPS.
+    const enodata = async (n: string) => {
+      throw Object.assign(new Error(`ENODATA ${n}`), { code: "ENODATA" });
+    };
+    vi.doMock("node:dns/promises", () => ({ resolveMx: enodata, resolveTxt: enodata }));
+    const records: Record<string, { type: number; data: string }[]> = {
+      "gmail.com|15": [{ type: 15, data: "5 gmail-smtp-in.l.google.com." }],
+      "gmail.com|16": [{ type: 16, data: "v=spf1 redirect=_spf.google.com" }],
+      "medicalsolutionsoftx.com|15": [
+        { type: 15, data: "0 medicalsolutionsoftx-com.mail.protection.outlook.com." },
+      ],
+      "medicalsolutionsoftx.com|16": [
+        {
+          type: 16,
+          data: "v=spf1 include:spf.protection.outlook.com include:_spf.google.com -all",
+        },
+      ],
+    };
+    vi.stubGlobal("fetch", async (input: string) => {
+      const u = new URL(String(input));
+      const answer = records[`${u.searchParams.get("name")}|${u.searchParams.get("type")}`];
+      return {
+        ok: true,
+        json: async () => (answer ? { Status: 0, Answer: answer } : { Status: 3 }),
+      };
+    });
+    vi.resetModules();
+    const mod = await import("../../src/prospect/dns.js");
+    expect(mod.defaultDnsBackends()).toHaveLength(2);
+    const r = await mod.lookupDns("https://medicalsolutionsoftx.com/", [], {
+      ...mod.defaultDnsDeps(),
+      rdap: async () => null,
+    });
+    expect(r.mx).toEqual(["medicalsolutionsoftx-com.mail.protection.outlook.com"]);
+    expect(r.spf).toMatch(/^v=spf1 include:spf\.protection\.outlook\.com/);
+    expect(r.dmarc).toBeNull();
   });
 });
