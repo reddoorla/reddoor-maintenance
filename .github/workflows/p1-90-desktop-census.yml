@@ -50,7 +50,8 @@ jobs:
           npm init -y >/dev/null
           npm pkg set type=module
           npm install --no-audit --no-fund playwright@1.59.1 @reddoorla/maintenance@0.113.0
-          npx playwright install --with-deps chromium
+          node node_modules/playwright/cli.js install --with-deps chromium
+          node -e "import('playwright').then(p=>console.log('playwright', p.chromium.executablePath()))"
       - name: Measure
         working-directory: census-p1-90
         run: node overflow.mjs ${{ matrix.site }}
