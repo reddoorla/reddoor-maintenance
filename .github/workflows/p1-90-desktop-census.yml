@@ -7,38 +7,9 @@ on:
 permissions:
   contents: read
 jobs:
-  overflow:
+  shots:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      max-parallel: 10
-      matrix:
-        site:
-          - "CONTROL-msot-prefix https://deploy-preview-101--msot-landing.netlify.app 390,1100,1280,1440,1920"
-          - "CONTROL-inject https://1836dig.com 1100,1440 inject"
-          - "medical-solutions-of-texas https://medicalsolutionsoftx.com"
-          - "29-navy https://29navy.com"
-          - "data-dynamiq https://www.datadynamiq.com"
-          - "erp-industrial https://www.erpfunds.com"
-          - "la-homelessness-youth https://la-homelessness-youth.netlify.app"
-          - "hedloc https://hedloc.netlify.app"
-          - "espada https://espadarealestate.com"
-          - "vineyard-custom-homes https://www.vineyardconstruction.com"
-          - "revogen https://revogen.com"
-          - "the-tower-burbank https://the-tower-burbank-rd.netlify.app"
-          - "williamson-homes https://www.williamson-homes.com"
-          - "gallerysonder https://gallerysonder.com"
-          - "1836dig https://1836dig.com"
-          - "the-pointe-burbank https://the-pointe-burbank-rd.netlify.app"
-          - "reddoor-website https://reddoorla.com"
-          - "la-homelessness-initiative https://www.lahomelessnessawareness.org"
-          - "alamo-anatomy https://alamo-anatomy.netlify.app"
-          - "beachfront-dentistry https://www.beachfrontdentistry.com"
-          - "caltex-landing https://www.caltexmedical.com"
-          - "williamson-construction-co https://www.williamson-construction.com"
-          - "vida-legacy-foundation https://vidalegacy.org"
-          - "roalson-interests https://roalson.com"
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
@@ -51,7 +22,10 @@ jobs:
           npm pkg set type=module
           npm install --no-audit --no-fund playwright@1.59.1 @reddoorla/maintenance@0.113.0
           node node_modules/playwright/cli.js install --with-deps chromium
-          node -e "import('playwright').then(p=>console.log('playwright', p.chromium.executablePath()))"
-      - name: Measure
+      - name: Shots
         working-directory: census-p1-90
-        run: node overflow.mjs ${{ matrix.site }}
+        run: mkdir -p out && node shots.mjs
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: p1-90-shots
+          path: census-p1-90/out/
