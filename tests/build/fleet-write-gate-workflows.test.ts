@@ -339,12 +339,12 @@ it("fleet prismic drift: a refusal line reaches the outage annotation as written
   const r = await runStep(
     "fleet-prismic-drift.yml",
     "Sweep the fleet for Prismic model drift",
-    "⛔ refused: no token for site-%41\n",
+    "⛔ refused: no token for site-%0A\n",
     2,
   );
   expect(r.code).toBe(1);
   expect(r.out).toContain(
-    "::error::the Prismic model drift sweep exited 2 — this is an OUTAGE, not drift: ⛔ refused: no token for site-%41",
+    "::error::the Prismic model drift sweep exited 2 — this is an OUTAGE, not drift: ⛔ refused: no token for site-%0A",
   );
 });
 
