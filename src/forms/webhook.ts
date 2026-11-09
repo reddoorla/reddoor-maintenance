@@ -26,7 +26,8 @@ export function buildNewsletterWebhookBody(
  * disallowed URL, non-2xx response, or network error returns `{ ok: false }` so
  * the caller treats it as a swallowed side-effect. Only PUBLIC https URLs are
  * allowed (the URL is operator-set in the site details, but this is a server-side egress
- * — so an internal/loopback/private host is refused as an SSRF guard).
+ * — so an internal/loopback/private host is refused as an SSRF guard), and a
+ * redirect is refused rather than followed (see {@link postJson}).
  */
 export async function forwardNewsletterToWebhook(
   url: string,
@@ -121,27 +122,29 @@ export async function forwardFormToWebhook(
   site: WebsiteRow,
   fetchImpl: typeof fetch = fetch,
 ): Promise<WebhookForwardResult> {
-  // `redirect: "manual"`: the SSRF guard checks only the first URL, and this body
-  // is the whole submission, so a redirect is refused (recorded as its 3xx)
-  // rather than followed to a host nobody checked. The newsletter forwarder is
-  // left as it is, so existing sites see no change.
-  return postJson(
-    url,
-    buildFormWebhookBody(submission, site),
-    site,
-    "form-webhook",
-    fetchImpl,
-    "manual",
-  );
+  return postJson(url, buildFormWebhookBody(submission, site), site, "form-webhook", fetchImpl);
 }
 
+/**
+ * The one POST every webhook forwarder goes through. `isPublicHttpsUrl` judges
+ * only the URL it is given, so a redirect is REFUSED, never followed: with
+ * fetch's default `redirect: "follow"` a public https host answering 307/308
+ * with `Location: http://169.254.169.254/…` gets the whole body re-POSTed to an
+ * address the guard never saw (#1970). `"manual"` returns the 3xx itself, which
+ * the caller records as `webhook:<3xx>` / `form-webhook:<3xx>`. It lives here,
+ * not in each forwarder, so no forwarder can follow by leaving it out.
+ *
+ * Refusing rather than walking the chain with the guard on each hop (as the
+ * prospect crawler's GETs do) because a forward has nothing to gain from a
+ * follow: a 301/302/303 turns the POST into a body-less GET, and only a 307/308
+ * carries the body on, which is exactly the case the guard exists for.
+ */
 async function postJson(
   url: string,
   body: Record<string, unknown>,
   site: WebsiteRow,
   label: string,
   fetchImpl: typeof fetch,
-  redirect?: RequestRedirect,
 ): Promise<WebhookForwardResult> {
   if (!isPublicHttpsUrl(url)) {
     console.error(`[${label}] refusing non-public/non-https url for site=${site.name}`);
@@ -152,7 +155,7 @@ async function postJson(
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
-      ...(redirect !== undefined ? { redirect } : {}),
+      redirect: "manual",
     });
     return { ok: res.ok, status: res.status };
   } catch (err) {
