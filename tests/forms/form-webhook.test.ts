@@ -379,13 +379,34 @@ describe("form webhook — Turnstile, building sites, and the deferred tail", ()
   it("a deferred tail still forwards and stamps, after the response", async () => {
     const site = makeWebsiteRow({ formWebhook: HOOK, formWebhookTypes: [] });
     const deferred: Array<Promise<unknown>> = [];
+    // notify is held open until the test releases it, so a tail that ran
+    // inline would keep ingestSubmission from returning at all.
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
     const d = deps(site, {
+      notify: vi.fn().mockImplementation(async () => {
+        await held;
+        return { status: "sent", messageId: "msg_1" };
+      }),
       forwardForm: vi.fn().mockResolvedValue({ ok: false, status: 302 }),
       defer: (work) => deferred.push(work),
     });
-    const r = await ingestSubmission(d, "gallerysonder", SONDER_PAYLOADS.rsvp);
-    expect(r).toEqual({ status: "accepted", submissionId: "recSUB", notifyStatus: "deferred" });
+    let returned = false;
+    const pending = ingestSubmission(d, "gallerysonder", SONDER_PAYLOADS.rsvp).then((r) => {
+      returned = true;
+      return r;
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(returned, "the response waited on the tail").toBe(true);
+    expect(d.forwardForm).not.toHaveBeenCalled();
+    expect(await pending).toEqual({
+      status: "accepted",
+      submissionId: "recSUB",
+      notifyStatus: "deferred",
+    });
     expect(deferred).toHaveLength(1);
+
+    release();
     await Promise.all(deferred);
     expect(d.forwardForm).toHaveBeenCalledWith(HOOK, expect.anything(), site);
     expect(d.stampFanout).toHaveBeenCalledWith("recSUB", "form-webhook:302");

@@ -8,10 +8,14 @@ sends a URL.
 **#1971.** Both webhook fields used the editor's `url` kind, which accepts any
 http(s) URL, while the forwarders send only to a public https one. So
 `http://hooks.zapier.com/…` saved with no complaint and every forward after it
-was stamped `webhook:0`, which nobody looks at until a client asks where their
+was stamped `webhook:0` (or `form-webhook:0`), which nobody looks at until a client asks where their
 leads went. A new kind, `webhookUrl`, validates with `isPublicHttpsUrl`, the
 same function `postJson` checks before every POST. The cockpit's `DetailField`
-shows "failed" on any 400, so the operator sees the refusal as they type. The
+shows "failed" on any 400, so the operator sees the refusal when they leave
+the field. It does not say why, and it looks the same as a network failure.
+Values already stored are not re-checked: an `http://` hook saved before this
+still fails every forward until someone re-saves or clears it. I did not read
+Turso for any (a read-only query was refused in this session). The
 test checks that the editor and the forwarder agree. Eleven candidate URLs go
 through both: public https, an Apps Script `/exec`, http, loopback, 10.x,
 169.254, localhost, `[::1]`, ftp, `javascript:` and junk. For each one,
@@ -35,7 +39,9 @@ column is left out of RICH. Deleting `Form Webhook` from RICH turns it red.
 **#1973.** Three tests: a `requireTurnstile` site with an absent or failed
 token is `spam_auto` and is not forwarded, with a passing-token control that is;
 a `building` site forwards even at score 100 with no token; a deferred tail
-still forwards and stamps after the response. Each was proved by removing the
+still forwards and stamps after the response. Review round 1 showed the first
+version of that last test passed even with the tail run inline. It now holds
+`notify` open and requires `ingestSubmission` to return first. Each was proved by removing the
 code it covers. Without the Turnstile escalation, without the building gate, or
 with the deferred tail never run, each new test goes red, and main's
 `form-webhook.test.ts` stays 21 of 21 green under all three. The issue was right
