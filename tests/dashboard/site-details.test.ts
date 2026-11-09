@@ -7,6 +7,8 @@ import {
   type SiteDetailDeps,
 } from "../../src/dashboard/site-details.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
+import { makeSubmissionRow } from "../_helpers/submission-row.js";
+import { forwardFormToWebhook, forwardNewsletterToWebhook } from "../../src/forms/webhook.js";
 import type { CellValue } from "../../src/fleet/site-fields.js";
 
 function harness(over: Partial<SiteDetailDeps> = {}) {
@@ -190,14 +192,15 @@ describe("setSiteDetail — Phase 4 field coverage", () => {
   });
 
   it("url: accepts http(s) and REFUSES any other scheme", async () => {
+    // Pinned on the site's own `url`, the field still of kind `url`. The two
+    // webhooks moved to `webhookUrl` (#1971), which refuses http too; their
+    // test is in "the webhook URLs are checked at save" below.
     const { deps } = harness();
-    const ok = async (v: string) =>
-      (await setSiteDetail(deps, "acme", "newsletterWebhook", v)).status;
+    const ok = async (v: string) => (await setSiteDetail(deps, "acme", "url", v)).status;
     expect(await ok("https://hooks.example.com/abc")).toBe("updated");
     expect(await ok("http://hooks.example.com/abc")).toBe("updated");
     // The same scheme allowlist the deployed-audit target uses: a `file://` or
-    // `javascript:` webhook is a local-file read or an injection sink, and this
-    // value is fetched by the newsletter forwarder.
+    // `javascript:` value is a local-file read or an injection sink.
     expect(await ok("file:///etc/passwd")).toBe("invalid");
     expect(await ok("javascript:alert(1)")).toBe("invalid");
     expect(await ok("ftp://example.com")).toBe("invalid");
@@ -446,4 +449,60 @@ describe("clearing a secret", () => {
     expect(res.status).toBe("updated");
     expect(writes).toEqual([{ column: "Search query", value: CLEAR_SECRET }]);
   });
+});
+
+// #1971: the forwarders refuse every URL that is not public https, so a webhook
+// the editor saved with `http://` failed every forward quietly (`webhook:0`).
+describe("the webhook URLs are checked at save, with the forwarders' rule", () => {
+  const WEBHOOK_FIELDS = {
+    newsletterWebhook: forwardNewsletterToWebhook,
+    formWebhook: forwardFormToWebhook,
+  } as const;
+  const CANDIDATES = [
+    "https://hooks.zapier.com/hooks/catch/1/abc",
+    "https://script.google.com/macros/s/AKfy/exec",
+    "http://hooks.zapier.com/hooks/catch/1/abc",
+    "https://127.0.0.1/x",
+    "https://10.0.0.1/x",
+    "https://169.254.169.254/latest/meta-data",
+    "https://localhost/x",
+    "https://[::1]/x",
+    "ftp://hooks.example.com/x",
+    "javascript:alert(1)",
+    "not a url",
+  ];
+
+  for (const [field, forward] of Object.entries(WEBHOOK_FIELDS)) {
+    it(`${field}: refuses http:// and private hosts, keeps public https`, async () => {
+      const status = async (v: string) => {
+        const { deps, writes } = harness();
+        const r = await setSiteDetail(deps, "acme", field, v);
+        return { status: r.status, wrote: writes.length };
+      };
+      expect(await status("http://hooks.zapier.com/hooks/catch/1/abc")).toEqual({
+        status: "invalid",
+        wrote: 0,
+      });
+      expect(await status("https://10.0.0.1/x")).toEqual({ status: "invalid", wrote: 0 });
+      expect(await status("https://hooks.zapier.com/hooks/catch/1/abc")).toEqual({
+        status: "updated",
+        wrote: 1,
+      });
+      expect(await status("  ")).toEqual({ status: "updated", wrote: 1 });
+    });
+
+    it(`${field}: saves exactly the URLs its forwarder will POST to`, async () => {
+      for (const url of CANDIDATES) {
+        const { deps } = harness();
+        const saved = (await setSiteDetail(deps, "acme", field, url)).status === "updated";
+        let posted = false;
+        const fetchImpl = (async () => {
+          posted = true;
+          return new Response(null, { status: 200 });
+        }) as unknown as typeof fetch;
+        await forward(url, makeSubmissionRow(), makeWebsiteRow(), fetchImpl);
+        expect(saved, url).toBe(posted);
+      }
+    });
+  }
 });

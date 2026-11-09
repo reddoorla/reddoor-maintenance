@@ -3,7 +3,7 @@ import { parseNotifyRouting } from "../fleet/site-row.js";
 import { CANONICAL_STATUSES } from "../fleet/site-status.js";
 import type { CellValue } from "../fleet/site-fields.js";
 import { isOwnerRepo } from "../util/owner-repo.js";
-import { isHttpUrl } from "../util/url.js";
+import { isHttpUrl, isPublicHttpsUrl } from "../util/url.js";
 import { normalizeSearchConsoleProperty } from "../reports/search/property.js";
 import { SUBMISSION_FORM_TYPES } from "../forms/types.js";
 
@@ -62,6 +62,7 @@ type FieldKind =
   | "enum"
   | "gitrepo"
   | "url"
+  | "webhookUrl"
   | "date"
   | "notifyRouting"
   | "bool"
@@ -109,11 +110,12 @@ export const EDITABLE_SITE_FIELDS: Record<string, EditableField> = {
   netlifyId: { column: "Netlify ID", kind: "text", maxLen: 200 },
   searchConsoleProperty: { column: "Search Console property", kind: "searchConsoleProperty" },
   mailchimpAudienceId: { column: "Mailchimp Audience ID", kind: "text", maxLen: 200 },
-  newsletterWebhook: { column: "Newsletter Webhook", kind: "url" },
+  // Both webhooks are `webhookUrl`: the forwarders refuse anything but a public
+  // https URL, so the editor refuses it too, at save, instead of storing a URL
+  // every forward then fails on (#1971).
+  newsletterWebhook: { column: "Newsletter Webhook", kind: "webhookUrl" },
   // Every opted-in form type, full body (forms/webhook.ts buildFormWebhookBody).
-  // The same `url` kind as the newsletter webhook: fetched server-side, so the
-  // scheme allowlist applies, and the forwarder adds the public-https guard.
-  formWebhook: { column: "Form Webhook", kind: "url" },
+  formWebhook: { column: "Form Webhook", kind: "webhookUrl" },
   formWebhookTypes: {
     column: "Form Webhook Types",
     kind: "multiselect",
@@ -182,10 +184,14 @@ export function normalizeFieldValue(f: EditableField, raw: string): CellValue | 
       // also rejects a `..` segment the bare two-segment regex used to admit.
       return v === "" ? "" : isOwnerRepo(v) ? v : null;
     case "url":
-      // The SAME scheme allowlist the deployed-audit target uses. This value is
-      // fetched server-side by the newsletter forwarder, so a `file://` or
-      // `javascript:` cell is a local-file read or an injection sink, not a typo.
+      // The SAME scheme allowlist the deployed-audit target uses: a `file://`
+      // or `javascript:` cell is a local-file read or an injection sink, not a typo.
       return v === "" ? "" : isHttpUrl(v) ? v : null;
+    case "webhookUrl":
+      // The rule the forwarders apply before every POST (forms/webhook.ts
+      // postJson), so a URL that saves is one they will send to: https only,
+      // and no loopback/private/link-local host.
+      return v === "" ? "" : isPublicHttpsUrl(v) ? v : null;
     case "date":
       return v === "" ? "" : isCalendarDate(v) ? v : null;
     case "notifyRouting":
