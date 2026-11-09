@@ -67,6 +67,10 @@ const SITES = [
   { id: "recD", name: "Dormant", slug: "dormant", mailchimp: null },
 ];
 
+const ACKED_DRIFT = "REMOTE-ONLY — present in Prismic\n    customtype press_release";
+/** `sites.prismic_ack_drift` as seeded; the snapshot sends null and a flag instead. */
+const ACK_DRIFT = new Map<string, string | null>([["recB", ACKED_DRIFT]]);
+
 const NAMES = ["Pat", "PAT O'Neil", "Émile", "émile", "Zoë_x", "100% Real", null];
 const MESSAGES = [
   "line1\nline2",
@@ -108,6 +112,23 @@ async function seed() {
   await db
     .insertInto("site_health")
     .values({ site_id: "recA", vulns_critical: 1 } as never)
+    .execute();
+  // An acked Prismic finding (#1679): the snapshot sends the ack as a flag, the
+  // loaders send its text, and both must put the same "accepted until" chip on
+  // the card. Checked the day before LATER, so the finding is fresh at both reads.
+  await db
+    .insertInto("site_health")
+    .values({
+      site_id: "recB",
+      prismic_models: "fail",
+      prismic_models_checked_at: "2026-11-04T06:00:00.000Z",
+      prismic_models_drift: ACKED_DRIFT,
+    } as never)
+    .execute();
+  await db
+    .updateTable("sites")
+    .set({ prismic_ack_until: "2026-12-31T00:00:00.000Z", prismic_ack_drift: ACKED_DRIFT })
+    .where("id", "=", "recB")
     .execute();
   let n = 0;
   for (const [site, type, period, draft, approved, sent] of [
@@ -264,12 +285,20 @@ async function snapshotAt(now: Date): Promise<CockpitSnapshot> {
   }
 }
 
+/** A snapshot row as the loaders return it: the acked drift text back in place of
+ *  the server's flag (#1679), which only the snapshot carries. */
+function asLoaded<R extends { id: string }>(row: R): R {
+  if (!("prismicAckNamesReport" in row)) return row;
+  const { prismicAckNamesReport: _flag, ...rest } = row as R & { prismicAckNamesReport?: boolean };
+  return { ...rest, prismicAckDrift: ACK_DRIFT.get(row.id) ?? null } as unknown as R;
+}
+
 /** The loader's site row carries the real key; the snapshot's a marker. */
-function unredacted<T extends { site: { mailchimpApiKey: string | null } }>(
+function unredacted<T extends { site: { id: string; mailchimpApiKey: string | null } }>(
   d: T,
   key: string | null,
 ): T {
-  return { ...d, site: { ...d.site, mailchimpApiKey: key } };
+  return { ...d, site: { ...asLoaded(d.site), mailchimpApiKey: key } };
 }
 
 /** The cockpit model carries the site rows; put the real keys back to compare. */
@@ -277,7 +306,7 @@ function withKeys(m: CockpitModel): CockpitModel {
   const key = new Map(SITES.map((x) => [x.id, x.mailchimp]));
   return JSON.parse(JSON.stringify(m), (k, v: unknown) => {
     if (v && typeof v === "object" && "mailchimpApiKey" in v && "id" in v) {
-      const row = v as { id: string; mailchimpApiKey: unknown };
+      const row = asLoaded(v as { id: string; mailchimpApiKey: unknown });
       return { ...row, mailchimpApiKey: key.get(row.id) ?? null };
     }
     return v;
@@ -464,6 +493,20 @@ describe("the parity instrument", () => {
 });
 
 describe("what the snapshot holds", () => {
+  it("an acked Prismic finding as a flag, which still mutes the finding (#1679)", async () => {
+    for (const now of [NOW, LATER]) {
+      const s = await snapshotAt(now);
+      const beta = s.sites?.find((w) => w.id === "recB");
+      expect(beta?.prismicAckDrift).toBeNull();
+      expect(beta?.prismicAckNamesReport).toBe(true);
+      // Beta is Broken on other items, and a Broken card shows no accepted chips;
+      // the ack is seen in the alert it keeps off the card.
+      const card = cockpitModelFromSnapshot(s, now).cards.find((c) => c.site.id === "recB");
+      expect(card?.items.map((i) => i.key)).not.toContain("prismic-drift:recB");
+      expect(card?.items.length).toBeGreaterThan(0);
+    }
+  });
+
   it("never a Mailchimp key, only whether one is set", async () => {
     const s = await snapshotAt(NOW);
     const acme = s.sites?.find((w) => w.id === "recA");
