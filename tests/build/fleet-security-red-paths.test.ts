@@ -9,7 +9,7 @@ import {
   type ProtectionAuditDeps,
 } from "../../src/cli/commands/protection-audit.js";
 import { desiredRuleset, FLEET_RULESET_NAME } from "../../src/github/rulesets.js";
-import { stepRunScript, workflowPath } from "./_helpers/workflow-source.js";
+import { stepRunScript, workflowPath, workflowSteps } from "./_helpers/workflow-source.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -34,7 +34,7 @@ const DISPATCH_STEP = "Trigger Renovate for sites with actionable vulnerabilitie
 const PROTECTION_STEP = "Protection coverage audit (org-wide)";
 const CLOSE_STEP = "Close the protection-gap issue on a clean sweep";
 const OPEN_STEP = "Open/update the protection-gap tracking issue";
-const UNMEASURED_STEP = "Fail the run when the protection sweep verified no repo";
+const UNMEASURED_STEP = "Fail the run when the protection sweep did not measure";
 
 async function runStep(opts: {
   step: string;
@@ -42,7 +42,7 @@ async function runStep(opts: {
   cliCode: number;
   env?: Record<string, string>;
   files?: Record<string, string>;
-}): Promise<{ code: number; out: string }> {
+}): Promise<{ code: number; out: string; ghOutput: string }> {
   const wf = await readFile(workflowPath(WF), "utf-8");
   const script = stepRunScript(wf, opts.step).replace(/\$\{\{[^}]*\}\}/g, "STUB_EXPR");
   const dir = await mkdtemp(join(tmpdir(), "fleet-security-red-"));
@@ -64,18 +64,25 @@ async function runStep(opts: {
   await writeFile(join(dir, "bin", "gh"), "#!/bin/sh\necho gh-called >&2\nexit 1\n", {
     mode: 0o755,
   });
+  const ghOutputPath = join(dir, "github_output");
+  await writeFile(ghOutputPath, "", "utf-8");
   const env = {
     ...process.env,
     PATH: `${join(dir, "bin")}:${process.env.PATH ?? ""}`,
     RUNNER_TEMP: dir,
+    GITHUB_OUTPUT: ghOutputPath,
     ...opts.env,
   };
   try {
     const r = await execFileAsync("bash", ["-e", "-c", script], { cwd: dir, env });
-    return { code: 0, out: r.stdout + r.stderr };
+    return { code: 0, out: r.stdout + r.stderr, ghOutput: await readFile(ghOutputPath, "utf-8") };
   } catch (e) {
     const err = e as { code?: number; stdout?: string; stderr?: string };
-    return { code: err.code ?? 1, out: (err.stdout ?? "") + (err.stderr ?? "") };
+    return {
+      code: err.code ?? 1,
+      out: (err.stdout ?? "") + (err.stderr ?? ""),
+      ghOutput: await readFile(ghOutputPath, "utf-8"),
+    };
   }
 }
 
@@ -207,19 +214,24 @@ describe("fleet-security: protection-audit refuses an empty org listing (#1612)"
     expect(r.out).toMatch(/^::error::protection-audit verified no repo/m);
   });
 
-  it("a sweep with real gaps leaves that step green: the gap issue speaks for it", async () => {
+  // #1979 moved this guarantee up a step: a gap now passes the audit step with
+  // `gaps=yes`, so the fail step (`if: steps.protection.outcome == 'failure'`)
+  // never runs on it. Before, the audit step failed and the fail step's script
+  // had to tell a gap from a broken sweep by the file alone.
+  it("a sweep with real gaps leaves the run green: the gap issue speaks for it", async () => {
     const gappy: ProtectionAuditDeps = { ...deps(["espada"]), listRepoRulesets: async () => [] };
     const real = await runProtectionAuditCommand({ org: "reddoorla" }, gappy);
     expect(real.code).toBe(1);
     expect(real.output).toContain("PROTECTION_AUDIT gaps=1 covered=0 skipped=0 total=1");
     expect(real.output).not.toContain("PROTECTION_AUDIT_UNMEASURED");
     const r = await runStep({
-      step: UNMEASURED_STEP,
-      cliOutput: "",
-      cliCode: 0,
-      files: { "protection.out": real.output },
+      step: PROTECTION_STEP,
+      cliOutput: real.output,
+      cliCode: real.code,
+      env: { GH_TOKEN: "ghs_stub" },
     });
     expect(r.code).toBe(0);
+    expect(r.ghOutput).toMatch(/^gaps=yes$/m);
   });
 
   it("a clean one-repo sweep still passes the step (control)", async () => {
@@ -231,5 +243,125 @@ describe("fleet-security: protection-audit refuses an empty org listing (#1612)"
       env: { GH_TOKEN: "ghs_stub" },
     });
     expect(r.code).toBe(0);
+  });
+});
+
+/**
+ * #1979: every night since #483 (2026-08-02) that the sweep found a gap, the
+ * protection step logged `##[error]Process completed with exit code 1.` while
+ * the run stayed green (`continue-on-error`). Exit 1 is the CLI's "gaps found",
+ * the alarm working, and the gap issue (#754) already speaks for it; the line
+ * cost every morning pass a triage. Worse, a CLI that CRASHED also exited 1,
+ * printed nothing, and the run stayed just as green: the step's outcome could
+ * not tell the two apart.
+ *
+ * The step now classifies its own result: `gaps=yes` (exit 1 beside a
+ * `PROTECTION_AUDIT gaps=N` line, N > 0) is green with no error annotation;
+ * `gaps=no` is exit 0; anything else is a failed step with no `gaps` output,
+ * and the step after it, which now runs only on a failed audit step, always
+ * reds the run.
+ */
+describe("fleet-security: a found gap is not an error, a crash is (#1979)", () => {
+  // The tail of run 42571679746 (10:12pm PT 11-08), verbatim: the known-good input.
+  const LAST_NIGHT = [
+    "DELIVER reddoorla/mantis-landscaping — a feature update landed 5d ago (renovate/main-all-minor-patch merged 2026-11-03; warns past 21d)",
+    "RENOVATE_OUTCOME drought=0 delivering=28 unmeasured=2 threshold=21d",
+    "RULESET_BYPASS unread=0 read=50",
+    "PACKAGE_MANAGER_PIN gaps=5 pinned=29 judged=29 out-of-scope=1 skipped=7 fleetPin=pnpm@12.5.1",
+    "PROTECTION_AUDIT gaps=11 covered=19 skipped=7 total=37",
+  ].join("\n");
+  const CRASH = "Error: SERVER_ERROR: HTTP 502\n    at listOrgRepos (dist/github/gh-rest.js:88:11)";
+
+  it("last night's gaps=11, exit 1: the step passes, says gaps=yes, and logs no error", async () => {
+    const r = await runStep({
+      step: PROTECTION_STEP,
+      cliOutput: LAST_NIGHT,
+      cliCode: 1,
+      env: { GH_TOKEN: "ghs_stub" },
+    });
+    expect(r.code).toBe(0);
+    expect(r.ghOutput).toMatch(/^gaps=yes$/m);
+    expect(r.out).not.toContain("::error::");
+  });
+
+  it("a clean sweep says gaps=no", async () => {
+    const r = await runStep({
+      step: PROTECTION_STEP,
+      cliOutput: "PROTECTION_AUDIT gaps=0 covered=30 skipped=7 total=37",
+      cliCode: 0,
+      env: { GH_TOKEN: "ghs_stub" },
+    });
+    expect(r.code).toBe(0);
+    expect(r.ghOutput).toMatch(/^gaps=no$/m);
+  });
+
+  it("a crash (exit 1, no summary) fails the step and is not read as gaps", async () => {
+    const r = await runStep({
+      step: PROTECTION_STEP,
+      cliOutput: CRASH,
+      cliCode: 1,
+      env: { GH_TOKEN: "ghs_stub" },
+    });
+    expect(r.code).not.toBe(0);
+    expect(r.ghOutput).not.toMatch(/^gaps=/m);
+  });
+
+  it("a gaps line beside an exit code other than 1 is not read as gaps either", async () => {
+    const r = await runStep({
+      step: PROTECTION_STEP,
+      cliOutput: LAST_NIGHT,
+      cliCode: 2,
+      env: { GH_TOKEN: "ghs_stub" },
+    });
+    expect(r.code).not.toBe(0);
+    expect(r.ghOutput).not.toMatch(/^gaps=/m);
+  });
+
+  it("exit 1 beside gaps=0 is not read as gaps", async () => {
+    const r = await runStep({
+      step: PROTECTION_STEP,
+      cliOutput: "PROTECTION_AUDIT gaps=0 covered=30 skipped=7 total=37",
+      cliCode: 1,
+      env: { GH_TOKEN: "ghs_stub" },
+    });
+    expect(r.code).not.toBe(0);
+    expect(r.ghOutput).not.toMatch(/^gaps=/m);
+  });
+
+  it("the step after it reds the run on a crash's empty output", async () => {
+    const r = await runStep({
+      step: UNMEASURED_STEP,
+      cliOutput: "",
+      cliCode: 0,
+      files: { "protection.out": "" },
+    });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toMatch(/^::error::protection-audit did not finish/m);
+  });
+
+  // Review round 1: a summary beside an exit code that does not match it failed
+  // the audit step, set no `gaps`, and the fail step found the summary and
+  // passed: a green run with no issue touched.
+  it("the step after it reds the run on a failed audit step even when a summary printed", async () => {
+    const r = await runStep({
+      step: UNMEASURED_STEP,
+      cliOutput: "",
+      cliCode: 0,
+      files: { "protection.out": LAST_NIGHT },
+    });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toMatch(/^::error::protection-audit did not finish/m);
+  });
+
+  it("the open, close and fail steps key on the step's result, not its outcome", async () => {
+    const wf = await readFile(workflowPath(WF), "utf-8");
+    const ifOf = (label: string) => workflowSteps(wf).find((s) => s.label === label)?.if ?? "";
+    expect(ifOf(OPEN_STEP)).toContain("steps.protection.outputs.gaps == 'yes'");
+    expect(ifOf(CLOSE_STEP)).toContain("steps.protection.outputs.gaps == 'no'");
+    // A failed step now means only "did not measure": no token, UNMEASURED, a crash.
+    expect(ifOf(UNMEASURED_STEP)).toContain("steps.protection.outcome == 'failure'");
+    for (const label of [OPEN_STEP, CLOSE_STEP]) {
+      expect(ifOf(label)).not.toContain("steps.protection.outcome");
+    }
   });
 });
