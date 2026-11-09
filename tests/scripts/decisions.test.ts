@@ -421,6 +421,25 @@ describe("refs", () => {
     ]);
   });
 
+  it("holds a malformed issue ref to owner/repo#N rather than taking it as a link", () => {
+    const X = "2026-10-12-0900-x.md";
+    for (const r of [
+      "o/r#12)",
+      "o/r#12.",
+      "o/r#12/",
+      "o/r#12a",
+      "maint#1234 (merged)",
+      "o/r#",
+      "reddoorla/reddoor-maintenance",
+      "https://github.com/o/r/pull/12",
+      "https://github.com/o/r/issues/3#issuecomment-1",
+    ])
+      expect(pd(X, file({ refs: `[${r}]` })).errors).toEqual([`ref is not owner/repo#N: ${r}`]);
+    expect(
+      pd(X, file({ refs: "[https://x.com/a#1, https://github.com/o/r/blob/main/a.md]" })).links,
+    ).toEqual(["https://x.com/a#1", "https://github.com/o/r/blob/main/a.md"]);
+  });
+
   it("never looks up a path or link ref on GitHub", async () => {
     const calls: string[] = [];
     const run: Runner = async (_c, args) => {

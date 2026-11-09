@@ -247,9 +247,7 @@ export function parseDecision(name, text, now = Date.now()) {
       }
       const items = lm[1].trim() === "" ? [] : lm[1].split(",").map((s) => s.trim());
       for (const r of items) {
-        // A ref ending in #N names an issue or PR and must be owner/repo#N; any
-        // other ref is a path or link, kept as text and never looked up.
-        if (r !== "" && !/#\d+$/.test(r)) {
+        if (isLink(r)) {
           if (!d.links.includes(r)) d.links.push(r);
         } else if (!REF_PATTERN.test(r)) errors.push(`ref is not owner/repo#N: ${r || "(empty)"}`);
         else if (!d.refs.includes(r)) d.refs.push(r);
@@ -571,6 +569,16 @@ export function slugify(n, title) {
     s += `-${w}`;
   }
   return s;
+}
+
+// A ref is a path or link, kept as text and never looked up, only when it
+// plainly is one: a URL that is not a GitHub issue or PR, or a path ending in
+// / or a file extension with no #<digit> in it. Anything else is meant as an
+// issue or PR and must be owner/repo#N, so a typo like o/r#12) still fails.
+export function isLink(r) {
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(r))
+    return !/github\.com\/[^/]+\/[^/]+\/(?:pull|issues)\/\d/.test(r);
+  return !/#\d/.test(r) && /(?:\/|\.[A-Za-z0-9]+)$/.test(r);
 }
 
 export const URL_REF =
