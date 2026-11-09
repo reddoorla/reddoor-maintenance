@@ -492,5 +492,31 @@
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
     "why": "#1998 round 1: a template holding test code, re-indented, reads as a lost assertion again."
+  },
+  {
+    "id": "P82-H-assumed-start-line-is-dead",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "} else if (wholly(oldStates[k]) && !oldInh[k]) {",
+        "replace": "} else if (wholly(oldStates[k])) {"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1998 round 3 undone: a removed assertion in a hunk only assumed to start in a JSDoc is dead text, and pairs with its commented-out copy."
+  },
+  {
+    "id": "P82-I-assumed-start-never-ends",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "if (s && (s.before !== start || s.after !== start)) still = false;",
+        "replace": "if (s && false) still = false;"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "over-broad: every line of a JSDoc-start hunk is untrusted, so text moved within a template opened after the JSDoc closes no longer pairs."
   }
 ]

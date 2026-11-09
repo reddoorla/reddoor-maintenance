@@ -2459,6 +2459,46 @@ describe("land-prs: test changes", () => {
       expect(one("@@ -20,3 +20,2 @@\n   expect(9).toBe(9);\n-*/\n });")).toEqual([]);
     });
 
+    it("an assertion commented out below a line that only looks like JSDoc is still lost (#1998 round 3)", () => {
+      // The hunk starts on a Markdown bullet inside a template, so it is assumed to start in a
+      // comment; that assumption must not let the removed and added copies pair off as text.
+      expect(
+        one(
+          '@@ -3,6 +3,8 @@\n * item two\n `;\n it("renders", () => {\n-  expect(render(md)).toContain("item");\n+  /*\n+  expect(render(md)).toContain("item");\n+  */\n });',
+        ),
+      ).toEqual([
+        {
+          file: T,
+          reasons: ['removed assertion not re-added: expect(render(md)).toContain("item");'],
+        },
+      ]);
+      expect(
+        one(
+          '@@ -1,6 +1,8 @@\n   * factor\n it("works", () => {\n-  expect(add(1, 2)).toBe(3);\n+  const doc = `\n+  expect(add(1, 2)).toBe(3);\n+  `;\n });',
+        ),
+      ).toEqual([
+        { file: T, reasons: ["removed assertion not re-added: expect(add(1, 2)).toBe(3);"] },
+      ]);
+      // A real JSDoc example re-indented is still no change.
+      expect(
+        one(
+          '@@ -3,5 +3,5 @@\n  * Example:\n- *   expect(add(1, 2)).toBe(3);\n+ *     expect(add(1, 2)).toBe(3);\n  */\n it("works", () => {',
+        ),
+      ).toEqual([]);
+    });
+
+    it("known false flag: an uncommented test with a new JSDoc added lower in the same hunk (#1998 round 3)", () => {
+      // The JSDoc's closing `*/` reads as the removed closer moved down. Telling the two apart
+      // needs the file's full text; a decoy `/*` above an added `*/` defeats any patch-only rule.
+      expect(
+        one(
+          '@@ -1,4 +1,3 @@\n-/*\n it("adds", () => {\n   const a = 1;\n   const b = 2;\n@@ -10,9 +9,13 @@\n   expect(add(1, 2)).toBe(3);\n });\n-*/\n \n it("subtracts", () => {\n   expect(sub(2, 1)).toBe(1);\n });\n+\n+/**\n+ * Multiplication.\n+ */\n it("multiplies", () => {',
+        ),
+      ).toEqual([
+        { file: T, reasons: ['existing line now inside a block comment: it("subtracts", () => {'] },
+      ]);
+    });
+
     it("a closer moved up, out of the code it hid, is not a wrap", () => {
       expect(one('@@ -3,4 +3,4 @@\n  notes\n+*/\n it("works", () => {});\n-*/\n done();')).toEqual(
         [],
