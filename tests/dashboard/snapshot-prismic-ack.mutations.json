@@ -79,7 +79,7 @@
   },
   {
     "id": "7-flag-always-false-parity",
-    "why": "the parity test sees the snapshot's card lose the chip the loader's card shows",
+    "why": "the snapshot-derived card raises the Prismic alert the loader keeps muted",
     "edits": [
       {
         "file": "src/dashboard/snapshot.ts",
