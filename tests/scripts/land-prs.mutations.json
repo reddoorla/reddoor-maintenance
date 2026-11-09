@@ -466,5 +466,18 @@
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
     "why": "#1941 over-broad: a skip moved in code is flagged as added."
+  },
+  {
+    "id": "P82-F-no-moved-text-pairing",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "      if (!takeOne(deadLeft, matchKey(c))) takeOne(addedLeft, matchKey(c));",
+        "replace": "      takeOne(addedLeft, matchKey(c));"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1998 round 1: a template holding test code, re-indented, reads as a lost assertion again."
   }
 ]

@@ -1021,8 +1021,8 @@ function regexStartAt(line, i) {
  *  satisfies `regexStartAt` is a regex literal's and is stepped over (round 4; round 5: after a
  *  division it opens a string); an unclosed backtick ends the line in `"template"`, an unclosed
  *  `"` or `'` ends it in `"code"`; `//` ends the line; a `/*` not preceded by `\` or a regex
- *  class's `[` (see `regexClassAt`) opens a comment. A `*\/` met in code closes nothing: a
- *  comment opened above the hunk is not seen (#1617's moved-closer gap). */
+ *  class's `[` (see `regexClassAt`) opens a comment. A `*\/` met in code closes nothing here;
+ *  `closerMovedDown` reads a removed lone one as a comment opened above the hunk (#1946). */
 function commentScan(line, state) {
   let st = state;
   let i = 0;
@@ -1114,12 +1114,13 @@ function sideStates(lines, side, start) {
 
 /** The block-comment shifts of one hunk: `wrapped`, at most one, the first non-blank context line
  *  the PR's change puts inside a block comment, a comment opened by an added line above it in the
- *  hunk (and not open on the old side); and `commented`, each added line wholly inside a block
- *  comment. A context line that starts with `*\/` is never the wrapped line: it hides nothing,
+ *  hunk (and not open on the old side); `commented`, each added line wholly inside a block comment
+ *  or a template literal; and `dead`, each removed line wholly inside one on the old side (#1941).
+ *  A context line that starts with `*\/` is never the wrapped line: it hides nothing,
  *  since the code after its closer runs, and it is what a glob added to a comment that opened
- *  above the hunk makes look wrapped (round 7). A hunk starts in `"comment"` on both sides when its first line is a JSDoc
- *  continuation, so the JSDoc's opener above the hunk is not missed; otherwise each side starts
- *  in `"code"`. */
+ *  above the hunk makes look wrapped (round 7). A hunk starts in `"comment"` on both sides when its
+ *  first line is a JSDoc continuation, so the JSDoc's opener above the hunk is not missed, or when
+ *  `closerMovedDown` reads a comment opened above it; otherwise each side starts in `"code"`. */
 function hunkShifts({ jsdoc, lines }) {
   const start = jsdoc || closerMovedDown(lines) ? "comment" : "code";
   const oldStates = sideStates(lines, "old", start);
@@ -1226,7 +1227,8 @@ function renamedAway(before, after) {
  *  otherwise it starts outside one, so a comment opened above a hunk is not seen, nor is a closer
  *  with text before it moved down out of one. An added line wholly inside a block comment or a
  *  template literal does not re-add a removed assertion, and a removed line wholly inside one does
- *  not back an added skip (see `blockCommentShifts`, #1941). Two rare false flags are known, each costing the author one line:
+ *  not back an added skip (see `blockCommentShifts`, #1941), unless the same text is moved within
+ *  text, which counts as neither. Two rare false flags are known, each costing the author one line:
  *  a hunk that starts on a line beginning with `*` is taken to start inside a JSDoc block, so a
  *  Markdown bullet inside a template literal there can deny credit for a re-added line; and a hunk
  *  that starts inside a multi-line template literal is read as code, so a glob such as `src/*`
@@ -1298,9 +1300,15 @@ export function testChangeFlags(files) {
     const removedLeft = lineCounts(removed.map(matchKey));
     const valueLeft = lineCounts(valueLines(f.patch));
     const shifts = blockCommentShifts(f.patch);
-    for (const c of shifts.commented) takeOne(addedLeft, matchKey(c));
-    // A removed line that was text, not code, cannot back an added skip or .only (#1941).
-    for (const d of shifts.dead) takeOne(removedLeft, matchKey(d));
+    // Text moved within text (a template or comment re-indented or moved: the same line dead on
+    // the old side and commented on the new) is neither lost nor added, so each such pair is set
+    // aside first, and keeps both copies in the pools (#1998 round 1). What is left: a commented
+    // added line re-adds nothing, and a dead removed line backs no added skip or .only (#1941).
+    const deadLeft = lineCounts(shifts.dead.map(matchKey));
+    for (const c of shifts.commented) {
+      if (!takeOne(deadLeft, matchKey(c))) takeOne(addedLeft, matchKey(c));
+    }
+    for (const [key, n] of deadLeft) for (let i = 0; i < n; i++) takeOne(removedLeft, key);
     const reasons = away ? [away] : [];
     const tooLong = (t) => `a changed line of ${t.length} characters, too long to scan: read it`;
     for (const t of removed) {

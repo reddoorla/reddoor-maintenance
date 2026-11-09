@@ -2454,6 +2454,32 @@ describe("land-prs: test changes", () => {
       );
     });
 
+    it("text moved within text is neither lost nor added: a template or comment re-indented (#1998 round 1)", () => {
+      expect(
+        one(
+          '@@ -1,6 +1,8 @@\n-const SPEC = `\n-import { test, expect } from "@playwright/test";\n-test("hang", () => { expect(1).toBe(1); });\n-`;\n+describe("x", () => {\n+  const SPEC = `\n+  import { test, expect } from "@playwright/test";\n+  test("hang", () => { expect(1).toBe(1); });\n+  `;\n+});\n run();',
+        ),
+      ).toEqual([]);
+      expect(
+        one(
+          '@@ -1,4 +1,4 @@\n-const s = `\n-it.skip("x", () => {});\n-`;\n+const s = `\n+  it.skip("x", () => {});\n+`;\n run();',
+        ),
+      ).toEqual([]);
+      expect(
+        one(
+          "@@ -1,4 +1,4 @@\n-/*\n-expect(x).toBe(1);\n-*/\n+  /*\n+  expect(x).toBe(1);\n+  */\n run();",
+        ),
+      ).toEqual([]);
+    });
+
+    it("a real assertion removed beside moved template text still counts once", () => {
+      expect(
+        one(
+          "@@ -1,5 +1,4 @@\n-expect(x).toBe(1);\n-const s = `\n-expect(x).toBe(1);\n-`;\n+const s = `\n+  expect(x).toBe(1);\n+`;\n run();",
+        ),
+      ).toEqual([{ file: T, reasons: ["removed assertion not re-added: expect(x).toBe(1);"] }]);
+    });
+
     it("only a line that is the closer alone reads as one: a // comment ending in */ does not", () => {
       expect(
         one("@@ -1,3 +1,3 @@\n keep();\n-run(); // dir/*/\n+run();\n expect(a).toBe(1);"),
