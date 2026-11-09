@@ -143,15 +143,16 @@ and renames what arrived.
   5xx makes the scheduler retry the whole batch, a file already answered 200
   is committed again; and each file keeps only its newest answer, so a
   retried commit answered 403 after an earlier `complete` ends the wait with
-  that file FAILED.
-- Chromium reads each file when the page uploads it, and refuses one whose
-  size or modification time changed since it was handed over, so nothing
-  commits. A change that keeps both (`touch -r`) is not seen; step 4's hash
-  match is the check for that. It counts a
+  that file FAILED. The script counts a
   file as committed only when its own commit answered complete; a commit already seen still counts if the batch
   fails later. It does not rely on the page text, which a file named
   "Finished uploading…" would match. The commit does not name the stored
   file, which is why step 4 matches by hash.
+- Chromium reads each file when the page uploads it. A file changed after the
+  script re-hashed it is expected to fail that read, because Chromium
+  snapshots each file's size and modification time when it is handed over
+  (Blink's behaviour, not measured here). A change that keeps both
+  (`touch -r`) would not be seen; step 4's hash match is the check for that.
 - The 09-29 version (roalson-interests
   `tools/listing-packages/build/upload.sh` and `frbatch.mjs` at `90c6d9e`,
   removed in roalson-interests#302) found no completion state and slept
