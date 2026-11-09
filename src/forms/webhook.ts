@@ -135,9 +135,14 @@ export async function forwardFormToWebhook(
  * not in each forwarder, so no forwarder can follow by leaving it out.
  *
  * Refusing rather than walking the chain with the guard on each hop (as the
- * prospect crawler's GETs do) because a forward has nothing to gain from a
- * follow: a 301/302/303 turns the POST into a body-less GET, and only a 307/308
- * carries the body on, which is exactly the case the guard exists for.
+ * prospect crawler's GETs do), at a known cost. A 301/302/303 turns the POST
+ * into a body-less GET, so a follow never delivered data there; the hook either
+ * acted on the first request or not at all. Only a 307/308 carries the body on,
+ * which is the case the guard exists for. A hook its provider MOVED with a 308
+ * to another public host was delivered before and is now stamped `<label>:308`
+ * and not delivered: the fix is to update the stored URL. And a hook that acts
+ * and then answers 302 (a Google Apps Script `/exec`) is delivered but stamped
+ * `:302`, so it reads as a failure.
  */
 async function postJson(
   url: string,

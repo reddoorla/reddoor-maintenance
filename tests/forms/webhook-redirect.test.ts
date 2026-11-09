@@ -1,14 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { forwardFormToWebhook, forwardNewsletterToWebhook } from "../../src/forms/webhook.js";
-import { isPublicHttpsUrl } from "../../src/util/url.js";
 import { makeSubmissionRow } from "../_helpers/submission-row.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 // #1970: the SSRF guard judges only the configured URL. A public https hook that
 // answers 307/308 must not get the body re-POSTed to wherever its Location
-// points. This stub behaves the way Node's fetch does (checked against real
-// local servers, 2026-11-09): with `redirect: "manual"` it returns the 3xx;
-// with anything else it follows, re-POSTing the body on a 307/308.
+// points. This stub models Node's fetch (checked against real local servers,
+// 2026-11-09): with `redirect: "manual"` it returns the 3xx; with anything else
+// it follows. Node re-POSTs the body on a 307/308 and turns a 301/302/303 into
+// a body-less GET; the stub re-sends `init` either way, which is enough here,
+// because the assertions are about WHICH URLs were requested, not the method.
 
 const HOOK = "https://hooks.zapier.com/hooks/catch/1/abc";
 
@@ -43,7 +44,6 @@ describe("every webhook forwarder refuses a redirect (#1970)", () => {
           const { impl, requested } = redirectingFetch(target, code);
           const res = await forward(HOOK, makeSubmissionRow(), makeWebsiteRow(), impl);
           expect(requested).toEqual([HOOK]);
-          expect(requested.every(isPublicHttpsUrl)).toBe(true);
           expect(res).toEqual({ ok: false, status: code });
         });
       }
