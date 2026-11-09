@@ -359,6 +359,10 @@ type Fixture = {
   offHost?: boolean;
   /** /contact answers 404, like 29 Navy's deleted route: the site has no form. */
   contactAbsent?: boolean;
+  /** `/` serves a page with a contact form (with contactAbsent: a one-page site). */
+  rootForm?: boolean;
+  /** /contact and / both answer 503: the site is down, so nothing was looked at. */
+  pagesDown?: boolean;
 };
 
 let server: Server;
@@ -374,6 +378,16 @@ beforeAll(async () => {
       healthReads++;
       res.writeHead(fixture.healthStatus ?? 200, { "content-type": "application/json" });
       res.end(JSON.stringify(fixture.health));
+      return;
+    }
+    if (req.method === "GET" && fixture.pagesDown && (req.url === "/contact" || req.url === "/")) {
+      res.writeHead(503);
+      res.end();
+      return;
+    }
+    if (req.method === "GET" && req.url === "/" && fixture.rootForm) {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end('<!doctype html><form><input type="email" name="email"><button>Send</button></form>');
       return;
     }
     if (req.method === "GET" && req.url === "/contact") {
@@ -861,6 +875,20 @@ describe("form-e2e live runner — a site that declares no form (forms.none)", (
     expect(posts).toHaveLength(0);
   }, 90_000);
 
+  it("finds a form on / when /contact is gone, so a one-page site cannot claim none", async () => {
+    const out = await submit({ health: NONE, banner: true, contactAbsent: true, rootForm: true });
+    expect(out).toEqual({ testModeUndeclared: true, declaredNone: { formAt: base } });
+    expect(posts).toHaveLength(0);
+  }, 90_000);
+
+  it("a site whose routes answer 503 is unverified, never n/a", async () => {
+    const out = await submit({ health: NONE, banner: true, pagesDown: true });
+    expect(out).toEqual({
+      testModeUndeclared: true,
+      declaredNone: { unverified: `${base}contact answered 503` },
+    });
+  }, 90_000);
+
   it('reads only a strict true: none:"true" is undeclared and opens no page', async () => {
     const out = await submit({
       health: { ok: true, forms: { testMode: false, turnstile: false, none: "true" } },
@@ -882,7 +910,12 @@ describe("form-e2e live runner — a site that declares no form (forms.none)", (
     };
     posts = [];
     const na = await audit({ health: NONE, banner: true, contactAbsent: true });
-    expect(na).toMatchObject({ status: "skip", notApplicable: true, details: { ok: null } });
+    // No form, no widget to verify: null, never the "fail" turnstile:false earns a testMode site.
+    expect(na).toMatchObject({
+      status: "skip",
+      notApplicable: true,
+      details: { ok: null, turnstileWidget: null },
+    });
     expect(na.summary).toMatch(/^no contact form \(n\/a\)/);
     const contradicted = await audit({ health: NONE, banner: true });
     expect(contradicted.status).toBe("skip");

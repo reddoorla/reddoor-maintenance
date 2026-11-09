@@ -46,7 +46,9 @@ export type FormE2eDetails = {
 /** Outcome of driving one site's contact form. `formPresent:false` ⇒ n/a
  *  (persisted). `testModeUndeclared` ⇒ the site's /health does not declare
  *  `forms.testMode`, or (with `healthUnreadable`) could not be read at all, so
- *  the probe refused to submit — a plain skip, prior verdict preserved. `elapsedMs` times the submit itself (click → success
+ *  the probe refused to submit — a plain skip, prior verdict preserved. With
+ *  `declaredNone`, the site declared it has no form (`forms.none`) and the look
+ *  found one, or could not run. `elapsedMs` times the submit itself (click → success
  *  banner) and feeds the budget-headroom check; absent means "not measured",
  *  which never manufactures a verdict. */
 export type FormSubmitOutcome =
@@ -623,8 +625,15 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
           checkedAt,
           // Written here too: this path DOES refresh `Form E2E checked at`, and
           // the verdict must never be older than the stamp that ages it.
+          // A site that declares it has no form has no widget to verify: "no key
+          // deployed" is its expected state, not a fail.
           turnstileWidget: applyCoverage(
-            turnstileVerdict(outcome.formsHealth ?? { testMode: true, turnstile: null }, undefined),
+            outcome.formsHealth?.none === true && !outcome.formsHealth.testMode
+              ? null
+              : turnstileVerdict(
+                  outcome.formsHealth ?? { testMode: true, turnstile: null },
+                  undefined,
+                ),
             coverage,
           ),
         } satisfies FormE2eDetails,
@@ -946,7 +955,7 @@ export type FormProbePage = {
   goto: (
     url: string,
     opts?: { waitUntil?: string; timeout?: number },
-  ) => Promise<{ ok: () => boolean } | null>;
+  ) => Promise<{ ok: () => boolean; status?: () => number } | null>;
   locator: (selector: string) => { count: () => Promise<number> };
 };
 
@@ -971,19 +980,24 @@ export async function findFormPath(
       .goto(url, { waitUntil: "domcontentloaded", timeout: PAGE_TIMEOUT_MS })
       .catch(() => null);
     if (!resp || !resp.ok()) continue;
-    const forms = await page
-      .locator("form")
-      .count()
-      .catch(() => 0);
-    if (forms === 0) continue;
-    const emails = await page
-      .locator('input[name="email"], input[type="email"]')
-      .count()
-      .catch(() => 0);
-    if (emails === 0) continue;
-    return url;
+    if (await pageHasContactForm(page)) return url;
   }
   return null;
+}
+
+/** The contact-form test both the submit path and the forms.none look apply: a
+ *  `<form>` on the page and an email field. */
+async function pageHasContactForm(page: FormProbePage): Promise<boolean> {
+  const forms = await page
+    .locator("form")
+    .count()
+    .catch(() => 0);
+  if (forms === 0) return false;
+  const emails = await page
+    .locator('input[name="email"], input[type="email"]')
+    .count()
+    .catch(() => 0);
+  return emails > 0;
 }
 
 /**
@@ -1185,8 +1199,11 @@ export function noBannerDetail(e: NoBannerEvidence): string {
  * The look behind a `forms.none` declaration: open the contact routes and report
  * the first that carries a contact form, by the same test `findFormPath` applies
  * before a real submission. `null` = none found, the only answer that admits n/a.
- * It never fills or submits, and anything that stops it from looking is returned
- * as `unverified`, never as "no form".
+ * It never fills or submits, and anything that stops it from looking (a launch
+ * that fails, a route that answers anything but 2xx or 404/410, a navigation
+ * that times out) is returned as `unverified`, never as "no form". It checks only
+ * `CONTACT_PATHS`, as the submit path does: a form on another route, or one with
+ * no email field, is not seen.
  */
 export async function lookForContactForm(
   chromium: {
@@ -1198,8 +1215,21 @@ export async function lookForContactForm(
   try {
     browser = await chromium.launch();
     const page = (await browser.newPage()) as FormProbePage;
-    const formAt = await findFormPath(page, baseUrl);
-    return formAt === null ? null : { formAt };
+    for (const path of CONTACT_PATHS) {
+      const url = new URL(path, baseUrl).toString();
+      // Unlike findFormPath, a route that could not be loaded is not a miss: only
+      // a page that rendered (2xx) or a route that is gone (404/410) completes the
+      // look. A 503 or a timeout on both routes must never read as "no form".
+      const resp = await page.goto(url, {
+        waitUntil: "domcontentloaded",
+        timeout: PAGE_TIMEOUT_MS,
+      });
+      const status = resp?.status?.();
+      if (status === 404 || status === 410) continue;
+      if (!resp || !resp.ok()) return { unverified: `${url} answered ${status ?? "nothing"}` };
+      if (await pageHasContactForm(page)) return { formAt: url };
+    }
+    return null;
   } catch (err) {
     return { unverified: firstLine(err) };
   } finally {
