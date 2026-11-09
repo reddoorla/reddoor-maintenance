@@ -1,0 +1,132 @@
+From 23ac35b82a0f04700d6025d3abd4a64beb4e3956 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 19:44:34 +0000
+Subject: [PATCH] fix(renovate): hold Node below 26 until AWS Lambda nodejs26.x
+ is GA
+
+Netlify runs server functions on nodejs24.x while Lambda's nodejs26.x is a
+public preview, so a Node 26 build with @types/node 26 typechecks APIs that
+then throw in production. Renovate opened "update node.js to v26" PRs on eight
+fleet repos and reddoor-md-pdf anyway. One allowedVersions "<26.0.0" rule on
+depNames node and @types/node, scoped to no manager, covers every manager a
+Renovate 44.199.2 dry run extracted Node from (nvm, nodenv, asdf, dockerfile,
+npm engines, github-actions setup-node). Node 24 patches and minors still flow.
+validate.yml asserts each leg stays capped.
+
+Patch from reddoorla/reddoor-maintenance (P1-105; reddoor-workspace decisions
+2026-11-04-1809-erp-node26-functions-stay-on-24 and
+2026-11-09-1934-p1-105-msot-node26-merged-against-hold, answer (a)).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_013FT5PBubSxSsJCqr6bizhQ
+---
+ .github/workflows/validate.yml | 21 +++++++++++++++++
+ docs/workJournal.md            | 43 ++++++++++++++++++++++++++++++++++
+ renovate-config.json           |  8 +++++++
+ 3 files changed, 72 insertions(+)
+
+diff --git a/.github/workflows/validate.yml b/.github/workflows/validate.yml
+index eadc40b..35c0d01 100644
+--- a/.github/workflows/validate.yml
++++ b/.github/workflows/validate.yml
+@@ -98,6 +98,27 @@ jobs:
+               rules.some((r) => r.prCreation === "immediate" && reaches(r, "digest"));
+             if (digestImmediate)
+               throw new Error("prCreation:immediate on digest: digests have no release timestamp, so the PR waits on a stability status that never clears and takes an hourly slot ahead of the grouped PRs (2026-10-24)");
++            // NODE HOLD (2026-11-09, reddoor-maintenance P1-105): Node stays below 26 until AWS Lambda lists nodejs26.x as GA,
++            // because Netlify runs server functions on nodejs24.x until then. Each leg below is a [manager, depName, packageName]
++            // Renovate 44.199.2 extracted from a fixture carrying Node in every place the fleet does; the 11-02 and 11-09 Node 26
++            // PRs touched nvm, github-actions and npm (@types/node). The last allowedVersions rule that can reach a leg must be
++            // unconditional (matched only by manager, dep or package name, all naming the leg) and cap below 26, or that leg
++            // would propose Node 26 again. Delete this block together with the preset rule when the hold lifts.
++            const NODE_HOLD_LEGS = [["nvm", "node", "node"], ["nodenv", "node", "node"], ["asdf", "node", "node"], ["dockerfile", "node", "node"],
++              ["github-actions", "node", "actions/node-versions"], ["github-actions", "node", "node"], ["docker-compose", "node", "node"],
++              ["mise", "node", "node"], ["npm", "node", "node"], ["npm", "@types/node", "@types/node"]];
++            const NAME_KEYS = { matchManagers: 0, matchDepNames: 1, matchPackageNames: 2 };
++            const plainNames = (v) => Array.isArray(v) && v.every((n) => typeof n === "string" && /^[@a-z0-9][a-z0-9._\/-]*$/i.test(n));
++            const namesHave = (v, n) => v.some((x) => x.toLowerCase() === n.toLowerCase());
++            const excludesLeg = (r, leg) => Object.entries(NAME_KEYS).some(([k, i]) => plainNames(r[k]) && !namesHave(r[k], leg[i]));
++            const cleanFor = (r, leg) => Object.keys(r).filter((k) => k.startsWith("match") || k.startsWith("exclude"))
++              .every((k) => k in NAME_KEYS && plainNames(r[k]) && namesHave(r[k], leg[NAME_KEYS[k]]));
++            for (const leg of NODE_HOLD_LEGS) {
++              const last = rules.filter((r) => "allowedVersions" in r && !excludesLeg(r, leg)).at(-1);
++              const cap = /^<(\d+)(\.0\.0)?$/.exec(typeof last?.allowedVersions === "string" ? last.allowedVersions : "");
++              if (!last || !cleanFor(last, leg) || !cap || Number(cap[1]) > 26 || Number(cap[1]) < 25)
++                throw new Error("node hold (P1-105): " + leg[0] + " / " + leg[1] + " is not capped at <25 or <26 by an unconditional allowedVersions rule (last reaching: " + JSON.stringify(last ? { ...last, description: undefined } : null) + "); Renovate would propose Node 26 there while AWS Lambda nodejs26.x is a preview");
++            }
+             // Renovate sorts lock-file maintenance after every other update type and creates at most prHourlyLimit (2) PRs an
+             // hour, so in a week when both grouped PRs refill it loses its slot to them (lib/workers/repository/process/sort.ts,
+             // Renovate 44.176.1 to 44.181.3). prPriority sorts before update type, so lock-file maintenance needs the highest one, set by an
+diff --git a/docs/workJournal.md b/docs/workJournal.md
+index 2989cb4..1bd8eeb 100644
+--- a/docs/workJournal.md
++++ b/docs/workJournal.md
+@@ -153,3 +153,46 @@ Every arm PR was a draft and is closed unmerged; the `probe/1688-*` branches sta
+ What `prHourlyLimit: 2` still costs, stated so it is not mistaken for a fix: in a week when both grouped branches refill, the Monday run opens lock-file maintenance and one grouped PR, and the other grouped PR and any new major wait. The hourly count resets each clock hour, so a second in-window run would open them the same day; but the 12:00Z cron almost always starts after the window closes (17:51Z to 21:12Z, measured 10-21), so in practice they usually wait for the next Monday with a free slot. Raising the limit was option (c), not chosen.
+ 
+ `validate.yml` now refuses three things. Under `not-pending`, an unscoped rule must set `prCreation: immediate` for `major`, and no later rule reaching `major` (a rule with no `matchUpdateTypes` counts) may set anything else. `prCreation: immediate` must not reach `digest`, whether top-level, in a `digest` block, or by a rule naming `digest` or naming no update type. And with lock-file maintenance enabled, the last `prPriority` rule reaching it (a typeless one counts) must be unscoped, match `lockFileMaintenance` alone, and give it the strictly highest `prPriority`. Nine mutations turned the step red, each with its own error: the majors rule removed, scoped, or overridden by a later scoped `not-pending` rule; `digest` added to it; the priority rule removed, set to 0, outranked, scoped, or moved inside `lockFileMaintenance` (where Renovate does not accept it). The unchanged patched preset passed, and `main`'s preset at `a726791` failed on the majors guard. Review round 1 (session model) found the guards too narrow (a priority rule that also matched minor and patch tied with the groups and passed; a typeless `prCreation` override and three other routes to an immediate digest passed), and found the first text calling the next-Monday wait certain when it is only usual; both were fixed before this landed, with six more mutations. Round 2 found one more: a later typeless or scoped `prPriority: -1` tied lock-file maintenance with the groups again and passed; that and a false refusal of a harmless later scoped `immediate` major rule were fixed too, with the mutations listed in reddoor-maintenance#1712.
++
++## 2026-11-09 — Node held below 26 in the org preset until AWS Lambda's nodejs26.x is GA (patch from reddoor-maintenance P1-105)
++
++Renovate opened "update node.js to v26" PRs on eight fleet repos and reddoor-md-pdf in the 11-02 and 11-09 windows. The operator holds Node 26 until AWS lists Lambda `nodejs26.x` as GA (reddoor-workspace `decisions/2026-11-04-1809-erp-node26-functions-stay-on-24.md`). The reason is a type gap. Netlify runs server functions on the build's Node only when Lambda supports that major for production, and otherwise falls back to `nodejs24.x`. So a Node 26 build with `@types/node` 26 typechecks Node-26-only APIs that then throw in production. On 11-09 at 11:31am PT, one of those PRs (medical-solutions-of-texas#114) was merged into MSOT `staging` by hand, while AWS still listed the runtime as a public preview. The operator confirmed the hold still stands (`decisions/2026-11-09-1934-p1-105-msot-node26-merged-against-hold.md`, answer (a)). MSOT's revert is a separate task, and this preset rule does not undo it, because Renovate does not downgrade.
++
++The rule is one `allowedVersions: "<26.0.0"` on `matchDepNames: ["node", "@types/node"]`, with no `matchManagers`. A fixture repo carried Node in every place the fleet might: `.nvmrc`, `.node-version`, `.tool-versions`, a `node` Dockerfile, `engines.node`, `@types/node` and a setup-node `node-version`. Renovate 44.199.2 extracted every one of them as depName `node` (`@types/node` for the types). The managers are `nvm`, not `nvmrc` as first written; `nodenv`, `asdf`, `dockerfile` and `npm`; and `github-actions`, with packageName `actions/node-versions`. Listing no manager is what keeps a new place from slipping past the rule.
++
++Measured with `--platform=local --dry-run=lookup` on that fixture:
++
++| Arm | Node proposals |
++|---|---|
++| Control (this preset before the patch) | 26.13.0 on nvm, nodenv, asdf and dockerfile; `@types/node` ^26.0.0 |
++| Patched | none |
++| Cap set to `<27` | 26 on every one of them again |
++| Patched, fixture moved back to 24.10.0 | minor 24.22.2 on all four Node files |
++
++The last arm is the check that the cap does not block the Node 24 patches and minors the fleet still needs.
++
++The github-actions leg cannot be looked up from a cloud session, because its datasource goes through GraphQL and the proxy refuses GraphQL. It was checked instead with Renovate's own `applyPackageRules` and node versioning on the extracted dep. Patched, `allowedVersions` is `<26.0.0` and 26.13.0 is refused. With the rule scoped to the other five managers, it is uncapped.
++
++`validate.yml` now asserts the hold for each [manager, dep, package] leg. The last `allowedVersions` rule that can reach the leg must be matched only by manager, dep or package names that all name it, and must cap below 26. Four mutations each turned the step red, naming the leg:
++- github-actions dropped from a `matchManagers`
++- the cap set to `<27`
++- `@types/node` dropped
++- the rule removed
++
++The unchanged patched preset passed, and so did `renovate-config-validator --strict`, as both global and repo config.
++
++A belief corrected on contact: the first draft capped at `<25`, on the theory that `<26` would let Renovate propose `@types/node` 25 and Node 25. It does not. Under `<26`, the dry run proposed neither, although `@types/node` 25.9.9 exists on npm. Renovate looks up `@types/node` with node versioning (`workarounds:typesNodeVersioning`), and that versioning treats an odd, non-LTS major as unstable.
++
++reddoor-maintenance's deps audit still reads `typescript` as the one held cap (`capsFromPreset` gives `[["typescript","<7.0.0"]]` before and after). The new rule names its packages exactly, so it cannot read as touching typescript.
++
++An adversarial review (round 1) found only minors and nits, and they are folded in here. A registry-prefixed image (`FROM docker.io/library/node:24.10.0`, or `cimg/node`) has the image as written for its depName, and is still offered 26. No reddoorla repo uses one (code search, 11-09; reddoor-md-pdf's Dockerfile is `node:22.22-slim`). Covering one would take a regex `matchPackageNames`, which reddoor-maintenance's deps audit reads as possibly reaching `typescript`, so the description names the gap instead. The description had also credited `group:nodeJs` with putting `@types/node` on the Node PR. In fact Renovate strips `@types/` when naming branches, so both land on `renovate/node-26.x`. The guard had passed four presets it should refuse:
++- a capitalised `matchDepNames: ["Node"]` rule with a high cap (Renovate matches names case-insensitively);
++- a later uncapped `mise` rule;
++- a later uncapped `docker-compose` rule;
++- a cap of `<1`, which would also block Node 24.
++
++It now compares names case-insensitively, adds the mise, docker-compose and workflow `container:` legs, and accepts only `<25` or `<26`. All four fail now. The guard also moved above the lock-file `prPriority` comment, which it had split from its code.
++
++Autoclose has a caveat. Renovate closes a branch it no longer proposes only when no one else has committed to it. If someone has, it retitles the PR "abandoned" and leaves it open.
++
++To lift the hold: when AWS's runtimes page lists `nodejs26.x` without the preview note, delete the rule and the `validate.yml` block together, then follow P1-99's per-site recipe.
+diff --git a/renovate-config.json b/renovate-config.json
+index 9f5cccb..c21e742 100644
+--- a/renovate-config.json
++++ b/renovate-config.json
+@@ -146,6 +146,14 @@
+       ],
+       "allowedVersions": "<2.0.0"
+     },
++    {
++      "description": "HOLD NODE ON 24 UNTIL AWS LAMBDA LISTS nodejs26.x AS GA (2026-11-09, reddoor-maintenance P1-105, serving P1-99; the operator's hold is reddoor-workspace decisions/2026-11-04-1809-erp-node26-functions-stay-on-24.md, reaffirmed in decisions/2026-11-09-1934-p1-105-msot-node26-merged-against-hold.md). Netlify runs a site's server functions on the build's Node only when AWS Lambda supports that major as a production runtime; while nodejs26.x is a public preview it falls back to nodejs24.x. A Node 26 build with @types/node 26 therefore lets Node-26-only APIs pass svelte-check and then throw a ReferenceError in production (QuotaExceededError on ERP, 2026-11-04). Renovate opened 'update node.js to v26' PRs on 8 fleet repos plus reddoor-md-pdf in the 2026-11-02 and 11-09 windows, touching .nvmrc, actions/setup-node node-version in workflows, and @types/node. The rule matches by depName and lists no manager on purpose: every manager that carries Node names the dep 'node' (nvm, nodenv, asdf, mise, npm engines, an unprefixed node image in a Dockerfile, docker-compose or a workflow container, and github-actions setup-node, whose lookup is actions/node-versions), and @types/node lands on the same renovate/node-26.x branch because Renovate strips '@types/' when naming branches. NOT COVERED: a registry-prefixed image such as docker.io/library/node or cimg/node, whose depName is the image as written; no reddoorla repo used one on 2026-11-09 (code search), and matching it needs a regex matcher, which reddoor-maintenance's deps audit would read as possibly reaching typescript. Node 24 patches and minors still flow, and odd majors (25) never do, because Renovate's node versioning, which workarounds:typesNodeVersioning also gives @types/node, treats a non-LTS major as unstable. validate.yml's 'node hold' guard asserts this rule still reaches each of those managers. LIFT: when AWS's Lambda runtimes page lists nodejs26.x without the preview note, delete this rule and that guard in one PR, and follow P1-99's per-site recipe (AWS_LAMBDA_JS_RUNTIME=nodejs26.x on Netlify first).",
++      "matchDepNames": [
++        "node",
++        "@types/node"
++      ],
++      "allowedVersions": "<26.0.0"
++    },
+     {
+       "description": "pnpm overrides are hand-managed security pins, never Renovate's to bump. Renovate misreads override KEYS as dependencies and proposes rewriting the pinned range itself: the 2026-08-03 'brace-expansion@<X to v5' wave (widening the override to <6 breaks minimatch@3/9 at runtime) and the 2026-08-10 'cookie@<0.7.0 to v1' wave (17 PRs fleet-wide; cookie 0.7.2 is already fully patched for GHSA-pxg6-pf52-xh8x, so the rewrite adds zero security value and either flips @sveltejs/kit onto untested cookie 1.x or defers that jump to the next lockfile refresh). All three depTypes are listed because the npm manager assigns 'pnpm-workspace.overrides' to pnpm-workspace.yaml override entries (including flat 'parent>child' selector keys like '@sveltejs/kit>cookie'), 'pnpm.overrides' to package.json pnpm.overrides, and 'overrides' to package.json overrides; matching only 'overrides' would miss the workspace-YAML pins the fleet actually uses (pnpm 11 reads overrides from pnpm-workspace.yaml).",
+       "matchDepTypes": [
+-- 
+2.43.0
+
