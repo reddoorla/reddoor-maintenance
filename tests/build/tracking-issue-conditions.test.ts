@@ -950,14 +950,12 @@ exit 1
         /^(Open|Close)/.test(s.label),
     );
     expect(steps).toHaveLength(2);
+    // #1979: the audit step reports a gap as `outputs.gaps`, not as its outcome,
+    // so a gap night no longer logs `##[error]` under continue-on-error.
     for (const s of steps) {
-      const want = /^Open/.test(s.label) ? "failure" : "success";
-      expect(
-        evaluate(s.if ?? "success()", { ...MAIN_FAILED, outcomes: { protection: want } }),
-      ).toBe(true);
-      expect(
-        evaluate(s.if ?? "success()", { ...MAIN_CANCELLED, outcomes: { protection: want } }),
-      ).toBe(false);
+      const gaps = /^Open/.test(s.label) ? "yes" : "no";
+      expect(evaluate(s.if ?? "success()", { ...MAIN_FAILED, output: gaps })).toBe(true);
+      expect(evaluate(s.if ?? "success()", { ...MAIN_CANCELLED, output: gaps })).toBe(false);
     }
   });
 

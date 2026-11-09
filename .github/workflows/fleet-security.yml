@@ -196,12 +196,20 @@ jobs:
       # sat unprotected until the 2026-08-01 hand audit. This nightly sweep
       # enumerates the org from the API and alarms on any gap.
       #
-      # continue-on-error + a DEDICATED tracking issue, deliberately NOT a red
-      # job: a red here would fire the generic "Nightly fleet security audit
-      # failing" issue below and misdirect triage at the vuln sweep. The
-      # dedicated title is the signal; it auto-closes on the next clean pass.
-      # The one exception is a sweep that verified no repo (UNMEASURED, #1612):
-      # that is not a posture gap, so the step after the open step reds the run.
+      # A DEDICATED tracking issue, deliberately NOT a red job: a red here
+      # would fire the generic "Nightly fleet security audit failing" issue
+      # below and misdirect triage at the vuln sweep. The dedicated title is the
+      # signal; it auto-closes on the next clean pass.
+      #
+      # The step classifies its own result into `outputs.gaps` (#1979). The
+      # CLI exits 1 for "gaps found" AND for a crash, and before this a found
+      # gap failed the step: every gap night logged `##[error]Process completed
+      # with exit code 1.` under continue-on-error, and a crash looked the same.
+      #   gaps=yes — exit 1 beside a `PROTECTION_AUDIT gaps=N` line, N > 0: green.
+      #   gaps=no  — exit 0: green.
+      #   anything else, with no `gaps` output (no token, UNMEASURED #1612, a crash) fails the step,
+      #   and "Fail the run when the protection sweep verified no repo" reds the
+      #   run. continue-on-error stays so the issue steps below still run.
       - name: Protection coverage audit (org-wide)
         id: protection
         if: ${{ !cancelled() && (steps.sweep.outcome == 'success' || steps.sweep.outcome == 'failure') }}
@@ -221,7 +229,21 @@ jobs:
             echo "::error::protection-audit: minted App token is empty — cannot verify coverage."
             exit 1
           fi
-          node dist/cli/bin.js protection-audit --org reddoorla | tee "${RUNNER_TEMP:-/tmp}/protection.out"
+          out="${RUNNER_TEMP:-/tmp}/protection.out"
+          code=0
+          node dist/cli/bin.js protection-audit --org reddoorla | tee "$out" || code=$?
+          if [ "$code" -eq 0 ]; then
+            echo "gaps=no" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Exit 1 is "gaps found" only beside the summary that counts them; a
+          # crash also exits 1 and prints no summary (runOrExit).
+          if [ "$code" -eq 1 ] && grep -qE "^PROTECTION_AUDIT gaps=[1-9][0-9]* " "$out"; then
+            echo "gaps=yes" >> "$GITHUB_OUTPUT"
+            echo "protection-audit found gaps; the \"Fleet protection coverage gap\" issue carries them."
+            exit 0
+          fi
+          exit "$code"
 
       - name: Open/update the protection-gap tracking issue
         # main only: a branch run's finding is not main's to file (and a green PR-branch
@@ -229,15 +251,16 @@ jobs:
         # `!cancelled()`: without a status function Actions prefixes `success() &&`,
         # so a write-gate red in the audit step (#1605) would skip this and the
         # close step below and freeze the issue on exactly the nights it is red.
-        if: ${{ !cancelled() && steps.protection.outcome == 'failure' && github.ref == 'refs/heads/main' }}
+        if: ${{ !cancelled() && steps.protection.outputs.gaps == 'yes' && github.ref == 'refs/heads/main' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           # A token that never minted stops the audit before its `tee` creates
           # protection.out. That is not a coverage gap, and before `!cancelled()`
-          # it skipped this step entirely; the run-failure issue speaks for it. A
-          # CLI that crashed still leaves the file, and still files.
+          # it skipped this step entirely; the run-failure issue speaks for it.
+          # Since #1979 this step runs only on `gaps=yes`, which neither a
+          # missing token nor a crash sets; these guards stay as a second line.
           if [ ! -e "${RUNNER_TEMP:-/tmp}/protection.out" ]; then
             echo "::warning::protection-audit never ran (no token, no output); not filing a coverage gap."
             exit 0
@@ -295,10 +318,18 @@ jobs:
             echo "::error::protection-audit verified no repo: the org listing gave none, so tonight's posture is unmeasured, not clean."
             exit 1
           fi
+          # No summary at all is an audit that did not finish (#1979): a crash
+          # (runOrExit prints nothing and exits 1) or a missing token. Before
+          # this, a crash failed the step under continue-on-error, filed "see run
+          # output" on the gap issue, and left the run green.
+          if ! grep -qE "^PROTECTION_AUDIT gaps=[0-9]+ " "${RUNNER_TEMP:-/tmp}/protection.out" 2>/dev/null; then
+            echo "::error::protection-audit did not finish (no PROTECTION_AUDIT summary): tonight's posture is unmeasured, not clean. See the 'Protection coverage audit (org-wide)' step."
+            exit 1
+          fi
 
       - name: Close the protection-gap issue on a clean sweep
         # main only: a green PR-branch dispatch of time-travel closed #895 while main was red.
-        if: ${{ !cancelled() && steps.protection.outcome == 'success' && github.ref == 'refs/heads/main' }}
+        if: ${{ !cancelled() && steps.protection.outputs.gaps == 'no' && github.ref == 'refs/heads/main' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
