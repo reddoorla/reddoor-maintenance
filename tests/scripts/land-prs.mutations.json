@@ -212,8 +212,8 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "for (const c of shifts.commented) takeOne(addedLeft, matchKey(c));",
-        "replace": "void shifts;"
+        "find": "      if (!takeOne(deadLeft, matchKey(c))) takeOne(addedLeft, matchKey(c));",
+        "replace": "      void c;"
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
@@ -407,7 +407,7 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "    for (const d of shifts.dead) takeOne(removedLeft, matchKey(d));\n",
+        "find": "    for (const [key, n] of deadLeft) for (let i = 0; i < n; i++) takeOne(removedLeft, key);\n",
         "replace": ""
       }
     ],
