@@ -214,19 +214,24 @@ describe("fleet-security: protection-audit refuses an empty org listing (#1612)"
     expect(r.out).toMatch(/^::error::protection-audit verified no repo/m);
   });
 
-  it("a sweep with real gaps leaves that step green: the gap issue speaks for it", async () => {
+  // #1979 moved this guarantee up a step: a gap now passes the audit step with
+  // `gaps=yes`, so the fail step (`if: steps.protection.outcome == 'failure'`)
+  // never runs on it. Before, the audit step failed and the fail step's script
+  // had to tell a gap from a broken sweep by the file alone.
+  it("a sweep with real gaps leaves the run green: the gap issue speaks for it", async () => {
     const gappy: ProtectionAuditDeps = { ...deps(["espada"]), listRepoRulesets: async () => [] };
     const real = await runProtectionAuditCommand({ org: "reddoorla" }, gappy);
     expect(real.code).toBe(1);
     expect(real.output).toContain("PROTECTION_AUDIT gaps=1 covered=0 skipped=0 total=1");
     expect(real.output).not.toContain("PROTECTION_AUDIT_UNMEASURED");
     const r = await runStep({
-      step: UNMEASURED_STEP,
-      cliOutput: "",
-      cliCode: 0,
-      files: { "protection.out": real.output },
+      step: PROTECTION_STEP,
+      cliOutput: real.output,
+      cliCode: real.code,
+      env: { GH_TOKEN: "ghs_stub" },
     });
     expect(r.code).toBe(0);
+    expect(r.ghOutput).toMatch(/^gaps=yes$/m);
   });
 
   it("a clean one-repo sweep still passes the step (control)", async () => {
@@ -253,7 +258,8 @@ describe("fleet-security: protection-audit refuses an empty org listing (#1612)"
  * The step now classifies its own result: `gaps=yes` (exit 1 beside a
  * `PROTECTION_AUDIT gaps=N` line, N > 0) is green with no error annotation;
  * `gaps=no` is exit 0; anything else is a failed step with no `gaps` output,
- * and the step after it reds the run.
+ * and the step after it, which now runs only on a failed audit step, always
+ * reds the run.
  */
 describe("fleet-security: a found gap is not an error, a crash is (#1979)", () => {
   // The tail of run 42571679746 (10:12pm PT 11-08), verbatim: the known-good input.
@@ -328,6 +334,21 @@ describe("fleet-security: a found gap is not an error, a crash is (#1979)", () =
       cliOutput: "",
       cliCode: 0,
       files: { "protection.out": "" },
+    });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toMatch(/^::error::protection-audit did not finish/m);
+  });
+
+  // Review round 1: a summary that printed before the process hung into its
+  // 15-minute timeout, or beside an exit code that does not match it, failed
+  // the audit step, set no `gaps`, and the fail step found the summary and
+  // passed: a green run with no issue touched.
+  it("the step after it reds the run on a failed audit step even when a summary printed", async () => {
+    const r = await runStep({
+      step: UNMEASURED_STEP,
+      cliOutput: "",
+      cliCode: 0,
+      files: { "protection.out": LAST_NIGHT },
     });
     expect(r.code).not.toBe(0);
     expect(r.out).toMatch(/^::error::protection-audit did not finish/m);

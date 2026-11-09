@@ -902,7 +902,9 @@ exit 1
   // minted token exits before `tee`) builds a body reading "see run output";
   // rewriting onto it would leave the issue unclosable by any later clean
   // sweep. So that run comments, and the body keeps the last GAP-bearing one.
-  it("protection-gap keeps a GAP-bearing body when this run printed no GAP line, and still comments", async () => {
+  // Since #1979 the step runs only on `gaps=yes`, which this input cannot set:
+  // this pins the script's second-line guard, not a production path.
+  it("protection-gap's guard keeps a GAP-bearing body when the output has no GAP line, and still comments", async () => {
     const s = opens(all).find(
       (o) => id(o) === "fleet-security.yml › Open/update the protection-gap tracking issue",
     )!;
@@ -932,8 +934,10 @@ exit 1
   });
 
   // The guard keys on the file's ABSENCE: a CLI that crashed before printing a byte
-  // still leaves an empty file behind its `tee`, and that night still files.
-  it("protection-gap still files when the audit crashed with no output", async () => {
+  // still leaves an empty file behind its `tee`. Since #1979 a crash sets no
+  // `gaps` output, so the open step never runs on one (the run goes red
+  // instead); this pins what the script does if it is ever reached that way.
+  it("protection-gap's script still files on an empty output file, if it is reached", async () => {
     const s = opens(all).find(
       (o) => id(o) === "fleet-security.yml › Open/update the protection-gap tracking issue",
     )!;
@@ -956,6 +960,14 @@ exit 1
       const gaps = /^Open/.test(s.label) ? "yes" : "no";
       expect(evaluate(s.if ?? "success()", { ...MAIN_FAILED, output: gaps })).toBe(true);
       expect(evaluate(s.if ?? "success()", { ...MAIN_CANCELLED, output: gaps })).toBe(false);
+      // A crashed or unmeasured audit sets no `gaps` output: neither step may run.
+      const other = gaps === "yes" ? "no" : "yes";
+      for (const off of [other, ""]) {
+        expect(
+          evaluate(s.if ?? "success()", { ...MAIN_FAILED, output: off }),
+          `${s.label} on "${off}"`,
+        ).toBe(false);
+      }
     }
   });
 

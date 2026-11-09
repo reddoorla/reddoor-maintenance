@@ -207,9 +207,10 @@ jobs:
       # with exit code 1.` under continue-on-error, and a crash looked the same.
       #   gaps=yes — exit 1 beside a `PROTECTION_AUDIT gaps=N` line, N > 0: green.
       #   gaps=no  — exit 0: green.
-      #   anything else, with no `gaps` output (no token, UNMEASURED #1612, a crash) fails the step,
-      #   and "Fail the run when the protection sweep verified no repo" reds the
-      #   run. continue-on-error stays so the issue steps below still run.
+      #   anything else sets no `gaps` output and fails the step (no token,
+      #   UNMEASURED #1612, a crash, a timeout), and "Fail the run when the
+      #   protection sweep verified no repo" reds the run. continue-on-error
+      #   stays so the issue steps below still run.
       - name: Protection coverage audit (org-wide)
         id: protection
         if: ${{ !cancelled() && (steps.sweep.outcome == 'success' || steps.sweep.outcome == 'failure') }}
@@ -307,9 +308,10 @@ jobs:
           fi
 
       # A protection sweep that verified no repo (#1612: an org listing of
-      # `200 []` read `gaps=0 total=0`, green) is unmeasured, not clean. It is
-      # not a posture gap, so it reds the run instead, and the nightly-failure
-      # issue below speaks for it and closes on the next green run.
+      # `200 []` read `gaps=0 total=0`, green) or did not finish (#1979) is
+      # unmeasured, not clean. It is not a posture gap, so it reds the run
+      # instead, and the nightly-failure issue below speaks for it and closes
+      # on the next green run.
       - name: Fail the run when the protection sweep verified no repo
         if: ${{ !cancelled() && steps.protection.outcome == 'failure' }}
         timeout-minutes: 2
@@ -318,14 +320,13 @@ jobs:
             echo "::error::protection-audit verified no repo: the org listing gave none, so tonight's posture is unmeasured, not clean."
             exit 1
           fi
-          # No summary at all is an audit that did not finish (#1979): a crash
-          # (runOrExit prints nothing and exits 1) or a missing token. Before
-          # this, a crash failed the step under continue-on-error, filed "see run
-          # output" on the gap issue, and left the run green.
-          if ! grep -qE "^PROTECTION_AUDIT gaps=[0-9]+ " "${RUNNER_TEMP:-/tmp}/protection.out" 2>/dev/null; then
-            echo "::error::protection-audit did not finish (no PROTECTION_AUDIT summary): tonight's posture is unmeasured, not clean. See the 'Protection coverage audit (org-wide)' step."
-            exit 1
-          fi
+          # Since #1979 a found gap passes the audit step (`gaps=yes`), so a
+          # failed audit step always means it did not measure: a crash (runOrExit
+          # prints nothing and exits 1), a missing token, a timeout, or a summary
+          # beside an exit code that does not match it. Before this, each failed
+          # the step under continue-on-error and left the run green.
+          echo "::error::protection-audit did not finish with a counted result: tonight's posture is unmeasured, not clean. See the 'Protection coverage audit (org-wide)' step."
+          exit 1
 
       - name: Close the protection-gap issue on a clean sweep
         # main only: a green PR-branch dispatch of time-travel closed #895 while main was red.
@@ -582,7 +583,7 @@ jobs:
         run: |
           title="Nightly fleet security audit failing"
           run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          body=$(printf 'The nightly **fleet-security** run failed. Read which step went red: the audit and write-back (the vuln sweep), Renovate dispatch (no summary, or a repo failed to dispatch), or a protection sweep that verified no repo.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
+          body=$(printf 'The nightly **fleet-security** run failed. Read which step went red: the audit and write-back (the vuln sweep), Renovate dispatch (no summary, or a repo failed to dispatch), or a protection sweep that verified no repo or did not finish.\n\nRun: %s\n\n_Auto-filed; auto-closes on the next green run._' "$run_url")
           # A cancelled run is a hang (a step past its timeout-minutes, the job past its
           # limit) or a hand cancel, not the failure the text above describes. Say so.
           if [ "${JOB_STATUS:-}" = "cancelled" ]; then
