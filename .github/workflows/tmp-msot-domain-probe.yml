@@ -1,0 +1,32 @@
+name: tmp-msot-domain-probe
+# THROWAWAY (never merged): runs only on pushes to its own branch.
+on:
+  push:
+    branches: [claude/msot-domain-probe]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+      - run: date -u; node -v
+      - run: node scripts/tmp-probe/domain-probe.mjs
+      - name: dig and curl per IP
+        if: always()
+        run: |
+          for h in medicalsolutionsoftx.com roalson.com; do
+            for t in A AAAA; do echo "dig $h $t: $(dig +short $h $t | tr '\n' ' ')"; done
+          done
+          for ip in 99.83.231.61 75.2.60.5; do
+            echo "--- curl via $ip"
+            curl -sS -o /dev/null -m 15 -w 'http=%{http_code} connect=%{time_connect} tls=%{time_appconnect} ip=%{remote_ip}\n' \
+              --resolve medicalsolutionsoftx.com:443:$ip https://medicalsolutionsoftx.com/ || echo "curl exit $?"
+            echo "--- openssl via $ip"
+            echo | timeout 15 openssl s_client -connect $ip:443 -servername medicalsolutionsoftx.com 2>&1 \
+              | grep -E 'subject=|issuer=|Verify return|CONNECTED|errno|alert' || echo "openssl exit $?"
+          done
