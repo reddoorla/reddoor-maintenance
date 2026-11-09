@@ -1200,8 +1200,8 @@ export function noBannerDetail(e: NoBannerEvidence): string {
  * the first that carries a contact form, by the same test `findFormPath` applies
  * before a real submission. `null` = none found, the only answer that admits n/a.
  * It never fills or submits, and anything that stops it from looking (a launch
- * that fails, a route that answers anything but 2xx or 404/410, a navigation
- * that times out) is returned as `unverified`, never as "no form". It checks only
+ * that fails, a page that answers anything but 2xx, bar a /contact at 404/410,
+ * a navigation that times out) is `unverified`, never "no form". It checks only
  * `CONTACT_PATHS`, as the submit path does, and only the top frame's DOM at
  * `domcontentloaded`: a form on another route, one with no email field, one in
  * an iframe (a HubSpot or Jotform embed), or one a script renders later or a
@@ -1271,7 +1271,7 @@ export async function defaultFormRunner(
   return {
     coverage: (urls) => checkTurnstileCoverage(urls, { hydrationTimeoutMs }),
     async submit({ baseUrl, testSitekey }) {
-      // Per-site safety preflight — refuse before a browser even launches.
+      // Per-site safety preflight — refuse before a browser launches to submit.
       const formsHealth = await readFormsHealth(baseUrl);
       if (!formsHealth.testMode) {
         if (formsHealth.unreadable !== undefined)

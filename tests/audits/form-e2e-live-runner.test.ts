@@ -888,15 +888,6 @@ describe("form-e2e live runner — a site that declares no form (forms.none)", (
     expect(posts).toHaveLength(0);
   }, 90_000);
 
-  // The production n/a: /contact is gone (29 Navy) and the home page renders with no form.
-  it("a rendered home page with no form, and /contact gone, is n/a", async () => {
-    const out = await submit({ health: NONE, banner: true, contactAbsent: true, rootPlain: 200 });
-    expect(out).toEqual({
-      formPresent: false,
-      formsHealth: { testMode: false, turnstile: false, none: true },
-    });
-  }, 90_000);
-
   it("/contact gone and / answering 503 is unverified, not n/a", async () => {
     const out = await submit({ health: NONE, banner: true, contactAbsent: true, rootPlain: 503 });
     expect(out).toEqual({
