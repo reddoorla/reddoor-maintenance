@@ -2494,6 +2494,9 @@ describe("land-prs: test changes", () => {
     it("only a line that is the closer alone reads as one: a // comment ending in */ does not", () => {
       expect(
         one("@@ -1,3 +1,3 @@\n keep();\n-run(); // dir/*/\n+run();\n expect(a).toBe(1);"),
+      ).toEqual([]); // Still not a closer when a `*/` is added below it, which a closer moved down needs.
+      expect(
+        one("@@ -1,3 +1,4 @@\n keep();\n-run(); // dir/*/\n+run();\n expect(a).toBe(1);\n+*/"),
       ).toEqual([]);
     });
   });
