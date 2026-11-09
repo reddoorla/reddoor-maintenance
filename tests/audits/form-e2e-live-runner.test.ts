@@ -5,6 +5,7 @@ import { chromium } from "@playwright/test";
 import {
   defaultFormRunner,
   formE2eAudit,
+  FORM_E2E_TESTMODE_UNDECLARED_SUMMARY,
   SYNTHESIZE_REQUIRED_EXPR,
   type FormRunner,
 } from "../../src/audits/form-e2e.js";
@@ -356,6 +357,8 @@ type Fixture = {
   clientError?: boolean;
   /** The action POST goes to localhost while the probe loads 127.0.0.1 (#1668 review). */
   offHost?: boolean;
+  /** /contact answers 404, like 29 Navy's deleted route: the site has no form. */
+  contactAbsent?: boolean;
 };
 
 let server: Server;
@@ -375,6 +378,11 @@ beforeAll(async () => {
     }
     if (req.method === "GET" && req.url === "/contact") {
       contactLoads++;
+      if (fixture.contactAbsent) {
+        res.writeHead(404);
+        res.end();
+        return;
+      }
       if (fixture.failAfterFirstLoad && contactLoads > 1) {
         res.writeHead(503);
         res.end();
@@ -830,6 +838,56 @@ describe("form-e2e live runner — the instrument can fail, and the interlock ho
       banner: true,
     });
     expect(out).toEqual({ testModeUndeclared: true });
+    expect(posts).toHaveLength(0);
+  }, 90_000);
+});
+
+describe("form-e2e live runner — a site that declares no form (forms.none)", () => {
+  const NONE = { ok: true, forms: { testMode: false, turnstile: false, none: true } };
+
+  it("looks, finds no form, and returns n/a without posting anything", async () => {
+    const out = await submit({ health: NONE, banner: true, contactAbsent: true });
+    expect(out).toEqual({
+      formPresent: false,
+      formsHealth: { testMode: false, turnstile: false, none: true },
+    });
+    expect(contactLoads).toBe(1);
+    expect(posts).toHaveLength(0);
+  }, 90_000);
+
+  it("does not believe the claim when /contact has a form: uncovered, names it, posts nothing", async () => {
+    const out = await submit({ health: NONE, banner: true });
+    expect(out).toEqual({ testModeUndeclared: true, declaredNone: { formAt: `${base}contact` } });
+    expect(posts).toHaveLength(0);
+  }, 90_000);
+
+  it('reads only a strict true: none:"true" is undeclared and opens no page', async () => {
+    const out = await submit({
+      health: { ok: true, forms: { testMode: false, turnstile: false, none: "true" } },
+      banner: true,
+      contactAbsent: true,
+    });
+    expect(out).toEqual({ testModeUndeclared: true });
+    expect(contactLoads).toBe(0);
+  }, 90_000);
+
+  it("scores the formless site n/a end to end, and the contradicted one as a self-skip", async () => {
+    const audit = async (f: Fixture) => {
+      fixture = f;
+      contactLoads = 0;
+      return formE2eAudit({
+        site: { path: "", name: "formless", deployedUrl: base },
+        formRunner: await defaultFormRunner(FAST),
+      });
+    };
+    posts = [];
+    const na = await audit({ health: NONE, banner: true, contactAbsent: true });
+    expect(na).toMatchObject({ status: "skip", notApplicable: true, details: { ok: null } });
+    expect(na.summary).toMatch(/^no contact form \(n\/a\)/);
+    const contradicted = await audit({ health: NONE, banner: true });
+    expect(contradicted.status).toBe("skip");
+    expect(contradicted.summary.startsWith(FORM_E2E_TESTMODE_UNDECLARED_SUMMARY)).toBe(true);
+    expect(contradicted.summary).toContain(`${base}contact has a contact form`);
     expect(posts).toHaveLength(0);
   }, 90_000);
 });

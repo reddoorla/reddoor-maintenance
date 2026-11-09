@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { join } from "node:path";
 import {
   FORM_E2E_TESTMODE_UNDECLARED_SUMMARY,
+  formE2eDeclaredNoneSummary,
   formE2eHealthUnreadableSummary,
 } from "../../src/audits/form-e2e.js";
 import { stepRunScript, workflowPath, workflowSteps } from "./_helpers/workflow-source.js";
@@ -316,6 +317,45 @@ describe("fleet-form-e2e — an uncovered site is named, not only counted (#779)
       exit: 0,
     });
     expect(r.out).toContain("FLEET_FORM_E2E_UNCOVERED sites=none");
+  });
+});
+
+describe("fleet-form-e2e — a site that declares no form is n/a, or uncovered when the claim fails", () => {
+  // A forms.none site whose look found no form is the n/a row the Williamson
+  // sites already print: skip, not a self-skip, so never UNCOVERED.
+  it("does not name a declared-none site with no form as uncovered", async () => {
+    const r = await runGate({
+      stdout: `${probed(["espada"])}\n${resultBlock("skip", "caltex", "no contact form (n/a)")}\n${writeSummary(2, 0)}\n`,
+      exit: 0,
+    });
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("FLEET_FORM_E2E skipped=0 unreadable=0 total=2");
+    expect(r.out).toContain("FLEET_FORM_E2E_UNCOVERED sites=none");
+  });
+
+  // Built from the audit's own exported summaries, so rewording one turns this red.
+  it("counts and names a declared-none site whose claim is false or unchecked", async () => {
+    const r = await runGate({
+      stdout: [
+        probed(["espada"]),
+        resultBlock(
+          "skip",
+          "29-navy",
+          formE2eDeclaredNoneSummary({ formAt: "https://29navy.com/contact" }),
+        ),
+        resultBlock(
+          "skip",
+          "caltex",
+          formE2eDeclaredNoneSummary({ unverified: "browser did not launch" }),
+        ),
+        writeSummary(3, 0),
+        "",
+      ].join("\n"),
+      exit: 0,
+    });
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("FLEET_FORM_E2E skipped=2 unreadable=0 total=3");
+    expect(r.out).toContain("FLEET_FORM_E2E_UNCOVERED sites=29-navy,caltex\n");
   });
 });
 

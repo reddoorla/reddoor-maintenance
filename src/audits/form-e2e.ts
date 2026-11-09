@@ -102,6 +102,10 @@ export type FormSubmitOutcome =
       testModeUndeclared: true;
       /** Set when /health could not be read at all, naming why (P1-68). */
       healthUnreadable?: string;
+      /** Set when /health declares the site has no form (`forms.none`) and the
+       *  look that checks the claim contradicted it or could not run. Either way
+       *  the site stays uncovered: a declaration is believed only on evidence. */
+      declaredNone?: { formAt: string } | { unverified: string };
     };
 
 /**
@@ -130,6 +134,23 @@ export const FORM_E2E_TESTMODE_UNDECLARED_SUMMARY =
  */
 export function formE2eHealthUnreadableSummary(reason: string): string {
   return `site /health could not be read (${reason}) — probe refused, so this site was not probed`;
+}
+
+/**
+ * The summary when a site's /health declares it has no form (`forms.none`) and
+ * the probe's look did not bear that out. It STARTS with the undeclared summary
+ * on purpose: `fleet-form-e2e.yml` counts that phrase into `skipped=` and the
+ * UNCOVERED line, and a site whose "no form" claim is false, or unchecked, is
+ * exactly a site that should be covered and is not.
+ */
+export function formE2eDeclaredNoneSummary(
+  declaredNone: { formAt: string } | { unverified: string },
+): string {
+  const why =
+    "formAt" in declaredNone
+      ? `but ${declaredNone.formAt} has a contact form`
+      : `but the look that checks it could not run: ${declaredNone.unverified}`;
+  return `${FORM_E2E_TESTMODE_UNDECLARED_SUMMARY} — its /health declares no form (forms.none), ${why}`;
 }
 
 /**
@@ -296,7 +317,15 @@ async function coverageUrls(ctx: AuditContext, deployedUrl: string): Promise<str
  * and names why: a site that does declare testMode can still be refused for the
  * night, and the skip must not call that "undeclared" (P1-68).
  */
-export type FormsHealth = { testMode: boolean; turnstile: boolean | null; unreadable?: string };
+export type FormsHealth = {
+  testMode: boolean;
+  turnstile: boolean | null;
+  unreadable?: string;
+  /** `forms.none === true`: the site declares it ships no form at all (29 Navy
+   *  deleted its /contact; CalTex never had one). Strictly `true`; anything else
+   *  is absent. A claim, not a verdict: the runner looks before it believes it. */
+  none?: true;
+};
 
 /**
  * The `Turnstile widget` verdict, from the two things one form-e2e run knows: what
@@ -552,7 +581,10 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
         audit: "form-e2e",
         site: label,
         status: "skip",
-        summary: FORM_E2E_TESTMODE_UNDECLARED_SUMMARY,
+        summary:
+          outcome.declaredNone === undefined
+            ? FORM_E2E_TESTMODE_UNDECLARED_SUMMARY
+            : formE2eDeclaredNoneSummary(outcome.declaredNone),
         details: { checkedAt, turnstileWidget: null } satisfies FormE2eDetails,
       };
     }
@@ -1024,6 +1056,7 @@ async function readFormsHealthOnce(baseUrl: string): Promise<FormsHealth> {
       // Strictly boolean. A missing or malformed key is unknown, NOT false —
       // "no sitekey" is a conclusive fail downstream and must be earned.
       turnstile: typeof f.turnstile === "boolean" ? f.turnstile : null,
+      ...(f.none === true ? { none: true as const } : {}),
     };
   } catch (e) {
     return unreadable(timedOut(e) ? TIMED_OUT : "body is not JSON");
@@ -1149,6 +1182,32 @@ export function noBannerDetail(e: NoBannerEvidence): string {
 }
 
 /**
+ * The look behind a `forms.none` declaration: open the contact routes and report
+ * the first that carries a contact form, by the same test `findFormPath` applies
+ * before a real submission. `null` = none found, the only answer that admits n/a.
+ * It never fills or submits, and anything that stops it from looking is returned
+ * as `unverified`, never as "no form".
+ */
+export async function lookForContactForm(
+  chromium: {
+    launch: () => Promise<{ newPage: () => Promise<unknown>; close: () => Promise<void> }>;
+  },
+  baseUrl: string,
+): Promise<{ formAt: string } | { unverified: string } | null> {
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  try {
+    browser = await chromium.launch();
+    const page = (await browser.newPage()) as FormProbePage;
+    const formAt = await findFormPath(page, baseUrl);
+    return formAt === null ? null : { formAt };
+  } catch (err) {
+    return { unverified: firstLine(err) };
+  } finally {
+    await browser?.close().catch(() => {});
+  }
+}
+
+/**
  * Real Playwright form runner. Lazily imports @playwright/test so unit tests (which
  * inject a fake runner) never load it — and so the audit's static import graph stays
  * central-dep-free for `test:dist`. Every failure degrades to `success:false` (never
@@ -1181,9 +1240,18 @@ export async function defaultFormRunner(
       // Per-site safety preflight — refuse before a browser even launches.
       const formsHealth = await readFormsHealth(baseUrl);
       if (!formsHealth.testMode) {
-        return formsHealth.unreadable === undefined
-          ? { testModeUndeclared: true }
-          : { testModeUndeclared: true, healthUnreadable: formsHealth.unreadable };
+        if (formsHealth.unreadable !== undefined)
+          return { testModeUndeclared: true, healthUnreadable: formsHealth.unreadable };
+        if (formsHealth.none !== true) return { testModeUndeclared: true };
+        // The site declares it has no form. Believed only on evidence: look at
+        // the routes the probe would submit on, and submit nothing either way
+        // (no marker guard, no fill, no click). None found is n/a, the verdict a
+        // testMode site with no form already earns; a form found, or a look that
+        // could not run, stays uncovered.
+        const declaredNone = await lookForContactForm(chromium, baseUrl);
+        return declaredNone === null
+          ? { formPresent: false, formsHealth }
+          : { testModeUndeclared: true, declaredNone };
       }
       // Hoisted above the try: the catch below reports what the widget did, and
       // the listener that sets this is attached inside.

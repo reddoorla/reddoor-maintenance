@@ -14,6 +14,15 @@ name: fleet-form-e2e
 # where the forwarding rollout is still in progress. Sites enroll by shipping
 # the starter's contact `buildPayload` forwarding + the /health declaration in
 # one deploy.
+#
+# A site with NO form at all (29 Navy deleted its /contact; CalTex never had
+# one) declares `forms.none: true` in /health instead, with testMode left
+# false. The probe does not take that on trust: it opens /contact and / without
+# filling or submitting, and only when neither carries a contact form does the
+# site get the n/a verdict a testMode site with no form already earns. A form
+# found, or a look that could not run, prints the undeclared summary with the
+# reason appended, so the site stays on the UNCOVERED line. UNCOVERED therefore
+# means "should be covered and is not", never "has nothing to cover".
 on:
   workflow_dispatch: {} # manual run from the Actions tab
 
