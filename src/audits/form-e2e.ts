@@ -46,7 +46,9 @@ export type FormE2eDetails = {
 /** Outcome of driving one site's contact form. `formPresent:false` ⇒ n/a
  *  (persisted). `testModeUndeclared` ⇒ the site's /health does not declare
  *  `forms.testMode`, or (with `healthUnreadable`) could not be read at all, so
- *  the probe refused to submit — a plain skip, prior verdict preserved. `elapsedMs` times the submit itself (click → success
+ *  the probe refused to submit — a plain skip, prior verdict preserved. With
+ *  `declaredNone`, the site declared it has no form (`forms.none`) and the look
+ *  found one, or could not run. `elapsedMs` times the submit itself (click → success
  *  banner) and feeds the budget-headroom check; absent means "not measured",
  *  which never manufactures a verdict. */
 export type FormSubmitOutcome =
@@ -102,6 +104,10 @@ export type FormSubmitOutcome =
       testModeUndeclared: true;
       /** Set when /health could not be read at all, naming why (P1-68). */
       healthUnreadable?: string;
+      /** Set when /health declares the site has no form (`forms.none`) and the
+       *  look that checks the claim contradicted it or could not run. Either way
+       *  the site stays uncovered: a declaration is believed only on evidence. */
+      declaredNone?: { formAt: string } | { unverified: string };
     };
 
 /**
@@ -130,6 +136,23 @@ export const FORM_E2E_TESTMODE_UNDECLARED_SUMMARY =
  */
 export function formE2eHealthUnreadableSummary(reason: string): string {
   return `site /health could not be read (${reason}) — probe refused, so this site was not probed`;
+}
+
+/**
+ * The summary when a site's /health declares it has no form (`forms.none`) and
+ * the probe's look did not bear that out. It STARTS with the undeclared summary
+ * on purpose: `fleet-form-e2e.yml` counts that phrase into `skipped=` and the
+ * UNCOVERED line, and a site whose "no form" claim is false, or unchecked, is
+ * exactly a site that should be covered and is not.
+ */
+export function formE2eDeclaredNoneSummary(
+  declaredNone: { formAt: string } | { unverified: string },
+): string {
+  const why =
+    "formAt" in declaredNone
+      ? `but ${declaredNone.formAt} has a contact form`
+      : `but the look that checks it could not run: ${declaredNone.unverified}`;
+  return `${FORM_E2E_TESTMODE_UNDECLARED_SUMMARY} — its /health declares no form (forms.none), ${why}`;
 }
 
 /**
@@ -296,7 +319,15 @@ async function coverageUrls(ctx: AuditContext, deployedUrl: string): Promise<str
  * and names why: a site that does declare testMode can still be refused for the
  * night, and the skip must not call that "undeclared" (P1-68).
  */
-export type FormsHealth = { testMode: boolean; turnstile: boolean | null; unreadable?: string };
+export type FormsHealth = {
+  testMode: boolean;
+  turnstile: boolean | null;
+  unreadable?: string;
+  /** `forms.none === true`: the site declares it ships no form at all (29 Navy
+   *  deleted its /contact; CalTex never had one). Strictly `true`; anything else
+   *  is absent. A claim, not a verdict: the runner looks before it believes it. */
+  none?: true;
+};
 
 /**
  * The `Turnstile widget` verdict, from the two things one form-e2e run knows: what
@@ -552,7 +583,10 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
         audit: "form-e2e",
         site: label,
         status: "skip",
-        summary: FORM_E2E_TESTMODE_UNDECLARED_SUMMARY,
+        summary:
+          outcome.declaredNone === undefined
+            ? FORM_E2E_TESTMODE_UNDECLARED_SUMMARY
+            : formE2eDeclaredNoneSummary(outcome.declaredNone),
         details: { checkedAt, turnstileWidget: null } satisfies FormE2eDetails,
       };
     }
@@ -591,8 +625,15 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
           checkedAt,
           // Written here too: this path DOES refresh `Form E2E checked at`, and
           // the verdict must never be older than the stamp that ages it.
+          // A site that declares it has no form has no widget to verify: "no key
+          // deployed" is its expected state, not a fail.
           turnstileWidget: applyCoverage(
-            turnstileVerdict(outcome.formsHealth ?? { testMode: true, turnstile: null }, undefined),
+            outcome.formsHealth?.none === true && !outcome.formsHealth.testMode
+              ? null
+              : turnstileVerdict(
+                  outcome.formsHealth ?? { testMode: true, turnstile: null },
+                  undefined,
+                ),
             coverage,
           ),
         } satisfies FormE2eDetails,
@@ -914,7 +955,7 @@ export type FormProbePage = {
   goto: (
     url: string,
     opts?: { waitUntil?: string; timeout?: number },
-  ) => Promise<{ ok: () => boolean } | null>;
+  ) => Promise<{ ok: () => boolean; status?: () => number } | null>;
   locator: (selector: string) => { count: () => Promise<number> };
 };
 
@@ -939,19 +980,24 @@ export async function findFormPath(
       .goto(url, { waitUntil: "domcontentloaded", timeout: PAGE_TIMEOUT_MS })
       .catch(() => null);
     if (!resp || !resp.ok()) continue;
-    const forms = await page
-      .locator("form")
-      .count()
-      .catch(() => 0);
-    if (forms === 0) continue;
-    const emails = await page
-      .locator('input[name="email"], input[type="email"]')
-      .count()
-      .catch(() => 0);
-    if (emails === 0) continue;
-    return url;
+    if (await pageHasContactForm(page)) return url;
   }
   return null;
+}
+
+/** The contact-form test both the submit path and the forms.none look apply: a
+ *  `<form>` on the page and an email field. */
+async function pageHasContactForm(page: FormProbePage): Promise<boolean> {
+  const forms = await page
+    .locator("form")
+    .count()
+    .catch(() => 0);
+  if (forms === 0) return false;
+  const emails = await page
+    .locator('input[name="email"], input[type="email"]')
+    .count()
+    .catch(() => 0);
+  return emails > 0;
 }
 
 /**
@@ -1024,6 +1070,7 @@ async function readFormsHealthOnce(baseUrl: string): Promise<FormsHealth> {
       // Strictly boolean. A missing or malformed key is unknown, NOT false —
       // "no sitekey" is a conclusive fail downstream and must be earned.
       turnstile: typeof f.turnstile === "boolean" ? f.turnstile : null,
+      ...(f.none === true ? { none: true as const } : {}),
     };
   } catch (e) {
     return unreadable(timedOut(e) ? TIMED_OUT : "body is not JSON");
@@ -1149,6 +1196,52 @@ export function noBannerDetail(e: NoBannerEvidence): string {
 }
 
 /**
+ * The look behind a `forms.none` declaration: open the contact routes and report
+ * the first that carries a contact form, by the same test `findFormPath` applies
+ * before a real submission. `null` = none found, the only answer that admits n/a.
+ * It never fills or submits, and anything that stops it from looking (a launch
+ * that fails, a page that answers anything but 2xx, bar a /contact at 404/410,
+ * a navigation that times out) is `unverified`, never "no form". It checks only
+ * `CONTACT_PATHS`, as the submit path does, and only the top frame's DOM at
+ * `domcontentloaded`: a form on another route, one with no email field, one in
+ * an iframe (a HubSpot or Jotform embed), or one a script renders later or a
+ * modal opens is not seen, and a false `none` claim over one of those reads n/a.
+ */
+export async function lookForContactForm(
+  chromium: {
+    launch: () => Promise<{ newPage: () => Promise<unknown>; close: () => Promise<void> }>;
+  },
+  baseUrl: string,
+): Promise<{ formAt: string } | { unverified: string } | null> {
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  try {
+    browser = await chromium.launch();
+    const page = (await browser.newPage()) as FormProbePage;
+    for (const path of CONTACT_PATHS) {
+      const url = new URL(path, baseUrl).toString();
+      // Unlike findFormPath, a route that could not be loaded is not a miss: only
+      // a page that rendered (2xx), or a /contact that is gone (404/410), completes
+      // the look. A 503 or a timeout must never read as "no form", and nor may a
+      // missing home page: a site always has one, so a 404 on / means the probe is
+      // looking at the wrong deploy, not that there is nothing to find.
+      const resp = await page.goto(url, {
+        waitUntil: "domcontentloaded",
+        timeout: PAGE_TIMEOUT_MS,
+      });
+      const status = resp?.status?.();
+      if (path !== "/" && (status === 404 || status === 410)) continue;
+      if (!resp || !resp.ok()) return { unverified: `${url} answered ${status ?? "nothing"}` };
+      if (await pageHasContactForm(page)) return { formAt: url };
+    }
+    return null;
+  } catch (err) {
+    return { unverified: firstLine(err) };
+  } finally {
+    await browser?.close().catch(() => {});
+  }
+}
+
+/**
  * Real Playwright form runner. Lazily imports @playwright/test so unit tests (which
  * inject a fake runner) never load it — and so the audit's static import graph stays
  * central-dep-free for `test:dist`. Every failure degrades to `success:false` (never
@@ -1178,12 +1271,21 @@ export async function defaultFormRunner(
   return {
     coverage: (urls) => checkTurnstileCoverage(urls, { hydrationTimeoutMs }),
     async submit({ baseUrl, testSitekey }) {
-      // Per-site safety preflight — refuse before a browser even launches.
+      // Per-site safety preflight — refuse before a browser launches to submit.
       const formsHealth = await readFormsHealth(baseUrl);
       if (!formsHealth.testMode) {
-        return formsHealth.unreadable === undefined
-          ? { testModeUndeclared: true }
-          : { testModeUndeclared: true, healthUnreadable: formsHealth.unreadable };
+        if (formsHealth.unreadable !== undefined)
+          return { testModeUndeclared: true, healthUnreadable: formsHealth.unreadable };
+        if (formsHealth.none !== true) return { testModeUndeclared: true };
+        // The site declares it has no form. Believed only on evidence: look at
+        // the routes the probe would submit on, and submit nothing either way
+        // (no marker guard, no fill, no click). None found is n/a, the verdict a
+        // testMode site with no form already earns; a form found, or a look that
+        // could not run, stays uncovered.
+        const declaredNone = await lookForContactForm(chromium, baseUrl);
+        return declaredNone === null
+          ? { formPresent: false, formsHealth }
+          : { testModeUndeclared: true, declaredNone };
       }
       // Hoisted above the try: the catch below reports what the widget did, and
       // the listener that sets this is attached inside.
