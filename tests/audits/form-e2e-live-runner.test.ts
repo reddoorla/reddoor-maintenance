@@ -1421,6 +1421,21 @@ describe("form-e2e live runner — a form off /contact: submitted when declared,
     expect(posts).toHaveLength(0);
   }, 90_000);
 
+  it("control: /contact redirecting to a formless page on another host stays n/a, as before the guard", async () => {
+    const out = await submit({
+      health: DECLARED,
+      banner: true,
+      movedTo: "/elsewhere",
+      redirectAt: "/contact",
+    });
+    expect(out).toEqual({
+      formPresent: false,
+      formsHealth: { testMode: true, turnstile: false },
+      discoveredLooked: 0,
+    });
+    expect(posts).toHaveLength(0);
+  }, 90_000);
+
   it("still tests a declared route when /contact redirects off the site", async () => {
     const out = await submit({ health: PATHS, banner: true, ...MOVED, redirectAt: "/contact" });
     expect(out).toMatchObject({ formPresent: true, success: true, formAt: "/join-the-team" });

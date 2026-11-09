@@ -1081,7 +1081,10 @@ export async function findFormPath(
     // applicant-tracking host) is a miss: the fill and click below would act
     // on that host's form, which no testMode declaration covers.
     if (page.url && !isSameSitePost(page.url(), baseUrl)) {
-      if (offSite) offSite.host ??= hostOf(page.url());
+      // Reported only when the foreign page carries a form the probe would have
+      // filled before the guard (an old domain 301ing to its new site). A
+      // formless one (a hosted booking page) is a plain miss, as it was before.
+      if (offSite && (await pageHasContactForm(page))) offSite.host ??= hostOf(page.url());
       continue;
     }
     if (await pageHasContactForm(page)) return url;
