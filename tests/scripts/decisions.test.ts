@@ -401,6 +401,78 @@ describe("refs", () => {
     await decisionsReport({ dir: d }, { now: NOW, run });
     expect(calls).toEqual(["repos/a/b/issues/2"]);
   });
+
+  it("keeps a path or link ref as text, and still checks a ref ending in #N", () => {
+    const d = pd(
+      "2026-10-12-0900-x.md",
+      file({
+        refs: "[briefs/reports/Apple Silicon game porting barriers.md, briefs/notes/x/, https://example.com/a#top, briefs/notes/x/, a/b#1]",
+      }),
+    );
+    expect(d.errors).toEqual([]);
+    expect(d.refs).toEqual(["a/b#1"]);
+    expect(d.links).toEqual([
+      "briefs/reports/Apple Silicon game porting barriers.md",
+      "briefs/notes/x/",
+      "https://example.com/a#top",
+    ]);
+    expect(pd("2026-10-12-0900-x.md", file({ refs: "[notes.md, hedloc#5]" })).errors).toEqual([
+      "ref is not owner/repo#N: hedloc#5",
+    ]);
+  });
+
+  it("holds a malformed issue ref to owner/repo#N rather than taking it as a link", () => {
+    const X = "2026-10-12-0900-x.md";
+    for (const r of [
+      "o/r#12)",
+      "o/r#12.",
+      "o/r#12/",
+      "o/r#12a",
+      "maint#1234 (merged)",
+      "o/r#",
+      "o/r/pull/12/",
+      "o/r# 12",
+      "https://github.com/o/r/pull/12",
+      "https://GitHub.com/o/r/pull/12",
+      "https://github.com/o/r/issues/3#issuecomment-1",
+    ])
+      expect(pd(X, file({ refs: `[${r}]` })).errors).toEqual([`ref is not owner/repo#N: ${r}`]);
+    expect(
+      pd(
+        X,
+        file({
+          refs: "[https://x.com/a#1, https://github.com/o/r/blob/main/a.md, tucksravin/workspace, README, plan.md#the-model]",
+        }),
+      ).links,
+    ).toEqual([
+      "https://x.com/a#1",
+      "https://github.com/o/r/blob/main/a.md",
+      "tucksravin/workspace",
+      "README",
+      "plan.md#the-model",
+    ]);
+    expect(
+      pd(
+        X,
+        file({
+          refs: "[https://gitlab.com/me/game/-/issues/5, briefs/issues/2026-11-01-x.md, briefs/pull/1-thing.md]",
+        }),
+      ),
+    ).toMatchObject({ errors: [], refs: [] });
+  });
+
+  it("never looks up a path or link ref on GitHub", async () => {
+    const calls: string[] = [];
+    const run: Runner = async (_c, args) => {
+      calls.push(args[1] ?? "");
+      return pr(null, null);
+    };
+    const d = dirWith({ "2026-10-12-0900-a.md": file({ refs: "[briefs/x.md, a/b#2]" }) });
+    const r = await decisionsReport({ dir: d }, { now: NOW, run });
+    expect(calls).toEqual(["repos/a/b/issues/2"]);
+    expect(r.counts.parsed).toBe(1);
+    expect(r.counts.unchecked).toBe(0);
+  });
 });
 
 describe("parseArgs", () => {

@@ -334,3 +334,81 @@ describe("forwardFormToWebhook — the SSRF guard stays", () => {
     expect(res).toEqual({ ok: false, status: 0 });
   });
 });
+
+// #1973: the paths the opt-in tests above do not reach on their own. All three
+// run through the same isSpam / runTail → runFanout code; these pin that they
+// still do.
+describe("form webhook — Turnstile, building sites, and the deferred tail", () => {
+  it("a requireTurnstile site whose token is absent or failed is spam, and is not forwarded", async () => {
+    const site = makeWebsiteRow({
+      formWebhook: HOOK,
+      formWebhookTypes: [],
+      requireTurnstile: true,
+    });
+    for (const outcome of ["absent", "fail"] as const) {
+      const d = deps(site);
+      await ingestSubmission(d, "gallerysonder", SONDER_PAYLOADS.inquiry, outcome);
+      expect(d.createSubmission, outcome).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "spam_auto" }),
+      );
+      expect(d.forwardForm, outcome).not.toHaveBeenCalled();
+    }
+    // The control: the same site with a passing token on its own host forwards.
+    const passing = deps(site);
+    await ingestSubmission(passing, "gallerysonder", SONDER_PAYLOADS.inquiry, {
+      outcome: "pass",
+      hostname: "acme.example.com",
+    });
+    expect(passing.forwardForm).toHaveBeenCalledTimes(1);
+  });
+
+  it("a building site has spam handling off, so even a high score or a missing token is forwarded", async () => {
+    const site = makeWebsiteRow({
+      status: "building",
+      formWebhook: HOOK,
+      formWebhookTypes: [],
+      requireTurnstile: true,
+    });
+    const d = deps(site, { classifySpam: () => ({ score: 100, reasons: ["test-spam"] }) });
+    await ingestSubmission(d, "gallerysonder", SONDER_PAYLOADS.inquiry, "absent");
+    expect(d.createSubmission).toHaveBeenCalledWith(expect.objectContaining({ status: "new" }));
+    expect(d.forwardForm).toHaveBeenCalledWith(HOOK, expect.anything(), site);
+    expect(d.stampFanout).toHaveBeenCalledWith("recSUB", "form-webhook:ok");
+  });
+
+  it("a deferred tail still forwards and stamps, after the response", async () => {
+    const site = makeWebsiteRow({ formWebhook: HOOK, formWebhookTypes: [] });
+    const deferred: Array<Promise<unknown>> = [];
+    // notify is held open until the test releases it, so a tail that ran
+    // inline would keep ingestSubmission from returning at all.
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    const d = deps(site, {
+      notify: vi.fn().mockImplementation(async () => {
+        await held;
+        return { status: "sent", messageId: "msg_1" };
+      }),
+      forwardForm: vi.fn().mockResolvedValue({ ok: false, status: 302 }),
+      defer: (work) => deferred.push(work),
+    });
+    let returned = false;
+    const pending = ingestSubmission(d, "gallerysonder", SONDER_PAYLOADS.rsvp).then((r) => {
+      returned = true;
+      return r;
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(returned, "the response waited on the tail").toBe(true);
+    expect(d.forwardForm).not.toHaveBeenCalled();
+    expect(await pending).toEqual({
+      status: "accepted",
+      submissionId: "recSUB",
+      notifyStatus: "deferred",
+    });
+    expect(deferred).toHaveLength(1);
+
+    release();
+    await Promise.all(deferred);
+    expect(d.forwardForm).toHaveBeenCalledWith(HOOK, expect.anything(), site);
+    expect(d.stampFanout).toHaveBeenCalledWith("recSUB", "form-webhook:302");
+  });
+});
