@@ -27,23 +27,12 @@ export const CF_TEST_SITEKEY = "1x00000000000000000000AA";
  *  unmonitored while the cockpit looked clean. */
 export const CONTACT_PATHS: readonly string[] = ["/contact", "/"];
 
-/** How many sitemap routes the probe looks at for a form once no `CONTACT_PATHS`
- *  route carries one. Sampled by path family (`discoverRoutes`), so a lone
+/** How many sitemap routes `discoverRoutes` samples when the probe looks for a
+ *  form it was not told about. "/" is one of them and is already a contact
+ *  route, so at most 14 are navigated. Sampled by path family, so a lone
  *  /join-the-team is reached before the fortieth /projects page. Only a site
- *  with no form at /contact or / pays these navigations. */
+ *  with no form at its contact or declared routes pays these navigations. */
 export const FORM_DISCOVERY_ROUTE_CAP = 15;
-
-/** An email-bearing form whose action names an absolute URL. On a discovered
- *  route the probe skips any page that carries one: such a form may post to a
- *  third party (a newsletter service) that ignores the testMode marker, and the
- *  fill and click do not choose between a page's forms. A same-host absolute
- *  action is skipped too: a miss, never an unmarked lead. */
-const ABSOLUTE_ACTION_EMAIL_FORM = [
-  'form[action^="http" i] input[name="email"]',
-  'form[action^="http" i] input[type="email"]',
-  'form[action^="//"] input[name="email"]',
-  'form[action^="//"] input[type="email"]',
-].join(", ");
 
 /** Persisted form-e2e verdict. `ok` is the single-select value: "pass"/"fail" when a
  *  form was found + submitted; null when NO contact form exists (n/a — paired with a
@@ -71,16 +60,22 @@ export type FormSubmitOutcome =
   | {
       formPresent: false;
       formsHealth?: FormsHealth;
-      /** How many discovered routes past `CONTACT_PATHS` were also looked at and
-       *  had no form. Absent = discovery offered none beyond them. */
+      /** How many discovered routes past `CONTACT_PATHS` were also looked at,
+       *  without submitting, and had no form. Absent = the runner did not look. */
       discoveredLooked?: number;
+    }
+  | {
+      /** A form the probe may not submit: route discovery found it at this path,
+       *  off `CONTACT_PATHS`, and /health does not list the path in
+       *  `forms.paths`. Nothing was filled or sent. */
+      undeclaredFormAt: string;
     }
   | {
       formPresent: true;
       success: boolean;
-      /** The path of the form the probe drove, set only when route discovery
-       *  found it (no form at `CONTACT_PATHS`): Williamson Construction's only
-       *  form is on /join-the-team. */
+      /** The path of the form the probe drove, set only when it came from the
+       *  site's `forms.paths` declaration (no form at `CONTACT_PATHS`):
+       *  Williamson Construction's only form is on /join-the-team. */
       formAt?: string;
       detail?: string;
       /** Click → success banner VISIBLE. A user-experience number: it includes the
@@ -158,6 +153,21 @@ export const FORM_E2E_TESTMODE_UNDECLARED_SUMMARY =
  */
 export function formE2eHealthUnreadableSummary(reason: string): string {
   return `site /health could not be read (${reason}) — probe refused, so this site was not probed`;
+}
+
+/**
+ * The summary when route discovery found a form the site's /health does not
+ * declare in `forms.paths`. `forms.testMode` vouches for the contact action
+ * only, so the probe will not submit a form elsewhere on that word: a Netlify
+ * Forms page or a third-party embed would take the probe as a real lead (the
+ * 2026-11-09 review). `fleet-form-e2e.yml` counts these by the
+ * "not declared in /health forms.paths" phrase and lists them as UNCOVERED.
+ */
+export function formE2eUndeclaredFormSummary(path: string): string {
+  return (
+    `form at ${path} is not declared in /health forms.paths — probe refused, ` +
+    `so this site was not probed (declare the path once its action forwards testMode)`
+  );
 }
 
 /**
@@ -324,7 +334,15 @@ async function coverageUrls(ctx: AuditContext, deployedUrl: string): Promise<str
  * and names why: a site that does declare testMode can still be refused for the
  * night, and the skip must not call that "undeclared" (P1-68).
  */
-export type FormsHealth = { testMode: boolean; turnstile: boolean | null; unreadable?: string };
+export type FormsHealth = {
+  testMode: boolean;
+  turnstile: boolean | null;
+  unreadable?: string;
+  /** `forms.paths`: routes off `CONTACT_PATHS` whose forms the site declares
+   *  forward the testMode marker, so the probe may submit them. Root-relative
+   *  paths only; a malformed list is ignored whole, never half-read. */
+  paths?: string[];
+};
 
 /**
  * The `Turnstile widget` verdict, from the two things one form-e2e run knows: what
@@ -549,6 +567,19 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
       testMode: true,
       testSitekey: CF_TEST_SITEKEY,
     });
+    if ("undeclaredFormAt" in outcome) {
+      // A form the declaration does not cover. Not n/a (the site HAS a form)
+      // and not submitted (its action may not forward the marker). Nothing is
+      // written, like the unreadable skip below: both verdicts keep ageing on
+      // their own stamp, and the workflow names the site as UNCOVERED.
+      return {
+        audit: "form-e2e",
+        site: label,
+        status: "skip",
+        summary: formE2eUndeclaredFormSummary(outcome.undeclaredFormAt),
+        details: { checkedAt } satisfies FormE2eDetails,
+      };
+    }
     if ("testModeUndeclared" in outcome) {
       if (outcome.healthUnreadable !== undefined) {
         // An UNREADABLE /health is not an undeclared one: the site may declare
@@ -612,7 +643,7 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
         status: coverageFailed ? "warn" : "skip",
         summary:
           `no contact form (n/a)` +
-          (outcome.discoveredLooked
+          (outcome.discoveredLooked !== undefined
             ? ` — none at ${CONTACT_PATHS.join(" or ")}, nor on ${outcome.discoveredLooked} discovered route(s)`
             : "") +
           coverageNote,
@@ -634,7 +665,7 @@ export async function formE2eAudit(ctx: AuditContext): Promise<AuditResult> {
     const ok: "pass" | "fail" = outcome.success ? "pass" : "fail";
     const synthesizedNote =
       (outcome.formAt !== undefined
-        ? ` — form at ${outcome.formAt}, found by route discovery (none at ${CONTACT_PATHS.join(" or ")})`
+        ? ` — form at ${outcome.formAt}, declared in /health forms.paths (none at ${CONTACT_PATHS.join(" or ")})`
         : "") +
       (outcome.retried !== undefined
         ? ` — the first load refused to click, nothing sent (${outcome.retried}); this is a fresh load's result`
@@ -968,7 +999,6 @@ export async function findFormPath(
   page: FormProbePage,
   baseUrl: string,
   paths: readonly string[] = CONTACT_PATHS,
-  opts: { refuseAbsoluteAction?: boolean } = {},
 ): Promise<string | null> {
   for (const path of paths) {
     const url = new URL(path, baseUrl).toString();
@@ -986,24 +1016,17 @@ export async function findFormPath(
       .count()
       .catch(() => 0);
     if (emails === 0) continue;
-    if (opts.refuseAbsoluteAction) {
-      const absolute = await page
-        .locator(ABSOLUTE_ACTION_EMAIL_FORM)
-        .count()
-        .catch(() => 1);
-      if (absolute > 0) continue;
-    }
     return url;
   }
   return null;
 }
 
 /**
- * The routes the probe looks at for a form once no `CONTACT_PATHS` route has one:
- * a family-sampled slice of the sitemap (or the homepage's links), minus the
- * contact routes already tried. A site whose only form is off /contact
- * (Williamson Construction's /join-the-team) was recorded n/a every night
- * before this, so a working form was never tested end to end.
+ * The routes the probe LOOKS at, never submits on, once neither the contact
+ * routes nor the declared `forms.paths` carry a form: a family-sampled slice of
+ * the sitemap (or the homepage's links), minus the contact routes. A form found
+ * there means the site is not n/a. Williamson Construction's only form, on
+ * /join-the-team, was recorded "no contact form (n/a)" every night before this.
  */
 export async function formDiscoveryPaths(
   baseUrl: string,
@@ -1085,10 +1108,23 @@ async function readFormsHealthOnce(baseUrl: string): Promise<FormsHealth> {
       // Strictly boolean. A missing or malformed key is unknown, NOT false —
       // "no sitekey" is a conclusive fail downstream and must be earned.
       turnstile: typeof f.turnstile === "boolean" ? f.turnstile : null,
+      ...declaredPaths(f.paths),
     };
   } catch (e) {
     return unreadable(timedOut(e) ? TIMED_OUT : "body is not JSON");
   }
+}
+
+/** `forms.paths`, read strictly: a non-empty array of root-relative paths
+ *  ("/join-the-team"). Anything else (an absolute or protocol-relative URL, a
+ *  non-string) drops the whole list, so the probe submits only where the site
+ *  plainly said it may. */
+function declaredPaths(v: unknown): { paths?: string[] } {
+  const ok =
+    Array.isArray(v) &&
+    v.length > 0 &&
+    v.every((p) => typeof p === "string" && p.startsWith("/") && !p.startsWith("//"));
+  return ok ? { paths: v as string[] } : {};
 }
 
 /** True when a POST body carries the probe's `testMode` marker, so the response read is
@@ -1246,9 +1282,9 @@ export async function defaultFormRunner(
       if (!("formPresent" in out)) return out;
       if (out.formPresent)
         return located.formAt === undefined ? out : { ...out, formAt: located.formAt };
-      return located.discoveredLooked
-        ? { ...out, discoveredLooked: located.discoveredLooked }
-        : out;
+      return located.discoveredLooked === undefined
+        ? out
+        : { ...out, discoveredLooked: located.discoveredLooked };
     },
     async probe(
       { baseUrl, testSitekey }: Parameters<FormRunner["submit"]>[0],
@@ -1288,7 +1324,6 @@ export async function defaultFormRunner(
           ? { consentUnanswered: true as const }
           : {}),
       });
-      let discovered: string[] | undefined;
       const browser = await chromium.launch();
       try {
         // At most two attempts, and the second only after the first refused to
@@ -1367,19 +1402,21 @@ export async function defaultFormRunner(
           });
           // Probe each candidate route; none carrying a form ⇒ no contact form (n/a).
           // findFormPath leaves the page on the route it selected, so the fills below
-          // act on the form it found.
-          // No form there ⇒ the sitemap's other routes, sampled by family, each
-          // refused if a form on it posts to an absolute URL. Discovered once:
-          // a second attempt looks at the same routes.
+          // act on the form it found. No form there ⇒ the routes the site
+          // declares in `forms.paths`, which it vouches forward the marker.
           const probePage = page as unknown as FormProbePage;
           let found = await findFormPath(probePage, baseUrl);
-          if (!found) {
-            discovered ??= await formDiscoveryPaths(baseUrl);
-            found = await findFormPath(probePage, baseUrl, discovered, {
-              refuseAbsoluteAction: true,
-            });
+          if (!found && formsHealth.paths) {
+            found = await findFormPath(probePage, baseUrl, formsHealth.paths);
             if (found) located.formAt = new URL(found).pathname;
-            else located.discoveredLooked = discovered.length;
+          }
+          if (!found && attempt === 1) {
+            // Still none: look along the sitemap before calling the site formless,
+            // and submit nothing found there (see formE2eUndeclaredFormSummary).
+            const discovered = await formDiscoveryPaths(baseUrl);
+            const elsewhere = await findFormPath(probePage, baseUrl, discovered);
+            if (elsewhere) return { undeclaredFormAt: new URL(elsewhere).pathname };
+            located.discoveredLooked = discovered.length;
           }
           if (!found) {
             // The fresh load found no form where the first found one: that is not

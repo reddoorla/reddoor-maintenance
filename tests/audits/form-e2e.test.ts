@@ -6,6 +6,7 @@ import {
   formE2eHealthUnreadableSummary,
   findFormPath,
   formDiscoveryPaths,
+  formE2eUndeclaredFormSummary,
   FORM_DISCOVERY_ROUTE_CAP,
   isSameSitePost,
   actionFailureStatus,
@@ -393,32 +394,46 @@ describe("audits/form-e2e route discovery", () => {
     expect(paths).toContain("https://acme.example.com/join-the-team");
   });
 
-  it("findFormPath with refuseAbsoluteAction skips a page whose email form posts to an absolute URL", async () => {
-    const pages: Record<string, { absolute: number }> = {
-      "/newsletter": { absolute: 1 },
-      "/join-the-team": { absolute: 0 },
+  it("reads forms.paths strictly: root-relative paths only, a malformed list ignored whole", async () => {
+    const read = async (paths: unknown) => {
+      vi.stubGlobal(
+        "fetch",
+        async () =>
+          new Response(
+            JSON.stringify({ ok: true, forms: { testMode: true, turnstile: false, paths } }),
+          ),
+      );
+      try {
+        return await readFormsHealth("https://acme.example.com");
+      } finally {
+        vi.unstubAllGlobals();
+      }
     };
-    let current = "";
-    const probe: FormProbePage = {
-      goto: async (url) => {
-        current = new URL(url).pathname;
-        return { ok: () => true };
-      },
-      locator: (selector) => ({
-        count: async () => (selector.includes("[action") ? (pages[current]?.absolute ?? 0) : 1),
-      }),
-    };
-    const routes = ["/newsletter", "/join-the-team"];
-    await expect(
-      findFormPath(probe, "https://acme.example.com", routes, { refuseAbsoluteAction: true }),
-    ).resolves.toBe("https://acme.example.com/join-the-team");
-    // Control: without the option the same probe takes the newsletter page.
-    await expect(findFormPath(probe, "https://acme.example.com", routes)).resolves.toBe(
-      "https://acme.example.com/newsletter",
-    );
+    expect((await read(["/join-the-team"])).paths).toEqual(["/join-the-team"]);
+    for (const bad of [
+      ["/join-the-team", "https://forms.example.com/x"],
+      ["//cdn.example.com/x"],
+      ["join-the-team"],
+      [],
+      "/join-the-team",
+      [1],
+    ])
+      expect(await read(bad)).toEqual({ testMode: true, turnstile: false });
   });
 
-  it("names a discovered form's route in a pass summary", async () => {
+  it("skips a site whose form is off the declared routes, writes nothing, and is not n/a", async () => {
+    const r = await formE2eAudit({
+      site,
+      now: NOW,
+      formRunner: runner({ submit: async () => ({ undeclaredFormAt: "/join-the-team" }) }),
+    });
+    expect(r.status).toBe("skip");
+    expect(r.notApplicable).toBeUndefined();
+    expect(r.details).toEqual({ checkedAt: NOW.toISOString() });
+    expect(r.summary).toBe(formE2eUndeclaredFormSummary("/join-the-team"));
+  });
+
+  it("names a declared form's route in a pass summary", async () => {
     const r = await formE2eAudit({
       site,
       now: NOW,
@@ -428,7 +443,7 @@ describe("audits/form-e2e route discovery", () => {
     });
     expect(r.status).toBe("pass");
     expect(r.summary).toBe(
-      "form-e2e: synthetic submission succeeded — form at /join-the-team, found by route discovery (none at /contact or /)",
+      "form-e2e: synthetic submission succeeded — form at /join-the-team, declared in /health forms.paths (none at /contact or /)",
     );
   });
 
@@ -442,6 +457,14 @@ describe("audits/form-e2e route discovery", () => {
     expect(r.summary).toBe(
       "no contact form (n/a) — none at /contact or /, nor on 8 discovered route(s)",
     );
+    // Zero is said too: a sitemap index offers no page routes, and the line
+    // must not read as if the runner never looked.
+    const zero = await formE2eAudit({
+      site,
+      now: NOW,
+      formRunner: runner({ submit: async () => ({ formPresent: false, discoveredLooked: 0 }) }),
+    });
+    expect(zero.summary).toContain("nor on 0 discovered route(s)");
   });
 });
 

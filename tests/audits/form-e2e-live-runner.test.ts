@@ -342,8 +342,6 @@ type Fixture = {
   movedTo?: string;
   /** Paths /sitemap.xml lists (absent = /sitemap.xml 404s). */
   sitemap?: string[];
-  /** A sitemap path whose page carries a newsletter form posting to another host. */
-  newsletterAt?: string;
   /** No script handles the submit: the browser posts the form, the action answers
    *  303 to /thanks, and /thanks shows the status region. */
   native?: boolean;
@@ -381,14 +379,6 @@ beforeAll(async () => {
         `<?xml version="1.0"?><urlset>${fixture.sitemap
           .map((p) => `<url><loc>${new URL(p, base).href}</loc></url>`)
           .join("")}</urlset>`,
-      );
-      return;
-    }
-    if (req.method === "GET" && fixture.newsletterAt && req.url === fixture.newsletterAt) {
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      res.end(
-        '<!doctype html><form action="https://newsletter.invalid/subscribe" method="POST">' +
-          '<input type="email" name="email" required><button type="submit">Join</button></form>',
       );
       return;
     }
@@ -1213,20 +1203,30 @@ describe("form-e2e live runner — a probe that throws still says what it synthe
   }, 90_000);
 });
 
-describe("form-e2e live runner — a form off /contact is found by route discovery", () => {
-  it("finds the sitemap route's form, submits it with the marker, and names the route", async () => {
-    const out = await submit({
-      health: DECLARED,
-      banner: true,
-      movedTo: "/join-the-team",
-      sitemap: ["/", "/contact", "/about", "/join-the-team"],
-    });
+describe("form-e2e live runner — a form off /contact: submitted when declared, only found when not", () => {
+  const PATHS = {
+    ok: true,
+    forms: { testMode: true, turnstile: false, paths: ["/join-the-team"] },
+  };
+  const MOVED = {
+    movedTo: "/join-the-team",
+    sitemap: ["/", "/contact", "/about", "/join-the-team"],
+  };
+
+  it("submits the form at a declared forms.paths route with the marker, and names the route", async () => {
+    const out = await submit({ health: PATHS, banner: true, ...MOVED });
     expect(out).toMatchObject({ formPresent: true, success: true, formAt: "/join-the-team" });
     expect(posts).toHaveLength(1);
     expect(posts[0]).toMatchObject({ testMode: "true" });
   }, 90_000);
 
-  it("control: the same site with no sitemap entry for the route stays n/a", async () => {
+  it("finds an undeclared form by route discovery, names it, and submits nothing", async () => {
+    const out = await submit({ health: DECLARED, banner: true, ...MOVED });
+    expect(out).toEqual({ undeclaredFormAt: "/join-the-team" });
+    expect(posts).toHaveLength(0);
+  }, 90_000);
+
+  it("control: with no sitemap entry for the route the site stays n/a, and says what it looked at", async () => {
     const out = await submit({
       health: DECLARED,
       banner: true,
@@ -1241,33 +1241,28 @@ describe("form-e2e live runner — a form off /contact is found by route discove
     expect(posts).toHaveLength(0);
   }, 90_000);
 
-  it("skips a discovered page whose email form posts to another host, and submits nothing there", async () => {
-    const out = await submit({
-      health: DECLARED,
-      banner: true,
-      movedTo: "/join-the-team",
-      sitemap: ["/newsletter", "/join-the-team"],
-      newsletterAt: "/newsletter",
-    });
-    expect(out).toMatchObject({ formPresent: true, success: true, formAt: "/join-the-team" });
-    expect(posts).toHaveLength(1);
-  }, 90_000);
-
-  it("scores the discovered form a pass end to end, and the log line names the route", async () => {
-    fixture = {
-      health: DECLARED,
-      banner: true,
-      movedTo: "/join-the-team",
-      sitemap: ["/", "/contact", "/join-the-team"],
+  it("scores both end to end: the declared form passes, the undeclared one is a skip that writes nothing", async () => {
+    const audit = async (f: Fixture) => {
+      fixture = f;
+      contactLoads = 0;
+      return formE2eAudit({
+        site: { path: "", name: "moved", deployedUrl: base },
+        formRunner: (runner = await defaultFormRunner(FAST)),
+      });
     };
     posts = [];
-    contactLoads = 0;
-    const r = await formE2eAudit({
-      site: { path: "", name: "moved", deployedUrl: base },
-      formRunner: (runner = await defaultFormRunner(FAST)),
-    });
-    expect(r.status).toBe("pass");
-    expect(r.details).toMatchObject({ ok: "pass", formPresent: true });
-    expect(r.summary).toContain("form at /join-the-team, found by route discovery");
+    const declared = await audit({ health: PATHS, banner: true, ...MOVED });
+    expect(declared.status).toBe("pass");
+    expect(declared.details).toMatchObject({ ok: "pass", formPresent: true });
+    expect(declared.summary).toContain("form at /join-the-team, declared in /health forms.paths");
+    await runner?.close?.();
+    const undeclared = await audit({ health: DECLARED, banner: true, ...MOVED });
+    expect(undeclared.status).toBe("skip");
+    expect(undeclared.notApplicable).toBeUndefined();
+    expect(Object.keys(undeclared.details ?? {})).toEqual(["checkedAt"]);
+    expect(undeclared.summary).toMatch(
+      /^form at \/join-the-team is not declared in \/health forms\.paths/,
+    );
+    expect(posts).toHaveLength(1);
   }, 90_000);
 });
