@@ -14,21 +14,21 @@ Beliefs corrected in review, which took three rounds of Opus:
 
 All 13 mutations turned a test red:
 
-| Mutation | Tests red |
-|---|---|
-| every non-empty ref a link | 11 |
-| links into `refs` | 3 |
-| the old behaviour | 3 |
-| no dedupe | 1 |
-| no `#N` check | 11 |
-| a trailing `#` as a link | 1 |
-| no spaces after `#` | 1 |
-| GitHub host matched case-sensitively | 1 |
-| GitHub PR URL as a link | 1 |
-| bare `o/r/pull/N` as a link | 1 |
-| `pull/N` matched anywhere (the round-3 bug) | 1 |
-| URLs held to the `#N` check | 1 |
-| empty item as a link | 1 |
+| Mutation                                    | Tests red |
+| ------------------------------------------- | --------- |
+| every non-empty ref a link                  | 11        |
+| links into `refs`                           | 3         |
+| the old behaviour                           | 3         |
+| no dedupe                                   | 1         |
+| no `#N` check                               | 11        |
+| a trailing `#` as a link                    | 1         |
+| no spaces after `#`                         | 1         |
+| GitHub host matched case-sensitively        | 1         |
+| GitHub PR URL as a link                     | 1         |
+| bare `o/r/pull/N` as a link                 | 1         |
+| `pull/N` matched anywhere (the round-3 bug) | 1         |
+| URLs held to the `#N` check                 | 1         |
+| empty item as a link                        | 1         |
 
 Not done: YAML block lists are still refused, because inline lists are the format. A path containing a comma would split, as before.
 
