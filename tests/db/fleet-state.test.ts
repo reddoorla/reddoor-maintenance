@@ -73,6 +73,8 @@ const RICH: RawRecord = {
     "Copy — Contact": "Reply any time.",
     "Copy — Footer": "— the reddoor team",
     "Newsletter Webhook": "https://acme.example.com/api/newsletter",
+    "Form Webhook": "https://hooks.zapier.com/hooks/catch/1/acme",
+    "Form Webhook Types": ["inquiry", "rsvp"],
     "Mailchimp API Key": "mc-key-1",
     "Mailchimp Audience ID": "aud-1",
     "Notify Routing": JSON.stringify({
@@ -84,6 +86,7 @@ const RICH: RawRecord = {
     "Require Turnstile": true,
     "Accepted Watch Conditions": ["cert-warning", "prismic"],
     "Prismic Ack Until": "2026-08-30T00:00:00.000Z",
+    "Prismic Ack Drift": "slice hero: field subtitle added",
     "Launched at": "2025-11-01",
     pScore: 98,
     rScore: 100,
@@ -203,6 +206,15 @@ async function expectEquivalent(rec: RawRecord) {
 }
 
 describe("fleet-state read layer ≡ mapRow (the Phase 2 equivalence instrument)", () => {
+  it("RICH sets every SITE_FIELDS column (fixture completeness)", () => {
+    // The equivalence below compares only what RICH sets: a site column left
+    // out of it is compared as null against null and pinned by nothing. The
+    // form webhook columns were, until #1972.
+    for (const field of Object.keys(SITE_FIELDS)) {
+      expect(RICH.fields, `RICH fixture missing site field '${field}'`).toHaveProperty(field);
+    }
+  });
+
   it("rich record: every populated field round-trips identically", async () => {
     await expectEquivalent(RICH);
   });
