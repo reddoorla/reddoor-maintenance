@@ -3,6 +3,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { chromium } from "@playwright/test";
 import {
+  declaredFormMissingDetail,
   defaultFormRunner,
   formE2eAudit,
   SYNTHESIZE_REQUIRED_EXPR,
@@ -342,6 +343,10 @@ type Fixture = {
   movedTo?: string;
   /** Paths /sitemap.xml lists (absent = /sitemap.xml 404s). */
   sitemap?: string[];
+  /** Loaded on 127.0.0.1 (the host the probe loads), this path answers 302 to
+   *  the same path on `localhost`, another host, where `movedTo` serves the
+   *  known-good form: a careers link pointed off the site. */
+  redirectAt?: string;
   /** No script handles the submit: the browser posts the form, the action answers
    *  303 to /thanks, and /thanks shows the status region. */
   native?: boolean;
@@ -380,6 +385,18 @@ beforeAll(async () => {
           .map((p) => `<url><loc>${new URL(p, base).href}</loc></url>`)
           .join("")}</urlset>`,
       );
+      return;
+    }
+    if (
+      req.method === "GET" &&
+      fixture.redirectAt &&
+      req.url === fixture.redirectAt &&
+      req.headers.host?.startsWith("127.0.0.1")
+    ) {
+      res.writeHead(302, {
+        location: `${base.replace("127.0.0.1", "localhost")}${fixture.redirectAt.slice(1)}`,
+      });
+      res.end();
       return;
     }
     if (req.method === "GET" && fixture.movedTo && req.url === "/contact") {
@@ -1238,6 +1255,26 @@ describe("form-e2e live runner — a form off /contact: submitted when declared,
       formsHealth: { testMode: true, turnstile: false },
       discoveredLooked: 1,
     });
+    expect(posts).toHaveLength(0);
+  }, 90_000);
+
+  it("fails, sending nothing, when the declared route has no form (here a 404)", async () => {
+    const out = await submit({ health: PATHS, banner: true, movedTo: "/careers" });
+    expect(out).toMatchObject({ formPresent: true, success: false });
+    expect("detail" in out && out.detail).toBe(declaredFormMissingDetail(["/join-the-team"]));
+    expect(posts).toHaveLength(0);
+  }, 90_000);
+
+  it("refuses a declared route that redirects to another host, and submits nothing there", async () => {
+    // The same path on localhost carries the known-good form, so a probe that
+    // followed the redirect would find, fill and post it there.
+    const out = await submit({
+      health: PATHS,
+      banner: true,
+      ...MOVED,
+      redirectAt: "/join-the-team",
+    });
+    expect(out).toMatchObject({ formPresent: true, success: false });
     expect(posts).toHaveLength(0);
   }, 90_000);
 

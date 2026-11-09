@@ -155,6 +155,15 @@ export function formE2eHealthUnreadableSummary(reason: string): string {
   return `site /health could not be read (${reason}) — probe refused, so this site was not probed`;
 }
 
+/** The failure detail when /health declares form routes and none of them, nor a
+ *  contact route, rendered a form with an email field. Nothing was sent. */
+export function declaredFormMissingDetail(paths: readonly string[]): string {
+  return (
+    `/health declares a form at ${paths.join(", ")} (forms.paths), and no form rendered there ` +
+    `or at ${CONTACT_PATHS.join(" or ")} (not found, an error, or a redirect off the site); nothing was sent`
+  );
+}
+
 /**
  * The summary when route discovery found a form the site's /health does not
  * declare in `forms.paths`. `forms.testMode` vouches for the contact action
@@ -983,6 +992,10 @@ export type FormProbePage = {
     opts?: { waitUntil?: string; timeout?: number },
   ) => Promise<{ ok: () => boolean } | null>;
   locator: (selector: string) => { count: () => Promise<number> };
+  /** Where the page ended up. Optional so a fake can leave it out; the real
+   *  `Page` has it, and findFormPath uses it to refuse a route that redirected
+   *  to another site. */
+  url?: () => string;
 };
 
 /**
@@ -1006,6 +1019,10 @@ export async function findFormPath(
       .goto(url, { waitUntil: "domcontentloaded", timeout: PAGE_TIMEOUT_MS })
       .catch(() => null);
     if (!resp || !resp.ok()) continue;
+    // A route that redirected off the site (a careers link pointed at an
+    // applicant-tracking host) is a miss: the fill and click below would act
+    // on that host's form, which no testMode declaration covers.
+    if (page.url && !isSameSitePost(page.url(), baseUrl)) continue;
     const forms = await page
       .locator("form")
       .count()
@@ -1115,15 +1132,24 @@ async function readFormsHealthOnce(baseUrl: string): Promise<FormsHealth> {
   }
 }
 
-/** `forms.paths`, read strictly: a non-empty array of root-relative paths
- *  ("/join-the-team"). Anything else (an absolute or protocol-relative URL, a
- *  non-string) drops the whole list, so the probe submits only where the site
- *  plainly said it may. */
+/** The most routes a site may declare in `forms.paths`. Each costs a navigation
+ *  of up to 30 s, twice on a retry, in a sweep that runs one site at a time. */
+export const MAX_DECLARED_FORM_PATHS = 5;
+
+/** One declared route: a root-relative path of URL-safe characters only. The
+ *  URL parser reads `/\host` and `/\t/host` as another origin, so a backslash,
+ *  a control character or a leading `//` is refused, not normalised. */
+const DECLARED_PATH = /^\/(?!\/)[A-Za-z0-9\-._~/%]*$/;
+
+/** `forms.paths`, read strictly: one to `MAX_DECLARED_FORM_PATHS` paths, each
+ *  matching `DECLARED_PATH` ("/join-the-team"). Anything else drops the whole
+ *  list, so the probe submits only where the site plainly said it may. */
 function declaredPaths(v: unknown): { paths?: string[] } {
   const ok =
     Array.isArray(v) &&
     v.length > 0 &&
-    v.every((p) => typeof p === "string" && p.startsWith("/") && !p.startsWith("//"));
+    v.length <= MAX_DECLARED_FORM_PATHS &&
+    v.every((p) => typeof p === "string" && DECLARED_PATH.test(p));
   return ok ? { paths: v as string[] } : {};
 }
 
@@ -1409,6 +1435,24 @@ export async function defaultFormRunner(
           if (!found && formsHealth.paths) {
             found = await findFormPath(probePage, baseUrl, formsHealth.paths);
             if (found) located.formAt = new URL(found).pathname;
+            // The site says a form is there and none rendered: its form is down
+            // (a 404, a 500, a redirect away), which is a failure, never the
+            // n/a that would clear its last pass. Nothing was sent.
+            else if (attempt === 1)
+              return {
+                formPresent: true,
+                success: false,
+                ...consentNote(true),
+                detail: declaredFormMissingDetail(formsHealth.paths),
+                turnstile: {
+                  containerPresent,
+                  scriptLoaded: turnstileScriptLoaded,
+                  hostnameRejected: turnstileHostnameRejected,
+                  initFailed: turnstileInitFailed,
+                  widgetError: turnstileWidgetError,
+                },
+                formsHealth,
+              };
           }
           if (!found && attempt === 1) {
             // Still none: look along the sitemap before calling the site formless,

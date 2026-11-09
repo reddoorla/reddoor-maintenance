@@ -412,6 +412,9 @@ describe("audits/form-e2e route discovery", () => {
     expect((await read(["/join-the-team"])).paths).toEqual(["/join-the-team"]);
     for (const bad of [
       ["/join-the-team", "https://forms.example.com/x"],
+      ["/\\evil.example"],
+      ["/\t/evil.example"],
+      ["/a", "/b", "/c", "/d", "/e", "/f"],
       ["//cdn.example.com/x"],
       ["join-the-team"],
       [],
@@ -419,6 +422,25 @@ describe("audits/form-e2e route discovery", () => {
       [1],
     ])
       expect(await read(bad)).toEqual({ testMode: true, turnstile: false });
+  });
+
+  it("findFormPath refuses a route whose page ended on another site, apex and www alike accepted", async () => {
+    const landed: Record<string, string> = {
+      "/careers": "https://jobs.ats.example/acme/apply",
+      "/join": "https://acme.example.com/join",
+    };
+    let current = "";
+    const probe: FormProbePage = {
+      goto: async (url) => {
+        current = new URL(url).pathname;
+        return { ok: () => true };
+      },
+      locator: () => ({ count: async () => 1 }),
+      url: () => landed[current] ?? "",
+    };
+    await expect(
+      findFormPath(probe, "https://www.acme.example.com", ["/careers", "/join"]),
+    ).resolves.toBe("https://www.acme.example.com/join");
   });
 
   it("skips a site whose form is off the declared routes, writes nothing, and is not n/a", async () => {
