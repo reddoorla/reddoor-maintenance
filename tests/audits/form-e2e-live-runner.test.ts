@@ -7,6 +7,7 @@ import {
   offSiteRedirectDetail,
   defaultFormRunner,
   formE2eAudit,
+  FORM_E2E_TESTMODE_UNDECLARED_SUMMARY,
   SYNTHESIZE_REQUIRED_EXPR,
   type FormRunner,
 } from "../../src/audits/form-e2e.js";
@@ -368,6 +369,14 @@ type Fixture = {
   clientError?: boolean;
   /** The action POST goes to localhost while the probe loads 127.0.0.1 (#1668 review). */
   offHost?: boolean;
+  /** /contact answers 404, like 29 Navy's deleted route: the site has no form. */
+  contactAbsent?: boolean;
+  /** `/` serves a page with a contact form (with contactAbsent: a one-page site). */
+  rootForm?: boolean;
+  /** /contact and / both answer 503: the site is down, so nothing was looked at. */
+  pagesDown?: boolean;
+  /** `/` answers this status with a page carrying no form (200: a formless home page). */
+  rootPlain?: number;
 };
 
 let server: Server;
@@ -413,8 +422,28 @@ beforeAll(async () => {
       res.end(JSON.stringify(fixture.health));
       return;
     }
+    if (req.method === "GET" && fixture.pagesDown && (req.url === "/contact" || req.url === "/")) {
+      res.writeHead(503);
+      res.end();
+      return;
+    }
+    if (req.method === "GET" && req.url === "/" && fixture.rootPlain !== undefined) {
+      res.writeHead(fixture.rootPlain, { "content-type": "text/html; charset=utf-8" });
+      res.end('<!doctype html><p>Call us, or <a href="mailto:a@b.test">email</a>.</p>');
+      return;
+    }
+    if (req.method === "GET" && req.url === "/" && fixture.rootForm) {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end('<!doctype html><form><input type="email" name="email"><button>Send</button></form>');
+      return;
+    }
     if (req.method === "GET" && req.url === "/contact") {
       contactLoads++;
+      if (fixture.contactAbsent) {
+        res.writeHead(404);
+        res.end();
+        return;
+      }
       if (fixture.failAfterFirstLoad && contactLoads > 1) {
         res.writeHead(503);
         res.end();
@@ -874,6 +903,108 @@ describe("form-e2e live runner — the instrument can fail, and the interlock ho
   }, 90_000);
 });
 
+describe("form-e2e live runner — a site that declares no form (forms.none)", () => {
+  const NONE = { ok: true, forms: { testMode: false, turnstile: false, none: true } };
+
+  it("looks, finds no form, and returns n/a without posting anything", async () => {
+    const out = await submit({ health: NONE, banner: true, contactAbsent: true, rootPlain: 200 });
+    expect(out).toEqual({
+      formPresent: false,
+      formsHealth: { testMode: false, turnstile: false, none: true },
+      // The look goes on along the sitemap; this fixture has none to offer.
+      discoveredLooked: 0,
+    });
+    expect(contactLoads).toBe(1);
+    expect(posts).toHaveLength(0);
+  }, 90_000);
+
+  it("does not believe the claim when a sitemap route has a form: uncovered, names it, posts nothing", async () => {
+    const out = await submit({
+      health: NONE,
+      banner: true,
+      rootPlain: 200,
+      movedTo: "/join-the-team",
+      sitemap: ["/", "/contact", "/join-the-team"],
+    });
+    expect(out).toEqual({
+      testModeUndeclared: true,
+      declaredNone: { formAt: `${base}join-the-team` },
+    });
+    expect(posts).toHaveLength(0);
+  }, 90_000);
+
+  it("does not believe the claim when /contact has a form: uncovered, names it, posts nothing", async () => {
+    const out = await submit({ health: NONE, banner: true });
+    expect(out).toEqual({ testModeUndeclared: true, declaredNone: { formAt: `${base}contact` } });
+    expect(posts).toHaveLength(0);
+  }, 90_000);
+
+  it("finds a form on / when /contact is gone, so a one-page site cannot claim none", async () => {
+    const out = await submit({ health: NONE, banner: true, contactAbsent: true, rootForm: true });
+    expect(out).toEqual({ testModeUndeclared: true, declaredNone: { formAt: base } });
+    expect(posts).toHaveLength(0);
+  }, 90_000);
+
+  it("/contact gone and / answering 503 is unverified, not n/a", async () => {
+    const out = await submit({ health: NONE, banner: true, contactAbsent: true, rootPlain: 503 });
+    expect(out).toEqual({
+      testModeUndeclared: true,
+      declaredNone: { unverified: `${base} answered 503` },
+    });
+  }, 90_000);
+
+  it("a 404 on / is unverified: a site always has a home page", async () => {
+    const out = await submit({ health: NONE, banner: true, contactAbsent: true, rootPlain: 404 });
+    expect(out).toEqual({
+      testModeUndeclared: true,
+      declaredNone: { unverified: `${base} answered 404` },
+    });
+  }, 90_000);
+
+  it("a site whose routes answer 503 is unverified, never n/a", async () => {
+    const out = await submit({ health: NONE, banner: true, pagesDown: true });
+    expect(out).toEqual({
+      testModeUndeclared: true,
+      declaredNone: { unverified: `${base}contact answered 503` },
+    });
+  }, 90_000);
+
+  it('reads only a strict true: none:"true" is undeclared and opens no page', async () => {
+    const out = await submit({
+      health: { ok: true, forms: { testMode: false, turnstile: false, none: "true" } },
+      banner: true,
+      contactAbsent: true,
+    });
+    expect(out).toEqual({ testModeUndeclared: true });
+    expect(contactLoads).toBe(0);
+  }, 90_000);
+
+  it("scores the formless site n/a end to end, and the contradicted one as a self-skip", async () => {
+    const audit = async (f: Fixture) => {
+      fixture = f;
+      contactLoads = 0;
+      return formE2eAudit({
+        site: { path: "", name: "formless", deployedUrl: base },
+        formRunner: await defaultFormRunner(FAST),
+      });
+    };
+    posts = [];
+    const na = await audit({ health: NONE, banner: true, contactAbsent: true, rootPlain: 200 });
+    // No form, no widget to verify: null, never the "fail" turnstile:false earns a testMode site.
+    expect(na).toMatchObject({
+      status: "skip",
+      notApplicable: true,
+      details: { ok: null, turnstileWidget: null },
+    });
+    expect(na.summary).toMatch(/^no contact form \(n\/a\)/);
+    const contradicted = await audit({ health: NONE, banner: true });
+    expect(contradicted.status).toBe("skip");
+    expect(contradicted.summary.startsWith(FORM_E2E_TESTMODE_UNDECLARED_SUMMARY)).toBe(true);
+    expect(contradicted.summary).toContain(`${base}contact has a contact form`);
+    expect(posts).toHaveLength(0);
+  }, 90_000);
+});
+
 describe("form-e2e live runner — a synthesized value reverted after the fill (#779 review)", () => {
   it("re-synthesizes a select the page reset during the settle, and still passes", async () => {
     const out = await submit({ health: DECLARED, banner: true, resetSelect: true });
@@ -1288,6 +1419,12 @@ describe("form-e2e live runner — a form off /contact: submitted when declared,
       offSiteRedirectDetail(`localhost:${new URL(base).port}`),
     );
     expect(posts).toHaveLength(0);
+  }, 90_000);
+
+  it("still tests a declared route when /contact redirects off the site", async () => {
+    const out = await submit({ health: PATHS, banner: true, ...MOVED, redirectAt: "/contact" });
+    expect(out).toMatchObject({ formPresent: true, success: true, formAt: "/join-the-team" });
+    expect(posts).toHaveLength(1);
   }, 90_000);
 
   it("scores both end to end: the declared form passes, the undeclared one is a skip that writes nothing", async () => {

@@ -19,6 +19,7 @@ import {
   projectRealSubmissionMs,
   type FormRunner,
   type FormProbePage,
+  lookForContactForm,
 } from "../../src/audits/form-e2e.js";
 import { INGEST_TIMEOUT_MS } from "../../src/forms/client.js";
 
@@ -1072,5 +1073,37 @@ describe("audits/form-e2e carriesProbeMarker", () => {
     expect(carriesProbeMarker("v=2&tid=G-XXXX&en=page_view")).toBe(false);
     expect(carriesProbeMarker('{"event":"submit_click"}')).toBe(false);
     expect(carriesProbeMarker("")).toBe(false);
+  });
+});
+
+describe("lookForContactForm — the check behind a forms.none declaration", () => {
+  // A look that could not run is never "no form": only a completed look admits n/a.
+  it("returns unverified, not null, when the browser will not launch", async () => {
+    const chromium = {
+      launch: async () => {
+        throw new Error("Executable doesn't exist\nsecond line");
+      },
+    };
+    expect(await lookForContactForm(chromium, "https://example.test/")).toEqual({
+      unverified: "Error: Executable doesn't exist",
+    });
+  });
+
+  it("returns unverified when the page cannot be opened, and still closes the browser", async () => {
+    let closed = false;
+    const chromium = {
+      launch: async () => ({
+        newPage: async () => {
+          throw new Error("context closed");
+        },
+        close: async () => {
+          closed = true;
+        },
+      }),
+    };
+    expect(await lookForContactForm(chromium, "https://example.test/")).toEqual({
+      unverified: "Error: context closed",
+    });
+    expect(closed).toBe(true);
   });
 });
