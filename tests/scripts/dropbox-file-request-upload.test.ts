@@ -21,7 +21,8 @@ import {
   exitCode,
   MAX_BATCH_BYTES,
   USAGE,
-  payloadFor,
+  unchangedPaths,
+  commitFinal,
   missingAfterDrop,
   waitForCommits,
 } from "../../scripts/dropbox-file-request-upload.mjs";
@@ -261,7 +262,7 @@ describe("USAGE", () => {
   });
 });
 
-describe("payloadFor", () => {
+describe("unchangedPaths", () => {
   it("re-reads each file and refuses one that changed after it was hashed", () => {
     const d = scratch();
     const a = join(d, "Lot 12.PDF");
@@ -269,12 +270,9 @@ describe("payloadFor", () => {
     writeFileSync(a, pattern(10));
     writeFileSync(b, pattern(20));
     const rows = plan([a, b], "R");
-    expect(payloadFor(rows)).toEqual([
-      { name: "Lot 12.PDF", type: "application/pdf", b64: pattern(10).toString("base64") },
-      { name: "probe.bin", type: "application/octet-stream", b64: pattern(20).toString("base64") },
-    ]);
+    expect(unchangedPaths(rows)).toEqual([a, b]);
     writeFileSync(b, pattern(20, 3));
-    expect(() => payloadFor(rows)).toThrow(/probe\.bin changed after it was hashed/);
+    expect(() => unchangedPaths(rows)).toThrow(/probe\.bin changed after it was hashed/);
   });
 });
 
@@ -324,10 +322,28 @@ describe("waitForCommits", () => {
     expect(c.committed.get("b.pdf")).toEqual(done);
   });
 
-  it("stops at the deadline when a commit never completes", async () => {
-    const c = clock([(m) => m.set("a.pdf", { status: 200, text: '{"status": "error"}' })]);
+  it("stops at the deadline when a commit never gets a final answer", async () => {
+    const c = clock([(m) => m.set("a.pdf", { status: 503, text: "" })]);
     await waitForCommits(c.committed, ["a.pdf"], 2_000, c.sleep, c.now);
     expect(c.sleeps()).toBe(4);
+  });
+
+  // #1471: the page never re-sends a commit answered 200, and disables its form on
+  // a 403, so either is the file's last answer.
+  it("returns once every file has a final answer, failures included", async () => {
+    const c = clock([
+      (m) => m.set("a.pdf", { status: 200, text: '{"status": "error"}' }),
+      (m) => m.set("b.pdf", { status: 403, text: '{"error":"closed"}' }),
+    ]);
+    await waitForCommits(c.committed, ["a.pdf", "b.pdf"], 10_000, c.sleep, c.now);
+    expect(c.sleeps()).toBe(2);
+  });
+});
+
+describe("commitFinal", () => {
+  it("is the page's last answer: any 200 and a 403, never a 5xx or another 4xx", () => {
+    expect([200, 403].map(commitFinal)).toEqual([true, true]);
+    expect([0, 400, 404, 409, 429, 500, 502, 503].map(commitFinal)).toEqual(Array(8).fill(false));
   });
 });
 
