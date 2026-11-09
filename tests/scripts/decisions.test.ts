@@ -431,6 +431,7 @@ describe("refs", () => {
       "maint#1234 (merged)",
       "o/r#",
       "o/r/pull/12/",
+      "o/r# 12",
       "https://github.com/o/r/pull/12",
       "https://GitHub.com/o/r/pull/12",
       "https://github.com/o/r/issues/3#issuecomment-1",
@@ -450,6 +451,14 @@ describe("refs", () => {
       "README",
       "plan.md#the-model",
     ]);
+    expect(
+      pd(
+        X,
+        file({
+          refs: "[https://gitlab.com/me/game/-/issues/5, briefs/issues/2026-11-01-x.md, briefs/pull/1-thing.md]",
+        }),
+      ),
+    ).toMatchObject({ errors: [], refs: [] });
   });
 
   it("never looks up a path or link ref on GitHub", async () => {
@@ -462,6 +471,7 @@ describe("refs", () => {
     const r = await decisionsReport({ dir: d }, { now: NOW, run });
     expect(calls).toEqual(["repos/a/b/issues/2"]);
     expect(r.counts.parsed).toBe(1);
+    expect(r.counts.unchecked).toBe(0);
   });
 });
 

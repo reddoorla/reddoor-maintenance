@@ -571,14 +571,18 @@ export function slugify(n, title) {
   return s;
 }
 
-// A ref that looks like an issue or PR (a # followed by a digit or ending it,
-// or a pull/N or issues/N path) must be owner/repo#N, so a typo like o/r#12)
-// still fails. Any other ref is a path, repo or link: kept as text, never
-// looked up. A non-GitHub URL may carry a numeric #fragment.
+// A ref that looks like an issue or PR must be owner/repo#N, so a typo like
+// o/r#12) still fails: a # then a digit (spaces allowed) or nothing, or a
+// GitHub pull/N or issues/N URL, or a bare owner/repo/pull/N. Any other ref is
+// a path, repo or link: kept as text, never looked up. A URL elsewhere may
+// carry a numeric #fragment or an issues/ path.
 export function isLink(r) {
-  if (r === "" || /(?:pull|issues)\/\d/.test(r)) return false;
+  if (r === "") return false;
+  if (/github\.com\/[^/]+\/[^/]+\/(?:pull|issues)\/\d/i.test(r)) return false;
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(r)) return true;
-  return !/#(?:\d|$)/.test(r);
+  return (
+    !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/(?:pull|issues)\/\d/.test(r) && !/#\s*(?:\d|$)/.test(r)
+  );
 }
 
 export const URL_REF =
