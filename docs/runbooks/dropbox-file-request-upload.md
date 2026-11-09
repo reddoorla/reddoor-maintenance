@@ -112,20 +112,42 @@ and renames what arrived.
 
 - Setting the hidden file input (`#uploader-file-field`) does nothing (found
   2026-09-29). A synthetic `dragenter`, `dragover` and `drop` carrying a
-  `DataTransfer`, dispatched on the drop zone's container, works.
+  `DataTransfer`, dispatched on the drop zone's container, works. The script
+  fills a file input of its own, outside the page's app, with the files' paths
+  (`setInputFiles`), and the drop carries the files that input holds, so
+  Chromium reads each file from disk and no file's bytes cross the DevTools
+  pipe (#1396).
 - The name (`input[name="name"]`) and email (`input[name="email"]`) fields
   appear only after a drop.
 - Uploading sends 4 MiB blocks to `dl-web.dropbox.com/put_block_returning_token`,
   then one `POST /drops/commit_file_request_by_token?name=<file>` per file,
   which answers 200 `{"status": "complete"}`. The page then shows "Finished
-  uploading". The script waits until every file's commit has answered
-  complete, up to max(120 s, 10 s per MB) per batch, so a commit the page
-  retries after a 5xx is not cut off (a commit that never completes is
-  reported FAILED at that deadline). That deadline is also the upper bound
-  on a batch's commit wait: about 22 minutes (1,342 s) for a full 128 MiB batch.
-  A definite commit failure, such as a 403 `{"error":"closed"}` or a 200
-  `{"status":"error"}`, does not end the wait early: the batch waits out its
-  whole deadline and then reports that file FAILED (#1471). It counts a
+  uploading". The script waits until every file's commit has given its final
+  answer, up to max(120 s, 10 s per MB) per batch: about 22 minutes (1,342 s)
+  for a full 128 MiB batch. A final answer is any 200 or a 403 (#1471). Read
+  from the page's own bundle on 2026-11-09
+  (`submission_edison-vfl7ETbh6.js`, which a closed request's page still
+  loads): the commit is one `XMLHttpRequest` that resolves on any 200,
+  whatever the body, so a 200 `{"status":"error"}` is never re-sent, and on a
+  403 the page sets its form to Disabled. Block uploads are wrapped in three
+  tries; the commit call is not. Any other answer (a 5xx, another 4xx, none)
+  is a rejection the page's upload scheduler may retry, and that scheduler is
+  in a chunk only an open request loads, so it was not read: the script keeps
+  waiting on those until the deadline and then reports the file FAILED. So a
+  refused commit, or a closed request whose every file got its commit answer,
+  is reported in seconds; a 5xx that never clears takes the whole deadline,
+  and so does a file the page never commits (after a 403 disables the form,
+  a later commit batch may never be sent). Two assumptions sit under "a 200
+  is final", both errors toward a false FAILED, which step 4 catches by hash:
+  the page commits a batch of files with one `Promise.all`, so if one file's
+  5xx makes the scheduler retry the whole batch, a file already answered 200
+  is committed again; and each file keeps only its newest answer, so a
+  retried commit answered 403 after an earlier `complete` ends the wait with
+  that file FAILED.
+- Chromium reads each file when the page uploads it, and refuses one whose
+  size or modification time changed since it was handed over, so nothing
+  commits. A change that keeps both (`touch -r`) is not seen; step 4's hash
+  match is the check for that. It counts a
   file as committed only when its own commit answered complete; a commit already seen still counts if the batch
   fails later. It does not rely on the page text, which a file named
   "Finished uploading…" would match. The commit does not name the stored
@@ -146,8 +168,11 @@ and renames what arrived.
   the script uses the proxy only when `HTTPS_PROXY` is set. Per `CLAUDE.md`
   ("No local browser while agents run"), run it there only in a session with
   no agents live.
-- Large files. Each batch passes its files into the page as base64 in one
-  message, so memory is several times the batch's size, and Node cannot make
-  a string past about 512 M characters (a 384 MiB file). The 128 MiB cap
-  stays well under that. The largest file tried is 8.4 MB; the 09-29 script
-  moved 46 PDFs of about 6 MB each.
+- Large files against real Dropbox. Until 2026-11-09 each batch went into the
+  page as base64 in one DevTools message. Measured that day in a cloud
+  container (Playwright 1.64.1, `--remote-debugging-pipe`): a 100 MB string
+  crossed and a 120 MB one closed the page, so any batch over about 75 MiB
+  failed, every file FAILED (#1396). Files now go by path, and the wiring
+  test (`tests/scripts/dropbox-file-request-page.test.ts`) moves a 90 MB file
+  through a stand-in page. The largest file sent to real Dropbox is still
+  8.4 MB; the 09-29 script moved 46 PDFs of about 6 MB each.
