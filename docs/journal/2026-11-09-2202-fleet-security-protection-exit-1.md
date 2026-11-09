@@ -9,6 +9,7 @@
 **Belief corrected: it did not start on 11-04.** The same error line and the same `gaps=11` summary appear in every run I pulled: 10-23, 10-27, 10-29, 11-01, 11-02 (both runs), 11-03, 11-04, 11-05 and 11-08. The 08-12 run (31572846875) printed `gaps=0 covered=24` with no error line. The step and its `continue-on-error` date from #483 (2026-08-02), and #754 was auto-filed on 09-10. So the line has printed on every night with a gap for about two months. The reports only started naming it on 11-05.
 
 **Why it was still worth a change.** Harmless as a gap signal, but the step outcome was the only thing downstream steps read, and it could not tell a gap from a crash. `runOrExit` prints nothing and exits 1 on a throw. On a crash night, then:
+
 - The step failed exactly as on a gap night.
 - The open step commented "see run output" on #754.
 - The UNMEASURED step (#1612) found no UNMEASURED line and passed.
@@ -18,6 +19,7 @@
 So a real check could stop running with nobody told. That has not happened yet: every night on record printed its summary.
 
 **The fix.** The step now classifies its own exit into `outputs.gaps`, following the repo's yes/no convention (`drought`, `drifted`, `behind`):
+
 - `yes` means exit 1 beside a counted `PROTECTION_AUDIT gaps=N` with N > 0.
 - `no` means exit 0.
 - Anything else fails the step and sets no output.
@@ -25,10 +27,12 @@ So a real check could stop running with nobody told. That has not happened yet: 
 The open and close issue steps key on that output. A failed audit step now only ever means "did not measure", so the renamed "Fail the run when the protection sweep did not measure" step always reds the run, with an `::error::` naming the cause. On gap nights the run is green, with no `##[error]` line, and #754 is updated as before.
 
 **Review.** Two Opus rounds.
+
 - **Round 1, one major:** my first version reddened the run only when `protection.out` had no summary. A summary beside a mismatched exit code, or printed just before a hang into the 15-minute timeout, still ended green with no issue touched. Round 1 also had three minors, all folded in: the conditions test checked only the positive side, two open-step tests described inputs that can no longer reach that step, and the generic failure issue body did not name the new cause.
 - **Round 2, minors only, so clean:** two false comments and the step name were folded in. Two were filed. #1986: whether Actions reports a timed-out `continue-on-error` step as `failure` or `cancelled` is unproven, and if it is `cancelled`, that night still ends green. That is not a regression. #1987: a whitespace-only token takes the CLI's clean skip.
 
 **Test changes.** Two assertions changed because the behaviour they pinned changed:
+
 - The #1612 test "a sweep with real gaps leaves that step green" ran the fail-step script on gap output. That script now reds unconditionally, and on a gap night it no longer runs at all. The test moved to the audit step and asserts `gaps=yes` there.
 - The conditions test for the protection-gap open and close steps evaluated `outcomes.protection = failure | success`. It now evaluates `output = yes | no`, plus negative cases.
 
