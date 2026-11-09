@@ -71,6 +71,15 @@ export type IngestDeps = {
     submission: SubmissionRow,
     site: WebsiteRow,
   ) => Promise<{ ok: boolean; status: number }>;
+  /** Optional: POST a submission of ANY opted-in form type, with its full body,
+   *  to the site's form webhook (`site.formWebhook`, best-effort). Separate from
+   *  `forwardNewsletter` on purpose: a site wired to the newsletter webhook keeps
+   *  receiving exactly the lean newsletter body it maps today. */
+  forwardForm?: (
+    webhookUrl: string,
+    submission: SubmissionRow,
+    site: WebsiteRow,
+  ) => Promise<{ ok: boolean; status: number }>;
   /** Optional: add a newsletter submitter to the site's Mailchimp audience
    *  (best-effort). Omitted where unused. `tagged:false` reports a member who was
    *  upserted but could NOT be tagged — recorded separately, see FANOUT below. */
@@ -551,6 +560,26 @@ export async function ingestSubmission(
         }
       }
     }
+    // Form webhook (2026-11-09, Gallery Sonder): every form type the site opted
+    // into, not only newsletter, with the full submission. Opt-in is the URL
+    // itself; `formWebhookTypes` narrows it, and empty means every type. Spam is
+    // never forwarded, exactly like the newsletter destinations above. Runs after
+    // them so a newsletter-only site's stamp is token-for-token what it was.
+    if (
+      !isSpam &&
+      site.formWebhook &&
+      deps.forwardForm &&
+      formWebhookWants(site.formWebhookTypes, n.formType)
+    ) {
+      try {
+        const fwd = await deps.forwardForm(site.formWebhook, row, site);
+        if (!fwd.ok) console.error(`[ingest] form webhook → ${fwd.status} for ${site.name}`);
+        fanout.push(fwd.ok ? "form-webhook:ok" : `form-webhook:${fwd.status}`);
+      } catch (err) {
+        console.error(`[ingest] form webhook threw: ${String(err)}`);
+        fanout.push("form-webhook:threw");
+      }
+    }
     if (fanout.length > 0 && deps.stampFanout) {
       try {
         await deps.stampFanout(row.id, fanout.join(","));
@@ -577,6 +606,12 @@ export async function ingestSubmission(
     return { status: "accepted", submissionId: row.id, notifyStatus: "deferred" };
   }
   return { status: "accepted", submissionId: row.id, notifyStatus: await runTail() };
+}
+
+/** Whether a site's form webhook takes `formType`: an empty type list means
+ *  every type (the URL is the opt-in), otherwise only the listed ones. PURE. */
+export function formWebhookWants(types: readonly string[], formType: string): boolean {
+  return types.length === 0 || types.includes(formType);
 }
 
 /** True when `a` and `b` are the same host or one is a subdomain of the other

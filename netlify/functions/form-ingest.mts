@@ -15,7 +15,7 @@ import { ingestSubmission, parseScreenOut, ingestScreenOut } from "../../src/for
 import { verifyTurnstileWithSecrets } from "../../src/forms/turnstile.js";
 import { classifySpam } from "../../src/forms/spam-classifier.js";
 import { readMeta } from "../../src/forms/meta.js";
-import { forwardNewsletterToWebhook } from "../../src/forms/webhook.js";
+import { forwardFormToWebhook, forwardNewsletterToWebhook } from "../../src/forms/webhook.js";
 import { addMailchimpMember, mailchimpTagsFor } from "../../src/forms/mailchimp.js";
 import { makeNotify } from "../../src/forms/notify.js";
 import { verifyFormsToken, bearerToken } from "../../src/forms/token.js";
@@ -208,6 +208,7 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
         now: () => new Date(),
         forwardNewsletter: (url, submission, site) =>
           forwardNewsletterToWebhook(url, submission, site),
+        forwardForm: (url, submission, site) => forwardFormToWebhook(url, submission, site),
         addToMailchimp: (site, submission) =>
           addMailchimpMember({
             apiKey: site.mailchimpApiKey ?? "",

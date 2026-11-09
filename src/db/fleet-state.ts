@@ -64,6 +64,26 @@ const num = (v: unknown): number | null => (typeof v === "number" ? v : null);
 const bool = (v: unknown): boolean | null => (typeof v === "number" ? v !== 0 : null);
 
 /** Stored JSON array (siteValueFor-normalized) → the trimmed string[] mapRow yields. */
+/** `sites.form_webhook_types`: NULL or blank is `[]` (every type). A value that
+ *  is not a JSON array of strings reads as a list matching NO form type, so a
+ *  corrupt cell (a hand UPDATE, a restore) stops the forward instead of widening
+ *  it to every type, and says so in the log. */
+export const UNREADABLE_FORM_TYPES = "(unreadable form_webhook_types)";
+function parseFormWebhookTypes(raw: unknown): string[] {
+  if (raw === null || raw === undefined || (typeof raw === "string" && raw.trim() === ""))
+    return [];
+  try {
+    const parsed: unknown = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (Array.isArray(parsed) && parsed.every((x) => typeof x === "string")) {
+      return parsed.map((s) => s.trim()).filter(Boolean);
+    }
+  } catch {
+    // fall through
+  }
+  console.error(`[fleet-state] unreadable form_webhook_types: ${String(raw).slice(0, 80)}`);
+  return [UNREADABLE_FORM_TYPES];
+}
+
 function parseAwc(raw: unknown): string[] {
   if (typeof raw !== "string" || raw.trim() === "") return [];
   try {
@@ -156,6 +176,8 @@ function rowFromJoined(r: JoinedRow): WebsiteRow {
     copyFooter: trimToNull(r.copy_footer),
     launchedAt: str(r.launched_at),
     newsletterWebhook: trimToNull(r.newsletter_webhook),
+    formWebhook: trimToNull(r.form_webhook),
+    formWebhookTypes: parseFormWebhookTypes(r.form_webhook_types),
     notifyRouting: parseNotifyRouting(r.notify_routing),
     notifyRoutingRaw: trimToNull(r.notify_routing),
     mailchimpApiKey: trimToNull(r.mailchimp_api_key),
@@ -213,6 +235,8 @@ const SITE_COLUMNS = [
   "sites.copy_contact",
   "sites.copy_footer",
   "sites.newsletter_webhook",
+  "sites.form_webhook",
+  "sites.form_webhook_types",
   "sites.mailchimp_api_key",
   "sites.mailchimp_audience_id",
   "sites.notify_routing",

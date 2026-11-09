@@ -18,6 +18,7 @@ import { rendersCommentary } from "../../../../src/reports/template-for.js";
 import { approveBlockers, type PreflightFinding } from "../../../../src/reports/preflight.js";
 import { parseAddresses, withGlobalCc } from "../../../../src/reports/send/addresses.js";
 import { isVisibleInStrip } from "../../../../src/dashboard/submission-rules.js";
+import { SUBMISSION_FORM_TYPES } from "../../../../src/forms/types.js";
 import {
   SITE_STATUS_OPTIONS,
   FREQ_OPTIONS,
@@ -466,6 +467,14 @@ function detailRows(site: WebsiteRow, now: Date): DetailRowView[] {
     input("Netlify ID", "netlifyId", site.netlifyId),
     input("Search Console property", "searchConsoleProperty", site.searchConsoleProperty),
     input("Newsletter webhook", "newsletterWebhook", site.newsletterWebhook),
+    input("Form webhook (all form types)", "formWebhook", site.formWebhook),
+    {
+      kind: "multi",
+      label: "Form webhook types (none ticked = every type)",
+      field: "formWebhookTypes",
+      options: [...SUBMISSION_FORM_TYPES],
+      selected: [...site.formWebhookTypes],
+    },
     input("Mailchimp audience ID", "mailchimpAudienceId", site.mailchimpAudienceId),
     date("Last maintenance day", "maintenanceDay", site.maintenanceDay),
     date("Last testing day", "testingDay", site.testingDay),

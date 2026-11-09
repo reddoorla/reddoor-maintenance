@@ -164,12 +164,12 @@ It no longer does, but it now needs someone to finish the recovery.
 [#785](https://github.com/reddoorla/reddoor-maintenance/pull/785), merged 2026-09-14). A public
 form POST reaches `src/forms/ingest.ts`. If the site lookup **throws** (the store is down) or
 **resolves to null** (a real fleet site with no row — a half-finished `ensure-site`, a deleted
-row), the one writer `captureDeadLetter` (`src/forms/ingest.ts:183–194`) writes the whole raw
+row), the one writer `captureDeadLetter` (`src/forms/ingest.ts:192–203`) writes the whole raw
 payload, the Turnstile verification and the error into the `submission_deadletter` table and
 logs `[ingest] lead for '<slug>' dead-lettered as <id>`. The throw path returns an honest
 `accepted`; the unknown-slug path keeps its `unknown-site` status so the submitting site still
 learns its slug does not resolve, but **the lead now exists somewhere**
-(`src/forms/ingest.ts:200–229`). Probes (`testMode`) are never dead-lettered.
+(`src/forms/ingest.ts:209–238`). Probes (`testMode`) are never dead-lettered.
 
 **What a week-long break looks like now.** The queue grows and the alarm gets louder, not
 quieter. `collectDeadLetterAlerts` (`src/alerts/digest-collectors.ts:524–558`) raises one
@@ -227,7 +227,7 @@ Exit code is 1 while anything is still **owed**, which is three different things
 
 If Resend is unconfigured the replay still
 runs and the recovered leads land un-emailed (`notify=failed`) rather than blocking — you can
-re-notify later, but the lead is saved either way (`src/cli/commands/db.ts:65–161`). If the
+re-notify later, but the lead is saved either way (`src/cli/commands/db.ts:65–167`). If the
 alarm named an unresolvable slug, run `ensure-site <slug>` **first**, then replay.
 
 ### 3.2 Turnstile stops minting tokens on a site
@@ -257,7 +257,7 @@ not the leads — unless the site has `Require Turnstile` on.
 
 The org's plan carries `overages: false`, which means **crossing a quota BLOCKS reads and
 writes rather than billing for them** — and Turso is the only store there is. So a quota crossing is a total outage of the lead path, the dashboard and the report
-pipeline at once (`src/db/usage.ts:3`, `src/cli/commands/db.ts:271`,
+pipeline at once (`src/db/usage.ts:3`, `src/cli/commands/db.ts:273`,
 `.github/workflows/fleet-db-backup.yml:311`).
 
 The `quota` job inside `fleet-db-backup` checks headroom nightly and files **"Turso plan quota
@@ -356,7 +356,7 @@ bounce/complaint attention items in §3.4.
 **The per-site recipient field.** Who a report actually reaches is configured per site, not per
 message: `Report recipients (To)` and `Report recipients (CC)` in the site details on its console
 page (`/s/<slug>`), stored in Turso as `sites.report_recipients_to` / `report_recipients_cc`
-(`src/dashboard/site-details.ts:90–91`, `src/db/fleet-state.ts:106–107`). Form
+(`src/dashboard/site-details.ts:91–92`, `src/db/fleet-state.ts:126–127`). Form
 notifications have their own per-site routing, including field-value → recipient routes with a
 fallback (`NotifyRouting`, `src/fleet/site-row.ts:23–41`).
 
@@ -464,7 +464,7 @@ value>'` after loading `credentials.env` and before `gpg` (loading the file afte
    ```
 
    `--url` never defaults — production is deliberately out of reach
-   (`src/cli/commands/db.ts:215`). Expect a line of this shape, and exit 0:
+   (`src/cli/commands/db.ts:217`). Expect a line of this shape, and exit 0:
 
    ```
    RESTORE loaded=true tables=11 rows=803 blob_bytes=7777769 mismatches=0
@@ -473,14 +473,14 @@ value>'` after loading `credentials.env` and before `gpg` (loading the file afte
    The row and byte figures are whatever the dump carried (those are the 2026-08-31 values);
    what you are checking is `mismatches=0`. Row and byte counts are compared against the
    dump's origin manifest, so a restore that "succeeded" with fewer rows than the origin held
-   exits non-zero with a `✗` line per mismatch (`src/cli/commands/db.ts:254–267`). Three
+   exits non-zero with a `✗` line per mismatch (`src/cli/commands/db.ts:256–269`). Three
    refusals you may see instead, each naming itself: `RESTORE refused=auth-token-absent` (a
    remote url with no token), `RESTORE refused=manifest-absent` (not a dump this tool
    produced), and `RESTORE refused=target-not-empty`.
 
 5. **Repoint `TURSO_DATABASE_URL` at the new database.** This is the step the rehearsals never
    needed and the one most likely to be missed. `db restore` refuses a non-empty target
-   (`RESTORE refused=target-not-empty`, `src/cli/commands/db.ts:239–241`) — a restore is for an
+   (`RESTORE refused=target-not-empty`, `src/cli/commands/db.ts:241–243`) — a restore is for an
    EMPTY target, so a real recovery **always lands on a new database**, and nothing points at it
    until you say so. Set two names, `TURSO_DATABASE_URL` (the url from step 3) and
    `TURSO_AUTH_TOKEN` (the token from step 3 — the same value you passed as

@@ -5,6 +5,7 @@ import type { CellValue } from "../fleet/site-fields.js";
 import { isOwnerRepo } from "../util/owner-repo.js";
 import { isHttpUrl } from "../util/url.js";
 import { normalizeSearchConsoleProperty } from "../reports/search/property.js";
+import { SUBMISSION_FORM_TYPES } from "../forms/types.js";
 
 /**
  * Status options the editor offers, expressed as the values the "Status" column
@@ -109,6 +110,15 @@ export const EDITABLE_SITE_FIELDS: Record<string, EditableField> = {
   searchConsoleProperty: { column: "Search Console property", kind: "searchConsoleProperty" },
   mailchimpAudienceId: { column: "Mailchimp Audience ID", kind: "text", maxLen: 200 },
   newsletterWebhook: { column: "Newsletter Webhook", kind: "url" },
+  // Every opted-in form type, full body (forms/webhook.ts buildFormWebhookBody).
+  // The same `url` kind as the newsletter webhook: fetched server-side, so the
+  // scheme allowlist applies, and the forwarder adds the public-https guard.
+  formWebhook: { column: "Form Webhook", kind: "url" },
+  formWebhookTypes: {
+    column: "Form Webhook Types",
+    kind: "multiselect",
+    options: SUBMISSION_FORM_TYPES,
+  },
   maintenanceDay: { column: "maintenance day", kind: "date" },
   testingDay: { column: "testing day", kind: "date" },
   notifyRouting: { column: "Notify Routing", kind: "notifyRouting" },

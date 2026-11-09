@@ -111,7 +111,8 @@ export async function runDbCommand(
     } = await import("../../db/submissions.js");
     const { makeNotify } = await import("../../forms/notify.js");
     const { classifySpam } = await import("../../forms/spam-classifier.js");
-    const { forwardNewsletterToWebhook } = await import("../../forms/webhook.js");
+    const { forwardFormToWebhook, forwardNewsletterToWebhook } =
+      await import("../../forms/webhook.js");
     const { addMailchimpMember, mailchimpTagsFor } = await import("../../forms/mailchimp.js");
     const { defaultResendClient } = await import("../../reports/send/resend.js");
     const { replayDeadLetters, formatReplayReport } = await import("../../forms/replay.js");
@@ -150,6 +151,7 @@ export async function runDbCommand(
       retroBucket: (ids, reason) => markSubmissionsSpamRetro(db, ids, reason),
       forwardNewsletter: (url, submission, site) =>
         forwardNewsletterToWebhook(url, submission, site),
+      forwardForm: (url, submission, site) => forwardFormToWebhook(url, submission, site),
       addToMailchimp: (site, submission) =>
         addMailchimpMember({
           apiKey: site.mailchimpApiKey ?? "",

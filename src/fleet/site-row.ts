@@ -214,6 +214,13 @@ export type WebsiteRow = {
   /** Optional per-site webhook (e.g. Zapier Catch Hook). When set, the ingest
    *  POSTs newsletter-formType submissions here (best-effort). Blank → null. */
   newsletterWebhook: string | null;
+  /** Optional per-site FORM webhook (2026-11-09): when set, the ingest POSTs every
+   *  non-spam submission whose form type is in `formWebhookTypes` (all types when
+   *  that is empty) here, with the full submission body (forms/webhook.ts
+   *  `buildFormWebhookBody`). Independent of `newsletterWebhook`. Blank → null. */
+  formWebhook: string | null;
+  /** The form types `formWebhook` takes; empty = every type. */
+  formWebhookTypes: string[];
   /** Per-site Mailchimp (newsletter). Both must be set for the direct add;
    *  blank → skipped. The API key is `key-dc` format; dc is derived from it. */
   mailchimpApiKey: string | null;

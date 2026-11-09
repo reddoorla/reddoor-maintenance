@@ -62,6 +62,8 @@ describe("runMigrations", () => {
       "0053_site_health_a11y_routes_skipped",
       "0054_report_test_sends",
       "0055_site_health_deps_held_packages",
+      "0056_sites_form_webhook",
+      "0057_sites_form_webhook_types",
     ]);
     const tables = await client.execute(
       "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
@@ -135,6 +137,8 @@ describe("runMigrations", () => {
       "0053_site_health_a11y_routes_skipped",
       "0054_report_test_sends",
       "0055_site_health_deps_held_packages",
+      "0056_sites_form_webhook",
+      "0057_sites_form_webhook_types",
     ]);
   });
 
@@ -212,6 +216,8 @@ describe("runMigrations", () => {
       "0053_site_health_a11y_routes_skipped",
       "0054_report_test_sends",
       "0055_site_health_deps_held_packages",
+      "0056_sites_form_webhook",
+      "0057_sites_form_webhook_types",
     ]);
   });
 
@@ -292,6 +298,8 @@ describe("runMigrations", () => {
       "0053_site_health_a11y_routes_skipped",
       "0054_report_test_sends",
       "0055_site_health_deps_held_packages",
+      "0056_sites_form_webhook",
+      "0057_sites_form_webhook_types",
     ]);
   });
 });

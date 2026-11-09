@@ -95,17 +95,7 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     // validates ELEMENT types: a collaborator/attachment-shaped field passes
     // Array.isArray with OBJECT elements, and an unchecked cast would make assignTier's
     // `.trim()` throw — one misconfigured row must not 500 the whole cockpit build.
-    acceptedWatchConditions: Array.isArray(f["Accepted Watch Conditions"])
-      ? (f["Accepted Watch Conditions"] as unknown[])
-          .filter((x): x is string => typeof x === "string")
-          .map((s) => s.trim())
-          .filter(Boolean)
-      : typeof f["Accepted Watch Conditions"] === "string"
-        ? (f["Accepted Watch Conditions"] as string)
-            .split(/[\n,]/)
-            .map((s) => s.trim())
-            .filter(Boolean)
-        : [],
+    acceptedWatchConditions: listCell(f["Accepted Watch Conditions"]),
     headerImage: header,
     pScore: (f["pScore"] as number | undefined) ?? null,
     rScore: (f["rScore"] as number | undefined) ?? null,
@@ -154,6 +144,8 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     copyFooter: trimToNull(f["Copy — Footer"]),
     launchedAt: (f["Launched at"] as string | undefined) ?? null,
     newsletterWebhook: trimToNull(f["Newsletter Webhook"]),
+    formWebhook: trimToNull(f["Form Webhook"]),
+    formWebhookTypes: listCell(f["Form Webhook Types"]),
     notifyRouting: parseNotifyRouting(f["Notify Routing"]),
     notifyRoutingRaw: trimToNull(f["Notify Routing"]),
     mailchimpApiKey: trimToNull(f["Mailchimp API Key"]),
@@ -265,6 +257,17 @@ export type FormE2eResult = {
    *  could not tell (clear). */
   turnstileWidget?: "pass" | "fail" | null;
 };
+
+/** A multi-select cell (an array, or a delimited string) as its trimmed string
+ *  items. Validates ELEMENT types (see `acceptedWatchConditions` in mapRow). */
+function listCell(raw: unknown): string[] {
+  const items = Array.isArray(raw)
+    ? raw.filter((x): x is string => typeof x === "string")
+    : typeof raw === "string"
+      ? raw.split(/[\n,]/)
+      : [];
+  return items.map((s) => s.trim()).filter(Boolean);
+}
 
 function scoreFields(scores: LighthouseScoreWriteback, checkedAt?: string): FieldSet {
   // A null score CLEARS the cell (→ dashboard "—"), distinguishing a metric that
