@@ -363,6 +363,8 @@ type Fixture = {
   rootForm?: boolean;
   /** /contact and / both answer 503: the site is down, so nothing was looked at. */
   pagesDown?: boolean;
+  /** `/` answers this status with a page carrying no form (200: a formless home page). */
+  rootPlain?: number;
 };
 
 let server: Server;
@@ -383,6 +385,11 @@ beforeAll(async () => {
     if (req.method === "GET" && fixture.pagesDown && (req.url === "/contact" || req.url === "/")) {
       res.writeHead(503);
       res.end();
+      return;
+    }
+    if (req.method === "GET" && req.url === "/" && fixture.rootPlain !== undefined) {
+      res.writeHead(fixture.rootPlain, { "content-type": "text/html; charset=utf-8" });
+      res.end('<!doctype html><p>Call us, or <a href="mailto:a@b.test">email</a>.</p>');
       return;
     }
     if (req.method === "GET" && req.url === "/" && fixture.rootForm) {
@@ -860,7 +867,7 @@ describe("form-e2e live runner — a site that declares no form (forms.none)", (
   const NONE = { ok: true, forms: { testMode: false, turnstile: false, none: true } };
 
   it("looks, finds no form, and returns n/a without posting anything", async () => {
-    const out = await submit({ health: NONE, banner: true, contactAbsent: true });
+    const out = await submit({ health: NONE, banner: true, contactAbsent: true, rootPlain: 200 });
     expect(out).toEqual({
       formPresent: false,
       formsHealth: { testMode: false, turnstile: false, none: true },
@@ -879,6 +886,31 @@ describe("form-e2e live runner — a site that declares no form (forms.none)", (
     const out = await submit({ health: NONE, banner: true, contactAbsent: true, rootForm: true });
     expect(out).toEqual({ testModeUndeclared: true, declaredNone: { formAt: base } });
     expect(posts).toHaveLength(0);
+  }, 90_000);
+
+  // The production n/a: /contact is gone (29 Navy) and the home page renders with no form.
+  it("a rendered home page with no form, and /contact gone, is n/a", async () => {
+    const out = await submit({ health: NONE, banner: true, contactAbsent: true, rootPlain: 200 });
+    expect(out).toEqual({
+      formPresent: false,
+      formsHealth: { testMode: false, turnstile: false, none: true },
+    });
+  }, 90_000);
+
+  it("/contact gone and / answering 503 is unverified, not n/a", async () => {
+    const out = await submit({ health: NONE, banner: true, contactAbsent: true, rootPlain: 503 });
+    expect(out).toEqual({
+      testModeUndeclared: true,
+      declaredNone: { unverified: `${base} answered 503` },
+    });
+  }, 90_000);
+
+  it("a 404 on / is unverified: a site always has a home page", async () => {
+    const out = await submit({ health: NONE, banner: true, contactAbsent: true, rootPlain: 404 });
+    expect(out).toEqual({
+      testModeUndeclared: true,
+      declaredNone: { unverified: `${base} answered 404` },
+    });
   }, 90_000);
 
   it("a site whose routes answer 503 is unverified, never n/a", async () => {
@@ -909,7 +941,7 @@ describe("form-e2e live runner — a site that declares no form (forms.none)", (
       });
     };
     posts = [];
-    const na = await audit({ health: NONE, banner: true, contactAbsent: true });
+    const na = await audit({ health: NONE, banner: true, contactAbsent: true, rootPlain: 200 });
     // No form, no widget to verify: null, never the "fail" turnstile:false earns a testMode site.
     expect(na).toMatchObject({
       status: "skip",

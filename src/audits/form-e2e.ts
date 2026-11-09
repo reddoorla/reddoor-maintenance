@@ -1202,8 +1202,10 @@ export function noBannerDetail(e: NoBannerEvidence): string {
  * It never fills or submits, and anything that stops it from looking (a launch
  * that fails, a route that answers anything but 2xx or 404/410, a navigation
  * that times out) is returned as `unverified`, never as "no form". It checks only
- * `CONTACT_PATHS`, as the submit path does: a form on another route, or one with
- * no email field, is not seen.
+ * `CONTACT_PATHS`, as the submit path does, and only the top frame's DOM at
+ * `domcontentloaded`: a form on another route, one with no email field, one in
+ * an iframe (a HubSpot or Jotform embed), or one a script renders later or a
+ * modal opens is not seen, and a false `none` claim over one of those reads n/a.
  */
 export async function lookForContactForm(
   chromium: {
@@ -1218,14 +1220,16 @@ export async function lookForContactForm(
     for (const path of CONTACT_PATHS) {
       const url = new URL(path, baseUrl).toString();
       // Unlike findFormPath, a route that could not be loaded is not a miss: only
-      // a page that rendered (2xx) or a route that is gone (404/410) completes the
-      // look. A 503 or a timeout on both routes must never read as "no form".
+      // a page that rendered (2xx), or a /contact that is gone (404/410), completes
+      // the look. A 503 or a timeout must never read as "no form", and nor may a
+      // missing home page: a site always has one, so a 404 on / means the probe is
+      // looking at the wrong deploy, not that there is nothing to find.
       const resp = await page.goto(url, {
         waitUntil: "domcontentloaded",
         timeout: PAGE_TIMEOUT_MS,
       });
       const status = resp?.status?.();
-      if (status === 404 || status === 410) continue;
+      if (path !== "/" && (status === 404 || status === 410)) continue;
       if (!resp || !resp.ok()) return { unverified: `${url} answered ${status ?? "nothing"}` };
       if (await pageHasContactForm(page)) return { formAt: url };
     }
