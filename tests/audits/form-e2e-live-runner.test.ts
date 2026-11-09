@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import { chromium } from "@playwright/test";
 import {
   declaredFormMissingDetail,
+  offSiteRedirectDetail,
   defaultFormRunner,
   formE2eAudit,
   SYNTHESIZE_REQUIRED_EXPR,
@@ -1275,6 +1276,17 @@ describe("form-e2e live runner — a form off /contact: submitted when declared,
       redirectAt: "/join-the-team",
     });
     expect(out).toMatchObject({ formPresent: true, success: false });
+    expect(posts).toHaveLength(0);
+  }, 90_000);
+
+  it("fails, sending nothing, when /contact redirects to another host: not n/a", async () => {
+    // localhost /contact carries the known-good form, so following the redirect
+    // would post it; before the guard this was a failure, and it must stay one.
+    const out = await submit({ health: DECLARED, banner: true, redirectAt: "/contact" });
+    expect(out).toMatchObject({ formPresent: true, success: false });
+    expect("detail" in out && out.detail).toBe(
+      offSiteRedirectDetail(`localhost:${new URL(base).port}`),
+    );
     expect(posts).toHaveLength(0);
   }, 90_000);
 

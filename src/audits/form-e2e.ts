@@ -155,6 +155,23 @@ export function formE2eHealthUnreadableSummary(reason: string): string {
   return `site /health could not be read (${reason}) — probe refused, so this site was not probed`;
 }
 
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
+/** The failure detail when a contact or declared route landed on another host and
+ *  no route on the site carried a form. Nothing was filled or sent. */
+export function offSiteRedirectDetail(host: string): string {
+  return (
+    `a form route redirected off the site, to ${host}, and no route on the site had a form; ` +
+    `the probe filled nothing there and sent nothing`
+  );
+}
+
 /** The failure detail when /health declares form routes and none of them, nor a
  *  contact route, rendered a form with an email field. Nothing was sent. */
 export function declaredFormMissingDetail(paths: readonly string[]): string {
@@ -1012,6 +1029,10 @@ export async function findFormPath(
   page: FormProbePage,
   baseUrl: string,
   paths: readonly string[] = CONTACT_PATHS,
+  /** Filled with the first host a route landed on that is not the site's, so the
+   *  caller can report it: such a route is skipped, which must never read as
+   *  "no form" (an old domain that 301s everywhere would clear its failure). */
+  offSite?: { host?: string },
 ): Promise<string | null> {
   for (const path of paths) {
     const url = new URL(path, baseUrl).toString();
@@ -1022,7 +1043,10 @@ export async function findFormPath(
     // A route that redirected off the site (a careers link pointed at an
     // applicant-tracking host) is a miss: the fill and click below would act
     // on that host's form, which no testMode declaration covers.
-    if (page.url && !isSameSitePost(page.url(), baseUrl)) continue;
+    if (page.url && !isSameSitePost(page.url(), baseUrl)) {
+      if (offSite) offSite.host ??= hostOf(page.url());
+      continue;
+    }
     const forms = await page
       .locator("form")
       .count()
@@ -1431,7 +1455,25 @@ export async function defaultFormRunner(
           // act on the form it found. No form there ⇒ the routes the site
           // declares in `forms.paths`, which it vouches forward the marker.
           const probePage = page as unknown as FormProbePage;
-          let found = await findFormPath(probePage, baseUrl);
+          const offSite: { host?: string } = {};
+          let found = await findFormPath(probePage, baseUrl, CONTACT_PATHS, offSite);
+          if (!found && offSite.host !== undefined && attempt === 1)
+            // A contact route that left the site (an old domain 301ing to a new
+            // one) is a failure, as it was when the probe followed it, never n/a.
+            return {
+              formPresent: true,
+              success: false,
+              ...consentNote(true),
+              detail: offSiteRedirectDetail(offSite.host),
+              turnstile: {
+                containerPresent,
+                scriptLoaded: turnstileScriptLoaded,
+                hostnameRejected: turnstileHostnameRejected,
+                initFailed: turnstileInitFailed,
+                widgetError: turnstileWidgetError,
+              },
+              formsHealth,
+            };
           if (!found && formsHealth.paths) {
             found = await findFormPath(probePage, baseUrl, formsHealth.paths);
             if (found) located.formAt = new URL(found).pathname;
