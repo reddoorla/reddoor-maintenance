@@ -336,6 +336,14 @@ type Fixture = {
   /** A same-site POST to /beacon goes first, answering this status. */
   beaconStatus?: number;
   encoding?: Encoding;
+  /** Route discovery: the contact form is served at this path instead, and
+   *  /contact renders a page with no form (Williamson Construction's
+   *  /join-the-team). */
+  movedTo?: string;
+  /** Paths /sitemap.xml lists (absent = /sitemap.xml 404s). */
+  sitemap?: string[];
+  /** A sitemap path whose page carries a newsletter form posting to another host. */
+  newsletterAt?: string;
   /** No script handles the submit: the browser posts the form, the action answers
    *  303 to /thanks, and /thanks shows the status region. */
   native?: boolean;
@@ -356,14 +364,6 @@ type Fixture = {
   clientError?: boolean;
   /** The action POST goes to localhost while the probe loads 127.0.0.1 (#1668 review). */
   offHost?: boolean;
-  /** Route discovery: the contact form is served at this path instead, and
-   *  /contact renders a page with no form (Williamson Construction's
-   *  /join-the-team). */
-  movedTo?: string;
-  /** Paths /sitemap.xml lists (absent = /sitemap.xml 404s). */
-  sitemap?: string[];
-  /** A sitemap path whose page carries a newsletter form posting to another host. */
-  newsletterAt?: string;
 };
 
 let server: Server;
@@ -866,65 +866,6 @@ describe("form-e2e live runner — the instrument can fail, and the interlock ho
   }, 90_000);
 });
 
-describe("form-e2e live runner — a form off /contact is found by route discovery", () => {
-  it("finds the sitemap route's form, submits it with the marker, and names the route", async () => {
-    const out = await submit({
-      health: DECLARED,
-      banner: true,
-      movedTo: "/join-the-team",
-      sitemap: ["/", "/contact", "/about", "/join-the-team"],
-    });
-    expect(out).toMatchObject({ formPresent: true, success: true, formAt: "/join-the-team" });
-    expect(posts).toHaveLength(1);
-    expect(posts[0]).toMatchObject({ testMode: "true" });
-  }, 90_000);
-
-  it("control: the same site with no sitemap entry for the route stays n/a", async () => {
-    const out = await submit({
-      health: DECLARED,
-      banner: true,
-      movedTo: "/join-the-team",
-      sitemap: ["/", "/contact", "/about"],
-    });
-    expect(out).toEqual({
-      formPresent: false,
-      formsHealth: { testMode: true, turnstile: false },
-      discoveredLooked: 1,
-    });
-    expect(posts).toHaveLength(0);
-  }, 90_000);
-
-  it("skips a discovered page whose email form posts to another host, and submits nothing there", async () => {
-    const out = await submit({
-      health: DECLARED,
-      banner: true,
-      movedTo: "/join-the-team",
-      sitemap: ["/newsletter", "/join-the-team"],
-      newsletterAt: "/newsletter",
-    });
-    expect(out).toMatchObject({ formPresent: true, success: true, formAt: "/join-the-team" });
-    expect(posts).toHaveLength(1);
-  }, 90_000);
-
-  it("scores the discovered form a pass end to end, and the log line names the route", async () => {
-    fixture = {
-      health: DECLARED,
-      banner: true,
-      movedTo: "/join-the-team",
-      sitemap: ["/", "/contact", "/join-the-team"],
-    };
-    posts = [];
-    contactLoads = 0;
-    const r = await formE2eAudit({
-      site: { path: "", name: "moved", deployedUrl: base },
-      formRunner: (runner = await defaultFormRunner(FAST)),
-    });
-    expect(r.status).toBe("pass");
-    expect(r.details).toMatchObject({ ok: "pass", formPresent: true });
-    expect(r.summary).toContain("form at /join-the-team, found by route discovery");
-  }, 90_000);
-});
-
 describe("form-e2e live runner — a synthesized value reverted after the fill (#779 review)", () => {
   it("re-synthesizes a select the page reset during the settle, and still passes", async () => {
     const out = await submit({ health: DECLARED, banner: true, resetSelect: true });
@@ -1269,5 +1210,64 @@ describe("form-e2e live runner — a probe that throws still says what it synthe
       resynthesized: ["interest"],
     });
     expect(posts).toHaveLength(0);
+  }, 90_000);
+});
+
+describe("form-e2e live runner — a form off /contact is found by route discovery", () => {
+  it("finds the sitemap route's form, submits it with the marker, and names the route", async () => {
+    const out = await submit({
+      health: DECLARED,
+      banner: true,
+      movedTo: "/join-the-team",
+      sitemap: ["/", "/contact", "/about", "/join-the-team"],
+    });
+    expect(out).toMatchObject({ formPresent: true, success: true, formAt: "/join-the-team" });
+    expect(posts).toHaveLength(1);
+    expect(posts[0]).toMatchObject({ testMode: "true" });
+  }, 90_000);
+
+  it("control: the same site with no sitemap entry for the route stays n/a", async () => {
+    const out = await submit({
+      health: DECLARED,
+      banner: true,
+      movedTo: "/join-the-team",
+      sitemap: ["/", "/contact", "/about"],
+    });
+    expect(out).toEqual({
+      formPresent: false,
+      formsHealth: { testMode: true, turnstile: false },
+      discoveredLooked: 1,
+    });
+    expect(posts).toHaveLength(0);
+  }, 90_000);
+
+  it("skips a discovered page whose email form posts to another host, and submits nothing there", async () => {
+    const out = await submit({
+      health: DECLARED,
+      banner: true,
+      movedTo: "/join-the-team",
+      sitemap: ["/newsletter", "/join-the-team"],
+      newsletterAt: "/newsletter",
+    });
+    expect(out).toMatchObject({ formPresent: true, success: true, formAt: "/join-the-team" });
+    expect(posts).toHaveLength(1);
+  }, 90_000);
+
+  it("scores the discovered form a pass end to end, and the log line names the route", async () => {
+    fixture = {
+      health: DECLARED,
+      banner: true,
+      movedTo: "/join-the-team",
+      sitemap: ["/", "/contact", "/join-the-team"],
+    };
+    posts = [];
+    contactLoads = 0;
+    const r = await formE2eAudit({
+      site: { path: "", name: "moved", deployedUrl: base },
+      formRunner: (runner = await defaultFormRunner(FAST)),
+    });
+    expect(r.status).toBe("pass");
+    expect(r.details).toMatchObject({ ok: "pass", formPresent: true });
+    expect(r.summary).toContain("form at /join-the-team, found by route discovery");
   }, 90_000);
 });
