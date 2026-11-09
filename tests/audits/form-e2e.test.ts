@@ -5,6 +5,8 @@ import {
   readFormsHealth,
   formE2eHealthUnreadableSummary,
   findFormPath,
+  formDiscoveryPaths,
+  FORM_DISCOVERY_ROUTE_CAP,
   isSameSitePost,
   actionFailureStatus,
   carriesProbeMarker,
@@ -358,6 +360,88 @@ describe("audits/form-e2e findFormPath", () => {
       "https://acme.example.com/",
     );
     expect(visited).toEqual(["/contact", "/"]);
+  });
+});
+
+describe("audits/form-e2e route discovery", () => {
+  it("lists the sitemap's routes minus the contact routes already tried", async () => {
+    const xml = ["/", "/contact", "/about-us", "/join-the-team"]
+      .map((p) => `<url><loc>https://acme.example.com${p}</loc></url>`)
+      .join("");
+    const fetched: string[] = [];
+    const paths = await formDiscoveryPaths("https://acme.example.com/", {
+      fetchText: async (url) => {
+        fetched.push(url);
+        return url.endsWith("/sitemap.xml") ? `<urlset>${xml}</urlset>` : null;
+      },
+    });
+    expect([...paths].sort()).toEqual([
+      "https://acme.example.com/about-us",
+      "https://acme.example.com/join-the-team",
+    ]);
+    expect(fetched).toEqual(["https://acme.example.com/sitemap.xml"]);
+  });
+
+  it("reaches a lone route family within the cap on a sitemap of forty project pages", async () => {
+    const xml = [...Array.from({ length: 40 }, (_, i) => `/projects/p${i}`), "/join-the-team"]
+      .map((p) => `<url><loc>https://acme.example.com${p}</loc></url>`)
+      .join("");
+    const paths = await formDiscoveryPaths("https://acme.example.com/", {
+      fetchText: async (url) => (url.endsWith("/sitemap.xml") ? xml : null),
+    });
+    expect(paths.length).toBeLessThanOrEqual(FORM_DISCOVERY_ROUTE_CAP);
+    expect(paths).toContain("https://acme.example.com/join-the-team");
+  });
+
+  it("findFormPath with refuseAbsoluteAction skips a page whose email form posts to an absolute URL", async () => {
+    const pages: Record<string, { absolute: number }> = {
+      "/newsletter": { absolute: 1 },
+      "/join-the-team": { absolute: 0 },
+    };
+    let current = "";
+    const probe: FormProbePage = {
+      goto: async (url) => {
+        current = new URL(url).pathname;
+        return { ok: () => true };
+      },
+      locator: (selector) => ({
+        count: async () => (selector.includes("[action") ? (pages[current]?.absolute ?? 0) : 1),
+      }),
+    };
+    const routes = ["/newsletter", "/join-the-team"];
+    await expect(
+      findFormPath(probe, "https://acme.example.com", routes, { refuseAbsoluteAction: true }),
+    ).resolves.toBe("https://acme.example.com/join-the-team");
+    // Control: without the option the same probe takes the newsletter page.
+    await expect(findFormPath(probe, "https://acme.example.com", routes)).resolves.toBe(
+      "https://acme.example.com/newsletter",
+    );
+  });
+
+  it("names a discovered form's route in a pass summary", async () => {
+    const r = await formE2eAudit({
+      site,
+      now: NOW,
+      formRunner: runner({
+        submit: async () => ({ formPresent: true, success: true, formAt: "/join-the-team" }),
+      }),
+    });
+    expect(r.status).toBe("pass");
+    expect(r.summary).toBe(
+      "form-e2e: synthetic submission succeeded — form at /join-the-team, found by route discovery (none at /contact or /)",
+    );
+  });
+
+  it("says how many discovered routes an n/a looked at, and keeps the n/a verdict", async () => {
+    const r = await formE2eAudit({
+      site,
+      now: NOW,
+      formRunner: runner({ submit: async () => ({ formPresent: false, discoveredLooked: 8 }) }),
+    });
+    expect(r).toMatchObject({ status: "skip", notApplicable: true, details: { ok: null } });
+    expect(r.summary).toBe(
+      "no contact form (n/a) — none at /contact or /, nor on 8 discovered route(s)",
+    );
   });
 });
 
