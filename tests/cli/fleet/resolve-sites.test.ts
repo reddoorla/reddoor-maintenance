@@ -122,3 +122,31 @@ describe("review round 1: two sites never share one derived label", () => {
     expect(sites.map((s) => s.name)).toEqual(["web", "other"]);
   });
 });
+
+// #1942 item 1: `cloneIfNeeded` puts `Baz` and `baz` in one directory on a case-insensitive
+// filesystem (macOS), so the load-time guard compares names case-insensitively.
+describe("#1942: the naming collision check ignores case", () => {
+  it("C4: a nameless site deriving `baz` beside an explicit `Baz` stays nameless", () => {
+    const sites = nameFromRepoWhenNameless([
+      { path: "/srv/a", name: "Baz" },
+      { path: "/srv/b", gitRepo: "o/baz" },
+    ]);
+    expect(sites.map((s) => s.name)).toEqual(["Baz", undefined]);
+  });
+
+  it("C5: two nameless sites deriving `Baz` and `baz` both stay nameless", () => {
+    const sites = nameFromRepoWhenNameless([
+      { path: "/srv/a", gitRepo: "o/Baz" },
+      { path: "/srv/b", gitRepo: "p/baz" },
+    ]);
+    expect(sites.map((s) => s.name)).toEqual([undefined, undefined]);
+  });
+
+  it("C6: a lone nameless site keeps its repo name's case", () => {
+    const sites = nameFromRepoWhenNameless([
+      { path: "/srv/a", gitRepo: "o/MySite" },
+      { path: "/srv/b", name: "other" },
+    ]);
+    expect(sites.map((s) => s.name)).toEqual(["MySite", "other"]);
+  });
+});

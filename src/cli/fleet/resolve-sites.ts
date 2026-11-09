@@ -14,18 +14,23 @@ import { nameFromRepo } from "./clone-if-needed.js";
  *  no other nameless site derives the same one; otherwise the site stays nameless and keeps
  *  its path label, so two different sites never share one label at load and merge downstream.
  *  A site left nameless here is still named from its repo by `cloneIfNeeded` at prep, so that
- *  fallback can still give it the colliding name later (the #1650 drift, for that case only). */
+ *  fallback can still give it the colliding name later (the #1650 drift, for that case only).
+ *  Names collide case-insensitively: `Baz` and `baz` are one clone directory on a
+ *  case-insensitive filesystem such as macOS's (#1942 item 1). A name taken keeps its case. */
 export function nameFromRepoWhenNameless(sites: Site[]): Site[] {
-  const explicit = new Set(sites.flatMap((s) => (s.name ? [s.name] : [])));
+  const key = (name: string) => name.toLowerCase();
+  const explicit = new Set(sites.flatMap((s) => (s.name ? [key(s.name)] : [])));
   const derived = sites.map((s) => (s.name ? undefined : nameFromRepo(s)));
   const derivedCount = new Map<string, number>();
   for (const name of derived) {
-    if (name !== undefined) derivedCount.set(name, (derivedCount.get(name) ?? 0) + 1);
+    if (name !== undefined) derivedCount.set(key(name), (derivedCount.get(key(name)) ?? 0) + 1);
   }
   return sites.map((site, i) => {
     if (site.name) return site;
     const name = derived[i];
-    if (name === undefined || explicit.has(name) || derivedCount.get(name) !== 1) return site;
+    if (name === undefined || explicit.has(key(name)) || derivedCount.get(key(name)) !== 1) {
+      return site;
+    }
     return { ...site, name };
   });
 }
