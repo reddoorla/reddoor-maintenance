@@ -1,4 +1,4 @@
-From 4ee8a255592e7584044d6e7e97edff22995315cd Mon Sep 17 00:00:00 2001
+From 43499759c44515e6f7200049cb5ae670d7254499 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 9 Nov 2026 23:10:07 +0000
 Subject: [PATCH] fix(validate): the minor/patch prCreation guard checks each
@@ -23,7 +23,7 @@ Claude-Session: https://claude.ai/code/session_013FT5PG7Z93sXwxNPDVUYLj
  2 files changed, 45 insertions(+), 11 deletions(-)
 
 diff --git a/.github/workflows/validate.yml b/.github/workflows/validate.yml
-index 35c0d01..6c69f55 100644
+index 35c0d01..04fe732 100644
 --- a/.github/workflows/validate.yml
 +++ b/.github/workflows/validate.yml
 @@ -66,12 +66,21 @@ jobs:
@@ -34,7 +34,7 @@ index 35c0d01..6c69f55 100644
 +            // Later rules win, so for each of minor and patch an unscoped immediate rule must reach it, and no later rule may set
 +            // any other prCreation for it. A rule without matchUpdateTypes reaches every update type, and matchUpdateTypes may
 +            // be a string. Checked per type (reddoor-maintenance#1713): the 10-21 guard read only the last rule that LISTED minor
-+            // or patch, so a typeless { prCreation: "not-pending" } after the rule passed, and an unscoped immediate rule for
++            // or patch, so a typeless { prCreation: "not-pending" } between it and the majors rule passed, and an unscoped immediate rule for
 +            // ["major", "minor"] after it failed for not listing patch.
              const scoped = (r) => Object.keys(r).some((k) => k.startsWith("match") && k !== "matchUpdateTypes");
 -            const lastPrCreation = rules.filter((r) => "prCreation" in r && (r.matchUpdateTypes ?? []).some((t) => ["minor", "patch"].includes(t))).at(-1);
