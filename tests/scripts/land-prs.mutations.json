@@ -49,7 +49,7 @@
     ],
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
-    "why": "#1604: `).not.toBe(1);`, `).resolves.toEqual(\u2026)` and `).rejects.toThrow(\u2026)` lines would be missed."
+    "why": "#1604: `).not.toBe(1);`, `).resolves.toEqual(…)` and `).rejects.toThrow(…)` lines would be missed."
   },
   {
     "id": "M5-test-dir-case-sensitive",
@@ -446,13 +446,26 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "kind === \"-\" && text.trim() === \"*/\" &&",
-        "replace": "kind === \"-\" && text.trim().endsWith(\"*/\") &&"
+        "find": "      isCloser(text) &&\n      states[k].before === \"code\" &&",
+        "replace": "      text.trim().endsWith(\"*/\") &&\n      states[k].before === \"code\" &&"
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
     "why": "#1946 item 2 over-broad: a // comment ending in dir/*/ reads as a closer, and the next line as wrapped."
+  },
+  {
+    "id": "P82-F-closer-taken-away-reads-as-moved",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "      states[k].before === \"code\" &&\n      lines.slice(k + 1).some((l) => l.kind === \"+\" && isCloser(l.text)),",
+        "replace": "      states[k].before === \"code\","
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1998 round 2 undone: a lone */ taken away (a long commented-out test put back into use) starts the hunk inside a comment, and the next line reads as wrapped."
   },
   {
     "id": "P82-E-every-removed-line-dead",

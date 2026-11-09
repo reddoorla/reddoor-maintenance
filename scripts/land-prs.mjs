@@ -1157,14 +1157,23 @@ const wholly = (s) => s.before === s.after && (s.before === "comment" || s.befor
 
 /** Whether the old side of a hunk opens inside a block comment that began above it, read from a
  *  removed line that is exactly `*\/` and that the old side meets while it reads as code (#1946
- *  item 2): the closer of a comment opened above the hunk, moved or taken away. Only a line that
- *  is the closer alone counts. A closer with text before it (` * See (/docs/x.md). *\/`) is not
+ *  item 2): the closer of a comment opened above the hunk, moved down. It counts only when a line
+ *  that is exactly `*\/` is added below it in the same hunk: a closer taken away with nothing
+ *  re-added is how a long commented-out test is put back into use, its `/*` removed in an earlier
+ *  hunk this scan cannot see (#1998 round 2), and a closer taken away while its opener stays
+ *  leaves an unterminated comment, which does not compile. Only a line that is the closer alone
+ *  counts. A closer with text before it (` * See (/docs/x.md). *\/`) is not
  *  read, because telling a regex from a path in a comment's tail is what sank this check in
  *  #1935 rounds 4 to 6; so that case stays unseen. */
 function closerMovedDown(lines) {
   const states = sideStates(lines, "old", "code");
+  const isCloser = (text) => text.trim() === "*/";
   return lines.some(
-    ({ kind, text }, k) => kind === "-" && text.trim() === "*/" && states[k].before === "code",
+    ({ kind, text }, k) =>
+      kind === "-" &&
+      isCloser(text) &&
+      states[k].before === "code" &&
+      lines.slice(k + 1).some((l) => l.kind === "+" && isCloser(l.text)),
   );
 }
 
@@ -1228,11 +1237,13 @@ function renamedAway(before, after) {
  *  with text before it moved down out of one. An added line wholly inside a block comment or a
  *  template literal does not re-add a removed assertion, and a removed line wholly inside one does
  *  not back an added skip (see `blockCommentShifts`, #1941), unless the same text is moved within
- *  text, which counts as neither. Two rare false flags are known, each costing the author one line:
+ *  text, which counts as neither. Three rare false flags are known, each costing the author one line:
  *  a hunk that starts on a line beginning with `*` is taken to start inside a JSDoc block, so a
  *  Markdown bullet inside a template literal there can deny credit for a re-added line; and a hunk
  *  that starts inside a multi-line template literal is read as code, so a glob such as `src/*`
- *  added there can be flagged as a wrap. */
+ *  added there can be flagged as a wrap, and an assertion moved from it into a template opened in
+ *  a later hunk is flagged as not re-added: from the patch alone that move cannot be told from an
+ *  assertion taken out of code and parked in a string (#1998 round 2). */
 export function testChangeFlags(files) {
   const out = [];
   for (const f of Array.isArray(files) ? files : []) {

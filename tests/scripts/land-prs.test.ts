@@ -2448,6 +2448,17 @@ describe("land-prs: test changes", () => {
       ]);
     });
 
+    it("a long commented-out test put back into use is not a wrap (#1998 round 2)", () => {
+      // The `/*` goes in one hunk, the lone `*/` in a later one: the closer is taken away,
+      // not moved down, so nothing below it is hidden.
+      expect(
+        one(
+          '@@ -1,4 +1,3 @@\n-/*\n it("a", () => {\n   expect(1).toBe(1);\n });\n@@ -20,6 +19,5 @@\n   expect(9).toBe(9);\n });\n-*/\n \n it("b", () => {\n   expect(2).toBe(2);',
+        ),
+      ).toEqual([]);
+      expect(one("@@ -20,3 +20,2 @@\n   expect(9).toBe(9);\n-*/\n });")).toEqual([]);
+    });
+
     it("a closer moved up, out of the code it hid, is not a wrap", () => {
       expect(one('@@ -3,4 +3,4 @@\n  notes\n+*/\n it("works", () => {});\n-*/\n done();')).toEqual(
         [],
