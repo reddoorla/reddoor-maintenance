@@ -401,6 +401,37 @@ describe("refs", () => {
     await decisionsReport({ dir: d }, { now: NOW, run });
     expect(calls).toEqual(["repos/a/b/issues/2"]);
   });
+
+  it("keeps a path or link ref as text, and still checks a ref ending in #N", () => {
+    const d = pd(
+      "2026-10-12-0900-x.md",
+      file({
+        refs: "[briefs/reports/Apple Silicon game porting barriers.md, briefs/notes/x/, https://example.com/a#top, briefs/notes/x/, a/b#1]",
+      }),
+    );
+    expect(d.errors).toEqual([]);
+    expect(d.refs).toEqual(["a/b#1"]);
+    expect(d.links).toEqual([
+      "briefs/reports/Apple Silicon game porting barriers.md",
+      "briefs/notes/x/",
+      "https://example.com/a#top",
+    ]);
+    expect(pd("2026-10-12-0900-x.md", file({ refs: "[notes.md, hedloc#5]" })).errors).toEqual([
+      "ref is not owner/repo#N: hedloc#5",
+    ]);
+  });
+
+  it("never looks up a path or link ref on GitHub", async () => {
+    const calls: string[] = [];
+    const run: Runner = async (_c, args) => {
+      calls.push(args[1] ?? "");
+      return pr(null, null);
+    };
+    const d = dirWith({ "2026-10-12-0900-a.md": file({ refs: "[briefs/x.md, a/b#2]" }) });
+    const r = await decisionsReport({ dir: d }, { now: NOW, run });
+    expect(calls).toEqual(["repos/a/b/issues/2"]);
+    expect(r.counts.parsed).toBe(1);
+  });
 });
 
 describe("parseArgs", () => {

@@ -191,6 +191,7 @@ export function parseDecision(name, text, now = Date.now()) {
     asked: undefined,
     from: undefined,
     refs: [],
+    links: [],
     ask: undefined,
     errors,
   };
@@ -246,7 +247,11 @@ export function parseDecision(name, text, now = Date.now()) {
       }
       const items = lm[1].trim() === "" ? [] : lm[1].split(",").map((s) => s.trim());
       for (const r of items) {
-        if (!REF_PATTERN.test(r)) errors.push(`ref is not owner/repo#N: ${r || "(empty)"}`);
+        // A ref ending in #N names an issue or PR and must be owner/repo#N; any
+        // other ref is a path or link, kept as text and never looked up.
+        if (r !== "" && !/#\d+$/.test(r)) {
+          if (!d.links.includes(r)) d.links.push(r);
+        } else if (!REF_PATTERN.test(r)) errors.push(`ref is not owner/repo#N: ${r || "(empty)"}`);
         else if (!d.refs.includes(r)) d.refs.push(r);
       }
     }
@@ -288,7 +293,7 @@ export function readDecisionDir(dir, now = Date.now()) {
   return entries.map((e) =>
     e.isFile()
       ? parseDecision(e.name, readFileSync(join(dir, e.name), "utf-8"), now)
-      : { file: e.name, refs: [], errors: ["not a regular file"] },
+      : { file: e.name, refs: [], links: [], errors: ["not a regular file"] },
   );
 }
 

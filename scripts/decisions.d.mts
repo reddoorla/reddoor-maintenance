@@ -43,6 +43,8 @@ export interface Decision {
   asked: string | undefined;
   from: string | undefined;
   refs: string[];
+  /** Refs that are not owner/repo#N: paths or links, kept as text and never looked up. */
+  links: string[];
   ask: string | undefined;
   errors: string[];
   ageHours?: number;
