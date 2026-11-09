@@ -498,6 +498,9 @@ describe("what the snapshot holds", () => {
       const s = await snapshotAt(now);
       const beta = s.sites?.find((w) => w.id === "recB");
       expect(beta?.prismicAckDrift).toBeNull();
+      // No row carries ack text, acked or not: `asLoaded` puts the seeded text back
+      // on every row, so parity alone cannot see a stray copy.
+      expect(s.sites?.filter((w) => w.prismicAckDrift !== null)).toEqual([]);
       expect(beta?.prismicAckNamesReport).toBe(true);
       // Beta is Broken on other items, and a Broken card shows no accepted chips;
       // the ack is seen in the alert it keeps off the card.

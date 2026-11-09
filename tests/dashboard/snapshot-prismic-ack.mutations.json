@@ -92,7 +92,7 @@
   },
   {
     "id": "8-parity-normaliser-drops-text",
-    "why": "the snapshot keeps the acked text; the parity seed sees the extra copy",
+    "why": "the snapshot keeps the acked text; the parity file's holds case sees it still sent",
     "edits": [
       {
         "file": "src/dashboard/snapshot.ts",
