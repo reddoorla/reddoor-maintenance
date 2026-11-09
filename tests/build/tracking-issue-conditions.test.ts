@@ -350,7 +350,7 @@ describe("tracking-issue conditions — the instrument finds what it polices", (
       "fleet-security.yml › id: app-token-late",
       "fleet-security.yml › Trigger Renovate for sites with actionable vulnerabilities",
       "fleet-security.yml › Protection coverage audit (org-wide)",
-      "fleet-security.yml › Fail the run when the protection sweep verified no repo",
+      "fleet-security.yml › Fail the run when the protection sweep did not measure",
       "fleet-security.yml › Read the Renovate outcome",
     ]);
   });
@@ -669,7 +669,7 @@ const CONTINUE_ON_ERROR_ALLOWED = new Map<string, string>([
   ],
   [
     "fleet-security.yml › Protection coverage audit (org-wide)",
-    "a gap files its own finding-keyed issue; a red job would misdirect triage at the vuln sweep",
+    "#1979: a gap passes this step (gaps=yes) and files its own finding-keyed issue; a failure here means it did not measure, and the next step reds the run with its own ::error::",
   ],
 ]);
 

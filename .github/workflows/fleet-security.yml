@@ -208,9 +208,9 @@ jobs:
       #   gaps=yes — exit 1 beside a `PROTECTION_AUDIT gaps=N` line, N > 0: green.
       #   gaps=no  — exit 0: green.
       #   anything else sets no `gaps` output and fails the step (no token,
-      #   UNMEASURED #1612, a crash, a timeout), and "Fail the run when the
-      #   protection sweep verified no repo" reds the run. continue-on-error
-      #   stays so the issue steps below still run.
+      #   UNMEASURED #1612, a crash), and the next step reds the run with an
+      #   ::error:: naming the cause. continue-on-error stays only so that red
+      #   carries that message instead of a bare "exit code 1".
       - name: Protection coverage audit (org-wide)
         id: protection
         if: ${{ !cancelled() && (steps.sweep.outcome == 'success' || steps.sweep.outcome == 'failure') }}
@@ -312,7 +312,7 @@ jobs:
       # unmeasured, not clean. It is not a posture gap, so it reds the run
       # instead, and the nightly-failure issue below speaks for it and closes
       # on the next green run.
-      - name: Fail the run when the protection sweep verified no repo
+      - name: Fail the run when the protection sweep did not measure
         if: ${{ !cancelled() && steps.protection.outcome == 'failure' }}
         timeout-minutes: 2
         run: |
@@ -322,9 +322,11 @@ jobs:
           fi
           # Since #1979 a found gap passes the audit step (`gaps=yes`), so a
           # failed audit step always means it did not measure: a crash (runOrExit
-          # prints nothing and exits 1), a missing token, a timeout, or a summary
-          # beside an exit code that does not match it. Before this, each failed
-          # the step under continue-on-error and left the run green.
+          # prints nothing and exits 1), a missing token, or a summary beside an
+          # exit code that does not match it. Before this, each failed the step
+          # under continue-on-error and left the run green. A 15-minute timeout
+          # lands here only if Actions reports that step's outcome as `failure`
+          # (unproven, #1986).
           echo "::error::protection-audit did not finish with a counted result: tonight's posture is unmeasured, not clean. See the 'Protection coverage audit (org-wide)' step."
           exit 1
 

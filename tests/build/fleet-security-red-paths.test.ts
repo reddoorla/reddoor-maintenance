@@ -34,7 +34,7 @@ const DISPATCH_STEP = "Trigger Renovate for sites with actionable vulnerabilitie
 const PROTECTION_STEP = "Protection coverage audit (org-wide)";
 const CLOSE_STEP = "Close the protection-gap issue on a clean sweep";
 const OPEN_STEP = "Open/update the protection-gap tracking issue";
-const UNMEASURED_STEP = "Fail the run when the protection sweep verified no repo";
+const UNMEASURED_STEP = "Fail the run when the protection sweep did not measure";
 
 async function runStep(opts: {
   step: string;
@@ -339,8 +339,7 @@ describe("fleet-security: a found gap is not an error, a crash is (#1979)", () =
     expect(r.out).toMatch(/^::error::protection-audit did not finish/m);
   });
 
-  // Review round 1: a summary that printed before the process hung into its
-  // 15-minute timeout, or beside an exit code that does not match it, failed
+  // Review round 1: a summary beside an exit code that does not match it failed
   // the audit step, set no `gaps`, and the fail step found the summary and
   // passed: a green run with no issue touched.
   it("the step after it reds the run on a failed audit step even when a summary printed", async () => {
