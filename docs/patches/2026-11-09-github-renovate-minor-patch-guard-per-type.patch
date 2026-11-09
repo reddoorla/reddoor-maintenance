@@ -1,0 +1,110 @@
+From 4ee8a255592e7584044d6e7e97edff22995315cd Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 9 Nov 2026 23:10:07 +0000
+Subject: [PATCH] fix(validate): the minor/patch prCreation guard checks each
+ type the way the majors guard does
+
+The 2026-10-21 guard read only the last rule listing minor or patch and asked
+it to list both. A typeless { prCreation: "not-pending" } placed before the
+majors rule therefore passed, while the grouped PR went back to the drought.
+An unscoped immediate ["major", "minor"] rule after it failed, naming the
+wrong rule. Now, for each of minor and patch, an unscoped immediate rule must
+reach the type and no later rule may set another prCreation for it. A rule
+with no matchUpdateTypes reaches every type. The majors guard calls the same
+helper.
+
+Patch from reddoorla/reddoor-maintenance (P1-82, #1713).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_013FT5PG7Z93sXwxNPDVUYLj
+---
+ .github/workflows/validate.yml | 27 ++++++++++++++++-----------
+ docs/workJournal.md            | 29 +++++++++++++++++++++++++++++
+ 2 files changed, 45 insertions(+), 11 deletions(-)
+
+diff --git a/.github/workflows/validate.yml b/.github/workflows/validate.yml
+index 35c0d01..6c69f55 100644
+--- a/.github/workflows/validate.yml
++++ b/.github/workflows/validate.yml
+@@ -66,12 +66,21 @@ jobs:
+             // A run that pushes a branch with no PR returns before PR creation unless prCreation is immediate, and the
+             // grouped branch gets one in-window run a week, which nearly always pushes. 19 of 25 repos had no grouped PR
+             // opened from 2026-09-22 to 2026-10-21 (reddoor-workspace decision 2026-10-21-2218).
+-            // Later rules win, so the LAST rule that sets prCreation for minor or patch decides, and it must be unscoped.
++            // Later rules win, so for each of minor and patch an unscoped immediate rule must reach it, and no later rule may set
++            // any other prCreation for it. A rule without matchUpdateTypes reaches every update type, and matchUpdateTypes may
++            // be a string. Checked per type (reddoor-maintenance#1713): the 10-21 guard read only the last rule that LISTED minor
++            // or patch, so a typeless { prCreation: "not-pending" } after the rule passed, and an unscoped immediate rule for
++            // ["major", "minor"] after it failed for not listing patch.
+             const scoped = (r) => Object.keys(r).some((k) => k.startsWith("match") && k !== "matchUpdateTypes");
+-            const lastPrCreation = rules.filter((r) => "prCreation" in r && (r.matchUpdateTypes ?? []).some((t) => ["minor", "patch"].includes(t))).at(-1);
+-            const groupedImmediate = !!lastPrCreation && lastPrCreation.prCreation === "immediate" && !scoped(lastPrCreation) && ["minor", "patch"].every((t) => lastPrCreation.matchUpdateTypes.includes(t));
+-            if (["not-pending", "status-success"].includes(cfg.prCreation) && !groupedImmediate)
+-              throw new Error("no unscoped minor/patch rule with prCreation:immediate under prCreation:" + cfg.prCreation + ": the grouped PR cannot open on the run that pushes it (2026-10-21)");
++            const reaches = (r, t) => (r.matchUpdateTypes == null ? [t] : [].concat(r.matchUpdateTypes)).includes(t);
++            const immediateFor = (t) => {
++              const set = rules.filter((r) => "prCreation" in r && reaches(r, t));
++              const first = set.findIndex((r) => r.prCreation === "immediate" && !scoped(r));
++              return first !== -1 && set.slice(first).every((r) => r.prCreation === "immediate");
++            };
++            const notGrouped = ["minor", "patch"].filter((t) => !immediateFor(t));
++            if (["not-pending", "status-success"].includes(cfg.prCreation) && notGrouped.length)
++              throw new Error("no unscoped " + notGrouped.join(" or ") + " rule with prCreation:immediate, or a later rule sets another prCreation for it, under prCreation:" + cfg.prCreation + ": the grouped PR cannot open on the run that pushes it (2026-10-21, #1713)");
+             // Under group:allNonMajor one never-automerge package holds the whole grouped branch, so each hold needs a
+             // minor/patch group of exactly its packages. A package held but left out of the group holds all-minor-patch again.
+             const names = (r) => JSON.stringify([...r.matchPackageNames].sort());
+@@ -87,12 +96,8 @@ jobs:
+             // they carry no release timestamp, so under minimumReleaseAge they are never branched, and made immediate they
+             // open behind a stability status that never clears and take an hourly PR slot ahead of both grouped PRs
+             // (reddoor-workspace decision 2026-10-24-1436).
+-            // matchUpdateTypes may be a string, and a rule without it reaches every update type.
+-            const reaches = (r, t) => (r.matchUpdateTypes == null ? [t] : [].concat(r.matchUpdateTypes)).includes(t);
+-            const majorRules = rules.filter((r) => "prCreation" in r && reaches(r, "major"));
+-            const firstMajorImmediate = majorRules.findIndex((r) => r.prCreation === "immediate" && !scoped(r));
+-            const majorImmediate = firstMajorImmediate !== -1 && majorRules.slice(firstMajorImmediate).every((r) => r.prCreation === "immediate");
+-            if (["not-pending", "status-success"].includes(cfg.prCreation) && !majorImmediate)
++            // The same check as minor and patch above (immediateFor).
++            if (["not-pending", "status-success"].includes(cfg.prCreation) && !immediateFor("major"))
+               throw new Error("no unscoped major rule with prCreation:immediate under prCreation:" + cfg.prCreation + ": a new major PR cannot open on the run that pushes it (#1688)");
+             const digestImmediate = cfg.prCreation === "immediate" || cfg.digest?.prCreation === "immediate" ||
+               rules.some((r) => r.prCreation === "immediate" && reaches(r, "digest"));
+diff --git a/docs/workJournal.md b/docs/workJournal.md
+index 1bd8eeb..c55b77b 100644
+--- a/docs/workJournal.md
++++ b/docs/workJournal.md
+@@ -196,3 +196,32 @@ It now compares names case-insensitively, adds the mise, docker-compose and work
+ Autoclose has a caveat. Renovate closes a branch it no longer proposes only when no one else has committed to it. If someone has, it retitles the PR "abandoned" and leaves it open.
+ 
+ To lift the hold: when AWS's runtimes page lists `nodejs26.x` without the preview note, delete the rule and the `validate.yml` block together, then follow P1-99's per-site recipe.
++
++## 2026-11-09 — The minor/patch prCreation guard checks each type the way the majors guard does (patch from reddoorla/reddoor-maintenance#1713)
++
++The 2026-10-21 guard in `validate.yml` read only the last rule that listed `minor` or `patch` in `matchUpdateTypes`, and asked it to list both. Review round 1 of reddoor-maintenance#1712 found two ways that answer was wrong, and both reproduce on `d7aca37`. A typeless `{ "prCreation": "not-pending" }` placed between the minor/patch rule and the majors rule reaches minor and patch, so the grouped PR goes back to the drought, and the step printed OK. An unscoped immediate rule for `["major", "minor"]` after the minor/patch rule changes nothing for either type, and the step failed, naming the wrong rule. It also refused two other harmless presets: a later scoped immediate `minor` rule, and the rule split into one unscoped `minor` rule and one unscoped `patch` rule. A string `matchUpdateTypes` crashed it with a TypeError instead of failing it.
++
++The guard now asks of each of `minor` and `patch` what the 10-24 guard asks of `major`: an unscoped `immediate` rule must reach the type, and no later rule may set any other `prCreation` for it. A rule with no `matchUpdateTypes` reaches every type, and a string counts as a one-item list. The majors guard now calls the same helper (`immediateFor`), so the two cannot drift apart.
++
++A belief corrected on contact: the issue says the typeless override, appended at the end, printed OK. On `d7aca37` it already failed, but in the majors guard, because a typeless rule reaches `major` too. The hole is real only when the typeless rule sits before the majors rule, and that is the variant the check now covers.
++
++The step was pulled out of `validate.yml` and run under Node against ten presets. The patched guard gave every expected answer; `main`'s gave four wrong ones:
++
++| Preset | Want | Patched | `main` |
++|---|---|---|---|
++| unchanged | OK | OK | OK |
++| typeless not-pending appended | FAIL | FAIL | FAIL (majors guard) |
++| typeless not-pending before the majors rule | FAIL | FAIL | **OK** |
++| majors rule widened to `["major", "minor"]` | OK | OK | **FAIL** |
++| string `"patch"` not-pending appended | FAIL | FAIL | FAIL (TypeError) |
++| minor/patch rule removed | FAIL | FAIL | FAIL |
++| minor/patch rule scoped to one package | FAIL | FAIL | FAIL |
++| later scoped immediate `minor` rule | OK | OK | **FAIL** |
++| later scoped not-pending `patch` rule | FAIL | FAIL | FAIL |
++| rule split into unscoped `minor` and `patch` rules | OK | OK | **FAIL** |
++
++Each of four mutations to the new code turned at least one row wrong:
++- a typeless rule reaching no type: both typeless rows pass;
++- only the last rule for a type counting: the widened majors rule and the later scoped immediate rule fail;
++- a scoped immediate rule counting: the scoped rule passes;
++- only `minor` checked: both `patch` rows pass.
+-- 
+2.43.0
+
