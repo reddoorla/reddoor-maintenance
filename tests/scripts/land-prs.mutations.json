@@ -455,7 +455,7 @@
     "why": "#1946 item 2 over-broad: a // comment ending in dir/*/ reads as a closer, and the next line as wrapped."
   },
   {
-    "id": "P82-F-closer-taken-away-reads-as-moved",
+    "id": "P82-G-closer-taken-away-reads-as-moved",
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
