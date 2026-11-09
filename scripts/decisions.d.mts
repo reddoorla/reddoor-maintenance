@@ -159,6 +159,8 @@ export function extractRefs(
   text: string,
   known?: Set<string>,
 ): { refs: string[]; dropped: string[] };
+/** True when a ref is a path, repo or link rather than an issue or PR. */
+export function isLink(r: string): boolean;
 export function originNeedles(text: string): string[];
 export function convertItem(
   it: BacklogItem,

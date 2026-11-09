@@ -430,14 +430,26 @@ describe("refs", () => {
       "o/r#12a",
       "maint#1234 (merged)",
       "o/r#",
-      "reddoorla/reddoor-maintenance",
+      "o/r/pull/12/",
       "https://github.com/o/r/pull/12",
+      "https://GitHub.com/o/r/pull/12",
       "https://github.com/o/r/issues/3#issuecomment-1",
     ])
       expect(pd(X, file({ refs: `[${r}]` })).errors).toEqual([`ref is not owner/repo#N: ${r}`]);
     expect(
-      pd(X, file({ refs: "[https://x.com/a#1, https://github.com/o/r/blob/main/a.md]" })).links,
-    ).toEqual(["https://x.com/a#1", "https://github.com/o/r/blob/main/a.md"]);
+      pd(
+        X,
+        file({
+          refs: "[https://x.com/a#1, https://github.com/o/r/blob/main/a.md, tucksravin/workspace, README, plan.md#the-model]",
+        }),
+      ).links,
+    ).toEqual([
+      "https://x.com/a#1",
+      "https://github.com/o/r/blob/main/a.md",
+      "tucksravin/workspace",
+      "README",
+      "plan.md#the-model",
+    ]);
   });
 
   it("never looks up a path or link ref on GitHub", async () => {

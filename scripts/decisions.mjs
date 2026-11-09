@@ -571,14 +571,14 @@ export function slugify(n, title) {
   return s;
 }
 
-// A ref is a path or link, kept as text and never looked up, only when it
-// plainly is one: a URL that is not a GitHub issue or PR, or a path ending in
-// / or a file extension with no #<digit> in it. Anything else is meant as an
-// issue or PR and must be owner/repo#N, so a typo like o/r#12) still fails.
+// A ref that looks like an issue or PR (a # followed by a digit or ending it,
+// or a pull/N or issues/N path) must be owner/repo#N, so a typo like o/r#12)
+// still fails. Any other ref is a path, repo or link: kept as text, never
+// looked up. A non-GitHub URL may carry a numeric #fragment.
 export function isLink(r) {
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(r))
-    return !/github\.com\/[^/]+\/[^/]+\/(?:pull|issues)\/\d/.test(r);
-  return !/#\d/.test(r) && /(?:\/|\.[A-Za-z0-9]+)$/.test(r);
+  if (r === "" || /(?:pull|issues)\/\d/.test(r)) return false;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(r)) return true;
+  return !/#(?:\d|$)/.test(r);
 }
 
 export const URL_REF =
