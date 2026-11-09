@@ -1121,11 +1121,12 @@ function sideStates(lines, side, start) {
  *  continuation, so the JSDoc's opener above the hunk is not missed; otherwise each side starts
  *  in `"code"`. */
 function hunkShifts({ jsdoc, lines }) {
-  const start = jsdoc ? "comment" : "code";
+  const start = jsdoc || closerMovedDown(lines) ? "comment" : "code";
   const oldStates = sideStates(lines, "old", start);
   const newStates = sideStates(lines, "new", start);
   const wrapped = [];
   const commented = [];
+  const dead = [];
   for (let k = 0; k < lines.length; k++) {
     const { kind, text } = lines[k];
     if (kind === " ") {
@@ -1141,11 +1142,29 @@ function hunkShifts({ jsdoc, lines }) {
         wrapped.push(text.trim());
       }
     } else if (kind === "+") {
-      const n = newStates[k];
-      if (n.before === "comment" && n.after === "comment") commented.push(text.trim());
+      if (wholly(newStates[k])) commented.push(text.trim());
+    } else if (wholly(oldStates[k])) {
+      dead.push(text.trim());
     }
   }
-  return { wrapped, commented };
+  return { wrapped, commented, dead };
+}
+
+/** A line that starts and ends inside one block comment or one template literal: text, not code
+ *  (#1941). */
+const wholly = (s) => s.before === s.after && (s.before === "comment" || s.before === "template");
+
+/** Whether the old side of a hunk opens inside a block comment that began above it, read from a
+ *  removed line that is exactly `*\/` and that the old side meets while it reads as code (#1946
+ *  item 2): the closer of a comment opened above the hunk, moved or taken away. Only a line that
+ *  is the closer alone counts. A closer with text before it (` * See (/docs/x.md). *\/`) is not
+ *  read, because telling a regex from a path in a comment's tail is what sank this check in
+ *  #1935 rounds 4 to 6; so that case stays unseen. */
+function closerMovedDown(lines) {
+  const states = sideStates(lines, "old", "code");
+  return lines.some(
+    ({ kind, text }, k) => kind === "-" && text.trim() === "*/" && states[k].before === "code",
+  );
 }
 
 /** The block-comment shifts of a patch (#1617, round 1; round 4 scans each hunk as a unit, see
@@ -1153,12 +1172,14 @@ function hunkShifts({ jsdoc, lines }) {
 function blockCommentShifts(patch) {
   const wrapped = [];
   const commented = [];
+  const dead = [];
   for (const hunk of hunksOf(patch)) {
     const shift = hunkShifts(hunk);
     wrapped.push(...shift.wrapped);
     commented.push(...shift.commented);
+    dead.push(...shift.dead);
   }
-  return { wrapped, commented };
+  return { wrapped, commented, dead };
 }
 
 /** How many times each line occurs: a removed line is matched by one added copy, so
@@ -1200,10 +1221,12 @@ function renamedAway(before, after) {
  *  commented-out call is neither (see `codeOf`). A renamed skip is flagged as an added skip.
  *  The first non-blank context line of each hunk that the PR's change puts inside a block comment
  *  is flagged (#1617; round 4: a blank one is not). A hunk starts inside a block comment only when
- *  its first line is a JSDoc continuation (`*`, as `jsdocFirstLine` reads it, round 5); otherwise
- *  it starts outside one, so a comment opened above a hunk is not seen, nor is a `*\/` moved down
- *  out of one. An added line wholly inside a block comment does not re-add a removed assertion
- *  (see `blockCommentShifts`). Two rare false flags are known, each costing the author one line:
+ *  its first line is a JSDoc continuation (`*`, as `jsdocFirstLine` reads it, round 5), or when it
+ *  removes a line that is `*\/` alone where its old side reads as code (`closerMovedDown`, #1946);
+ *  otherwise it starts outside one, so a comment opened above a hunk is not seen, nor is a closer
+ *  with text before it moved down out of one. An added line wholly inside a block comment or a
+ *  template literal does not re-add a removed assertion, and a removed line wholly inside one does
+ *  not back an added skip (see `blockCommentShifts`, #1941). Two rare false flags are known, each costing the author one line:
  *  a hunk that starts on a line beginning with `*` is taken to start inside a JSDoc block, so a
  *  Markdown bullet inside a template literal there can deny credit for a re-added line; and a hunk
  *  that starts inside a multi-line template literal is read as code, so a glob such as `src/*`
@@ -1276,6 +1299,8 @@ export function testChangeFlags(files) {
     const valueLeft = lineCounts(valueLines(f.patch));
     const shifts = blockCommentShifts(f.patch);
     for (const c of shifts.commented) takeOne(addedLeft, matchKey(c));
+    // A removed line that was text, not code, cannot back an added skip or .only (#1941).
+    for (const d of shifts.dead) takeOne(removedLeft, matchKey(d));
     const reasons = away ? [away] : [];
     const tooLong = (t) => `a changed line of ${t.length} characters, too long to scan: read it`;
     for (const t of removed) {

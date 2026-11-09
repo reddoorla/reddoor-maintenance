@@ -49,7 +49,7 @@
     ],
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
-    "why": "#1604: `).not.toBe(1);`, `).resolves.toEqual(…)` and `).rejects.toThrow(…)` lines would be missed."
+    "why": "#1604: `).not.toBe(1);`, `).resolves.toEqual(\u2026)` and `).rejects.toThrow(\u2026)` lines would be missed."
   },
   {
     "id": "M5-test-dir-case-sensitive",
@@ -401,5 +401,70 @@
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
     "why": "#1617 r7 fix undone: a context line that starts with */ can be the wrapped line, so a glob added to a comment opened above the hunk flags the comment's closer (L2-1)."
+  },
+  {
+    "id": "P82-A-dead-backs-skip",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "    for (const d of shifts.dead) takeOne(removedLeft, matchKey(d));\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1941 item 1: a commented-out skip backs a new real skip again."
+  },
+  {
+    "id": "P82-B-template-is-code",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "(s.before === \"comment\" || s.before === \"template\")",
+        "replace": "s.before === \"comment\""
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1941 item 2: an assertion copied into a template literal counts as re-added again."
+  },
+  {
+    "id": "P82-C-no-moved-closer",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "const start = jsdoc || closerMovedDown(lines) ? \"comment\" : \"code\";",
+        "replace": "const start = jsdoc ? \"comment\" : \"code\";"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1946 item 2: a */ moved down from a comment above the hunk is unseen again."
+  },
+  {
+    "id": "P82-D-closer-with-text",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "kind === \"-\" && text.trim() === \"*/\" &&",
+        "replace": "kind === \"-\" && text.trim().endsWith(\"*/\") &&"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1946 item 2 over-broad: a // comment ending in dir/*/ reads as a closer, and the next line as wrapped."
+  },
+  {
+    "id": "P82-E-every-removed-line-dead",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "    } else if (wholly(oldStates[k])) {\n      dead.push(text.trim());",
+        "replace": "    } else {\n      dead.push(text.trim());"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1941 over-broad: a skip moved in code is flagged as added."
   }
 ]

@@ -2405,6 +2405,62 @@ describe("land-prs: test changes", () => {
     });
   });
 
+  describe("P1-82 (#1941, #1946 item 2): dead text on the old side, template literals, a closer moved down", () => {
+    const one = (patch: string) => testChangeFlags([file(T, "modified", patch)]);
+
+    it("a skip that was commented out does not back a new real skip (#1941 item 1)", () => {
+      expect(
+        one(
+          '@@ -1,6 +1,3 @@\n-/*\n-it.skip("works", () => {\n-*/\n-it("works", () => {\n+it.skip("works", () => {\n   expect(add(1, 2)).toBe(3);\n });',
+        ),
+      ).toEqual([{ file: T, reasons: ['added skip: it.skip("works", () => {'] }]);
+    });
+
+    it("a skip moved in code is still not an added skip", () => {
+      expect(
+        one('@@ -1,3 +1,3 @@\n-it.skip("a", () => {});\n keep();\n+it.skip("a", () => {});'),
+      ).toEqual([]);
+    });
+
+    it("an assertion re-added inside a template literal is not re-added (#1941 item 2)", () => {
+      expect(
+        one(
+          '@@ -1,3 +1,5 @@\n it("works", () => {\n-  expect(add(1, 2)).toBe(3);\n+  const doc = `\n+  expect(add(1, 2)).toBe(3);\n+  `;\n });',
+        ),
+      ).toEqual([
+        { file: T, reasons: ["removed assertion not re-added: expect(add(1, 2)).toBe(3);"] },
+      ]);
+      // After the template closes, the same line is code again and counts.
+      expect(
+        one(
+          '@@ -1,3 +1,5 @@\n it("works", () => {\n-  expect(add(1, 2)).toBe(3);\n+  const doc = `x`;\n+  expect(add(1, 2)).toBe(3);\n });',
+        ),
+      ).toEqual([]);
+    });
+
+    it("a closer moved down from a comment opened above the hunk flags the line it now hides (#1946 item 2)", () => {
+      expect(
+        one(
+          '@@ -3,7 +3,7 @@\n  notes line 2\n  notes line 3\n  notes line 4\n-*/\n it("works", () => {\n   expect(add(1, 2)).toBe(3);\n });\n+*/',
+        ),
+      ).toEqual([
+        { file: T, reasons: ['existing line now inside a block comment: it("works", () => {'] },
+      ]);
+    });
+
+    it("a closer moved up, out of the code it hid, is not a wrap", () => {
+      expect(one('@@ -3,4 +3,4 @@\n  notes\n+*/\n it("works", () => {});\n-*/\n done();')).toEqual(
+        [],
+      );
+    });
+
+    it("only a line that is the closer alone reads as one: a // comment ending in */ does not", () => {
+      expect(
+        one("@@ -1,3 +1,3 @@\n keep();\n-run(); // dir/*/\n+run();\n expect(a).toBe(1);"),
+      ).toEqual([]);
+    });
+  });
+
   describe("round-2 review findings", () => {
     const one = (patch: string) => testChangeFlags([file(T, "modified", patch)]);
 
