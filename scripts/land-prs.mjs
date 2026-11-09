@@ -1161,7 +1161,10 @@ function hunkShifts({ jsdoc, lines }) {
         wrapped.push(text.trim());
       }
     } else if (kind === "+") {
-      if (wholly(newStates[k])) (newInh[k] ? assumed : commented).push(text.trim());
+      if (wholly(newStates[k])) {
+        if (newInh[k]) assumed.push(text.trim());
+        else commented.push(text.trim());
+      }
     } else if (wholly(oldStates[k]) && !oldInh[k]) {
       dead.push(text.trim());
     }
@@ -1263,9 +1266,9 @@ function renamedAway(before, after) {
  *  that starts inside a multi-line template literal is read as code, so a glob such as `src/*`
  *  added there can be flagged as a wrap, and an assertion moved from it into a template opened in
  *  a later hunk is flagged as not re-added: from the patch alone that move cannot be told from an
- *  assertion taken out of code and parked in a string (#1998 round 2); and a lone `*/ ` removed
+ *  assertion taken out of code and parked in a string (#1998 round 2); and a lone `*\/` removed
  *  from a commented-out test put back into use reads as moved down when a JSDoc is added lower in
- *  the same hunk, whose own ` * /` stands in for the re-added closer (#1998 round 3). */;
+ *  the same hunk, whose own `*\/` stands in for the re-added closer (#1998 round 3). */
 export function testChangeFlags(files) {
   const out = [];
   for (const f of Array.isArray(files) ? files : []) {

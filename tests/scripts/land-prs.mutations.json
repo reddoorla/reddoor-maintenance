@@ -520,16 +520,21 @@
     "why": "over-broad: every line of a JSDoc-start hunk is untrusted, so text moved within a template opened after the JSDoc closes no longer pairs."
   },
   {
-    "id": "P82-J-assumed-added-line-is-commented",
+    "id": "P82-J-round-3-undone",
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "(newInh[k] ? assumed : commented).push(text.trim());",
-        "replace": "commented.push(text.trim());"
+        "find": "        if (newInh[k]) assumed.push(text.trim());\n        else commented.push(text.trim());",
+        "replace": "        commented.push(text.trim());"
+      },
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "} else if (wholly(oldStates[k]) && !oldInh[k]) {",
+        "replace": "} else if (wholly(oldStates[k])) {"
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
-    "why": "#1998 round 3 undone: an assertion commented out below a Markdown bullet pairs with its removed copy as text moved within text, and passes."
+    "why": "#1998 round 3 undone, both halves (each alone is enough for p5): an assertion commented out below a Markdown bullet pairs with its removed copy as text moved within text, and passes."
   }
 ]
