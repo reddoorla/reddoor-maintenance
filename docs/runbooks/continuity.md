@@ -164,12 +164,12 @@ It no longer does, but it now needs someone to finish the recovery.
 [#785](https://github.com/reddoorla/reddoor-maintenance/pull/785), merged 2026-09-14). A public
 form POST reaches `src/forms/ingest.ts`. If the site lookup **throws** (the store is down) or
 **resolves to null** (a real fleet site with no row — a half-finished `ensure-site`, a deleted
-row), the one writer `captureDeadLetter` (`src/forms/ingest.ts:183–194`) writes the whole raw
+row), the one writer `captureDeadLetter` (`src/forms/ingest.ts:192–203`) writes the whole raw
 payload, the Turnstile verification and the error into the `submission_deadletter` table and
 logs `[ingest] lead for '<slug>' dead-lettered as <id>`. The throw path returns an honest
 `accepted`; the unknown-slug path keeps its `unknown-site` status so the submitting site still
 learns its slug does not resolve, but **the lead now exists somewhere**
-(`src/forms/ingest.ts:200–229`). Probes (`testMode`) are never dead-lettered.
+(`src/forms/ingest.ts:209–238`). Probes (`testMode`) are never dead-lettered.
 
 **What a week-long break looks like now.** The queue grows and the alarm gets louder, not
 quieter. `collectDeadLetterAlerts` (`src/alerts/digest-collectors.ts:524–558`) raises one
@@ -227,7 +227,7 @@ Exit code is 1 while anything is still **owed**, which is three different things
 
 If Resend is unconfigured the replay still
 runs and the recovered leads land un-emailed (`notify=failed`) rather than blocking — you can
-re-notify later, but the lead is saved either way (`src/cli/commands/db.ts:65–161`). If the
+re-notify later, but the lead is saved either way (`src/cli/commands/db.ts:65–167`). If the
 alarm named an unresolvable slug, run `ensure-site <slug>` **first**, then replay.
 
 ### 3.2 Turnstile stops minting tokens on a site
@@ -356,7 +356,7 @@ bounce/complaint attention items in §3.4.
 **The per-site recipient field.** Who a report actually reaches is configured per site, not per
 message: `Report recipients (To)` and `Report recipients (CC)` in the site details on its console
 page (`/s/<slug>`), stored in Turso as `sites.report_recipients_to` / `report_recipients_cc`
-(`src/dashboard/site-details.ts:90–91`, `src/db/fleet-state.ts:106–107`). Form
+(`src/dashboard/site-details.ts:91–92`, `src/db/fleet-state.ts:126–127`). Form
 notifications have their own per-site routing, including field-value → recipient routes with a
 fallback (`NotifyRouting`, `src/fleet/site-row.ts:23–41`).
 

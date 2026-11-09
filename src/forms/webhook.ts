@@ -53,8 +53,12 @@ export async function forwardNewsletterToWebhook(
  * `appointment_time`), plus the UTM tags both as the stored query string and
  * split into `utm_*` keys, so a campaign field maps without parsing.
  *
- * Absent values are `null`, never missing, so a hook's field mapping sees a
- * stable shape whichever form fired. The newsletter body is deliberately NOT
+ * Every key is always present. phone, message, sourceUrl, utm and the utm_*
+ * keys are `null` when absent; name and email are as stored, so a form that did
+ * not ask for one sends "". `fields` leaves out ingest's own bookkeeping (keys
+ * starting with `_`, such as the autoresponder copy `_reply`, and the composed-
+ * message flags `composedMessage`/`visitorText`), which is not the visitor's
+ * data and must not become a client contract. The newsletter body is deliberately NOT
  * changed: sites already wired to it keep receiving exactly what they map today.
  */
 export function buildFormWebhookBody(
@@ -82,15 +86,21 @@ export function buildFormWebhookBody(
   };
 }
 
-/** The stored `extra_fields` JSON as an object; `{}` for null or anything that
+/** Keys ingest itself writes into `extra_fields` (ingest.ts storedExtraFields). */
+const INTERNAL_FIELD_KEYS: ReadonlySet<string> = new Set(["composedMessage", "visitorText"]);
+
+/** The stored `extra_fields` JSON as an object, minus ingest's bookkeeping; `{}` for null or anything that
  *  is not a JSON object (a malformed cell must never stop the forward). PURE. */
 function parseExtraFields(raw: string | null): Record<string, unknown> {
   if (raw === null || raw.trim() === "") return {};
   try {
     const parsed: unknown = JSON.parse(raw);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : {};
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed as Record<string, unknown>).filter(
+        ([k]) => !k.startsWith("_") && !INTERNAL_FIELD_KEYS.has(k),
+      ),
+    );
   } catch {
     return {};
   }
@@ -111,7 +121,18 @@ export async function forwardFormToWebhook(
   site: WebsiteRow,
   fetchImpl: typeof fetch = fetch,
 ): Promise<WebhookForwardResult> {
-  return postJson(url, buildFormWebhookBody(submission, site), site, "form-webhook", fetchImpl);
+  // `redirect: "manual"`: the SSRF guard checks only the first URL, and this body
+  // is the whole submission, so a redirect is refused (recorded as its 3xx)
+  // rather than followed to a host nobody checked. The newsletter forwarder is
+  // left as it is, so existing sites see no change.
+  return postJson(
+    url,
+    buildFormWebhookBody(submission, site),
+    site,
+    "form-webhook",
+    fetchImpl,
+    "manual",
+  );
 }
 
 async function postJson(
@@ -120,6 +141,7 @@ async function postJson(
   site: WebsiteRow,
   label: string,
   fetchImpl: typeof fetch,
+  redirect?: RequestRedirect,
 ): Promise<WebhookForwardResult> {
   if (!isPublicHttpsUrl(url)) {
     console.error(`[${label}] refusing non-public/non-https url for site=${site.name}`);
@@ -130,6 +152,7 @@ async function postJson(
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
+      ...(redirect !== undefined ? { redirect } : {}),
     });
     return { ok: res.ok, status: res.status };
   } catch (err) {

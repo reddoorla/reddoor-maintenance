@@ -9,6 +9,7 @@ import { describe, it, expect } from "vitest";
 import { openDb } from "../../src/db/client.js";
 import type { RawRecord } from "../../src/db/field-map.js";
 import { getSiteBySlug, mirrorSiteField, mirrorSiteInsert } from "../../src/db/fleet-state.js";
+import { formWebhookWants } from "../../src/forms/ingest.js";
 import { EDITABLE_SITE_FIELDS, normalizeFieldValue } from "../../src/dashboard/site-details.js";
 
 const SITE: RawRecord = { id: "recSONDER", fields: { Name: "Gallery Sonder" } };
@@ -47,6 +48,20 @@ describe("form webhook setting — store round trip", () => {
     await mirrorSiteField(db, "recSONDER", "Form Webhook", "https://hook.example/x");
     await mirrorSiteField(db, "recSONDER", "Form Webhook", "");
     expect((await getSiteBySlug(db, slug))?.formWebhook).toBeNull();
+  });
+
+  it("an unreadable types cell matches no form type, never every type", async () => {
+    const { db, slug } = await dbWithSite();
+    await mirrorSiteField(db, "recSONDER", "Form Webhook", "https://hook.example/x");
+    await db
+      .updateTable("sites")
+      .set({ form_webhook_types: "inquiry,rsvp" })
+      .where("id", "=", "recSONDER")
+      .execute();
+    const site = await getSiteBySlug(db, slug);
+    for (const type of ["inquiry", "rsvp", "newsletter", "contact"]) {
+      expect(formWebhookWants(site!.formWebhookTypes, type)).toBe(false);
+    }
   });
 
   it("the editor refuses an unknown form type and a non-http URL", () => {

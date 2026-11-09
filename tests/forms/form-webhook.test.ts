@@ -274,6 +274,21 @@ describe("form webhook — the body carries the full submission", () => {
     expect(body.fields).toEqual({});
   });
 
+  it("fields leave out ingest's own bookkeeping, keeping the visitor's data", () => {
+    const body = buildFormWebhookBody(
+      makeSubmissionRow({
+        extraFields: JSON.stringify({
+          piece: "Blue Hour",
+          _reply: { subject: "Thanks for your inquiry" },
+          composedMessage: true,
+          visitorText: "typed twice",
+        }),
+      }),
+      site,
+    );
+    expect(body.fields).toEqual({ piece: "Blue Hour" });
+  });
+
   it("a malformed extra_fields cell still forwards, with empty fields", () => {
     const body = buildFormWebhookBody(makeSubmissionRow({ extraFields: "{not json" }), site);
     expect(body.fields).toEqual({});
@@ -293,6 +308,19 @@ describe("forwardFormToWebhook — the SSRF guard stays", () => {
       expect(res).toEqual({ ok: false, status: 0 });
     }
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("refuses to follow a redirect, recording its status", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 307 });
+    const res = await forwardFormToWebhook(
+      HOOK,
+      makeSubmissionRow(),
+      makeWebsiteRow(),
+      fetchImpl as unknown as typeof fetch,
+    );
+    expect(res).toEqual({ ok: false, status: 307 });
+    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(init.redirect).toBe("manual");
   });
 
   it("never throws on a network error", async () => {
