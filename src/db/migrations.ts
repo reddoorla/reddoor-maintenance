@@ -797,4 +797,17 @@ export const MIGRATIONS: Migration[] = [
     id: "0055_site_health_deps_held_packages",
     sql: `ALTER TABLE site_health ADD COLUMN deps_held_packages TEXT;`,
   },
+  {
+    // Gallery Sonder (2026-11-09): a per-site webhook that receives EVERY opted-in
+    // form type with the full submission, beside the newsletter-only
+    // `newsletter_webhook`, which keeps its body unchanged. `form_webhook_types` is
+    // a JSON array like accepted_watch_conditions; NULL means every type.
+    // One statement per ADD COLUMN migration (#1690), so the types are 0057.
+    id: "0056_sites_form_webhook",
+    sql: `ALTER TABLE sites ADD COLUMN form_webhook TEXT;`,
+  },
+  {
+    id: "0057_sites_form_webhook_types",
+    sql: `ALTER TABLE sites ADD COLUMN form_webhook_types TEXT;`,
+  },
 ];

@@ -114,6 +114,9 @@ export interface SitesTable {
   copy_contact: string | null;
   copy_footer: string | null;
   newsletter_webhook: string | null;
+  form_webhook: string | null;
+  /** JSON array of form types, like accepted_watch_conditions; NULL = every type. */
+  form_webhook_types: string | null;
   mailchimp_api_key: string | null;
   mailchimp_audience_id: string | null;
   notify_routing: string | null;

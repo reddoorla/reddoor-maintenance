@@ -77,6 +77,8 @@ export const SITE_FIELDS: Record<string, keyof SitesTable> = {
   "Copy — Contact": "copy_contact",
   "Copy — Footer": "copy_footer",
   "Newsletter Webhook": "newsletter_webhook",
+  "Form Webhook": "form_webhook",
+  "Form Webhook Types": "form_webhook_types",
   "Mailchimp API Key": "mailchimp_api_key",
   "Mailchimp Audience ID": "mailchimp_audience_id",
   "Notify Routing": "notify_routing",
@@ -118,7 +120,7 @@ function normalizeAwc(raw: unknown): string[] {
  */
 export function siteValueFor(column: keyof SitesTable, raw: unknown): string | number | null {
   if (column === "require_turnstile") return b01(raw);
-  if (column === "accepted_watch_conditions") {
+  if (column === "accepted_watch_conditions" || column === "form_webhook_types") {
     const awc = normalizeAwc(raw);
     return awc.length > 0 ? JSON.stringify(awc) : null;
   }
@@ -288,6 +290,8 @@ export function mapWebsiteRecord(rec: RawRecord, computedAt: string): MappedWebs
     copy_contact: null,
     copy_footer: null,
     newsletter_webhook: null,
+    form_webhook: null,
+    form_webhook_types: null,
     mailchimp_api_key: null,
     mailchimp_audience_id: null,
     notify_routing: null,
