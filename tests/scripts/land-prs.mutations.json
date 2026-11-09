@@ -472,7 +472,7 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "    } else if (wholly(oldStates[k])) {\n      dead.push(text.trim());",
+        "find": "    } else if (wholly(oldStates[k]) && !oldInh[k]) {\n      dead.push(text.trim());",
         "replace": "    } else {\n      dead.push(text.trim());"
       }
     ],
