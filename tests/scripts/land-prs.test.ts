@@ -2487,6 +2487,19 @@ describe("land-prs: test changes", () => {
       ).toEqual([]);
     });
 
+    it("below a line that only looks like JSDoc, a moved skip is still no added skip, and after a real JSDoc closes text pairs again (#1998 round 3)", () => {
+      expect(
+        one(
+          '@@ -3,6 +3,6 @@\n * item two\n `;\n-it.skip("a", () => {});\n keep();\n+it.skip("a", () => {});\n done();',
+        ),
+      ).toEqual([]);
+      expect(
+        one(
+          '@@ -1,8 +1,10 @@\n  * Docs.\n  */\n-const SPEC = `\n-test("x", () => { expect(1).toBe(1); });\n-`;\n+describe("x", () => {\n+  const SPEC = `\n+  test("x", () => { expect(1).toBe(1); });\n+  `;\n+});\n run();',
+        ),
+      ).toEqual([]);
+    });
+
     it("known false flag: an uncommented test with a new JSDoc added lower in the same hunk (#1998 round 3)", () => {
       // The JSDoc's closing `*/` reads as the removed closer moved down. Telling the two apart
       // needs the file's full text; a decoy `/*` above an added `*/` defeats any patch-only rule.
