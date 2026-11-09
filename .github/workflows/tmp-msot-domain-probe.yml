@@ -16,6 +16,9 @@ jobs:
           node-version: "24"
       - run: date -u; node -v
       - run: node scripts/tmp-probe/domain-probe.mjs
+        env:
+          RUNS: "30"
+          HOSTS: medicalsolutionsoftx.com,roalson.com
       - name: dig and curl per IP
         if: always()
         run: |

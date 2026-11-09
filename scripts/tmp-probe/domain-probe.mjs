@@ -19,6 +19,8 @@ function probe(connectHost, servername, rejectUnauthorized = true) {
           outcome: socket.authorized ? "ok" : "unauthorized",
           authErr: socket.authorizationError ?? null,
           validTo: cert?.valid_to ?? null,
+          validFrom: cert?.valid_from ?? null,
+          serial: cert?.serialNumber ?? null,
           subject: cert?.subject?.CN ?? null,
           issuer: cert?.issuer?.CN ?? null,
           san: cert?.subjectaltname ?? null,
