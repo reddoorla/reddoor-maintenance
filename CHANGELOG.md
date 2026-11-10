@@ -1,5 +1,20 @@
 # @reddoorla/maintenance
 
+## 0.117.0
+
+### Minor Changes
+
+- e697405: Adds the R2 video pipeline's first stage: `--profile player` on `reddoor-maint video` keeps audio (AAC) and makes a 720 mp4 and a poster, and a new `reddoor-maint video-pipeline encode` and `stuck` encode a Prismic video master to Cloudflare R2 with a `manifest.json`, with Whisper captions for player videos. The light `@reddoorla/maintenance/video-pipeline` subpath holds the key, manifest, classification, webhook relay and stuck-video helpers for site code.
+
+### Patch Changes
+
+- aa87955: `dropbox-file-request-upload` keeps a file's `{"status":"complete"}` commit answer once it has one, so a later answer for the same file (a 403 when the page re-sends a whole commit batch after another file's 5xx) no longer reports a committed file FAILED (#1994).
+- e2b525d: The fleet workflows escape site labels (`%` → `%25`, CR → `%0D`) in every annotation that names a site: smoke's never-measured error, form-e2e's coverage, budget and probed-nothing lines, config-drift's skipped and not-closing warnings, and prismic-sync's held, failed and refusal lines. A JSON or module inventory with two names that differ only in case (`Baz` and `baz`) is refused at load, exit 2, since both would share one checkout on a case-insensitive filesystem (#2006). An explicit name against a name derived from a nameless site's repo (`Foo` and a derived `foo`) is still not checked.
+- 95a8966: The fleet prep skip notice ("⚠ N site(s) skipped (could not prepare): …") folds the line breaks in a skip reason (git clone's stderr has several) to `/`, so it stays one line and every skipped site after a multi-line reason is still named in the nightly workflows' warning.
+- 14aae4d: browser audit: a desktop navigation that throws now gets one retry, in a fresh context, capped at 10 s, as mobile's does. A route that throws twice still fails, and a page that loaded but failed is never retried. (#2012)
+- fce0603: `scripts/gen-report-shapes.mts` also writes two adverse report fixtures, `adverse-unmeasured.json` and `adverse-blocked.json`. They are runs of today's producer whose stubbed dependencies drive the branches the five shapes never reach: a stage that ran and failed, an unmeasured robots.txt, a robots.txt that blocks GPTBot, a sitemap with a real URL count, and a category probe that died, so `attempted` differs from `answered` (#893). The five existing fixtures come out byte-identical. The generator now refuses to write an adverse file that no longer reaches its branch (a skip in place of the failure, a robots read that no longer blocks), and its `http` stub carries the `error: null` the producer's type requires, a type error `tsc` never saw because `scripts/` is outside `tsconfig.json`'s `include`.
+- be7c268: The cockpit's Turnstile watch reason for a "fail" that no form-e2e run stamped now reads "widget flagged by the legacy /health check, not verified by a browser" instead of calling it a stale browser check: that value is function-health's legacy flag, which no browser checked.
+
 ## 0.116.0
 
 ### Minor Changes
