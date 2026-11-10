@@ -27,7 +27,7 @@ const json = (status: number, value: unknown): RelayResult => ({
   body: JSON.stringify(value),
 });
 
-/** Order: method, JSON, secret, dispatch token, then the webhook's type and documents, then dispatch. */
+/** Order: method, JSON, secret, dispatch token, media base, site name, then the webhook's type and documents, then dispatch. */
 export async function handlePrismicWebhook(
   req: { method: string; body: string },
   cfg: RelayConfig,

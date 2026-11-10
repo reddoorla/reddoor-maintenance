@@ -167,7 +167,10 @@ host), `--class background|player`, `--site <name>` (the first segment of every
 key; a lowercase letter, then letters, digits or hyphens, or the run exits `2`
 before any fetch), and `--key <key>` (optional: the relay's dispatch passes the
 key it computed, and a manual run leaves it blank; a blank value, `0` or `"0"`
-means no key, and any other value must equal the key for `--url` and `--site`).
+means no key, and any other value must equal the key for `--url` and `--site`)),
+and `--force` (re-encode even when R2 already serves this class; a site workflow
+exposes it as an optional boolean `force` input). A background run never
+replaces a player manifest, `--force` or not.
 `stuck` flags: `--prismic <repo>`, `--site <name>`, `--media-base <url>`
 (the public host the manifests are read from), `--rules <path>` (a JSON file,
 below), `--open-issue`, `--repo owner/name` (the repo that holds the issue). Every
@@ -192,11 +195,18 @@ run prints `SKIP <key>: a player manifest landed during this run (<dir>)`, exits
 and writes no manifest (its renditions stay, unreferenced). A run that finds a player
 manifest before it starts also skips, before any download. A failed re-read is exit
 `1`, naming the manifest key. A site's workflow should therefore serialise its runs
-per video, with `concurrency: { group: video-encode-${{ inputs.url }}, cancel-in-progress: false }`,
-so a second dispatch waits for the first rather than racing it.
+per video and class, with `concurrency: { group: video-encode-${{ inputs.url }}-${{ inputs.class }}, cancel-in-progress: false }`,
+so a second dispatch waits for the first rather than racing it. The class is in the group
+because GitHub keeps one pending run per group: a re-published background run would
+otherwise replace, and cancel, a pending player run.
 A run whose class the existing manifest already holds also skips, before any
 download (`SKIP <key>: already encoded as <class> …`), so a re-publish during an
 encode does not encode twice; `--force` re-encodes into a new version directory.
+
+Site code imports `@reddoorla/maintenance/video-pipeline` (node:crypto only):
+`handlePrismicWebhook(req, cfg)` is the relay (its `cfg.site` must match the same
+`[a-z][a-z0-9-]*` rule, or it answers `500`), and `resolveVideo(url, { site, mediaBase, fetch })`
+reads a video's manifest and falls back to the Prismic URL.
 
 A site's build logs stuck videos and never fails on them: only the hourly `stuck` run goes red, so a
 stuck video cannot block a deploy. Captions are transcribed with Whisper, called with `language: "en"`.
