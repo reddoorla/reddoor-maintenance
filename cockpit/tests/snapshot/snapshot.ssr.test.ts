@@ -372,6 +372,8 @@ describe("loadCockpitSnapshot on a batchReads Db", () => {
     const c = await countingClient();
     const db = await batchedDb(c.client);
     await expect(db.startTransaction().execute()).rejects.toThrow(/no transaction/);
+    expect(c.executes).toEqual([]);
+    expect(c.batches).toEqual([]);
   });
 });
 

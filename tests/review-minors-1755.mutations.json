@@ -31,8 +31,34 @@
     "edits": [
       {
         "file": "tests/docs/runbook-anchors.test.ts",
-        "find": "  if (/^[a-z][a-z0-9]*(?:-[a-z0-9]+)+$/.test(token)) {\n    const camel = token.replace(/-([a-z0-9])/g, (_, c: string) => c.toUpperCase());\n    variants.push(camel, camel[0]!.toUpperCase() + camel.slice(1));\n  }\n",
+        "find": " ||\n          kebabIdentifierPatterns(token).some((pattern) => pattern.test(region))",
         "replace": ""
+      }
+    ],
+    "test": "tests/docs/runbook-anchors.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "K1-kebab-variant-unbounded",
+    "why": "#2010 r1 undone: to-do matches toDouble, is-a matches isArray",
+    "edits": [
+      {
+        "file": "tests/docs/runbook-anchors.test.ts",
+        "find": "new RegExp(`${w}(?![a-z0-9])`)",
+        "replace": "new RegExp(w)"
+      }
+    ],
+    "test": "tests/docs/runbook-anchors.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "K2-digit-segments-fold",
+    "why": "p1-82 folds to p182 and reads as an identifier",
+    "edits": [
+      {
+        "file": "tests/docs/runbook-anchors.test.ts",
+        "find": "if (!/^[a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)+$/.test(token)) return [];",
+        "replace": "if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)+$/.test(token)) return [];"
       }
     ],
     "test": "tests/docs/runbook-anchors.test.ts",
