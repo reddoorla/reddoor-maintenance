@@ -112,7 +112,7 @@ tiers — `broken`, `attention`, `watch`, `healthy`, `pre-launch` (`src/dashboar
 worst-band-wins on the severity ladder (`src/alerts/ladder.ts`, P1-78b), with the watch band being
 the soft zone beneath the alert floor (a Lighthouse score in [75, 85), a check stale past 30 days).
 A watch reason the operator has explicitly accepted is routed to `acceptedReasons` and leaves the
-band rather than raising it (`fleet-cockpit.ts:359`, `:427–429`).
+band rather than raising it (`fleet-cockpit.ts:363`, `:431–433`).
 
 **The "Needs you" feed** is real and is the thing to read first
 (`src/dashboard/fleet-cockpit.ts:603–715`, rendered as the triage page's `needs-you` section,
