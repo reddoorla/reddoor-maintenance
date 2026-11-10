@@ -44,18 +44,18 @@
     "edits": [
       {
         "file": "src/audits/browser.ts",
-        "find": "  const first = await probeDesktopOnce(browser, url, engine);\n  return first.threw ? probeDesktopOnce(browser, url, engine, RETRY_PAGE_TIMEOUT_MS) : first;",
-        "replace": "  const ctx = await browser.newContext({ viewport: DESKTOP_VIEWPORT });\n  try {\n    const first = await probeDesktopOnce(browser, url, engine, PAGE_TIMEOUT_MS, ctx);\n    return first.threw ? probeDesktopOnce(browser, url, engine, RETRY_PAGE_TIMEOUT_MS, ctx) : first;\n  } finally {\n    await ctx.close().catch(() => {});\n  }"
-      },
-      {
-        "file": "src/audits/browser.ts",
-        "find": "  gotoTimeoutMs: number = PAGE_TIMEOUT_MS,\n): Promise<DesktopProbe> {\n  const ctx = await browser.newContext({ viewport: DESKTOP_VIEWPORT });",
-        "replace": "  gotoTimeoutMs: number = PAGE_TIMEOUT_MS,\n  ctx: import(\"@playwright/test\").BrowserContext,\n): Promise<DesktopProbe> {"
+        "find": "): Promise<DesktopProbe> {\n  const ctx = await browser.newContext({ viewport: DESKTOP_VIEWPORT });",
+        "replace": "): Promise<DesktopProbe> {\n  const ctx =\n    gotoTimeoutMs === RETRY_PAGE_TIMEOUT_MS && reusedDesktopCtx\n      ? reusedDesktopCtx\n      : await browser.newContext({ viewport: DESKTOP_VIEWPORT });\n  reusedDesktopCtx = ctx;"
       },
       {
         "file": "src/audits/browser.ts",
         "find": "    return { ok: false, status: navStatus, threw: true };\n  } finally {\n    await ctx.close().catch(() => {});\n  }",
-        "replace": "    return { ok: false, status: navStatus, threw: true };\n  } finally {\n    await page.close().catch(() => {});\n  }"
+        "replace": "    return { ok: false, status: navStatus, threw: true };\n  } finally {\n    if (gotoTimeoutMs === RETRY_PAGE_TIMEOUT_MS) await ctx.close().catch(() => {});\n  }"
+      },
+      {
+        "file": "src/audits/browser.ts",
+        "find": "/** What chromium's desktop load reads off the page for the route-level checks. */",
+        "replace": "let reusedDesktopCtx: import(\"@playwright/test\").BrowserContext | undefined;\n/** What chromium's desktop load reads off the page for the route-level checks. */"
       }
     ],
     "test": "tests/audits/browser.test.ts",
