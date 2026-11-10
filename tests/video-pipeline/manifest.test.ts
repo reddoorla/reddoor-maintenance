@@ -191,3 +191,15 @@ describe("manifest: needsEncode", () => {
     expect(needsEncode({ class: "background" }, onR2("player"))).toBe(false);
   });
 });
+
+describe("manifest: the version dir with milliseconds", () => {
+  it("accepts a dir with a three-digit millisecond suffix, and still accepts the old exact form", () => {
+    expect(parseManifest({ ...good(), dir: "player-20261110T000000Z-500" })).not.toBeNull();
+    expect(parseManifest({ ...good(), dir: "background-20261110T000000Z" })).not.toBeNull();
+  });
+
+  it("rejects a suffix that is not exactly three digits", () => {
+    expect(parseManifest({ ...good(), dir: "player-20261110T000000Z-5" })).toBeNull();
+    expect(parseManifest({ ...good(), dir: "player-20261110T000000Z-5000" })).toBeNull();
+  });
+});

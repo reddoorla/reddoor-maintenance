@@ -6,6 +6,7 @@ import { runPipelineStuck } from "../../video-pipeline/node/stuck-cli.js";
 
 export type VideoPipelineCliOptions = {
   url?: string;
+  key?: string;
   class?: string;
   site?: string;
   repo?: string;
@@ -18,7 +19,7 @@ export type VideoPipelineCliOptions = {
 };
 
 export function runEncodeCommand(opts: VideoPipelineCliOptions) {
-  return runPipelineEncode({ url: opts.url, class: opts.class, site: opts.site });
+  return runPipelineEncode({ url: opts.url, class: opts.class, site: opts.site, key: opts.key });
 }
 
 export function runStuckCommand(opts: VideoPipelineCliOptions) {

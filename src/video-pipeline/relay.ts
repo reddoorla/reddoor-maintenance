@@ -11,6 +11,10 @@ export type RelayConfig = {
   site: string;
   repo: string;
   dispatchToken: string | undefined;
+  /** The git ref the workflow runs on. Defaults to "main" in dispatchEncode. */
+  ref?: string | undefined;
+  /** The workflow file to dispatch. Defaults to video-encode.yml in dispatchEncode. */
+  workflow?: string | undefined;
   mediaBase: string | undefined;
   rules: VideoRules;
   getDocuments: (ids: string[]) => Promise<DocLike[]>;
@@ -41,6 +45,8 @@ export async function handlePrismicWebhook(
   } catch {
     return { status: 400, body: "bad json" };
   }
+  // An unset secret is a deployment fault (500), not a wrong secret (401): nothing is compared against an empty string.
+  if (!cfg.secret) return { status: 500, body: "PRISMIC_WEBHOOK_SECRET is not set" };
   if (!verifyPrismicSecret(body, cfg.secret)) return { status: 401, body: "bad secret" };
   if (!cfg.dispatchToken) return { status: 500, body: "VIDEO_DISPATCH_TOKEN is not set" };
   if (!cfg.mediaBase) return { status: 500, body: "VIDEO_MEDIA_BASE is not set" };
@@ -68,7 +74,10 @@ export async function handlePrismicWebhook(
       continue;
     }
     const key = videoKey(cfg.site, href);
-    if (key === null) continue;
+    if (key === null) {
+      refused.push(video.url);
+      continue;
+    }
     const r = await resolveVideo(href, {
       site: cfg.site,
       mediaBase: cfg.mediaBase,
@@ -82,7 +91,13 @@ export async function handlePrismicWebhook(
     try {
       await dispatchEncode(
         { url: href, class: video.class, key },
-        { repo: cfg.repo, token: cfg.dispatchToken, fetch: cfg.fetch },
+        {
+          repo: cfg.repo,
+          token: cfg.dispatchToken,
+          fetch: cfg.fetch,
+          ref: cfg.ref,
+          workflow: cfg.workflow,
+        },
       );
       dispatched.push(key);
     } catch (err) {

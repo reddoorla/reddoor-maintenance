@@ -237,3 +237,56 @@ describe("node stuck CLI", () => {
     expect(h.calls.some((c) => c.method === "PATCH")).toBe(false);
   });
 });
+
+describe("node stuck CLI: keys, flags and rules", () => {
+  it("a Prismic video whose key cannot be computed is printed as cannot be encoded, not as a re-runnable STUCK line", async () => {
+    const h = harness({ manifest: false });
+    const r = await runPipelineStuck({ ...opts, site: "!!!", openIssue: false }, deps(h.fetch));
+    expect(r.code).toBe(1);
+    expect(r.output).toContain(`cannot be encoded (no video key for this site): ${PRISMIC_URL}`);
+    expect(r.output).not.toContain(`STUCK ${PRISMIC_URL}`);
+    expect(r.output).toContain("stuck: 1 of 1 video(s)");
+  });
+
+  it("--prismic with a slash or a host-like value is code 2 before any fetch, naming the flag", async () => {
+    const h = harness({ manifest: false });
+    const r = await runPipelineStuck(
+      { ...opts, prismic: "evil.example/", openIssue: false },
+      deps(h.fetch),
+    );
+    expect(r.code).toBe(2);
+    expect(r.output).toContain("--prismic");
+    expect(h.calls).toHaveLength(0);
+  });
+
+  it("a valid --prismic slug passes the check", async () => {
+    const h = harness({ manifest: true });
+    const r = await runPipelineStuck(
+      { ...opts, prismic: "reddoor-la", openIssue: false },
+      deps(h.fetch),
+    );
+    expect(r.code).toBe(0);
+  });
+
+  it("a rules key that matches no slice in any document is a WARN line; the exit code is unchanged", async () => {
+    const h = harness({ manifest: true });
+    const rules = { ...RULES, ghost_slice: [{ field: "video_mp4", class: "player" }] };
+    const r = await runPipelineStuck(
+      { ...opts, openIssue: false },
+      deps(h.fetch, { GITHUB_TOKEN: "gh" }, JSON.stringify(rules)),
+    );
+    expect(r.code).toBe(0);
+    expect(r.output).toContain("WARN rules: ghost_slice matched no slice in 1 documents");
+    expect(r.output).not.toContain("WARN rules: offer_hero");
+  });
+
+  it("$document is never warned about, even when no document has the field", async () => {
+    const h = harness({ manifest: true });
+    const rules = { ...RULES, $document: [{ field: "hero_video", class: "player" }] };
+    const r = await runPipelineStuck(
+      { ...opts, openIssue: false },
+      deps(h.fetch, { GITHUB_TOKEN: "gh" }, JSON.stringify(rules)),
+    );
+    expect(r.output).not.toContain("WARN rules: $document");
+  });
+});

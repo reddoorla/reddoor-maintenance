@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createHash } from "node:crypto";
-import { putObject, signV4 } from "../../src/video-pipeline/node/s3.js";
+import { getObject, putObject, signV4 } from "../../src/video-pipeline/node/s3.js";
 
 const EMPTY = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
@@ -96,5 +96,87 @@ describe("node s3: putObject", () => {
     await expect(
       putObject(cfg, "x.mp4", new Uint8Array([1]), { contentType: "video/mp4", fetch: fakeFetch }),
     ).rejects.toThrow("403");
+  });
+});
+
+describe("node s3: getObject", () => {
+  const cfg = {
+    endpoint: "https://acct.r2.cloudflarestorage.com",
+    bucket: "reddoor-video",
+    accessKeyId: "AKID",
+    secretAccessKey: "secret",
+  };
+
+  it("a 404 is null", async () => {
+    const fakeFetch = (async () => new Response(null, { status: 404 })) as unknown as typeof fetch;
+    const got = await getObject(cfg, "k/manifest.json", {
+      fetch: fakeFetch,
+      now: new Date("2026-11-10T12:00:00Z"),
+    });
+    expect(got).toBeNull();
+  });
+
+  it("a 200 is the body bytes, signed as a GET to the encoded key", async () => {
+    const calls: { url: string; init: RequestInit }[] = [];
+    const fakeFetch = (async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      return new Response('{"a":1}', { status: 200 });
+    }) as unknown as typeof fetch;
+    const got = await getObject(cfg, "a/b c/manifest.json", {
+      fetch: fakeFetch,
+      now: new Date("2026-11-10T12:00:00Z"),
+    });
+    expect(new TextDecoder().decode(got!)).toBe('{"a":1}');
+    expect(calls[0]!.url).toBe(
+      "https://acct.r2.cloudflarestorage.com/reddoor-video/a/b%20c/manifest.json",
+    );
+    expect(calls[0]!.init.method).toBe("GET");
+    const headers = calls[0]!.init.headers as Record<string, string>;
+    expect(headers.authorization!.startsWith("AWS4-HMAC-SHA256 Credential=AKID/")).toBe(true);
+  });
+
+  it("a 500 throws with the status", async () => {
+    const fakeFetch = (async () =>
+      new Response("boom", { status: 500 })) as unknown as typeof fetch;
+    await expect(getObject(cfg, "x/manifest.json", { fetch: fakeFetch })).rejects.toThrow("500");
+  });
+});
+
+describe("node s3: putObject's signature round-trips", () => {
+  it("the authorization header equals a fresh signV4 over the captured method, URL and headers, plus host", async () => {
+    const cfg = {
+      endpoint: "https://acct.r2.cloudflarestorage.com",
+      bucket: "reddoor-video",
+      accessKeyId: "AKID",
+      secretAccessKey: "secret",
+    };
+    const now = new Date("2026-11-10T12:00:00Z");
+    let captured: { url: string; init: RequestInit } | undefined;
+    const fakeFetch = (async (url: string, init: RequestInit) => {
+      captured = { url, init };
+      return new Response(null, { status: 200 });
+    }) as unknown as typeof fetch;
+    const body = new TextEncoder().encode("hello");
+    await putObject(cfg, "a/b.mp4", body, {
+      contentType: "video/mp4",
+      cacheControl: "public, max-age=60",
+      fetch: fakeFetch,
+      now,
+    });
+    const sent = captured!.init.headers as Record<string, string>;
+    const url = new URL(captured!.url);
+    const { authorization: _sent, ...signed } = sent;
+    const { authorization } = signV4({
+      method: "PUT",
+      url,
+      headers: { host: url.host, "x-amz-date": "20261110T120000Z", ...signed },
+      payloadHash: sent["x-amz-content-sha256"]!,
+      accessKeyId: "AKID",
+      secretAccessKey: "secret",
+      region: "auto",
+      service: "s3",
+      amzDate: "20261110T120000Z",
+    });
+    expect(sent.authorization).toBe(authorization);
   });
 });

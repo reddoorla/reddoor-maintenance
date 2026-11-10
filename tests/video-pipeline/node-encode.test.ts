@@ -54,10 +54,20 @@ function fakeFetch(calls: Call[], putFails: (url: string) => boolean = () => fal
       );
     }
     if (url.startsWith(R2)) {
+      if (method === "GET" && url.endsWith("/manifest.json"))
+        return new Response(null, { status: 404 });
       return new Response(null, { status: putFails(url) ? 500 : 200 });
     }
     return new Response("master-bytes", { status: 200 });
   }) as unknown as typeof globalThis.fetch;
+}
+
+/** Every URL fails with 500, except the manifest GET, which is 404 (no manifest yet). */
+function failingDownload(): typeof globalThis.fetch {
+  return (async (input: string | URL | Request) =>
+    new Response(null, {
+      status: String(input).endsWith("/manifest.json") ? 404 : 500,
+    })) as unknown as typeof globalThis.fetch;
 }
 
 const bodyText = (b: unknown) =>
@@ -93,8 +103,7 @@ describe("node encode: validation", () => {
 
   it("background without CF_AI_TOKEN passes validation", async () => {
     const { CF_AI_TOKEN: _drop, ...noCf } = env;
-    const failingFetch = (async () =>
-      new Response(null, { status: 500 })) as unknown as typeof globalThis.fetch;
+    const failingFetch = failingDownload();
     const tmp = await mkdtemp(join(tmpdir(), "enc-val-"));
     const r = await runPipelineEncode(
       { url: PRISMIC, class: "background", site: "s" },
@@ -161,7 +170,7 @@ describe("node encode: end to end with fakes", () => {
     const puts = calls.filter((c) => c.method === "PUT");
     expect(puts.at(-1)!.url).toBe(`${R2}/reddoor-video/${KEY}/manifest.json`);
     const putUrls = puts.map((c) => c.url!);
-    const dir = `${R2}/reddoor-video/${KEY}/player-20261110T000000Z`;
+    const dir = `${R2}/reddoor-video/${KEY}/player-20261110T000000Z-000`;
     for (const file of [
       `${STEM}-1080.mp4`,
       `${STEM}-720.mp4`,
@@ -173,7 +182,7 @@ describe("node encode: end to end with fakes", () => {
     const manifest = parseManifest(JSON.parse(bodyText(puts.at(-1)!.body)));
     expect(manifest).not.toBeNull();
     expect(manifest!.key).toBe(KEY);
-    expect(manifest!.dir).toBe("player-20261110T000000Z");
+    expect(manifest!.dir).toBe("player-20261110T000000Z-000");
     expect(manifest!.source).toBe("/reddoor-la/Offer%20Hero.mp4");
     expect(manifest!.files.captions).toBe(`${STEM}.vtt`);
     expect(manifest!.files.mobileMp4).toBe(`${STEM}-720.mp4`);
@@ -196,12 +205,12 @@ describe("node encode: end to end with fakes", () => {
     );
     expect(r.code, r.output).toBe(0);
     const puts = calls.filter((c) => c.method === "PUT");
-    const dir = `${R2}/reddoor-video/${KEY}/background-20261110T000000Z`;
+    const dir = `${R2}/reddoor-video/${KEY}/background-20261110T000000Z-000`;
     expect(puts.map((c) => c.url!)).toContain(`${dir}/${STEM}-1080.webm`);
     expect(puts.map((c) => c.url!)).toContain(`${dir}/${STEM}-phone-720.mp4`);
     const manifest = parseManifest(JSON.parse(bodyText(puts.at(-1)!.body)));
     expect(manifest!.class).toBe("background");
-    expect(manifest!.dir).toBe("background-20261110T000000Z");
+    expect(manifest!.dir).toBe("background-20261110T000000Z-000");
     expect(manifest!.files.webm).toBe(`${STEM}-1080.webm`);
     expect(manifest!.files.mobileMp4).toBe(`${STEM}-phone-720.mp4`);
     expect(manifest!.files.captions).toBeUndefined();
@@ -223,7 +232,7 @@ describe("node encode: end to end with fakes", () => {
       },
     );
     expect(r.code).toBe(1);
-    expect(r.output).toContain(`FAILED ${KEY}/player-20261110T000000Z/${STEM}.vtt`);
+    expect(r.output).toContain(`FAILED ${KEY}/player-20261110T000000Z-000/${STEM}.vtt`);
     const puts = calls.filter((c) => c.method === "PUT").map((c) => c.url!);
     expect(puts.some((u) => u.endsWith("manifest.json"))).toBe(false);
   });
@@ -304,8 +313,7 @@ describe("node encode: end to end with fakes", () => {
   });
 
   it("a numeric site (cac passes numbers) is coerced, not a TypeError", async () => {
-    const failingFetch = (async () =>
-      new Response(null, { status: 500 })) as unknown as typeof globalThis.fetch;
+    const failingFetch = failingDownload();
     const tmp = await mkdtemp(join(tmpdir(), "enc-num-"));
     const r = await runPipelineEncode(
       { url: PRISMIC, class: "background", site: 123 as unknown as string },
@@ -382,5 +390,158 @@ describe("node encode: end to end with fakes", () => {
     expect(r.output).toContain("FAILED");
     const puts = calls.filter((c) => c.method === "PUT").map((c) => c.url!);
     expect(puts.some((u) => u.endsWith("manifest.json"))).toBe(false);
+  });
+});
+
+describe("node encode: the manifest guard", () => {
+  const manifestOf = (cls: "background" | "player", dir: string) =>
+    JSON.stringify({
+      version: 1,
+      source: "/reddoor-la/Offer%20Hero.mp4",
+      class: cls,
+      key: KEY,
+      dir,
+      encodedAt: "2026-11-09T00:00:00.000Z",
+      files: { mp4: `${STEM}-1080.mp4`, poster: `${STEM}-poster.jpg` },
+    });
+
+  /** The manifest GET answers `manifest()`; the master and R2 go to the normal fakes and are recorded. */
+  function withManifest(calls: Call[], manifest: () => Response): typeof globalThis.fetch {
+    const inner = masterFetch(new Response("master-bytes", { status: 200 }), calls);
+    return (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url === PRISMIC) calls.push({ url, method });
+      if (method === "GET" && url.endsWith("/manifest.json")) {
+        calls.push({ url, method });
+        return manifest();
+      }
+      return inner(input, init);
+    }) as unknown as typeof globalThis.fetch;
+  }
+
+  it("an existing player manifest and a background run is SKIP: code 0, no master fetch, no PUT", async () => {
+    const calls: Call[] = [];
+    const tmp = await mkdtemp(join(tmpdir(), "enc-guard-skip-"));
+    const r = await runPipelineEncode(
+      { url: PRISMIC, class: "background", site: "reddoor-website" },
+      {
+        env,
+        fetch: withManifest(
+          calls,
+          () => new Response(manifestOf("player", "player-20261109T000000Z"), { status: 200 }),
+        ),
+        spawn: spawnWritesOutputs(calls),
+        tmpDir: tmp,
+        now: () => NOW,
+        stderr: { write: () => true },
+      },
+    );
+    expect(r.code, r.output).toBe(0);
+    expect(r.output).toContain("SKIP");
+    expect(r.output).toContain(`SKIP ${KEY}: already encoded as player (player-20261109T000000Z)`);
+    expect(calls.filter((c) => c.method === "PUT")).toHaveLength(0);
+    expect(calls.some((c) => c.url === PRISMIC)).toBe(false);
+    expect(calls.some((c) => c.cmd === "ffmpeg")).toBe(false);
+  });
+
+  it("an existing background manifest and a player run encodes and PUTs a player manifest", async () => {
+    const calls: Call[] = [];
+    const tmp = await mkdtemp(join(tmpdir(), "enc-guard-up-"));
+    const r = await runPipelineEncode(
+      { url: PRISMIC, class: "player", site: "reddoor-website" },
+      {
+        env,
+        fetch: withManifest(
+          calls,
+          () =>
+            new Response(manifestOf("background", "background-20261109T000000Z"), { status: 200 }),
+        ),
+        spawn: spawnWritesOutputs(calls),
+        tmpDir: tmp,
+        now: () => NOW,
+        stderr: { write: () => true },
+      },
+    );
+    expect(r.code, r.output).toBe(0);
+    expect(calls.some((c) => c.url === PRISMIC)).toBe(true);
+    const puts = calls.filter((c) => c.method === "PUT");
+    expect(puts.at(-1)!.url).toBe(`${R2}/reddoor-video/${KEY}/manifest.json`);
+    const manifest = parseManifest(JSON.parse(bodyText(puts.at(-1)!.body)));
+    expect(manifest!.class).toBe("player");
+    expect(manifest!.dir).toBe("player-20261110T000000Z-000");
+  });
+
+  it("a manifest GET that fails with 500 is code 1 naming the manifest key, with no PUT and no master fetch", async () => {
+    const calls: Call[] = [];
+    const tmp = await mkdtemp(join(tmpdir(), "enc-guard-500-"));
+    const r = await runPipelineEncode(
+      { url: PRISMIC, class: "player", site: "reddoor-website" },
+      {
+        env,
+        fetch: withManifest(calls, () => new Response("boom", { status: 500 })),
+        spawn: spawnWritesOutputs(calls),
+        tmpDir: tmp,
+        now: () => NOW,
+        stderr: { write: () => true },
+      },
+    );
+    expect(r.code).toBe(1);
+    expect(r.output).toContain(`${KEY}/manifest.json`);
+    expect(calls.filter((c) => c.method === "PUT")).toHaveLength(0);
+    expect(calls.some((c) => c.url === PRISMIC)).toBe(false);
+  });
+});
+
+describe("node encode: the dispatched key and the version stamp", () => {
+  it("--key equal to the computed key passes the check (it proceeds to the download)", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "enc-key-match-"));
+    const r = await runPipelineEncode(
+      { url: PRISMIC, class: "background", site: "reddoor-website", key: KEY },
+      { env, fetch: failingDownload(), tmpDir: tmp, now: () => NOW },
+    );
+    expect(r.output).not.toContain("does not match");
+    expect(r.code).toBe(1);
+    expect(r.output).toContain("FAILED download");
+  });
+
+  it("--key that differs from the computed key is code 2, naming both keys and the site, with no fetch", async () => {
+    const calls: Call[] = [];
+    const tmp = await mkdtemp(join(tmpdir(), "enc-key-miss-"));
+    const given = "reddoor-website/other-000000";
+    const r = await runPipelineEncode(
+      { url: PRISMIC, class: "background", site: "reddoor-website", key: given },
+      { env, fetch: fakeFetch(calls), tmpDir: tmp, now: () => NOW },
+    );
+    expect(r.code).toBe(2);
+    expect(r.output).toContain(`--key ${given} does not match ${KEY} for --site reddoor-website`);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("two encodes 500 ms apart write different version directories", async () => {
+    const dirs: string[] = [];
+    for (const t of [NOW, new Date(NOW.getTime() + 500)]) {
+      const calls: Call[] = [];
+      const tmp = await mkdtemp(join(tmpdir(), "enc-ms-"));
+      const r = await runPipelineEncode(
+        { url: PRISMIC, class: "background", site: "reddoor-website" },
+        {
+          env,
+          fetch: fakeFetch(calls),
+          spawn: spawnWritesOutputs(calls),
+          tmpDir: tmp,
+          now: () => t,
+          stderr: { write: () => true },
+        },
+      );
+      expect(r.code, r.output).toBe(0);
+      const manifest = parseManifest(
+        JSON.parse(bodyText(calls.filter((c) => c.method === "PUT").at(-1)!.body)),
+      );
+      dirs.push(manifest!.dir);
+    }
+    expect(dirs[0]).toBe("background-20261110T000000Z-000");
+    expect(dirs[1]).toBe("background-20261110T000000Z-500");
+    expect(dirs[0]).not.toBe(dirs[1]);
   });
 });

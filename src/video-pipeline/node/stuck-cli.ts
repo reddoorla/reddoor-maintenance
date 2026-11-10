@@ -4,7 +4,7 @@ import { readFile as fsReadFile } from "node:fs/promises";
 import { findVideos, mergeFound, parseVideoRules } from "../classify.js";
 import type { DocLike, VideoRules } from "../classify.js";
 import { REPO_NAME } from "../dispatch.js";
-import { isPrismicFileUrl } from "../key.js";
+import { isPrismicFileUrl, videoKey } from "../key.js";
 import { STUCK_LABEL, STUCK_TITLE, findStuck, stuckIssueBody } from "../stuck.js";
 import type { Renditions } from "../manifest.js";
 import { resolveVideo } from "../manifest.js";
@@ -77,6 +77,24 @@ async function fetchAllDocuments(
 
 type IssueRef = { number: number; body?: string; pull_request?: unknown };
 
+/** A Prismic repository name: the subdomain of <name>.cdn.prismic.io, so no slash, dot or colon can reach the URL. */
+const PRISMIC_REPO = /^[a-z0-9][a-z0-9-]*$/i;
+
+/** Every slice_type that appears in an array of any document's data: the same walk findVideos makes. */
+function sliceTypesOf(docs: DocLike[]): Set<string> {
+  const seen = new Set<string>();
+  for (const doc of docs) {
+    if (!isObject(doc.data)) continue;
+    for (const value of Object.values(doc.data)) {
+      if (!Array.isArray(value)) continue;
+      for (const slice of value) {
+        if (isObject(slice) && typeof slice.slice_type === "string") seen.add(slice.slice_type);
+      }
+    }
+  }
+  return seen;
+}
+
 /** Opens or updates the tracking issue. Returns the output line. */
 async function syncIssue(
   repo: string,
@@ -139,6 +157,12 @@ export async function runPipelineStuck(
     };
   }
   if (!opts.prismic) return { output: "--prismic <repo> is required", code: 2 };
+  if (!PRISMIC_REPO.test(opts.prismic)) {
+    return {
+      output: `--prismic must be a Prismic repository name (letters, digits, hyphens); got ${JSON.stringify(opts.prismic)}`,
+      code: 2,
+    };
+  }
   if (!opts.site) return { output: "--site <name> is required", code: 2 };
   if (!opts.mediaBase) return { output: "--media-base <url> is required", code: 2 };
   if (opts.repo && !REPO_NAME.test(opts.repo)) {
@@ -152,6 +176,11 @@ export async function runPipelineStuck(
     return { output: err instanceof Error ? err.message : String(err), code: 2 };
   }
   if (docs.length === 0) return { output: "FAILED prismic: no documents", code: 2 };
+  // A rules key that names no slice in any document is a typo or a dead rule: say so, without changing the exit code.
+  const seenSlices = sliceTypesOf(docs);
+  const warnings = Object.keys(rules)
+    .filter((k) => k !== "$document" && !seenSlices.has(k))
+    .map((k) => `WARN rules: ${k} matched no slice in ${docs.length} documents`);
   const found = mergeFound(docs.flatMap((d) => findVideos(d, rules)));
   const cache = new Map<string, Promise<Renditions>>();
   const resolved = new Map<string, Renditions>();
@@ -168,10 +197,14 @@ export async function runPipelineStuck(
   }
   const current = now();
   const stuck = findStuck(found, resolved, current);
-  const lines = stuck.map((v) =>
-    isPrismicFileUrl(v.url)
-      ? `STUCK ${v.url} class=${v.class} document=${v.documentId} age=${v.ageMs === null ? "unknown" : `${Math.round(v.ageMs / 60000)}min`}`
-      : `cannot be encoded (not a Prismic file URL): ${v.url}`,
+  const site = opts.site;
+  const lines = [...warnings];
+  lines.push(
+    ...stuck.map((v) =>
+      isPrismicFileUrl(v.url) && videoKey(site, v.url) !== null
+        ? `STUCK ${v.url} class=${v.class} document=${v.documentId} age=${v.ageMs === null ? "unknown" : `${Math.round(v.ageMs / 60000)}min`}`
+        : `cannot be encoded (${isPrismicFileUrl(v.url) ? "no video key for this site" : "not a Prismic file URL"}): ${v.url}`,
+    ),
   );
   lines.push(`documents: ${docs.length}, videos: ${found.length}`);
   lines.push(`stuck: ${stuck.length} of ${found.length} video(s)`);

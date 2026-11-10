@@ -13,7 +13,7 @@ import type { VideoClass } from "../key.js";
 import { parseManifest } from "../manifest.js";
 import type { ManifestFiles, VideoManifest } from "../manifest.js";
 import { transcribe } from "./captions.js";
-import { putObject } from "./s3.js";
+import { getObject, putObject } from "./s3.js";
 import type { S3Config } from "./s3.js";
 
 function parseUrl(raw: string | undefined): URL | null {
@@ -35,12 +35,12 @@ export type EncodeDeps = {
 };
 
 const MAX_MASTER_BYTES = 120 * 1024 * 1024;
-/** The version directory's stamp: 2026-11-10T00:00:00.000Z becomes 20261110T000000Z. */
+/** The version directory's stamp: 2026-11-10T00:00:00.500Z becomes 20261110T000000Z-500 (second, then milliseconds). */
 const versionStamp = (d: Date): string =>
   d
     .toISOString()
     .replace(/[-:]/g, "")
-    .replace(/\.\d{3}Z$/, "Z");
+    .replace(/\.(\d{3})Z$/, "Z-$1");
 const IMMUTABLE = "public, max-age=31536000, immutable";
 const MANIFEST_CACHE = "public, max-age=60";
 const CONTENT_TYPES: Record<string, string> = {
@@ -88,7 +88,12 @@ async function downloadTo(url: string, dest: string, fetchImpl: typeof fetch): P
 
 /** Validates, downloads the Prismic master, encodes it with the video command, captions player videos, uploads to R2, writes the manifest last. */
 export async function runPipelineEncode(
-  opts: { url?: string | undefined; class?: string | undefined; site?: string | undefined },
+  opts: {
+    url?: string | undefined;
+    class?: string | undefined;
+    site?: string | undefined;
+    key?: string | undefined;
+  },
   deps: EncodeDeps = {},
 ): Promise<{ output: string; code: number }> {
   const env = deps.env ?? process.env;
@@ -114,6 +119,10 @@ export async function runPipelineEncode(
   if (key === null) {
     return fail(`--url must be a video file (${VIDEO_EXT.source}) whose name slugifies to a key`);
   }
+  // The workflow dispatches a key it computed; an encode that would write under a different key is refused.
+  if (opts.key != null && String(opts.key) !== key) {
+    return fail(`--key ${String(opts.key)} does not match ${key} for --site ${site}`);
+  }
   const sourcePath = sourceOf(url.toString());
   if (sourcePath === null) return fail("--url must be an https Prismic file URL");
 
@@ -131,6 +140,25 @@ export async function runPipelineEncode(
     secretAccessKey: env.R2_SECRET_ACCESS_KEY!,
   };
   const cfAccount = env.CF_ACCOUNT_ID || accountId;
+
+  // A player manifest is never downgraded: a background run over an existing player skips, before any download.
+  const manifestKey = `${key}/manifest.json`;
+  let existing: VideoManifest | null = null;
+  try {
+    const bytes = await getObject(cfg, manifestKey, { fetch: fetchImpl, now: now() });
+    if (bytes !== null) {
+      try {
+        existing = parseManifest(JSON.parse(new TextDecoder().decode(bytes)));
+      } catch {
+        existing = null;
+      }
+    }
+  } catch (err) {
+    return fail(`FAILED manifest: ${err instanceof Error ? err.message : String(err)}`, 1);
+  }
+  if (existing !== null && existing.class === "player" && profile === "background") {
+    return { output: `SKIP ${key}: already encoded as player (${existing.dir})`, code: 0 };
+  }
 
   const tmp = await mkdtemp(join(deps.tmpDir ?? tmpdir(), "video-encode-"));
   const lines: string[] = [];

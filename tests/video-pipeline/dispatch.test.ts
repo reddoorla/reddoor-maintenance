@@ -4,7 +4,7 @@ import { dispatchEncode } from "../../src/video-pipeline/dispatch.js";
 const job = { url: "https://h.prismic.io/r/a.mp4", class: "player" as const, key: "site/a" };
 
 describe("dispatch: dispatchEncode", () => {
-  it("resolves on 204 and posts the event", async () => {
+  it("resolves on 204 and posts a workflow dispatch with the inputs", async () => {
     const fetch = vi.fn(async () => new Response(null, { status: 204 }));
     await dispatchEncode(job, {
       repo: "reddoorla/site",
@@ -13,10 +13,31 @@ describe("dispatch: dispatchEncode", () => {
     });
     expect(fetch).toHaveBeenCalledTimes(1);
     const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe("https://api.github.com/repos/reddoorla/site/dispatches");
+    expect(url).toBe(
+      "https://api.github.com/repos/reddoorla/site/actions/workflows/video-encode.yml/dispatches",
+    );
     expect(JSON.parse(init.body as string)).toEqual({
-      event_type: "video-encode",
-      client_payload: job,
+      ref: "main",
+      inputs: { url: job.url, class: job.class, key: job.key },
+    });
+  });
+
+  it("a custom ref and workflow are used in the URL and the body", async () => {
+    const fetch = vi.fn(async () => new Response(null, { status: 204 }));
+    await dispatchEncode(job, {
+      repo: "reddoorla/site",
+      token: "t",
+      fetch: fetch as unknown as typeof globalThis.fetch,
+      ref: "release/2026.11",
+      workflow: "encode-two.yaml",
+    });
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe(
+      "https://api.github.com/repos/reddoorla/site/actions/workflows/encode-two.yaml/dispatches",
+    );
+    expect(JSON.parse(init.body as string)).toEqual({
+      ref: "release/2026.11",
+      inputs: { url: job.url, class: job.class, key: job.key },
     });
   });
 
@@ -31,6 +52,17 @@ describe("dispatch: dispatchEncode", () => {
     ).rejects.toThrow("HTTP 404");
   });
 
+  it("a non-204 success status throws", async () => {
+    const fetch = vi.fn(async () => new Response("{}", { status: 200 }));
+    await expect(
+      dispatchEncode(job, {
+        repo: "reddoorla/site",
+        token: "t",
+        fetch: fetch as unknown as typeof globalThis.fetch,
+      }),
+    ).rejects.toThrow("HTTP 200");
+  });
+
   it("a bad repo string throws without fetching", async () => {
     const fetch = vi.fn(async () => new Response(null, { status: 204 }));
     await expect(
@@ -40,6 +72,32 @@ describe("dispatch: dispatchEncode", () => {
         fetch: fetch as unknown as typeof globalThis.fetch,
       }),
     ).rejects.toThrow();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("a bad workflow throws without fetching", async () => {
+    const fetch = vi.fn(async () => new Response(null, { status: 204 }));
+    await expect(
+      dispatchEncode(job, {
+        repo: "reddoorla/site",
+        token: "t",
+        fetch: fetch as unknown as typeof globalThis.fetch,
+        workflow: "../x.yml",
+      }),
+    ).rejects.toThrow("bad workflow");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("a bad ref throws without fetching", async () => {
+    const fetch = vi.fn(async () => new Response(null, { status: 204 }));
+    await expect(
+      dispatchEncode(job, {
+        repo: "reddoorla/site",
+        token: "t",
+        fetch: fetch as unknown as typeof globalThis.fetch,
+        ref: "a..b",
+      }),
+    ).rejects.toThrow("bad ref");
     expect(fetch).not.toHaveBeenCalled();
   });
 });

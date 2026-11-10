@@ -180,8 +180,11 @@ alarm; a stuck video is never closed automatically); `2` an invalid argument,
 a missing variable, or a Prismic or rules error. A caption failure is a
 `WARN captions:` line and the video still ships without captions.
 
+A site's build logs stuck videos and never fails on them: only the hourly `stuck` run goes red, so a
+stuck video cannot block a deploy. Captions are transcribed with Whisper, called with `language: "en"`.
+
 Layout on R2: `<site>/<stem>-<hash>/manifest.json` (cached 60 s), and beside it
-`<class>-<YYYYMMDDTHHMMSSZ>/` holding the renditions (cached immutably). The
+`<class>-<YYYYMMDDTHHMMSSZ>-<mmm>/` (mmm: the milliseconds) holding the renditions (cached immutably). The
 manifest names its version directory in `dir`, so a re-encode writes a new
 directory and never overwrites a file. `<stem>-<hash>` is the file name's slug
 plus the first 10 hex of the sha256 of its path, so two files whose names
@@ -208,9 +211,16 @@ Each value is an array of `{ field, class }`, where `class` is `background`,
 document's own fields rather than to a slice. A file that does not match this
 shape exits `2` with `--rules: <what is wrong>`.
 
-The site's relay must pass the Prismic webhook's `client_payload` through the
-workflow's `env:` block and never inline it into a `run:` script, because the
-payload carries the video URL. The relay refuses a URL with characters outside
+The relay calls the workflow-dispatch API for `video-encode.yml` on `main`, with
+the inputs `url`, `class` and `key`. It does not use `repository_dispatch`, so the
+dispatch token needs only Actions write: a fine-grained PAT on the site repo
+only, with **Actions: read and write** and no Contents permission, set in the
+Netlify env scoped to Functions. A token with Contents write could push to the
+public site repo, and this one cannot.
+
+The site's relay must pass the Prismic webhook's `url`, `class` and `key` inputs
+through the workflow's `env:` block and never inline them into a `run:` script,
+because the URL is carried in them. The relay refuses a URL with characters outside
 `A-Za-z0-9-._~:/?=&%+#@` and lists it under `refused`.
 
 ---

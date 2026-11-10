@@ -66,8 +66,7 @@ export function isVideoLink(value: unknown): value is { url: string } {
     return false;
   }
   if (url.protocol !== "https:") return false;
-  const name = typeof value.name === "string" ? value.name : null;
-  if (name !== null && VIDEO_EXT.test(name)) return true;
+  // The URL's own file name decides, the same rule key.ts uses to compute the key: a link the key cannot be built for is not a video.
   return VIDEO_EXT.test(fileNameOf(value.url) ?? "");
 }
 

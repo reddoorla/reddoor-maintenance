@@ -21,7 +21,7 @@ export type VideoManifest = {
 };
 
 const FILE_NAME = /^[a-z0-9][a-z0-9.-]*$/;
-const DIR = /^(background|player)-\d{8}T\d{6}Z$/;
+const DIR = /^(background|player)-\d{8}T\d{6}Z(-\d{3})?$/;
 const CLASSES: readonly string[] = ["background", "player"];
 
 const isObject = (v: unknown): v is Record<string, unknown> =>

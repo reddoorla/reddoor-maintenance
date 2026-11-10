@@ -509,6 +509,10 @@ cli
   )
   .option("--url <url>", "encode: the https Prismic file URL of the video master")
   .option("--class <class>", "encode: background (muted loop) or player (keeps audio)")
+  .option(
+    "--key <key>",
+    "encode: the key the workflow dispatched; refused unless it equals the key for --url and --site",
+  )
   .option("--site <name>", "encode and stuck: the site's name, the first segment of each key")
   .option("--repo <owner/name>", "stuck --open-issue: the GitHub repo that holds the issue")
   .option("--prismic <repo>", "stuck: the Prismic repository to scan")
@@ -521,6 +525,7 @@ cli
       opts: {
         url?: string;
         class?: string;
+        key?: string;
         site?: string;
         repo?: string;
         prismic?: string;

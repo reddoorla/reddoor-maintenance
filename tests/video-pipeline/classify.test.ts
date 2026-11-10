@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { findVideos, mergeFound, parseVideoRules } from "../../src/video-pipeline/classify.js";
+import {
+  findVideos,
+  isVideoLink,
+  mergeFound,
+  parseVideoRules,
+} from "../../src/video-pipeline/classify.js";
 import type { DocLike, VideoRules } from "../../src/video-pipeline/classify.js";
 
 const media = (url: string, extra: Record<string, unknown> = {}) => ({
@@ -159,5 +164,28 @@ describe("classify: parseVideoRules", () => {
   it("names the slice type and index in the message", () => {
     const msg = parseVideoRules({ offer_hero: [{ field: "v", class: "loop" }] });
     expect(msg).toEqual(expect.stringContaining("offer_hero"));
+  });
+});
+
+describe("classify: isVideoLink", () => {
+  it("the URL's own file name decides, not the name field", () => {
+    const link = {
+      link_type: "Media",
+      kind: "document",
+      name: "clip.mp4",
+      url: "https://x.cdn.prismic.io/x/abc123",
+    };
+    expect(isVideoLink(link)).toBe(false);
+  });
+
+  it("a video URL whose name field is not a video is still a video", () => {
+    expect(
+      isVideoLink({
+        link_type: "Media",
+        kind: "document",
+        name: "notes.txt",
+        url: "https://x.cdn.prismic.io/x/clip.mp4",
+      }),
+    ).toBe(true);
   });
 });

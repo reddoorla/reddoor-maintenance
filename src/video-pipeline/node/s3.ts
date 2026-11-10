@@ -162,3 +162,25 @@ export async function headObject(
   if (res.status === 404) return false;
   throw new Error(`HEAD ${key}: HTTP ${res.status}`);
 }
+
+/** The object's bytes; null on a 404; throws on any other non-2xx. */
+export async function getObject(
+  cfg: S3Config,
+  key: string,
+  opts?: { fetch?: typeof fetch; now?: Date },
+): Promise<Uint8Array | null> {
+  const res = await signedRequest(
+    cfg,
+    "GET",
+    key,
+    { "x-amz-content-sha256": EMPTY_SHA256 },
+    EMPTY_SHA256,
+    opts?.now ?? new Date(),
+    opts?.fetch ?? fetch,
+  );
+  if (res.status === 404) return null;
+  if (res.status < 200 || res.status > 299) {
+    throw new Error(`GET ${key}: HTTP ${res.status}`);
+  }
+  return new Uint8Array(await res.arrayBuffer());
+}

@@ -137,12 +137,12 @@ describe("relay: handlePrismicWebhook", () => {
     const bodies = dispatches.map((c) => JSON.parse(c.body!));
     expect(bodies).toEqual([
       {
-        event_type: "video-encode",
-        client_payload: { url: PLAYER_URL, class: "player", key: videoKey(SITE, PLAYER_URL) },
+        ref: "main",
+        inputs: { url: PLAYER_URL, class: "player", key: videoKey(SITE, PLAYER_URL) },
       },
       {
-        event_type: "video-encode",
-        client_payload: { url: BG_URL, class: "background", key: videoKey(SITE, BG_URL) },
+        ref: "main",
+        inputs: { url: BG_URL, class: "background", key: videoKey(SITE, BG_URL) },
       },
     ]);
     const out = JSON.parse(r.body);
@@ -185,7 +185,7 @@ describe("relay: handlePrismicWebhook", () => {
     const h = harness({
       fetchImpl: (call) => {
         if (call.url.startsWith("https://api.github.com/")) {
-          return JSON.parse(call.body!).client_payload.url === PLAYER_URL
+          return JSON.parse(call.body!).inputs.url === PLAYER_URL
             ? new Response("boom", { status: 500 })
             : new Response(null, { status: 204 });
         }
@@ -218,6 +218,10 @@ describe("relay: handlePrismicWebhook", () => {
     const out = JSON.parse(r.body);
     expect(out.dispatched).toContain(key);
     expect(out.skipped).not.toContain(key);
+    expect(
+      JSON.parse(h.calls.find((c) => c.url.startsWith("https://api.github.com/"))!.body!).inputs
+        .class,
+    ).toBe("player");
   });
 
   it("no VIDEO_MEDIA_BASE is a 500 after the secret check, and nothing runs", async () => {
@@ -259,7 +263,7 @@ describe("relay: handlePrismicWebhook", () => {
     const r = await handlePrismicWebhook({ method: "POST", body: hook() }, h.cfg);
     expect(r.status).toBe(200);
     const dispatch = h.calls.find((c) => c.url.startsWith("https://api.github.com/"))!;
-    expect(JSON.parse(dispatch.body!).client_payload.url).toBe(
+    expect(JSON.parse(dispatch.body!).inputs.url).toBe(
       "https://reddoor-la.cdn.prismic.io/reddoor-la/Offer%20Hero.mp4",
     );
   });
@@ -273,5 +277,72 @@ describe("relay: handlePrismicWebhook", () => {
     expect(r.status).toBe(200);
     expect(JSON.parse(r.body)).toEqual({ ignored: "test-trigger" });
     expect(h.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("relay: keys and secrets", () => {
+  it("a video whose key cannot be computed (an empty site slug) is refused, never dropped", async () => {
+    const h = harness();
+    h.cfg.site = "!!!";
+    const r = await handlePrismicWebhook({ method: "POST", body: hook() }, h.cfg);
+    expect(r.status).toBe(200);
+    const out = JSON.parse(r.body);
+    expect(out.refused).toEqual([PLAYER_URL, BG_URL]);
+    expect(out.dispatched).toEqual([]);
+    expect(h.calls.some((c) => c.url.startsWith("https://api.github.com/"))).toBe(false);
+  });
+
+  it("one webhook whose two documents hold one url (background, then player) is one dispatch, class player", async () => {
+    const h = harness();
+    const docA = {
+      id: "A",
+      last_publication_date: "2026-11-10T10:00:00Z",
+      data: {
+        body: [
+          {
+            slice_type: "screen_width_media",
+            primary: {
+              video_mp4: {
+                link_type: "Media",
+                url: PLAYER_URL,
+                name: "Offer Hero.mp4",
+                kind: "document",
+              },
+              loopvideo: true,
+            },
+          },
+        ],
+      },
+    };
+    const docB = { ...docWith(PLAYER_URL), id: "B" };
+    h.cfg.getDocuments = async () => [docA, docB];
+    const r = await handlePrismicWebhook({ method: "POST", body: hook() }, h.cfg);
+    expect(r.status).toBe(200);
+    const dispatches = h.calls.filter((c) => c.url.startsWith("https://api.github.com/"));
+    expect(dispatches).toHaveLength(1);
+    expect(JSON.parse(dispatches[0]!.body!).inputs.class).toBe("player");
+    expect(JSON.parse(r.body).dispatched).toEqual([videoKey(SITE, PLAYER_URL)]);
+  });
+
+  it("an unset webhook secret is a 500 that names the variable, and nothing runs", async () => {
+    const h = harness();
+    h.cfg.secret = undefined;
+    const r = await handlePrismicWebhook({ method: "POST", body: hook() }, h.cfg);
+    expect(r.status).toBe(500);
+    expect(r.body).toContain("PRISMIC_WEBHOOK_SECRET is not set");
+    expect(h.getDocuments).not.toHaveBeenCalled();
+  });
+
+  it("an empty webhook secret is a 500 too, and a wrong secret is still a 401", async () => {
+    const empty = harness({ secret: "" });
+    const r500 = await handlePrismicWebhook({ method: "POST", body: hook() }, empty.cfg);
+    expect(r500.status).toBe(500);
+    expect(r500.body).toContain("PRISMIC_WEBHOOK_SECRET is not set");
+    const wrong = harness();
+    const r401 = await handlePrismicWebhook(
+      { method: "POST", body: hook({ secret: "x" }) },
+      wrong.cfg,
+    );
+    expect(r401.status).toBe(401);
   });
 });
