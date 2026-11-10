@@ -1194,7 +1194,8 @@ function closerMovedDown(lines) {
 }
 
 /** The block-comment shifts of a patch (#1617, round 1; round 4 scans each hunk as a unit, see
- *  `hunkShifts`): `wrapped`, the wrapped line of each hunk that has one, and `commented`. */
+ *  `hunkShifts`): `wrapped`, the wrapped lines of each hunk (one per reading, so a hunk read two
+ *  ways can give two), `commented` and `dead`. */
 function blockCommentShifts(patch) {
   const wrapped = [];
   const commented = [];
@@ -1250,7 +1251,7 @@ function renamedAway(before, after) {
  *  so a hunk read two ways can flag two lines. A hunk starts inside a block comment only when
  *  its first line is a JSDoc continuation (`*`, as `jsdocFirstLine` reads it, round 5); it is also
  *  read as starting inside one when it removes a line that is `*\/` alone where its old side reads
- *  as code (`closerMovedDown`, #1946), and then both readings count (see `hunkShifts`); otherwise
+ *  as code and adds a line that is `*\/` alone below it (`closerMovedDown`, #1946), and then both readings count (see `hunkShifts`); otherwise
  *  a comment opened above a hunk is not seen, nor is a closer with text before it moved down out
  *  of one. An added line wholly inside a block comment or a template literal does not re-add a
  *  removed assertion, and a removed line wholly inside one does not back an added skip (see
@@ -1270,6 +1271,10 @@ function renamedAway(before, after) {
  *    assertion moved, re-indented or edited below an inline snapshot or a `test.each` table
  *    that closes within the hunk's context is flagged as not re-added, and a skip moved there
  *    as added (#1998 round 6);
+ *  - a lone backtick read as code opens a template that runs to the end of the hunk, with the
+ *    same effect on the lines below it: a backtick inside a regex literal anywhere but right
+ *    after its opening `/` (`/[`'"]/`), or an odd backtick (a Markdown fence) in a comment whose
+ *    hunk starts on a line `jsdocFirstLine` does not take as JSDoc (#1998 round 7);
  *  - text moved within text: a template literal or a comment holding a test or a skip, moved or
  *    re-indented, is flagged as a lost assertion or an added skip. Telling that from an assertion
  *    taken out of code and parked in a string needs the file's full text; pairing the two copies
