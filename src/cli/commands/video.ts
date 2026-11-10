@@ -5,12 +5,20 @@ import type { SpawnFn } from "../../audits/util/spawn.js";
 import { listAssetsByFilename, uploadAsset } from "../../prismic/asset-api.js";
 import type { FetchFn, LibraryAsset } from "../../prismic/asset-api.js";
 import { prismicTokenEnvName, resolvePrismicToken } from "../../prismic/models/token.js";
+import { slugify } from "../../video-pipeline/key.js";
+import type { VideoClass } from "../../video-pipeline/key.js";
+
+export { slugify };
+
+/** background: muted loop (the default). player: keeps audio, with a 720 mp4 and a poster. */
+export type VideoProfile = VideoClass;
 
 export type VideoCommandOptions = {
   out?: string | number;
   name?: string | number;
   maxHeight?: string | number;
   upload?: string | number;
+  profile?: string | number;
   cwd?: string;
 };
 
@@ -39,24 +47,18 @@ const UPLOAD_THROTTLE_MS = 1200;
 const INSTALL_HINT =
   "ffmpeg and ffprobe must be on PATH (macOS: brew install ffmpeg; Debian/Ubuntu: apt install ffmpeg).";
 
-export function slugify(input: string): string {
-  return input
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
 const scaleFilter = (height: number): string => `scale=-2:${height}:flags=lanczos,format=yuv420p`;
 
 export function planRenditions(
   source: { width: number; height: number; rotation?: number },
-  opts: { name: string; maxHeight: number },
+  opts: { name: string; maxHeight: number; profile?: VideoProfile },
 ): Rendition[] {
   const upright = isQuarterTurn(source.rotation)
     ? { width: source.height, height: source.width }
     : { width: source.width, height: source.height };
   let target = Math.min(opts.maxHeight, upright.height);
   if (target % 2 !== 0) target -= 1;
+  if (opts.profile === "player") return planPlayer(opts.name, upright.height, target);
   const main = `${opts.name}-${target}.mp4`;
   const renditions: Rendition[] = [
     {
@@ -137,6 +139,77 @@ export function planRenditions(
   return renditions;
 }
 
+/** The player profile: audio kept (AAC), a 720 mp4 when the master is taller than 720, and a poster from the thumbnail filter (a player's frame 0 is often black). */
+function planPlayer(name: string, uprightHeight: number, target: number): Rendition[] {
+  const main = `${name}-${target}.mp4`;
+  const renditions: Rendition[] = [
+    {
+      file: main,
+      from: null,
+      args: [
+        "-vf",
+        scaleFilter(target),
+        "-c:v",
+        "libx264",
+        "-preset",
+        "slow",
+        "-crf",
+        "23",
+        "-maxrate",
+        "5M",
+        "-bufsize",
+        "10M",
+        "-profile:v",
+        "high",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-ac",
+        "2",
+        "-movflags",
+        "+faststart",
+      ],
+    },
+  ];
+  if (uprightHeight >= 720 && target > 720) {
+    renditions.push({
+      file: `${name}-720.mp4`,
+      from: null,
+      args: [
+        "-vf",
+        scaleFilter(720),
+        "-c:v",
+        "libx264",
+        "-preset",
+        "slow",
+        "-crf",
+        "24",
+        "-maxrate",
+        "2500k",
+        "-bufsize",
+        "5000k",
+        "-profile:v",
+        "main",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "96k",
+        "-ac",
+        "2",
+        "-movflags",
+        "+faststart",
+      ],
+    });
+  }
+  renditions.push({
+    file: `${name}-poster.jpg`,
+    from: main,
+    args: ["-an", "-vf", "thumbnail=60", "-frames:v", "1", "-update", "1", "-q:v", "3"],
+  });
+  return renditions;
+}
+
 export function isQuarterTurn(rotation: number | undefined): boolean {
   if (rotation === undefined) return false;
   const r = ((Math.round(rotation) % 360) + 360) % 360;
@@ -183,6 +256,11 @@ function parseMaxHeight(value: string | number | undefined): number | null {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isInteger(n) || n < 2) return null;
   return n;
+}
+
+function parseProfile(value: string | number | undefined): VideoProfile | null {
+  if (value === undefined) return "background";
+  return value === "background" || value === "player" ? value : null;
 }
 
 function isEnoent(err: unknown): boolean {
@@ -261,6 +339,14 @@ export async function runVideoCommand(
     token = resolved.token;
   }
 
+  const profile = parseProfile(opts.profile);
+  if (profile === null) {
+    return {
+      output: `--profile must be "background" or "player"; got ${JSON.stringify(opts.profile)}`,
+      code: 2,
+    };
+  }
+
   const cwd = opts.cwd ? resolve(opts.cwd) : process.cwd();
   const inputPath = resolve(cwd, input);
   const outDir = resolve(cwd, opts.out !== undefined ? String(opts.out) : DEFAULT_OUT_DIR);
@@ -299,7 +385,7 @@ export async function runVideoCommand(
 
     const plan = planRenditions(
       { width, height, ...(rotation !== undefined ? { rotation } : {}) },
-      { name, maxHeight },
+      { name, maxHeight, profile },
     );
     await mkdir(outDir, { recursive: true });
     for (const r of plan) {

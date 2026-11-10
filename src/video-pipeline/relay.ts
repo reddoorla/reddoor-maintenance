@@ -1,0 +1,77 @@
+import { videoKey } from "./key.js";
+import { dispatchEncode } from "./dispatch.js";
+import { findVideos, mergeFound } from "./classify.js";
+import type { DocLike, VideoRules } from "./classify.js";
+import { resolveVideo } from "./manifest.js";
+import type { Renditions } from "./manifest.js";
+import { parsePrismicWebhook, verifyPrismicSecret } from "./webhook.js";
+
+export type RelayConfig = {
+  secret: string | undefined;
+  site: string;
+  repo: string;
+  dispatchToken: string | undefined;
+  mediaBase: string | undefined;
+  rules: VideoRules;
+  getDocuments: (ids: string[]) => Promise<DocLike[]>;
+  fetch: typeof fetch;
+};
+export type RelayResult = { status: number; body: string };
+
+const json = (status: number, value: unknown): RelayResult => ({
+  status,
+  body: JSON.stringify(value),
+});
+
+/** Order: method, JSON, secret, dispatch token, then the webhook's type and documents, then dispatch. */
+export async function handlePrismicWebhook(
+  req: { method: string; body: string },
+  cfg: RelayConfig,
+): Promise<RelayResult> {
+  if (req.method !== "POST") return { status: 405, body: "method not allowed" };
+  let body: unknown;
+  try {
+    body = JSON.parse(req.body);
+  } catch {
+    return { status: 400, body: "bad json" };
+  }
+  if (!verifyPrismicSecret(body, cfg.secret)) return { status: 401, body: "bad secret" };
+  if (!cfg.dispatchToken) return { status: 500, body: "VIDEO_DISPATCH_TOKEN is not set" };
+
+  const hook = parsePrismicWebhook(body);
+  if (hook.type !== "api-update" || hook.documents.length === 0) {
+    return json(200, { ignored: hook.type });
+  }
+
+  const docs = await cfg.getDocuments(hook.documents);
+  const found = mergeFound(docs.flatMap((d) => findVideos(d, cfg.rules)));
+  const cache = new Map<string, Promise<Renditions>>();
+  const dispatched: string[] = [];
+  const skipped: string[] = [];
+  const failed: string[] = [];
+  for (const video of found) {
+    const key = videoKey(cfg.site, video.url);
+    if (key === null) continue;
+    const r = await resolveVideo(video.url, {
+      site: cfg.site,
+      mediaBase: cfg.mediaBase,
+      fetch: cfg.fetch,
+      cache,
+    });
+    if (r.onR2) {
+      skipped.push(key);
+      continue;
+    }
+    try {
+      await dispatchEncode(
+        { url: video.url, class: video.class, key },
+        { repo: cfg.repo, token: cfg.dispatchToken, fetch: cfg.fetch },
+      );
+      dispatched.push(key);
+    } catch (err) {
+      failed.push(err instanceof Error ? err.message : String(err));
+    }
+  }
+  if (failed.length > 0) return json(502, { dispatched, skipped, failed });
+  return json(200, { dispatched, skipped });
+}

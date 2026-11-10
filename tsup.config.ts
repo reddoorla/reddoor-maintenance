@@ -51,6 +51,9 @@ export default defineConfig({
     // nothing outside its own body.
     "src/smoke/index.ts",
     "src/images/index.ts",
+    // Light, runtime-free subpath for site relays and build code (no fs, no
+    // child_process; node:crypto only). The node-only pipeline is not exported.
+    "src/video-pipeline/index.ts",
     "src/util/git.ts",
     "src/util/pkg.ts",
     "src/recipes/sync-configs.ts",

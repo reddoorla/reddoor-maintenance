@@ -96,8 +96,8 @@ Standalone, outside the `[site]` loop above (it audits an external URL, not a fl
 
 ### Video renditions
 
-`reddoor-maint video <input>` turns one background-video master into the
-renditions the fleet's hero loops play, and can push them straight into a
+`reddoor-maint video <input>` turns one video master into the renditions
+the fleet's hero loops and players play, and can push them straight into a
 site's Prismic media library. Background loops are muted, so every rendition
 drops the audio track (`-an`). It needs `ffmpeg` and `ffprobe` on `PATH`
 (`brew install ffmpeg` / `apt install ffmpeg`); without them it exits `2`.
@@ -118,9 +118,24 @@ label for each rendition goes to stderr before its ffmpeg call, so a long
 encode shows which file the `-stats` line belongs to.
 
 Flags: `--out <dir>` (default `./video-out`), `--name <slug>` (default: the
-input's basename, slugified), `--max-height <n>` (default `1080`). After
+input's basename, slugified), `--max-height <n>` (default `1080`),
+`--profile <name>` (`background` by default; see below). After
+encoding it probes each output and prints a table of file, WxH, size in MB
+and kbps. After
 encoding it probes each output and prints a table of file, WxH, size in MB
 and kbps.
+
+`--profile player` is for a video a visitor starts (a click to play) and
+keeps the audio. The outputs differ, and every mp4 carries AAC audio, stereo,
+with no `-an`:
+
+| Output              | When                     | Encode                                                                                                      |
+| ------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `<name>-<T>.mp4`    | always                   | H.264 high, `-preset slow -crf 23 -maxrate 5M -bufsize 10M`, AAC 128k stereo, `+faststart`                  |
+| `<name>-720.mp4`    | `H >= 720` and `T > 720` | H.264 main at 720p, `-preset slow -crf 24 -maxrate 2500k -bufsize 5000k`, AAC 96k stereo, `+faststart`      |
+| `<name>-poster.jpg` | always                   | the `thumbnail=60` filter on `<name>-<T>.mp4`, so the poster is a representative frame, not a black frame 0 |
+
+There is no webm in the player profile.
 
 `--upload <prismic-repo>` then POSTs each output to that repository's Asset
 API. The token is read from `PRISMIC_TOKEN_<REPO>` only (never the generic
