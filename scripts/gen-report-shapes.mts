@@ -31,6 +31,27 @@
  * specification, applied in `reduceTo()` below, so an older shape is still the
  * producer's output with named fields removed rather than a guess at what the
  * producer used to write.
+ *
+ * THE TWO ADVERSE SHAPES (#893). The five vary which KEYS exist, never the
+ * VALUES that pick a branch in the consumer: every stage succeeds, robots.txt is
+ * fetched and blocks nothing, there is no sitemap, and every category probe
+ * answers. So `adverse-*.json` are two more runs of today's producer, over deps
+ * chosen so each of those takes its other branch. Every value is one the
+ * producer's own code writes when its dependency behaves this way:
+ *
+ *   both       a sitemap.xml listing 12 URLs, so `sitemap.present` is true with
+ *              a real `urlCount` bigger than the 3 pages the crawl reads; and
+ *              one of the three category probes times out, so
+ *              `categoryProbes.attempted` is 3 and `answered` is 2.
+ *   unmeasured robots.txt times out (both tries), so `crawlerAccessMeasured` is
+ *              false; and the accuracy stage's model call returns nothing, so
+ *              that stage RAN AND FAILED: `{ok: false, error}`.
+ *   blocked    robots.txt turns GPTBot away, so `blockedAi` is ["GPTBot"]; the
+ *              accuracy stage succeeds, which is what renders the sitemap count.
+ *
+ * Two files, not one, because one run cannot hold both robots cases honestly:
+ * checks.ts fills `blockedAi` only when the fetch succeeded, so "unmeasured"
+ * and "blocks a crawler" are exclusive by construction.
  */
 import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -166,6 +187,7 @@ const deps: PipelineDeps = {
       finalUrl: url,
       hops: 0,
       body: null,
+      error: null,
     }),
     delayMs: 0,
     sleep: async () => {},
@@ -194,6 +216,85 @@ const deps: PipelineDeps = {
   probeDelayMs: 0,
   probeSleep: async () => {},
 };
+
+/** Twelve URLs, the first three being the pages `crawl` serves, so the crawl
+ *  reads exactly what it reads in the five and the sitemap says the site is
+ *  four times that. */
+const SITEMAP_PATHS = [
+  "",
+  "services",
+  "about",
+  "contact",
+  "commercial-roofing",
+  "flat-roof-repair",
+  "roof-replacement",
+  "roof-inspections",
+  "projects",
+  "reviews",
+  "service-area",
+  "faq",
+];
+const SITEMAP = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${SITEMAP_PATHS.map((p) => `  <url><loc>${HOME}${p}</loc></url>`).join("\n")}
+</urlset>
+`;
+
+/** What `AbortSignal.timeout` throws in crawl.ts's default `fetchUrl`. */
+const timeout = (): Error =>
+  new DOMException("The operation was aborted due to timeout", "TimeoutError");
+
+/** The category probe that dies. Not a 429/529, so probes.ts drops it without
+ *  a retry and it still counts as attempted. The message is the SDK's own. */
+const DEAD_PROBE = analyzeOutput.categoryQueries[1];
+
+type Robots = "unmeasured" | "blocked";
+
+function adverseDeps(robots: Robots): PipelineDeps {
+  return {
+    ...deps,
+    crawl: {
+      ...crawl,
+      async fetchUrl(url): Promise<FetchResponse> {
+        if (url.endsWith("/robots.txt")) {
+          if (robots === "unmeasured") throw timeout();
+          return {
+            status: 200,
+            body: "User-agent: GPTBot\nDisallow: /\n\nUser-agent: *\nAllow: /\n",
+            headers: {},
+          };
+        }
+        if (url.endsWith("/sitemap.xml"))
+          return { status: 200, body: SITEMAP, headers: { "content-type": "application/xml" } };
+        return crawl.fetchUrl(url);
+      },
+    },
+    engines: deps.engines!.map((engine) => ({
+      ...engine,
+      ask: async (query: string) => {
+        if (query === DEAD_PROBE) throw new Error("Request timed out.");
+        return engine.ask(query);
+      },
+    })),
+    accuracy:
+      robots === "unmeasured"
+        ? {
+            ...deps.accuracy!,
+            // accuracy.ts's own throw when the model call comes back empty.
+            run: async () => {
+              throw new Error("accuracy: the model returned no parsed output");
+            },
+          }
+        : deps.accuracy!,
+  };
+}
+
+/** The adverse files, and the ONLY stages each is allowed to fail. Anything
+ *  else failing is the same loud error as in the five. */
+const ADVERSE: Array<{ name: string; robots: Robots; expectFailed: string[] }> = [
+  { name: "adverse-unmeasured", robots: "unmeasured", expectFailed: ["accuracy"] },
+  { name: "adverse-blocked", robots: "blocked", expectFailed: [] },
+];
 
 type Json = Record<string, unknown>;
 
@@ -248,38 +349,66 @@ if (!outDir) {
   process.exit(1);
 }
 
-const result = (await runProspectAudit(
-  HOME,
-  { business: BUSINESS, goal: "enquire" },
-  deps,
-)) as unknown as Json;
-result.generatedAt = GENERATED_AT;
-// Same reason as `generatedAt`: probes.ts stamps every answer with the wall
-// clock, so without this a regeneration diff is five changed timestamps and a
-// real producer change hides among them. Verified: with both frozen, two runs
-// produce byte-identical files.
-const probeAnswers = (result.probes as { data?: { answers?: { askedAt?: string }[] } } | undefined)
-  ?.data?.answers;
-for (const answer of probeAnswers ?? []) answer.askedAt = ASKED_AT;
+/** One offline run of today's producer, with both wall-clock stamps frozen. */
+async function run(withDeps: PipelineDeps): Promise<Json> {
+  const result = (await runProspectAudit(
+    HOME,
+    { business: BUSINESS, goal: "enquire" },
+    withDeps,
+  )) as unknown as Json;
+  result.generatedAt = GENERATED_AT;
+  // Same reason as `generatedAt`: probes.ts stamps every answer with the wall
+  // clock, so without this a regeneration diff is five changed timestamps and a
+  // real producer change hides among them. Verified: with both frozen, two runs
+  // produce byte-identical files.
+  const probeAnswers = (
+    result.probes as { data?: { answers?: { askedAt?: string }[] } } | undefined
+  )?.data?.answers;
+  for (const answer of probeAnswers ?? []) answer.askedAt = ASKED_AT;
+  return result;
+}
 
-const failed = Object.entries(result)
-  .filter(([, v]) => v && typeof v === "object" && (v as Json).ok === false)
-  .map(([k, v]) => `${k}: ${(v as { error?: string }).error}`);
-if (failed.length > 0) {
+/** Every stage that came back `{ok: false}` other than the ones a file is built
+ *  to fail, plus every built-to-fail stage that succeeded instead: either way
+ *  the file no longer exercises what it is named for. */
+function unexpected(result: Json, expectFailed: string[]): string[] {
+  const failedNow = Object.entries(result).filter(
+    ([, v]) => v && typeof v === "object" && (v as Json).ok === false,
+  );
+  return [
+    ...failedNow
+      .filter(([k]) => !expectFailed.includes(k))
+      .map(([k, v]) => `${k}: ${(v as { error?: string }).error}`),
+    ...expectFailed
+      .filter((k) => !failedNow.some(([f]) => f === k))
+      .map((k) => `${k}: built to fail, but it succeeded`),
+  ];
+}
+
+function report(label: string, problems: string[]): void {
+  if (problems.length === 0) return;
   // Loud and on stderr: a stage that failed here is a stage the fixture cannot
   // speak for, and a fixture nobody noticed was half-empty is the whole defect
   // this file exists to close.
-  console.error(`\n${failed.length} stage(s) did not run offline:\n`);
-  for (const f of failed) console.error(`  ${f}`);
+  console.error(`\n${label}: ${problems.length} stage(s) did not run as built offline:\n`);
+  for (const p of problems) console.error(`  ${p}`);
   console.error("");
   process.exitCode = 1;
 }
 
+const write = (name: string, payload: Json): void => {
+  writeFileSync(resolve(outDir, `${name}.json`), `${JSON.stringify(payload, null, 2)}\n`);
+  console.error(`wrote ${name}.json`);
+};
+
+const result = await run(deps);
+report("the five shapes", unexpected(result, []));
+
 mkdirSync(outDir, { recursive: true });
-for (const shape of SHAPES) {
-  writeFileSync(
-    resolve(outDir, `${shape}.json`),
-    `${JSON.stringify(reduceTo(result, shape), null, 2)}\n`,
-  );
-  console.error(`wrote ${shape}.json`);
+for (const shape of SHAPES) write(shape, reduceTo(result, shape));
+
+for (const { name, robots, expectFailed } of ADVERSE) {
+  const adverse = await run(adverseDeps(robots));
+  report(name, unexpected(adverse, expectFailed));
+  write(name, adverse);
 }
