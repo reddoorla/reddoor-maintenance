@@ -74,7 +74,7 @@ beforeAll(async () => {
 async function runGate(opts: {
   stdout: string;
   exit: number;
-}): Promise<{ code: number; out: string }> {
+}): Promise<{ code: number; out: string; raw: string }> {
   const dir = await mkdtemp(join(tmpdir(), "fleet-form-e2e-gate-"));
   const bin = join(dir, "bin");
   await mkdir(bin, { recursive: true });
@@ -91,13 +91,11 @@ async function runGate(opts: {
       cwd: dir,
       env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}`, RUNNER_TEMP: dir },
     });
-    return { code: 0, out: decodeAnnotations(stdout + stderr) };
+    return { code: 0, out: decodeAnnotations(stdout + stderr), raw: stdout + stderr };
   } catch (e) {
     const err = e as { code?: number; stdout?: string; stderr?: string };
-    return {
-      code: err.code ?? 1,
-      out: decodeAnnotations((err.stdout ?? "") + (err.stderr ?? "")),
-    };
+    const raw = (err.stdout ?? "") + (err.stderr ?? "");
+    return { code: err.code ?? 1, out: decodeAnnotations(raw), raw };
   }
 }
 
@@ -581,5 +579,68 @@ describe("fleet-form-e2e — a form off the declared routes is uncovered, named 
     });
     expect(r.out).toContain("FLEET_FORM_E2E undeclared_form=0");
     expect(r.out).not.toContain("forms.paths");
+  });
+});
+
+/** #2006: every annotation that names a site escapes its labels. LABEL holds a `%0A`, which a
+ *  workflow command would decode to a line break, and a raw CR, which would end the command;
+ *  on the wire it must read `%250A` and `%0D`. Asserted on the raw output, the bytes the
+ *  runner parses. */
+describe("fleet-form-e2e — site labels reach each annotation escaped (#2006)", () => {
+  const LABEL = "site-%0A\rx";
+  const WIRE = "site-%250A%0Dx";
+  const line = (raw: string, kind: string, has: string): string =>
+    raw.split("\n").find((l) => l.startsWith(`::${kind}::`) && l.includes(has)) ?? "";
+
+  it("the self-skipped warning ($undeclared)", async () => {
+    const r = await runGate({
+      stdout: `${probed(SIX_COVERED)}\n${selfSkips([LABEL])}\n${writeSummary(7, 0)}\n`,
+      exit: 0,
+    });
+    expect(r.code).toBe(0);
+    expect(line(r.raw, "warning", "self-skipped")).toContain(`tonight: ${WIRE}.`);
+  });
+
+  it("the undeclared-form warning ($formsat)", async () => {
+    const block = resultBlock("skip", LABEL, formE2eUndeclaredFormSummary("/join"));
+    const r = await runGate({
+      stdout: `${probed(SIX_COVERED)}\n${block}\n${writeSummary(7, 0)}\n`,
+      exit: 0,
+    });
+    expect(r.code).toBe(0);
+    expect(line(r.raw, "warning", "forms.paths")).toContain(`tonight: ${WIRE} (/join).`);
+  });
+
+  it("the unreadable-/health warning ($unread), reason included", async () => {
+    const block = resultBlock("skip", LABEL, formE2eHealthUnreadableSummary("HTTP 5%0A3\r"));
+    const r = await runGate({
+      stdout: `${probed(SIX_COVERED)}\n${block}\n${writeSummary(7, 0)}\n`,
+      exit: 0,
+    });
+    expect(r.code).toBe(0);
+    expect(line(r.raw, "warning", "/health could not be read")).toContain(
+      `tonight: ${WIRE} (HTTP 5%250A3%0D).`,
+    );
+  });
+
+  it("the ingest-budget-thin warning ($thin)", async () => {
+    const thin = resultBlock("pass", LABEL, "BUDGET_THIN: probe 9.0s against a 10.0s budget");
+    const r = await runGate({
+      stdout: `${probed(SIX_COVERED)}\n${thin}\n${writeSummary(7, 0)}\n`,
+      exit: 0,
+    });
+    expect(r.code).toBe(0);
+    const warning = line(r.raw, "warning", "budget thin");
+    expect(warning).toContain(WIRE);
+    expect(warning).not.toContain("\r");
+  });
+
+  it("the probed-nothing error ($uncovered)", async () => {
+    const r = await runGate({
+      stdout: `${selfSkips([LABEL])}\n${writeSummary(1, 0)}\n`,
+      exit: 0,
+    });
+    expect(r.code).toBe(1);
+    expect(line(r.raw, "error", "probed no site")).toContain(`unreadable (${WIRE}), and`);
   });
 });

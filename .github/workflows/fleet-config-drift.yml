@@ -83,6 +83,9 @@ jobs:
         run: |
           set -o pipefail
           out="${RUNNER_TEMP:-/tmp}/config-drift.out"
+          # Site labels and reasons are escaped (`%` → `%25`, CR → `%0D`) before they reach
+          # a workflow command (#2006), as the prep-skip line is (#1942).
+          annot() { printf '%s' "$1" | sed -e 's/%/%25/g' -e 's/\r/%0D/g'; }
           rc=0
           node dist/cli/bin.js sync-configs \
             --fleet turso \
@@ -110,7 +113,7 @@ jobs:
           fi
           if [ "$skipped" -gt 0 ]; then
             names=$(sed -nE 's/^SKIPPED[[:space:]]+([^ ]+).*/\1/p' "$out" | tr '\n' ' ')
-            echo "::warning::fleet config drift: $skipped of $total site(s) skipped and not checked: $names"
+            echo "::warning::fleet config drift: $skipped of $total site(s) skipped and not checked: $(annot "$names")"
           fi
           if [ $((skipped * 2)) -gt "$total" ]; then
             echo "::error::fleet config drift: $skipped of $total site(s) skipped (more than half). This is an outage, not a result."
@@ -175,6 +178,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           out="${RUNNER_TEMP:-/tmp}/config-drift.out"
+          # Site labels and reasons are escaped (`%` → `%25`, CR → `%0D`) before they reach
+          # a workflow command (#2006), as the prep-skip line is (#1942).
+          annot() { printf '%s' "$1" | sed -e 's/%/%25/g' -e 's/\r/%0D/g'; }
           if ! grep -qE "^SYNC_CONFIGS_DRIFT drifted=0 " "$out" 2>/dev/null; then
             echo "no verified drift-free sweep in the output; not closing anything"
             exit 0
@@ -195,7 +201,7 @@ jobs:
               echo "$clean" | grep -qxF "$repo" || unverified="$unverified $repo"
             done
             if [ -n "$unverified" ]; then
-              echo "::warning::not closing #$n; this sweep did not find these CLEAN:$unverified. A repo that left the roster or can never be cloned keeps it open until someone closes it by hand."
+              echo "::warning::not closing #$n; this sweep did not find these CLEAN:$(annot "$unverified"). A repo that left the roster or can never be cloned keeps it open until someone closes it by hand."
               continue
             fi
             list=$(echo "$named" | tr '\n' ' ')

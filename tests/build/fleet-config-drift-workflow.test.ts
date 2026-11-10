@@ -629,3 +629,33 @@ describe("fleet-config-drift — drift that could not be filed reds the run (#16
     expect(r.out).toContain(`DRIFT ${A} .gitignore`);
   });
 });
+
+/** #2006: a repo label with `%0A` (a workflow command decodes it to a line break) and a raw
+ *  CR (which ends the command) reaches each annotation as `%250A` and `%0D`. */
+describe("fleet-config-drift — repo labels reach the annotations escaped (#2006)", () => {
+  const LABEL = "reddoorla/x-%0A\ry";
+  const WIRE = "reddoorla/x-%250A%0Dy";
+
+  it("the skipped warning ($names)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "config-drift-sweep-"));
+    await writeFile(
+      join(dir, "canned.txt"),
+      `CLEAN reddoorla/fine\nSKIPPED ${LABEL} git clone failed\n${summary(0, 3, 1)}\n`,
+      "utf-8",
+    );
+    const node = `#!/bin/sh\ncat "${join(dir, "canned.txt")}"\nexit 0\n`;
+    const r = await exec(script(SWEEP), { dir, bin: { node } });
+    expect(r.code).toBe(0);
+    const warning = r.out.split("\n").find((l) => l.startsWith("::warning::")) ?? "";
+    expect(warning).toContain(`not checked: ${WIRE}`);
+  });
+
+  it("the not-closing warning ($unverified)", async () => {
+    const r = await issueStep(CLOSE, `CLEAN ${A}\n${summary(0, 1, 0)}\n`, [
+      { number: 7, title: TITLE, body: `DRIFT ${LABEL} .gitignore\n` },
+    ]);
+    expect(r.log).not.toContain("CLOSE");
+    const warning = r.out.split("\n").find((l) => l.startsWith("::warning::not closing")) ?? "";
+    expect(warning).toContain(`CLEAN: ${WIRE}.`);
+  });
+});
