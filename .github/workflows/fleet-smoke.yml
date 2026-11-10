@@ -63,6 +63,9 @@ jobs:
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: |
           set -o pipefail
+          # Site labels and reasons are escaped (`%` → `%25`, CR → `%0D`) before they reach
+          # a workflow command (#2006), as the prep-skip line is (#1942).
+          annot() { printf '%s' "$1" | sed -e 's/%/%25/g' -e 's/\r/%0D/g'; }
           # A failing smoke suite makes the CLI exit non-zero BY DESIGN; tolerate it
           # and key the gate on the machine-readable FLEET_WRITE_SUMMARY line, exactly
           # like fleet-lighthouse. A site that hasn't adopted `test:smoke` skips as
@@ -125,7 +128,7 @@ jobs:
             # This exit comes before the gate's block below, so print the gate's warnings
             # first: a failed write on the same night is named too (#1938 review round 2).
             grep -E "^FLEET_WRITE_GATE_WARNING " "${RUNNER_TEMP:-/tmp}/smoke.out" | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet smoke: /' || true
-            echo "::error::fleet smoke: $unmeasured site(s) never measured — $(echo "$unmeasured_line" | sed 's/.*sites=//')"
+            echo "::error::fleet smoke: $unmeasured site(s) never measured — $(annot "$(echo "$unmeasured_line" | sed 's/.*sites=//')")"
             exit 1
           fi
 
