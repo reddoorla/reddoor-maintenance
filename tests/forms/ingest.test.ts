@@ -193,7 +193,7 @@ describe("ingestSubmission — a `launching` site skips repeat-sender only", () 
       retroBucket,
     });
     const r = await ingestSubmission(d, "hedloc", testSubmission);
-    if (r.status === "accepted") expect(r.notifyStatus).toBe("skipped");
+    expect(r).toMatchObject({ status: "accepted", notifyStatus: "skipped" });
     expect(d.createSubmission).toHaveBeenCalledWith(
       expect.objectContaining({ status: "spam_auto", spamReason: "repeat-sender" }),
     );
@@ -209,7 +209,7 @@ describe("ingestSubmission — a `launching` site skips repeat-sender only", () 
       retroBucket,
     });
     const r = await ingestSubmission(d, "hedloc", testSubmission);
-    if (r.status === "accepted") expect(r.notifyStatus).toBe("skipped");
+    expect(r).toMatchObject({ status: "accepted", notifyStatus: "skipped" });
     expect(d.createSubmission).toHaveBeenCalledWith(
       expect.objectContaining({ status: "spam_auto", spamReason: "duplicate-body" }),
     );
@@ -235,7 +235,7 @@ describe("ingestSubmission — a `launching` site skips repeat-sender only", () 
       classifySpam: () => ({ score: 999, reasons: ["links:9"] }),
     });
     const r = await ingestSubmission(d, "hedloc", { email: "a@b.co", message: "buy now" });
-    if (r.status === "accepted") expect(r.notifyStatus).toBe("skipped");
+    expect(r).toMatchObject({ status: "accepted", notifyStatus: "skipped" });
     expect(d.createSubmission).toHaveBeenCalledWith(
       expect.objectContaining({ status: "spam_auto", spamReason: "links:9" }),
     );
