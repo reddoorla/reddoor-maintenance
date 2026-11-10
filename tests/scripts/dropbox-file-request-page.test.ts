@@ -13,8 +13,9 @@ import { plan, uploadBatch } from "../../scripts/dropbox-file-request-upload.mjs
  * `#browse-target`, the name and email fields only after a drop, and one
  * `POST /drops/commit_file_request_by_token?name=<file>` per file. The stand-in
  * sends the SHA-256 of the bytes it was handed in place of uploading them, so a
- * test sees exactly what Chromium read, and it re-sends a commit answered 5xx, the
- * one retry the real page may make.
+ * test sees exactly what Chromium read, and it re-sends a commit answered 5xx. With
+ * `?batch` in the URL it instead re-sends the whole batch after any 5xx, the other
+ * retry the real page may make (its scheduler was not read; #1994).
  */
 
 const URL = "https://www.dropbox.com/request/standin0000000000000";

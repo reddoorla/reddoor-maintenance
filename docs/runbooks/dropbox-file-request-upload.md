@@ -128,7 +128,8 @@ and renames what arrived.
   from the page's own bundle on 2026-11-09
   (`submission_edison-vfl7ETbh6.js`, which a closed request's page still
   loads): the commit is one `XMLHttpRequest` that resolves on any 200,
-  whatever the body, so a 200 `{"status":"error"}` is never re-sent, and on a
+  whatever the body, so the call itself never re-sends a 200
+  `{"status":"error"}` (a scheduler retry of the whole batch may), and on a
   403 the page sets its form to Disabled. Block uploads are wrapped in three
   tries; the commit call is not. Any other answer (a 5xx, another 4xx, none)
   is a rejection the page's upload scheduler may retry, and that scheduler is
@@ -138,11 +139,13 @@ and renames what arrived.
   is reported in seconds; a 5xx that never clears takes the whole deadline,
   and so does a file the page never commits (after a 403 disables the form,
   a later commit batch may never be sent). The page commits a batch of files
-  with one `Promise.all`, so if one file's 5xx makes the scheduler retry the
-  whole batch, a file already answered 200 is committed again. A `complete`
-  answer is therefore kept: a later answer for the same file (a 403 on the
-  retried batch) never replaces it (#1994), so that file is still reported
-  committed. The script counts a
+  with one `Promise.all`; whether one file's 5xx makes the scheduler retry the
+  whole batch was not read, and is assumed. If it does, a file already
+  answered 200 is committed again, so a `complete` answer is kept: a later
+  answer for the same file (a 403 on the retried batch) never replaces it
+  (#1994), and that file is still reported committed. Any false FAILED that
+  remains (a file the page never commits) errs toward FAILED, which step 4
+  catches by hash. The script counts a
   file as committed only when its own commit answered complete; a commit already seen still counts if the batch
   fails later. It does not rely on the page text, which a file named
   "Finished uploading…" would match. The commit does not name the stored
