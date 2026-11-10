@@ -524,13 +524,13 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "        if (newInh[k]) assumed.push(text.trim());\n        else commented.push(text.trim());",
-        "replace": "        commented.push(text.trim());"
+        "find": "if (newInh[k] || !agree) assumed.push(text.trim());",
+        "replace": "if (!agree) assumed.push(text.trim());"
       },
       {
         "file": "scripts/land-prs.mjs",
-        "find": "} else if (wholly(oldStates[k]) && !oldInh[k] && agree) {",
-        "replace": "} else if (wholly(oldStates[k]) && agree) {"
+        "find": "wholly(oldStates[k]) && !oldInh[k] && agree) {",
+        "replace": "wholly(oldStates[k]) && agree) {"
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
