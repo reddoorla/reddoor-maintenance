@@ -31,17 +31,17 @@
 //      clean hunks can still leave a lockfile that disagrees with package.json;
 //   5. refuse the result if a conflict marker or unmerged path is left, or if pnpm changed any
 //      file but the lockfile;
-//   6. check what pnpm chose. Take every `name@version` in either side's lockfile (every
-//      `packages:` section, in both of pnpm 12's YAML documents) line by line: a version's line
-//      is its major, or `0.minor` below 1.0.0, so a package's older majors are compared too,
-//      not only its newest. For each line a side has, the newest merged version in that line
-//      must be at least the side's newest there (two copies inside one line are compared by
-//      their newest only). Exempt: a line the merged lockfile no longer has, unless a merged
-//      importer `specifier` (the merged package.json's range) still admits the side's version
-//      and resolved lower (nothing depends on that copy now); a downgrade on purpose, where the
-//      side's version was a direct dependency's resolved version and the merged range for it
-//      rejects that version, or an `overrides` pin (not one scoped under a parent, `a>b`)
-//      whose selector covers it; and versions that are not semver (`file:`, `link:`, a tarball).
+//   6. check what pnpm chose, dependency by dependency, over both of pnpm 12's YAML
+//      documents. For each version a side's lockfile resolved, through each importer
+//      (package.json) or package that depended on it there: if the merged lockfile still has
+//      that importer, or that exact package version, what it resolves the dependency to now must
+//      be at least the side's version. Not a regression: a dependent the merged lockfile no
+//      longer has (nothing depends on that copy now); a version the merged importer's own range
+//      rejects, or an `overrides` pin (not one scoped under a parent, `a>b`) whose selector
+//      covers it (a downgrade on purpose); a peer, which follows the site's own choice and is
+//      checked there; versions that are not semver (`file:`, `link:`, a tarball). A version
+//      with no dependent on record (no snapshots) falls back to its line, a major or `0.minor`:
+//      the newest merged version in that line must be at least the side's newest there.
 //      On 2026-11-10 pnpm 12.5.1 merged alamo-anatomy's and mantis-landscaping's lockfiles
 //      cleanly and still put staging's rolldown 1.3.0, cookie 2.0.2 and @netlify/types 3.3.1
 //      back to main's older versions (alamo-anatomy#108, mantis-landscaping#87);
@@ -72,9 +72,9 @@ import { flagValue, isMain } from "./lib/cli.mjs";
 
 export const LOCKFILE = "pnpm-lock.yaml";
 const CHECKED =
-  "Checked: no major (or 0.minor) line of any package has a newer version on either side than " +
-  "here, beyond downgrades the merged package.json ranges or overrides ask for, lines nothing " +
-  "depends on any more, and versions that are not semver.";
+  "Checked: every dependency the merged lockfile keeps (same importer, or same package " +
+  "version) resolves at least as new as on either side, beyond downgrades the merged " +
+  "package.json ranges or overrides ask for.";
 const USAGE =
   "usage: node scripts/staging-bring-main.mjs --dir <site checkout> [--main <ref>] [--staging <ref>]\n" +
   '                                           [--branch <name>] [--no-fetch] [--pnpm "<command>"]\n' +
@@ -303,32 +303,60 @@ const overrideTarget = (key) => {
   return at > 0 ? [last.slice(0, at), last.slice(at + 1)] : [last, undefined];
 };
 
+const stripPeers = (v) => String(v).split("(")[0];
+
 /**
- * The ranges that make a downgrade deliberate, per name: each importer `specifier` (the merged
- * package.json's range) with the version it resolved to, so a range only speaks for its own
- * copy; and each top-level `overrides` value, which pins the copies its key's selector covers
- * (`cookie@<0.7.0: ^0.7.2` speaks for no 2.x copy). An `npm:` alias's range names another
- * package, so it is left out.
+ * Who depends on what. `parents`: `name@version` → each importer (`<document>:<path>`) or
+ * package (`name@version`, peers dropped) that resolved it; `importers`: importer → name →
+ * its `specifier` (the package.json range) and resolved version; `deps`: package → name → the
+ * versions its snapshots resolved, peers left out; `overrides`: each top-level override that is not scoped
+ * under a parent (`a>b` pins b only under a), with the selector its key carries. Aliases
+ * (`npm:`, `name@version` values) and other non-semver resolutions are left out.
  */
-function lockfileRanges(text) {
-  const out = new Map();
-  const add = (name, range, resolved, selector) =>
-    out.set(name, [...(out.get(name) ?? []), { range, resolved, selector }]);
-  for (const d of docs(text)) {
+function lockfileGraph(text) {
+  const g = { parents: new Map(), importers: new Map(), deps: new Map(), overrides: [] };
+  const parent = (child, p) => g.parents.set(child, [...(g.parents.get(child) ?? []), p]);
+  docs(text).forEach((d, i) => {
     for (const [key, range] of Object.entries(d.overrides ?? {}))
-      // `foo@1>baz` pins baz only under foo@1, which says nothing of baz's other copies
       if (typeof range === "string" && !key.includes(">")) {
         const [name, selector] = overrideTarget(key);
-        add(name, range, undefined, selector);
+        g.overrides.push({ name, selector, range });
       }
-    for (const imp of Object.values(d.importers ?? {}))
+    for (const [path, imp] of Object.entries(d.importers ?? {})) {
+      const key = `${i}:${path}`;
+      const m = new Map();
       for (const group of Object.values(imp ?? {}))
         if (group && typeof group === "object")
-          for (const [name, e] of Object.entries(group))
-            if (typeof e?.specifier === "string" && !e.specifier.startsWith("npm:"))
-              add(name, e.specifier, String(e.version ?? "").split("(")[0]);
-  }
-  return out;
+          for (const [name, e] of Object.entries(group)) {
+            if (!e || typeof e !== "object" || e.version === undefined) continue;
+            const version = stripPeers(e.version);
+            m.set(name, {
+              specifier: typeof e.specifier === "string" ? e.specifier : undefined,
+              version,
+            });
+            if (parseVersion(version)) parent(`${name}@${version}`, { importer: key });
+          }
+      g.importers.set(key, m);
+    }
+    const peers = new Map();
+    for (const [k, pkg] of Object.entries(d.packages ?? {}))
+      peers.set(stripPeers(k).replace(/^\//, ""), Object.keys(pkg?.peerDependencies ?? {}));
+    for (const [k, snap] of Object.entries(d.snapshots ?? {})) {
+      const pk = stripPeers(k).replace(/^\//, "");
+      // a peer resolves to the copy the site chose, and the importer's own edge checks that
+      const own = (name) => !(peers.get(pk) ?? []).includes(name);
+      const m = g.deps.get(pk) ?? new Map();
+      for (const group of ["dependencies", "optionalDependencies"])
+        for (const [name, v] of Object.entries(snap?.[group] ?? {})) {
+          const version = stripPeers(v);
+          if (!parseVersion(version) || !own(name)) continue;
+          m.set(name, [...(m.get(name) ?? []), version]);
+          parent(`${name}@${version}`, { snapshot: pk });
+        }
+      g.deps.set(pk, m);
+    }
+  });
+  return g;
 }
 
 /** A version's line: its major, or `0.minor` below 1.0.0, the versions `^` treats as one. */
@@ -354,60 +382,65 @@ function byLine(pkgs) {
 }
 
 /**
- * Where the merged lockfile went backwards. Each package's versions are taken line by line
- * (major, or `0.minor`), so every copy of a name is compared, not only its newest: for each line
- * a side has, the newest version the merged lockfile has in that line must be at least the
- * newest the side had there. Not a regression:
- * - a line the merged lockfile no longer has, while no merged package.json range admits the
- *   side's version (nothing depends on that copy now: `cssesc` once `postcss-selector-parser`
- *   7.2.0 dropped it, or a copy upgraded to a newer major);
- * - a version a deliberate range rejects: the merged package.json's range for the copy that
- *   resolved in that line, or an `overrides` pin (P1-106 moved `@types/node` from 25 to 24);
- * - versions that are not semver (`file:`, `link:`, a tarball URL).
+ * Where the merged lockfile went backwards, edge by edge. For each version a side's lockfile
+ * resolved, through each importer or package that depended on it there: if the merged lockfile
+ * still has that importer (same path) or package (same `name@version`), what it resolves the
+ * name to now must be at least the side's version. A dependent the merged lockfile no longer
+ * has says nothing (nothing depends on that copy now: `cssesc` once `postcss-selector-parser`
+ * 7.2.0 dropped it). Not a regression either: a version the merged importer's own range
+ * rejects (P1-106 moved `@types/node` from 25 to 24 on purpose), or one an override whose
+ * selector covers it pins lower. A version with no dependent on record (a lockfile with no
+ * snapshots) falls back to its line, a major or `0.minor`: the newest merged version in the
+ * line must be at least the side's newest there, and a line the merged lockfile no longer has
+ * is gone. Versions that are not semver (`file:`, `link:`, a tarball) are not compared.
  * @param {string} merged
  * @param {Record<string, string | undefined>} sides
  */
 export function lockfileRegressions(merged, sides) {
   const now = byLine(lockfilePackages(merged));
-  const ranges = lockfileRanges(merged);
-  const out = [];
+  const m = lockfileGraph(merged);
+  const out = new Map();
   for (const [side, text] of Object.entries(sides)) {
     if (text === undefined) continue;
-    // the versions this side's importers resolved directly: only those a direct range speaks for
-    const direct = new Set(
-      [...lockfileRanges(text)].flatMap(([name, rs]) =>
-        rs.filter((r) => r.resolved !== undefined).map((r) => `${name}@${r.resolved}`),
-      ),
-    );
+    const g = lockfileGraph(text);
     for (const [name, lines] of byLine(lockfilePackages(text)))
       for (const [line, vs] of lines) {
-        const had = newest(vs);
-        const rs = ranges.get(name) ?? [];
-        const got = now.get(name)?.get(line);
-        if (!got) {
-          // the copy is gone: a regression only if a range still admits it and resolved lower
-          const lower = rs.find(
-            (r) =>
-              r.resolved !== undefined &&
-              satisfies(had, r.range) === true &&
-              parseVersion(r.resolved) &&
-              compareVersions(r.resolved, had) < 0,
+        const top = newest(vs);
+        for (const had of vs) {
+          const ps = g.parents.get(`${name}@${had}`) ?? [];
+          let lower;
+          for (const p of ps) {
+            let to;
+            if (p.importer) {
+              const e = m.importers.get(p.importer)?.get(name);
+              if (!e || !parseVersion(e.version)) continue;
+              if (e.specifier !== undefined && satisfies(had, e.specifier) === false) continue;
+              to = e.version;
+            } else {
+              const got = m.deps.get(p.snapshot)?.get(name);
+              if (!got) continue;
+              to = newest(got);
+            }
+            if (compareVersions(to, had) < 0 && (!lower || compareVersions(to, lower) < 0))
+              lower = to;
+          }
+          if (!ps.length && had === top) {
+            const got = now.get(name)?.get(line);
+            const best = got && newest(got);
+            if (best && compareVersions(best, had) < 0) lower = best;
+          }
+          if (!lower) continue;
+          const pinned = m.overrides.some(
+            (o) =>
+              o.name === name &&
+              (o.selector === undefined || satisfies(had, o.selector) === true) &&
+              satisfies(had, o.range) === false,
           );
-          if (lower) out.push({ name, side, had, merged: lower.resolved });
-          continue;
+          if (!pinned) out.set(`${side}\0${name}\0${had}`, { name, side, had, merged: lower });
         }
-        const best = newest(got);
-        if (compareVersions(best, had) >= 0) continue;
-        const mine = rs.filter((r) =>
-          r.resolved === undefined
-            ? r.selector === undefined || satisfies(had, r.selector) === true
-            : lineOf(r.resolved) === line && direct.has(`${name}@${had}`),
-        );
-        if (mine.some((r) => satisfies(had, r.range) === false)) continue;
-        out.push({ name, side, had, merged: best });
       }
   }
-  return out.sort((a, b) =>
+  return [...out.values()].sort((a, b) =>
     a.name < b.name
       ? -1
       : a.name > b.name

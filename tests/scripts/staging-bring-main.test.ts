@@ -283,19 +283,18 @@ describe("lockfile regressions", () => {
     ).toEqual([]);
   });
 
-  it("the 2026-11-10 Alamo merge is caught, naming each package put back", () => {
+  it("the 2026-11-10 Alamo merge is caught, naming exactly the three packages put back", () => {
     const r = lockfileRegressions(alamo("merged"), {
       main: alamo("main"),
       staging: alamo("staging"),
     });
-    expect(r.every((x) => x.side === "staging")).toBe(true);
-    const by = Object.fromEntries(r.map((x) => [x.name, `${x.had} -> ${x.merged}`]));
-    expect(by).toMatchObject({
-      rolldown: "1.3.0 -> 1.2.16",
-      cookie: "2.0.2 -> 2.0.1",
-      "@netlify/types": "3.3.1 -> 3.3.0",
-    });
-    expect(Object.keys(by)).toContain("@rolldown/binding-linux-x64-gnu");
+    // rolldown's own @rolldown/binding-* 1.3.0 went with it; they hang off rolldown@1.3.0, which
+    // the merged lockfile no longer has, so rolldown's own edge names the regression
+    expect(r).toEqual([
+      { name: "@netlify/types", side: "staging", had: "3.3.1", merged: "3.3.0" },
+      { name: "cookie", side: "staging", had: "2.0.2", merged: "2.0.1" },
+      { name: "rolldown", side: "staging", had: "1.3.0", merged: "1.2.16" },
+    ]);
   });
 
   it("orders versions by semver precedence, prereleases included", () => {
@@ -324,24 +323,44 @@ describe("lockfile regressions", () => {
     expect(satisfies("1.0.0", "catalog:")).toBeUndefined();
   });
 
-  const doc = (deps: Record<string, [string, string]>, pkgs: string[]) =>
+  type Deps = Record<string, [string, string]>;
+  /** A pnpm 9 lockfile document: importer `.` (and any `more` importers), packages, snapshots. */
+  const doc = (
+    deps: Deps,
+    pkgs: string[],
+    o: { snaps?: Record<string, Record<string, string>>; more?: Record<string, Deps> } = {},
+  ) =>
     [
       "---",
       "lockfileVersion: '9.0'",
       "",
       "importers:",
       "",
-      "  .:",
-      "    dependencies:",
-      ...Object.entries(deps).flatMap(([n, [spec, v]]) => [
-        `      '${n}':`,
-        `        specifier: '${spec}'`,
-        `        version: ${v}`,
+      ...Object.entries({ ".": deps, ...o.more }).flatMap(([path, ds]) => [
+        `  ${path}:`,
+        "    dependencies:",
+        ...Object.entries(ds).flatMap(([n, [spec, v]]) => [
+          `      '${n}':`,
+          `        specifier: '${spec}'`,
+          `        version: ${v}`,
+        ]),
+        "",
       ]),
-      "",
       "packages:",
       "",
       ...pkgs.flatMap((p) => [`  '${p}':`, "    resolution: {integrity: sha512-x}", ""]),
+      ...(o.snaps
+        ? [
+            "snapshots:",
+            "",
+            ...Object.entries(o.snaps).flatMap(([k, ds]) => [
+              `  '${k}':`,
+              "    dependencies:",
+              ...Object.entries(ds).map(([n, v]) => `      '${n}': ${v}`),
+              "",
+            ]),
+          ]
+        : []),
     ].join("\n");
 
   it("a version the merged package.json no longer admits is not a regression (P1-106's @types/node 25 to 24)", () => {
@@ -401,6 +420,40 @@ describe("lockfile regressions", () => {
     const staging = doc({ qux: ["*", "2.1.0"] }, ["qux@2.1.0", "qux@1.9.0"]);
     const merged = doc({ qux: ["*", "2.1.0"] }, ["qux@2.1.0"]);
     expect(lockfileRegressions(merged, { staging })).toEqual([]);
+  });
+
+  it("a copy whose only dependent left the merged lockfile is gone, even with a lower copy in its line", () => {
+    // staging: x needs foo 2.5.0 and y needs foo ~2.3; main removed x, so merged keeps y's 2.3.1
+    const staging = doc(
+      { x: ["^1", "1.0.0"], y: ["^1", "1.0.0"] },
+      ["x@1.0.0", "y@1.0.0", "foo@2.5.0", "foo@2.3.1"],
+      { snaps: { "x@1.0.0": { foo: "2.5.0" }, "y@1.0.0": { foo: "2.3.1" } } },
+    );
+    const merged = doc({ y: ["^1", "1.0.0"] }, ["y@1.0.0", "foo@2.3.1"], {
+      snaps: { "y@1.0.0": { foo: "2.3.1" } },
+    });
+    expect(lockfileRegressions(merged, { staging })).toEqual([]);
+    // the same merge with x kept, and x's foo put back, is a regression
+    const back = doc(
+      { x: ["^1", "1.0.0"], y: ["^1", "1.0.0"] },
+      ["x@1.0.0", "y@1.0.0", "foo@2.3.1"],
+      { snaps: { "x@1.0.0": { foo: "2.3.1" }, "y@1.0.0": { foo: "2.3.1" } } },
+    );
+    expect(lockfileRegressions(back, { staging })).toEqual([
+      { name: "foo", side: "staging", had: "2.5.0", merged: "2.3.1" },
+    ]);
+  });
+
+  it("one importer's pin does not excuse another importer's copy", () => {
+    const staging = doc({ foo: ["^2.0.0", "2.5.0"] }, ["foo@2.5.0", "foo@2.1.0"], {
+      more: { "pkg/b": { foo: ["2.1.0", "2.1.0"] } },
+    });
+    const merged = doc({ foo: ["^2.0.0", "2.1.0"] }, ["foo@2.1.0"], {
+      more: { "pkg/b": { foo: ["2.1.0", "2.1.0"] } },
+    });
+    expect(lockfileRegressions(merged, { staging })).toEqual([
+      { name: "foo", side: "staging", had: "2.5.0", merged: "2.1.0" },
+    ]);
   });
 
   it("an npm: alias's range is not the range of the package it shadows", () => {

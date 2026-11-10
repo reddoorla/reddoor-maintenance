@@ -169,32 +169,6 @@
     "expect": "red"
   },
   {
-    "id": "M14-gone-is-regression",
-    "why": "a copy the merged lockfile no longer has counts as put back (cssesc)",
-    "edits": [
-      {
-        "file": "scripts/staging-bring-main.mjs",
-        "find": "          if (lower) out.push({ name, side, had, merged: lower.resolved });",
-        "replace": "          out.push({ name, side, had, merged: \"(none)\" });"
-      }
-    ],
-    "test": "tests/scripts/staging-bring-main.test.ts",
-    "expect": "red"
-  },
-  {
-    "id": "M15-no-range-exemption",
-    "why": "a downgrade the merged package.json asks for is reported (P1-106's @types/node)",
-    "edits": [
-      {
-        "file": "scripts/staging-bring-main.mjs",
-        "find": "        if (mine.some((r) => satisfies(had, r.range) === false)) continue;",
-        "replace": ""
-      }
-    ],
-    "test": "tests/scripts/staging-bring-main.test.ts",
-    "expect": "red"
-  },
-  {
     "id": "M16-prerelease-equal",
     "why": "a prerelease compares equal to its release",
     "edits": [
@@ -312,32 +286,6 @@
     "expect": "red"
   },
   {
-    "id": "M25-alias-range-counts",
-    "why": "an npm: alias's range exempts the package it shadows",
-    "edits": [
-      {
-        "file": "scripts/staging-bring-main.mjs",
-        "find": "!e.specifier.startsWith(\"npm:\")",
-        "replace": "true"
-      }
-    ],
-    "test": "tests/scripts/staging-bring-main.test.ts",
-    "expect": "red"
-  },
-  {
-    "id": "M26-override-selector-ignored",
-    "why": "`cookie@<0.7.0: ^0.7.2` exempts every cookie copy (Alamo's cookie 2.0.2 passes)",
-    "edits": [
-      {
-        "file": "scripts/staging-bring-main.mjs",
-        "find": "r.selector === undefined || satisfies(had, r.selector) === true",
-        "replace": "true"
-      }
-    ],
-    "test": "tests/scripts/staging-bring-main.test.ts",
-    "expect": "red"
-  },
-  {
     "id": "M28-workspace-file-not-input",
     "why": "a pnpm-workspace.yaml one side changed no longer stops the other side's lockfile seeding",
     "edits": [
@@ -351,32 +299,6 @@
     "expect": "red"
   },
   {
-    "id": "M29-pin-speaks-for-any-copy",
-    "why": "an exact direct pin excuses a transitive copy in its line (review round 2's major)",
-    "edits": [
-      {
-        "file": "scripts/staging-bring-main.mjs",
-        "find": ": lineOf(r.resolved) === line && direct.has(`${name}@${had}`),",
-        "replace": ": lineOf(r.resolved) === line,"
-      }
-    ],
-    "test": "tests/scripts/staging-bring-main.test.ts",
-    "expect": "red"
-  },
-  {
-    "id": "M30-gone-line-any-range",
-    "why": "a gone line is reported whenever a range admits it, even where the range resolved higher",
-    "edits": [
-      {
-        "file": "scripts/staging-bring-main.mjs",
-        "find": "compareVersions(r.resolved, had) < 0,",
-        "replace": "true,"
-      }
-    ],
-    "test": "tests/scripts/staging-bring-main.test.ts",
-    "expect": "red"
-  },
-  {
     "id": "M31-parent-override-counts",
     "why": "an override scoped under one parent excuses every copy",
     "edits": [
@@ -384,6 +306,84 @@
         "file": "scripts/staging-bring-main.mjs",
         "find": " && !key.includes(\">\")",
         "replace": ""
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M14-gone-dependent-counts",
+    "why": "a dependent the merged lockfile no longer has counts as resolving lower (review round 3's false positive)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "              const got = m.deps.get(p.snapshot)?.get(name);\n              if (!got) continue;\n",
+        "replace": "              const got = m.deps.get(p.snapshot)?.get(name) ?? [\"0.0.0\"];\n"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M15-no-range-exemption",
+    "why": "a downgrade the merged package.json asks for is reported (P1-106's @types/node)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "              if (e.specifier !== undefined && satisfies(had, e.specifier) === false) continue;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M26-override-selector-ignored",
+    "why": "`cookie@<0.7.0: ^0.7.2` excuses every cookie (Alamo's cookie 2.0.2 passes)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "o.selector === undefined || satisfies(had, o.selector) === true",
+        "replace": "true"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M29-peer-edges-count",
+    "why": "a peer edge is compared, so main's @types/node 25 reaching vite flags staging's deliberate 24",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "!parseVersion(version) || !own(name)",
+        "replace": "!parseVersion(version)"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M32-no-edges",
+    "why": "every version falls back to its line, as before round 3",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "const ps = g.parents.get(`${name}@${had}`) ?? [];",
+        "replace": "const ps = [];"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M33-importers-merged",
+    "why": "importers are not told apart by path: one importer's pin excuses another's copy",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "const key = `${i}:${path}`;",
+        "replace": "const key = `${i}`;"
       }
     ],
     "test": "tests/scripts/staging-bring-main.test.ts",

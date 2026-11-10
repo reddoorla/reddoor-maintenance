@@ -149,15 +149,16 @@ setting or the order below, so this is a runbook rather than a template there.
   alamo-anatomy's and mantis-landscaping's lockfiles and put `staging`'s
   `rolldown` 1.3.0, `cookie` 2.0.2 and `@netlify/types` 3.3.1 back to `main`'s
   older versions on both (alamo-anatomy#108, mantis-landscaping#87). So it
-  reads every `name@version` in both sides' lockfiles (both of pnpm 12's YAML
-  documents) by line, a line being a major, or `0.minor` below 1.0.0, so a
-  package's older majors are checked too, not only its newest. For each line a
-  side has, the merged lockfile's newest version in that line must be at least
-  the side's (two copies inside one line are compared by their newest only).
-  It lets three things through: a line nothing depends on any more, a
-  downgrade on purpose (the merged `package.json` range of a direct dependency
-  that resolved to that version, or an `overrides` pin that is not scoped under
-  a parent), and versions that are not semver (`file:`, `link:`, a tarball).
+  checks each dependency in both sides' lockfiles (both of pnpm 12's YAML
+  documents): wherever the merged lockfile keeps the importer or the exact
+  package version that depended on a version, it must resolve it at least as
+  new now. It lets through a dependent the merged lockfile no longer has
+  (nothing depends on that copy now), a downgrade on purpose (the merged
+  `package.json` range rejects the old version, or an `overrides` pin that is
+  not scoped under a parent), peers (they follow the site's own choice, which
+  is checked), and versions that are not semver (`file:`, `link:`, a tarball).
+  A lockfile with no snapshots is compared by line instead: a major, or
+  `0.minor`, must keep its newest version.
 - **On a regression it retries from a side's own lockfile**, as both incidents
   were fixed by hand: `staging`'s first, then `main`'s, and only a side whose
   `package.json` files, `patches/`, `pnpm-workspace.yaml`, `.npmrc` and
