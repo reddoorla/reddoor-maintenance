@@ -1,0 +1,93 @@
+[
+  {
+    "id": "1-bytes-through-the-protocol",
+    "why": "#1396: the files cross the DevTools pipe as buffers again",
+    "edits": [
+      {
+        "file": "scripts/dropbox-file-request-upload.mjs",
+        "find": "    await input.setInputFiles(paths);",
+        "replace": "    await input.setInputFiles(paths.map((p) => ({ name: basename(p), mimeType: \"application/octet-stream\", buffer: readFileSync(p) })));"
+      }
+    ],
+    "test": "tests/scripts/dropbox-file-request-page.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2-5xx-is-final",
+    "why": "a 5xx ends the wait, cutting off the page's retry",
+    "edits": [
+      {
+        "file": "scripts/dropbox-file-request-upload.mjs",
+        "find": "  return status === 200 || status === 403;",
+        "replace": "  return status === 200 || status === 403 || status >= 500;"
+      }
+    ],
+    "test": "tests/scripts/dropbox-file-request-page.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "3-403-not-final",
+    "why": "a closed request waits out the deadline",
+    "edits": [
+      {
+        "file": "scripts/dropbox-file-request-upload.mjs",
+        "find": "  return status === 200 || status === 403;",
+        "replace": "  return status === 200;"
+      }
+    ],
+    "test": "tests/scripts/dropbox-file-request-page.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "4-only-complete-is-final",
+    "why": "#1471: the old rule, every definite failure waits out the deadline",
+    "edits": [
+      {
+        "file": "scripts/dropbox-file-request-upload.mjs",
+        "find": "    return Boolean(c) && commitFinal(c.status);",
+        "replace": "    return Boolean(c) && commitComplete(c.status, c.text);"
+      }
+    ],
+    "test": "tests/scripts/dropbox-file-request-page.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "5-no-rehash",
+    "why": "a file changed after planning is sent anyway",
+    "edits": [
+      {
+        "file": "scripts/dropbox-file-request-upload.mjs",
+        "find": "    if (contentHash(readFileSync(r.file)) !== r.contentHash)",
+        "replace": "    if (false)"
+      }
+    ],
+    "test": "tests/scripts/dropbox-file-request-page.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "6-commit-wait-not-awaited",
+    "why": "uploadBatch reads the verdicts before any commit answers",
+    "edits": [
+      {
+        "file": "scripts/dropbox-file-request-upload.mjs",
+        "find": "    await waitForCommits(committed, names,",
+        "replace": "    void waitForCommits(committed, names,"
+      }
+    ],
+    "test": "tests/scripts/dropbox-file-request-page.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "7-drop-carries-no-files",
+    "why": "the DataTransfer is built without the input's files",
+    "edits": [
+      {
+        "file": "scripts/dropbox-file-request-upload.mjs",
+        "find": "      for (const f of el.files) dt.items.add(f);\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/scripts/dropbox-file-request-page.test.ts",
+    "expect": "red"
+  }
+]
