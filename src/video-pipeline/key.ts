@@ -41,21 +41,24 @@ export function isPrismicFileUrl(url: string): boolean {
   return u !== null && u.hostname.endsWith(".prismic.io");
 }
 
+/** A site name as the pipeline takes it: a letter, then letters, digits or hyphens. Checked after the CLI has made every option a string. */
+export const SITE_NAME = /^[a-z][a-z0-9-]*$/;
+
 /**
- * `${slugify(site)}/${stem}-${h}`: stem = slugify(name without extension), or "video" when that slug is
- * empty; h = the first 10 hex of sha256(sourceOf(url)), so two files whose names slugify alike never share
- * a key. Null when the URL is not https, its file name does not match VIDEO_EXT, or the site slug is empty.
+ * `${site}/${stem}-${h}`: stem = slugify(name without extension), or "video" when that slug is empty; h =
+ * the first 10 hex of sha256(sourceOf(url)), so two files whose names slugify alike never share a key.
+ * Null when the URL is not https, its file name does not match VIDEO_EXT, or the site is not a SITE_NAME
+ * (the same rule `encode` and `stuck` apply, so the relay never dispatches a key they would refuse).
  */
 export function videoKey(site: string, url: string): string | null {
   const name = fileNameOf(url);
   if (name === null || !VIDEO_EXT.test(name)) return null;
-  const siteSlug = slugify(site);
-  if (siteSlug === "") return null;
+  if (!SITE_NAME.test(site)) return null;
   const source = sourceOf(url);
   if (source === null) return null;
   const stemSlug = slugify(name.replace(VIDEO_EXT, "")) || "video";
   const h = createHash("sha256").update(source, "utf8").digest("hex").slice(0, 10);
-  return `${siteSlug}/${stemSlug}-${h}`;
+  return `${site}/${stemSlug}-${h}`;
 }
 
 /** The last segment of a key: the file-name stem used for renditions. */
@@ -72,9 +75,6 @@ export function sourceOf(url: string): string | null {
   const u = parseHttps(url);
   return u === null ? null : u.pathname;
 }
-
-/** A site name as the pipeline takes it: a letter, then letters, digits or hyphens. Checked after the CLI has made every option a string. */
-export const SITE_NAME = /^[a-z][a-z0-9-]*$/;
 
 /**
  * The only characters a dispatched URL may carry, after WHATWG normalisation. Anything else (a `$`, `(`,

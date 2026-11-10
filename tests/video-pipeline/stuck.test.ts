@@ -82,4 +82,12 @@ describe("stuck: stuckIssueBody", () => {
     expect(body).toContain("120 min");
     expect(body).toContain("unknown");
   });
+
+  it("a re-runnable video's advice says what to check when the re-run prints SKIP", () => {
+    const a = found("https://a.prismic.io/a.mp4", "2026-11-10T10:00:00Z");
+    const body = stuckIssueBody([{ ...a, ageMs: 2 * 60 * 60 * 1000 }], NOW, "reddoor-website");
+    expect(body).toContain("If the re-run prints SKIP");
+    expect(body).toContain("<key>/manifest.json");
+    expect(body).toContain("force");
+  });
 });

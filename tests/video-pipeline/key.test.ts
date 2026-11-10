@@ -62,6 +62,15 @@ describe("video-pipeline key", () => {
     expect(videoKey("!!!", "https://x.cdn.prismic.io/r/a.mp4")).toBeNull();
   });
 
+  it("videoKey: a site that is not a site name is null, even when its slug is not empty", () => {
+    const url = "https://x.cdn.prismic.io/r/a.mp4";
+    expect(videoKey("reddoor_website", url)).toBeNull();
+    expect(videoKey("Reddoor", url)).toBeNull();
+    expect(videoKey("reddoor website", url)).toBeNull();
+    expect(videoKey("1site", url)).toBeNull();
+    expect(videoKey("reddoor-website", url)).toMatch(/^reddoor-website\/a-[0-9a-f]{10}$/);
+  });
+
   it("fileNameOf decodes %20", () => {
     expect(fileNameOf("https://x.prismic.io/r/Brand%20Film.mp4?v=1#h")).toBe("Brand Film.mp4");
   });

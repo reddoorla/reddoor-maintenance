@@ -527,6 +527,7 @@ cli
         url?: string;
         class?: string;
         key?: string;
+        force?: boolean;
         site?: string;
         repo?: string;
         prismic?: string;

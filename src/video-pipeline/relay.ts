@@ -1,4 +1,4 @@
-import { isPrismicFileUrl, relayRefusal, videoKey } from "./key.js";
+import { isPrismicFileUrl, relayRefusal, SITE_NAME, videoKey } from "./key.js";
 import { dispatchEncode } from "./dispatch.js";
 import { findVideos, mergeFound } from "./classify.js";
 import type { DocLike, VideoRules } from "./classify.js";
@@ -44,6 +44,7 @@ export async function handlePrismicWebhook(
   if (!verifyPrismicSecret(body, cfg.secret)) return { status: 401, body: "bad secret" };
   if (!cfg.dispatchToken) return { status: 500, body: "VIDEO_DISPATCH_TOKEN is not set" };
   if (!cfg.mediaBase) return { status: 500, body: "VIDEO_MEDIA_BASE is not set" };
+  if (!SITE_NAME.test(cfg.site)) return { status: 500, body: "site is not a site name" };
 
   const hook = parsePrismicWebhook(body);
   if (hook.type !== "api-update" || hook.documents.length === 0) {

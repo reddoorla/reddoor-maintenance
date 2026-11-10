@@ -64,6 +64,7 @@ export function stuckIssueBody(stuck: StuckVideo[], now: Date, site: string): st
       ...rerun,
       "",
       "- Re-run the `video-encode` workflow with workflow_dispatch for each url above, with its class and key as the inputs.",
+      "- If the re-run prints SKIP, R2 already has the manifest: check that the media base serves `<key>/manifest.json` (custom domain, public access), or re-run with force.",
     );
   }
   if (cannot.length > 0) {

@@ -236,9 +236,10 @@ only, with **Actions: read and write** and no Contents permission, set in the
 Netlify env scoped to Functions. A token with Contents write could push to the
 public site repo, and this one cannot.
 
-The site's relay must pass the Prismic webhook's `url`, `class` and `key` inputs
-through the workflow's `env:` block and never inline them into a `run:` script,
-because the URL is carried in them. The relay refuses a URL with characters outside
+The site's `video-encode.yml` must read the `url`, `class` and `key` inputs through
+the workflow's `env:` block and never interpolate them into a `run:` script, because
+the URL is carried in them. Set `timeout-minutes: 30` on the encode job, so a stalled
+run gives up before the workflow's default six hours. The relay refuses a URL with characters outside
 `A-Za-z0-9-._~:/?=&%+#@` and lists it under `refused`; `stuck` reports the same URL as `cannot be encoded`.
 
 ---

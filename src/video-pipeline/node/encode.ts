@@ -67,8 +67,14 @@ class StepError extends Error {
   }
 }
 
+/** The master download: a redirect is an error (the URL must be the Prismic file itself) and a stalled one gives up after 10 minutes. */
+const MASTER_TIMEOUT_MS = 10 * 60_000;
+
 async function downloadTo(url: string, dest: string, fetchImpl: typeof fetch): Promise<number> {
-  const res = await fetchImpl(url);
+  const res = await fetchImpl(url, {
+    redirect: "error",
+    signal: AbortSignal.timeout(MASTER_TIMEOUT_MS),
+  });
   if (!res.ok) throw new StepError("download", `${url} returned HTTP ${res.status}`);
   if (res.body === null) throw new StepError("download", "empty response body");
   const declared = Number(res.headers.get("content-length"));

@@ -235,6 +235,35 @@ describe("relay: handlePrismicWebhook", () => {
     expect(h.getDocuments).not.toHaveBeenCalled();
   });
 
+  it("no VIDEO_DISPATCH_TOKEN is a 500 after the secret check, and no fetch runs", async () => {
+    const h = harness();
+    h.cfg.dispatchToken = undefined;
+    const bad = await handlePrismicWebhook({ method: "POST", body: hook({ secret: "x" }) }, h.cfg);
+    expect(bad.status).toBe(401);
+    const r = await handlePrismicWebhook({ method: "POST", body: hook() }, h.cfg);
+    expect(r.status).toBe(500);
+    expect(r.body).toContain("VIDEO_DISPATCH_TOKEN");
+    expect(h.getDocuments).not.toHaveBeenCalled();
+    expect(h.fetch).not.toHaveBeenCalled();
+  });
+
+  it("a site that is not a site name is a 500 after the secret check, and no fetch runs", async () => {
+    for (const site of ["reddoor_website", "Reddoor"]) {
+      const h = harness();
+      h.cfg.site = site;
+      const bad = await handlePrismicWebhook(
+        { method: "POST", body: hook({ secret: "x" }) },
+        h.cfg,
+      );
+      expect(bad.status).toBe(401);
+      const r = await handlePrismicWebhook({ method: "POST", body: hook() }, h.cfg);
+      expect(r.status).toBe(500);
+      expect(r.body).toBe("site is not a site name");
+      expect(h.getDocuments).not.toHaveBeenCalled();
+      expect(h.fetch).not.toHaveBeenCalled();
+    }
+  });
+
   it("a video not on a prismic.io host is refused, listed, and not dispatched", async () => {
     const url = "https://example.com/x/Clip.mp4";
     const h = harness();
@@ -291,15 +320,14 @@ describe("relay: handlePrismicWebhook", () => {
 });
 
 describe("relay: keys and secrets", () => {
-  it("a video whose key cannot be computed (an empty site slug) is refused, never dropped", async () => {
+  it("a site with no key ('!!!') is a 500 config fault, not a 200 that drops videos", async () => {
     const h = harness();
     h.cfg.site = "!!!";
     const r = await handlePrismicWebhook({ method: "POST", body: hook() }, h.cfg);
-    expect(r.status).toBe(200);
-    const out = JSON.parse(r.body);
-    expect(out.refused).toEqual([PLAYER_URL, BG_URL]);
-    expect(out.dispatched).toEqual([]);
-    expect(h.calls.some((c) => c.url.startsWith("https://api.github.com/"))).toBe(false);
+    expect(r.status).toBe(500);
+    expect(r.body).toBe("site is not a site name");
+    expect(h.getDocuments).not.toHaveBeenCalled();
+    expect(h.fetch).not.toHaveBeenCalled();
   });
 
   it("one webhook whose two documents hold one url (background, then player) is one dispatch, class player", async () => {

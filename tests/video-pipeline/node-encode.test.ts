@@ -751,3 +751,26 @@ describe("node encode: the manifest is re-checked just before its PUT", () => {
     expect(puts.at(-1)!.url).toBe(`${R2}/reddoor-video/${KEY}/manifest.json`);
   });
 });
+
+describe("node encode: the master download never follows a redirect and has a timeout", () => {
+  it("the Prismic master is fetched with redirect: error and an AbortSignal", async () => {
+    const seen: RequestInit[] = [];
+    const inner = fakeFetch([]);
+    const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input) === PRISMIC) {
+        seen.push(init ?? {});
+        return new Response(null, { status: 500 });
+      }
+      return inner(input, init);
+    }) as unknown as typeof globalThis.fetch;
+    const tmp = await mkdtemp(join(tmpdir(), "enc-redirect-"));
+    const r = await runPipelineEncode(
+      { url: PRISMIC, class: "background", site: "reddoor-website" },
+      { env, fetch, tmpDir: tmp, now: () => NOW },
+    );
+    expect(r.code).toBe(1);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.redirect).toBe("error");
+    expect(seen[0]!.signal).toBeInstanceOf(AbortSignal);
+  });
+});
