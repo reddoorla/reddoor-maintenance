@@ -174,13 +174,15 @@ jobs:
           # but surface it too — a tolerated single skip must stay visible in the
           # Actions UI rather than buried. Same token four other fleet nightlies grep.
           # Raised BEFORE the exit-code gate so it is reported on red nights as well.
-          skipped=$(grep -oE "⚠ [0-9]+ site\(s\) skipped \(could not prepare\):.*" "$out" | tail -n1 || true)
+          # Labels and reasons are escaped (`%` → `%25`, CR → `%0D`) before they reach a
+          # workflow command, as annotationText does for the gate's own lines (#1942).
+          skipped=$(grep -oE "⚠ [0-9]+ site\(s\) skipped \(could not prepare\):.*" "$out" | tail -n1 | sed -e 's/%/%25/g' -e 's/\r/%0D/g' || true)
           if [ -n "$skipped" ]; then
             echo "::warning::fleet prismic drift: $skipped"
           fi
 
           if [ "$rc" -ne 0 ]; then
-            refusal=$(grep -m1 "⛔" "$out" || true)
+            refusal=$(grep -m1 "⛔" "$out" | sed -e 's/%/%25/g' -e 's/\r/%0D/g' || true)
             echo "::error::the Prismic model drift sweep exited $rc — this is an OUTAGE, not drift: ${refusal:-see the run output above}"
             exit 1
           fi
@@ -228,12 +230,14 @@ jobs:
           # thing the counts above cannot see: a verdict that recurs every night
           # because its site has no Websites row, or several. The sweep's own checks
           # run first because they name the Prismic cause. An absent line is red.
+          # The gate's warnings print before the no-verdict exit too, so a crash that left a
+          # summary but no verdict still names the sites it could not write (#1942 item 5).
+          grep -E "^FLEET_WRITE_GATE_WARNING " "$out" | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet prismic drift: /' || true
           gate=$(grep -E "^FLEET_WRITE_GATE verdict=(red|green)$" "$out" | tail -n1 || true)
           if [ -z "$gate" ]; then
             echo "::error::fleet prismic drift printed no FLEET_WRITE_GATE verdict — cannot confirm what was measured."
             exit 1
           fi
-          grep -E "^FLEET_WRITE_GATE_WARNING " "$out" | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet prismic drift: /' || true
           if [ "$gate" = "FLEET_WRITE_GATE verdict=red" ]; then
             grep -E "^FLEET_WRITE_GATE_REASON " "$out" | sed 's/^FLEET_WRITE_GATE_REASON /::error::fleet prismic drift: /' || true
             exit 1
