@@ -64,7 +64,7 @@ export async function prepareFleetSites(
  *  named (#2003 round 1). A lone CR is left for the workflows to escape. */
 export function formatSkippedNotice(skipped: SkippedSite[]): string | null {
   if (skipped.length === 0) return null;
-  const oneLine = (t: string) => t.trim().replace(/[ \t]*\r?\n\s*/g, " / ");
+  const oneLine = (t: string) => t.trim().replace(/[ \t\r]*\r?\n\s*/g, " / ");
   const detail = skipped.map((s) => `${oneLine(s.site)} (${oneLine(s.reason)})`).join("; ");
   return `⚠ ${skipped.length} site(s) skipped (could not prepare): ${detail}`;
 }

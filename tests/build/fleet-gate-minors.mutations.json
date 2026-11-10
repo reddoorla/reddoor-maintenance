@@ -4,7 +4,7 @@
     "edits": [
       {
         "file": "src/cli/fleet/prepare-sites.ts",
-        "find": ".replace(/[ \\t]*\\r?\\n\\s*/g, \" / \")",
+        "find": ".replace(/[ \\t\\r]*\\r?\\n\\s*/g, \" / \")",
         "replace": ""
       }
     ],
