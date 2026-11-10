@@ -347,8 +347,8 @@ export function auditRunbook(runbook: string, markdown: string, read: FileReader
       // parenthetical with the citation before it) is anchored next by the terms that follow
       // it on its own line, up to the next citation — the shape that leads with the citation
       // and names its term afterwards — and only when there are none by the block's whole
-      // pool. A term on a later line usually opens the next sentence, about something else. Going straight to
-      // the pool let `fleet-cockpit.ts:487–510`, written for the `needs-you` feed, pass on a
+      // pool. A term on a later line usually opens the next sentence, about something else.
+      // Going straight to the pool let `fleet-cockpit.ts:487–510`, written for the `needs-you` feed, pass on a
       // `watch` named two sentences later about the tiers (#1755, from #1729 r1).
       const nextOrder = citations[i + 1]?.order ?? Number.POSITIVE_INFINITY;
       const following = tokens
