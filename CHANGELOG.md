@@ -1,5 +1,21 @@
 # @reddoorla/maintenance
 
+## 0.116.0
+
+### Minor Changes
+
+- 1b62191: form-e2e reads a `forms.none: true` declaration from a site's /health: a site with no form at all is checked by a look at /contact and / (nothing filled or submitted) and gets the n/a verdict when none is found, instead of self-skipping as undeclared every night. A form found, or a look that could not run, keeps the site on the UNCOVERED line with the reason.
+- a27747a: form-e2e covers a form off /contact. A site lists the routes whose forms forward the testMode marker in its /health `forms.paths` (e.g. `["/join-the-team"]`), and the probe submits there when /contact and / have no form. When none of those carries a form, the probe looks, without submitting, at up to 14 sitemap routes: a form found there is reported as "form at <path> is not declared in /health forms.paths" and listed UNCOVERED by the nightly, so "no contact form (n/a)" now means no form was found on any of them, and says how many it looked at.
+
+### Patch Changes
+
+- dc8261e: audit: the `domain` audit says why it failed. Its summary (printed in the run log) and `details.reason` now carry the DNS or TLS error code (`dns ENOTFOUND`, `tls ECONNRESET`, `tls DEPTH_ZERO_SELF_SIGNED_CERT`), `tls timeout after 10000ms`, `tls no certificate returned`, or `invalid URL`, instead of collapsing every failure into "resolved, no usable TLS cert". TLS verification is unchanged.
+- 93a2abe: audit: the `domain` audit retries its TLS handshake once after a timeout or a connection reset (`ECONNRESET`, `ETIMEDOUT`, `EPIPE`, `ECONNABORTED`), so a single edge stall no longer marks a healthy site Broken. A DNS failure, a refused port and every certificate verification error are never retried. A pass that needed the retry says so in its summary and `details.retriedAfter`; two failures name both.
+- 45ebea2: forms: a `launching` site no longer runs the cross-site repeat-sender scan, and its submissions no longer retro-bucket other sites' rows. The operator's own test from an address used on other sites is now stored `new` and notified (to the operator only, under the pre-launch guard). The classifier, Turnstile and duplicate-body scans still run on a `launching` site, since it is reachable and the autoresponder goes to whatever address is typed.
+- 5613f20: dashboard: the cockpit snapshot no longer sends an acked site's Prismic drift report a second time (up to 50,000 characters). The server answers whether the ack names tonight's report (`prismicAckNamesReport`) and nulls `prismicAckDrift`; `prismicAckCovers` reads that answer in the browser and still checks the ack's expiry there (#1679).
+- 2fa4cfe: forms: the newsletter webhook forward no longer follows redirects. A 3xx from the configured hook is recorded as `webhook:<3xx>` instead of being followed to a host the SSRF guard never checked, the same as the form webhook already did (#1970).
+- cb529a9: dashboard: the Newsletter Webhook and Form Webhook fields refuse, at save, any URL the forwarders would refuse (anything but public https), so an `http://` hook shows "failed" in the editor instead of saving and failing every forward as `webhook:0` / `form-webhook:0` (#1971). Values already stored are not re-checked; re-saving one runs the check.
+
 ## 0.115.0
 
 ### Minor Changes
