@@ -2512,6 +2512,28 @@ describe("land-prs: test changes", () => {
       ]);
     });
 
+    it("a hunk whose sides disagree on a context line trusts neither side's text (#1998 round 4)", () => {
+      // A code fence added to a Markdown fixture that opened above the hunk: the old side reads
+      // the test below as template text, the new side as code.
+      expect(
+        one(
+          '@@ -8,6 +8,9 @@\n const x = 1;\n+\\`\\`\\`\n `;\n it("x", () => {\n-  expect(a).toBe(1);\n+  /*\n+  expect(a).toBe(1);\n+  */\n });',
+        ),
+      ).toEqual([{ file: T, reasons: ["removed assertion not re-added: expect(a).toBe(1);"] }]);
+      // The other direction: a skip moved below the same fence is still no added skip.
+      expect(
+        one(
+          '@@ -8,6 +8,6 @@\n const x = 1;\n+\\`\\`\\`\n `;\n-it.skip("x", () => {});\n keep();\n+it.skip("x", () => {});',
+        ),
+      ).toEqual([]);
+    });
+
+    it("known false flag: a lone */ moved down inside a template fixture reads as a closer moved down (#1998 round 4)", () => {
+      expect(one("@@ -6,5 +6,5 @@\n    the brand red\n-*/\n .a { color: red; }\n+*/\n `;")).toEqual(
+        [{ file: T, reasons: ["existing line now inside a block comment: .a { color: red; }"] }],
+      );
+    });
+
     it("a closer moved up, out of the code it hid, is not a wrap", () => {
       expect(one('@@ -3,4 +3,4 @@\n  notes\n+*/\n it("works", () => {});\n-*/\n done();')).toEqual(
         [],

@@ -536,5 +536,18 @@
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
     "why": "#1998 round 3 undone, both halves (each alone is enough for p5): an assertion commented out below a Markdown bullet pairs with its removed copy as text moved within text, and passes."
+  },
+  {
+    "id": "P82-K-sides-disagree-still-trusted",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "  const agree = lines.every(",
+        "replace": "  const agree = true || lines.every("
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1998 round 4 undone: a code fence added to a fixture above the hunk lets an assertion commented out below it pair off as text moved within text."
   }
 ]

@@ -1146,6 +1146,14 @@ function hunkShifts({ jsdoc, lines }) {
   };
   const oldInh = inherited(oldStates);
   const newInh = inherited(newStates);
+  // The same holds for a whole hunk whose two sides disagree on any context line's state: one
+  // side gained or lost a backtick or a closer (a code fence added to a fixture, a closer moved),
+  // so at least one side is misread, and neither side's text is trusted (#1998 round 4).
+  const agree = lines.every(
+    ({ kind }, k) =>
+      kind !== " " ||
+      (oldStates[k].before === newStates[k].before && oldStates[k].after === newStates[k].after),
+  );
   for (let k = 0; k < lines.length; k++) {
     const { kind, text } = lines[k];
     if (kind === " ") {
@@ -1162,10 +1170,10 @@ function hunkShifts({ jsdoc, lines }) {
       }
     } else if (kind === "+") {
       if (wholly(newStates[k])) {
-        if (newInh[k]) assumed.push(text.trim());
+        if (newInh[k] || !agree) assumed.push(text.trim());
         else commented.push(text.trim());
       }
-    } else if (wholly(oldStates[k]) && !oldInh[k]) {
+    } else if (wholly(oldStates[k]) && !oldInh[k] && agree) {
       dead.push(text.trim());
     }
   }
@@ -1260,7 +1268,7 @@ function renamedAway(before, after) {
  *  with text before it moved down out of one. An added line wholly inside a block comment or a
  *  template literal does not re-add a removed assertion, and a removed line wholly inside one does
  *  not back an added skip (see `blockCommentShifts`, #1941), unless the same text is moved within
- *  text, which counts as neither. Four rare false flags are known, each costing the author one line:
+ *  text, which counts as neither. Five rare false flags are known, each costing the author one line:
  *  a hunk that starts on a line beginning with `*` is taken to start inside a JSDoc block, so a
  *  Markdown bullet inside a template literal there can deny credit for a re-added line; and a hunk
  *  that starts inside a multi-line template literal is read as code, so a glob such as `src/*`
@@ -1268,7 +1276,11 @@ function renamedAway(before, after) {
  *  a later hunk is flagged as not re-added: from the patch alone that move cannot be told from an
  *  assertion taken out of code and parked in a string (#1998 round 2); and a lone `*\/` removed
  *  from a commented-out test put back into use reads as moved down when a JSDoc is added lower in
- *  the same hunk, whose own `*\/` stands in for the re-added closer (#1998 round 3). */
+ *  the same hunk, whose own `*\/` stands in for the re-added closer (#1998 round 3); and, for the
+ *  same reason as #1946 item 2, a lone `*\/` moved down inside a template fixture whose comment
+ *  opened above the hunk (a CSS or JS comment in a fixture) is read as a closer moved down, and
+ *  the line it passes over as wrapped (#1998 round 4). A hunk whose two sides disagree on a
+ *  context line's state trusts neither side's text: none of its lines is dead or commented. */
 export function testChangeFlags(files) {
   const out = [];
   for (const f of Array.isArray(files) ? files : []) {
