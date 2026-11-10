@@ -1,0 +1,314 @@
+[
+  {
+    "id": "E1-smoke-unmeasured",
+    "why": "#2006: the never-measured labels go out bare",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-smoke.yml",
+        "find": "$(annot \"$(echo \"$unmeasured_line\" | sed 's/.*sites=//')\")",
+        "replace": "$(echo \"$unmeasured_line\" | sed 's/.*sites=//')"
+      }
+    ],
+    "test": "tests/build/fleet-write-gate-workflows.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "E2-form-e2e-undeclared",
+    "why": "#2006: $undeclared goes out bare",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-form-e2e.yml",
+        "find": "$(annot \"${undeclared:-unnamed}\")",
+        "replace": "${undeclared:-unnamed}"
+      }
+    ],
+    "test": "tests/build/fleet-form-e2e-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "E3-form-e2e-formsat",
+    "why": "#2006: $formsat goes out bare",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-form-e2e.yml",
+        "find": "$(annot \"${formsat:-unnamed}\")",
+        "replace": "${formsat:-unnamed}"
+      }
+    ],
+    "test": "tests/build/fleet-form-e2e-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "E4-form-e2e-unread",
+    "why": "#2006: $unread goes out bare",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-form-e2e.yml",
+        "find": "$(annot \"${unread:-unnamed}\")",
+        "replace": "${unread:-unnamed}"
+      }
+    ],
+    "test": "tests/build/fleet-form-e2e-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "E5-form-e2e-thin",
+    "why": "#2006: $thin goes out bare",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-form-e2e.yml",
+        "find": "$(annot \"$thin\")",
+        "replace": "$thin"
+      }
+    ],
+    "test": "tests/build/fleet-form-e2e-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "E6-form-e2e-uncovered",
+    "why": "#2006: $uncovered goes out bare",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-form-e2e.yml",
+        "find": "$(annot \"${uncovered:-none}\")",
+        "replace": "${uncovered:-none}"
+      }
+    ],
+    "test": "tests/build/fleet-form-e2e-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "E7-config-drift-names",
+    "why": "#2006: $names goes out bare",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-config-drift.yml",
+        "find": "$(annot \"$names\")",
+        "replace": "$names"
+      }
+    ],
+    "test": "tests/build/fleet-config-drift-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "E8-config-drift-unverified",
+    "why": "#2006: $unverified goes out bare",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-config-drift.yml",
+        "find": "$(annot \"$unverified\")",
+        "replace": "$unverified"
+      }
+    ],
+    "test": "tests/build/fleet-config-drift-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "E9-prismic-sync-held",
+    "why": "#2006: a held or declined line goes out bare",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-prismic-sync.yml",
+        "find": "$(annot \"$line\")",
+        "replace": "${line}"
+      }
+    ],
+    "test": "tests/build/fleet-prismic-sync-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "E10-prismic-sync-failed",
+    "why": "#2006: $failed goes out bare",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-prismic-sync.yml",
+        "find": "$(annot \"$failed\")",
+        "replace": "${failed}"
+      }
+    ],
+    "test": "tests/build/fleet-prismic-sync-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "E11-prismic-sync-refusal",
+    "why": "#2006: the refusal goes out bare",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-prismic-sync.yml",
+        "find": "$(annot \"${refusal:-see the run output above}\")",
+        "replace": "${refusal:-see the run output above}"
+      }
+    ],
+    "test": "tests/build/fleet-prismic-sync-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "P-smoke-no-percent",
+    "why": "#2006: fleet-smoke.yml's helper drops the % escape",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-smoke.yml",
+        "find": "          annot() { printf '%s' \"$1\" | sed -e 's/%/%25/g' -e 's/\\r/%0D/g'; }",
+        "replace": "          annot() { printf '%s' \"$1\" | sed -e 's/\\r/%0D/g'; }"
+      }
+    ],
+    "test": "tests/build/fleet-write-gate-workflows.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "R-smoke-no-cr",
+    "why": "#2006: fleet-smoke.yml's helper drops the CR escape",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-smoke.yml",
+        "find": "          annot() { printf '%s' \"$1\" | sed -e 's/%/%25/g' -e 's/\\r/%0D/g'; }",
+        "replace": "          annot() { printf '%s' \"$1\" | sed -e 's/%/%25/g'; }"
+      }
+    ],
+    "test": "tests/build/fleet-write-gate-workflows.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "P-form-e2e-no-percent",
+    "why": "#2006: fleet-form-e2e.yml's helper drops the % escape",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-form-e2e.yml",
+        "find": "          annot() { printf '%s' \"$1\" | sed -e 's/%/%25/g' -e 's/\\r/%0D/g'; }",
+        "replace": "          annot() { printf '%s' \"$1\" | sed -e 's/\\r/%0D/g'; }"
+      }
+    ],
+    "test": "tests/build/fleet-form-e2e-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "R-form-e2e-no-cr",
+    "why": "#2006: fleet-form-e2e.yml's helper drops the CR escape",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-form-e2e.yml",
+        "find": "          annot() { printf '%s' \"$1\" | sed -e 's/%/%25/g' -e 's/\\r/%0D/g'; }",
+        "replace": "          annot() { printf '%s' \"$1\" | sed -e 's/%/%25/g'; }"
+      }
+    ],
+    "test": "tests/build/fleet-form-e2e-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "P-prismic-sync-no-percent",
+    "why": "#2006: fleet-prismic-sync.yml's helper drops the % escape",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-prismic-sync.yml",
+        "find": "          annot() { printf '%s' \"$1\" | sed -e 's/%/%25/g' -e 's/\\r/%0D/g'; }",
+        "replace": "          annot() { printf '%s' \"$1\" | sed -e 's/\\r/%0D/g'; }"
+      }
+    ],
+    "test": "tests/build/fleet-prismic-sync-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "R-prismic-sync-no-cr",
+    "why": "#2006: fleet-prismic-sync.yml's helper drops the CR escape",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-prismic-sync.yml",
+        "find": "          annot() { printf '%s' \"$1\" | sed -e 's/%/%25/g' -e 's/\\r/%0D/g'; }",
+        "replace": "          annot() { printf '%s' \"$1\" | sed -e 's/%/%25/g'; }"
+      }
+    ],
+    "test": "tests/build/fleet-prismic-sync-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "P-config-drift-sweep-no-percent",
+    "why": "#2006: the config-drift sweep step's helper drops the % escape",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-config-drift.yml",
+        "find": "          annot() { printf '%s' \"$1\" | sed -e 's/%/%25/g' -e 's/\\r/%0D/g'; }\n          rc=0",
+        "replace": "          annot() { printf '%s' \"$1\" | sed -e 's/\\r/%0D/g'; }\n          rc=0"
+      }
+    ],
+    "test": "tests/build/fleet-config-drift-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "R-config-drift-sweep-no-cr",
+    "why": "#2006: the config-drift sweep step's helper drops the CR escape",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-config-drift.yml",
+        "find": "          annot() { printf '%s' \"$1\" | sed -e 's/%/%25/g' -e 's/\\r/%0D/g'; }\n          rc=0",
+        "replace": "          annot() { printf '%s' \"$1\" | sed -e 's/%/%25/g'; }\n          rc=0"
+      }
+    ],
+    "test": "tests/build/fleet-config-drift-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "P-config-drift-close-no-percent",
+    "why": "#2006: the config-drift close step's helper drops the % escape",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-config-drift.yml",
+        "find": "          annot() { printf '%s' \"$1\" | sed -e 's/%/%25/g' -e 's/\\r/%0D/g'; }\n          if ! grep -qE",
+        "replace": "          annot() { printf '%s' \"$1\" | sed -e 's/\\r/%0D/g'; }\n          if ! grep -qE"
+      }
+    ],
+    "test": "tests/build/fleet-config-drift-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "R-config-drift-close-no-cr",
+    "why": "#2006: the config-drift close step's helper drops the CR escape",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-config-drift.yml",
+        "find": "          annot() { printf '%s' \"$1\" | sed -e 's/%/%25/g' -e 's/\\r/%0D/g'; }\n          if ! grep -qE",
+        "replace": "          annot() { printf '%s' \"$1\" | sed -e 's/%/%25/g'; }\n          if ! grep -qE"
+      }
+    ],
+    "test": "tests/build/fleet-config-drift-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "C1-case-check-reverted",
+    "why": "#2006: the case-clash check never refuses (the fix reverted)",
+    "edits": [
+      {
+        "file": "src/cli/fleet/resolve-sites.ts",
+        "find": "    if (seen !== undefined && seen !== site.name) {",
+        "replace": "    if (false) {"
+      }
+    ],
+    "test": "tests/cli/fleet/resolve-sites.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "C2-case-check-case-sensitive",
+    "why": "#2006: the check compares names as written, so Baz and baz never meet",
+    "edits": [
+      {
+        "file": "src/cli/fleet/resolve-sites.ts",
+        "find": "    const key = site.name.toLowerCase();",
+        "replace": "    const key = site.name;"
+      }
+    ],
+    "test": "tests/cli/fleet/resolve-sites.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "C3-module-path-unchecked",
+    "why": "#2006: the module inventory skips the check",
+    "edits": [
+      {
+        "file": "src/cli/fleet/resolve-sites.ts",
+        "find": "        assertNoCaseOnlyNameClash(sanitizeDynamicSites(await mod.default())),",
+        "replace": "        sanitizeDynamicSites(await mod.default()),"
+      }
+    ],
+    "test": "tests/cli/fleet/resolve-sites.test.ts",
+    "expect": "red"
+  }
+]
