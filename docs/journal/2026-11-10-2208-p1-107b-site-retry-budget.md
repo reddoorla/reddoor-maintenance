@@ -8,10 +8,10 @@ Landed in [reddoorla/reddoor-maintenance#2032](https://github.com/reddoorla/redd
 
 **Measured.** Same fixture as the decision file: a local server with a 15-route sitemap that holds every page request open. The nightly's own `audit --only lighthouse,domain,browser,function-health --concurrency 1` ran on this branch and on `main` (e697405c) as a control, side by side, 1:09pm to 2:08pm PT.
 
-| | Control, `main` | This branch |
-| --- | --- | --- |
+|            | Control, `main`   | This branch       |
+| ---------- | ----------------- | ----------------- |
 | Wall clock | 3543 s (59.1 min) | 2813 s (46.9 min) |
-| Requests | 199 | 127 |
+| Requests   | 199               | 127               |
 
 - The control reproduced the decision file's 199 requests and 3575 s, so the fixture is the same instrument.
 - The difference is 730 s for 72 fewer requests: the 75 retries one-per-probe allowed, minus the 3 the budget spends.
@@ -19,6 +19,7 @@ Landed in [reddoorla/reddoor-maintenance#2032](https://github.com/reddoorla/redd
 - On the 10 nightlies' 21.7 to 24.9 min, less about 2 min for the site that would otherwise run normally, a night with one such site now comes to about 67 to 70 min against 75.
 
 **Beliefs corrected on contact.**
+
 - **The brief's expectation was wrong.** It predicted "about 52 min, and 154 + 3 = 157 requests". It took the pre-#2014 run (154 requests) as the uncapped base, but that run already included mobile's 30 retries, which the shared budget now also caps. The right base is 154 − 30 = 124, plus 3 retries: 127, as measured.
 - **The P1-107 entry's "~73 min" was wrong** (`2026-11-10-1755-p1-107-desktop-nav-retry.md`, "about 73 min, before any time Lighthouse spends on that site"). Measured, the step came to 79 to 82 min with #2014. The workspace journal `2026-11-10-2059-p1-107-hanging-site-budget.md` gives the cause: the browser audit alone measured 51.9 min, against a 42.5 min model, before the retry.
 
