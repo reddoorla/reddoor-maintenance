@@ -212,6 +212,11 @@ export async function uploadBatch(browser, url, name, email, rows, { deadlineMs 
     const file = commitName(res.url());
     if (file === null) return;
     const text = await res.text().catch(() => "");
+    // A file that committed stays committed (#1994): if the page's scheduler
+    // retries a whole batch after another file's 5xx, a file already answered
+    // complete is committed again, and that answer (a 403) must not replace it.
+    const seen = committed.get(file);
+    if (seen && commitComplete(seen.status, seen.text)) return;
     committed.set(file, { status: res.status(), text });
   });
   try {

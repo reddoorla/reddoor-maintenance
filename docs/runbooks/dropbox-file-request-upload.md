@@ -137,13 +137,12 @@ and renames what arrived.
   refused commit, or a closed request whose every file got its commit answer,
   is reported in seconds; a 5xx that never clears takes the whole deadline,
   and so does a file the page never commits (after a 403 disables the form,
-  a later commit batch may never be sent). Two assumptions sit under "a 200
-  is final", both errors toward a false FAILED, which step 4 catches by hash:
-  the page commits a batch of files with one `Promise.all`, so if one file's
-  5xx makes the scheduler retry the whole batch, a file already answered 200
-  is committed again; and each file keeps only its newest answer, so a
-  retried commit answered 403 after an earlier `complete` ends the wait with
-  that file FAILED. The script counts a
+  a later commit batch may never be sent). The page commits a batch of files
+  with one `Promise.all`, so if one file's 5xx makes the scheduler retry the
+  whole batch, a file already answered 200 is committed again. A `complete`
+  answer is therefore kept: a later answer for the same file (a 403 on the
+  retried batch) never replaces it (#1994), so that file is still reported
+  committed. The script counts a
   file as committed only when its own commit answered complete; a commit already seen still counts if the batch
   fails later. It does not rely on the page text, which a file named
   "Finished uploading…" would match. The commit does not name the stored
