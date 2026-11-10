@@ -750,10 +750,25 @@ const driftIdentity = (report: string): string => report.replace(/\r\n?/g, "\n")
  * what was past the cut, so an ack of it covers nothing.
  */
 export function prismicAckCovers(
-  site: Pick<WebsiteRow, "prismicAckUntil" | "prismicAckDrift" | "prismicModelsDrift">,
+  site: Pick<
+    WebsiteRow,
+    "prismicAckUntil" | "prismicAckDrift" | "prismicModelsDrift" | "prismicAckNamesReport"
+  >,
   now: Date,
 ): boolean {
   if (!prismicAckIsLive(site.prismicAckUntil, now)) return false;
+  return site.prismicAckNamesReport ?? prismicAckNamesReport(site);
+}
+
+/**
+ * The text half of {@link prismicAckCovers}: is the acked report tonight's report?
+ * It does not depend on the clock, so the cockpit snapshot computes it on the
+ * server and sends the answer instead of the acked text (#1679); the expiry is
+ * still checked wherever the row is read.
+ */
+export function prismicAckNamesReport(
+  site: Pick<WebsiteRow, "prismicAckDrift" | "prismicModelsDrift">,
+): boolean {
   const acked = site.prismicAckDrift === null ? "" : driftIdentity(site.prismicAckDrift);
   if (acked === "") return false;
   if (acked.includes("…[truncated:") && !/\(sha256 [0-9a-f]{64}\)/.test(acked)) return false;

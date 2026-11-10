@@ -331,6 +331,15 @@ export type WebsiteRow = {
    * not a new finding, and re-acking is one statement.
    */
   prismicAckDrift: string | null;
+  /**
+   * Set only on the cockpit snapshot's rows (`loadCockpitSnapshot`): whether
+   * {@link WebsiteRow.prismicAckDrift} is tonight's report, computed on the
+   * server, so the snapshot can send null in place of the acked text (up to
+   * 50,000 characters, the same report a second time on an acked site; #1679).
+   * `prismicAckCovers` reads it when present and compares the text otherwise.
+   * Absent everywhere else.
+   */
+  prismicAckNamesReport?: boolean;
   /** Does the roster `url` resolve (`roster-urls`, #912)? `pass` = a final 2xx;
    *  `fail` = anything else; null = blank url or never probed. Every
    *  non-archived row is probed, whatever its status. */

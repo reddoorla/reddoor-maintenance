@@ -14,6 +14,15 @@ name: fleet-form-e2e
 # where the forwarding rollout is still in progress. Sites enroll by shipping
 # the starter's contact `buildPayload` forwarding + the /health declaration in
 # one deploy.
+#
+# A site with NO form at all (29 Navy deleted its /contact; CalTex never had
+# one) declares `forms.none: true` in /health instead, with testMode left
+# false. The probe does not take that on trust: it opens /contact and / without
+# filling or submitting, and only when neither carries a contact form does the
+# site get the n/a verdict a testMode site with no form already earns. A form
+# found, or a look that could not run, prints the undeclared summary with the
+# reason appended, so the site stays on the UNCOVERED line. UNCOVERED therefore
+# means "should be covered and is not", never "has nothing to cover".
 on:
   workflow_dispatch: {} # manual run from the Actions tab
 
@@ -148,10 +157,23 @@ jobs:
               sub(/.*could not be read \(/, "", r); sub(/\) — probe refused.*/, "", r)
               out = out (out == "" ? "" : ", ") f[3] " (" r ")"
             } { prev = $0 } END { print out }' "$out")
-          uncovered=$(grep -B1 -E "does not declare forms.testMode|site /health could not be read" "$out" | grep -E "^form-e2e +skip " | awk '{print $3}' | paste -sd, - || true)
+          # A form route discovery found off /contact and / that /health does not
+          # list in forms.paths: the site HAS a form (so not n/a) and the probe
+          # will not submit it on the contact form's testMode word (2026-11-09:
+          # Williamson Construction's /join-the-team). Uncovered, named with its path.
+          undeclaredform=$(grep -cE "^  form at [^ ]+ is not declared in /health forms.paths" "$out" || true)
+          formsat=$(awk '/^  form at [^ ]+ is not declared in \/health forms.paths/ && prev ~ /^form-e2e +skip / {
+              split(prev, f, " "); split($0, g, " ")
+              out = out (out == "" ? "" : ", ") f[3] " (" g[3] ")"
+            } { prev = $0 } END { print out }' "$out")
+          echo "FLEET_FORM_E2E undeclared_form=$undeclaredform"
+          uncovered=$(grep -B1 -E "does not declare forms.testMode|site /health could not be read|is not declared in /health forms.paths" "$out" | grep -E "^form-e2e +skip " | awk '{print $3}' | paste -sd, - || true)
           echo "FLEET_FORM_E2E_UNCOVERED sites=${uncovered:-none}"
           if [ "$selfskipped" -gt 0 ]; then
-            echo "::warning::fleet form-e2e: $selfskipped of $total site(s) self-skipped (no forms.testMode declaration) — those sites had NO end-to-end coverage tonight: ${undeclared:-unnamed}."
+            echo "::warning::fleet form-e2e: $selfskipped of $total site(s) self-skipped (no forms.testMode declaration, or a forms.none no-form claim the look found false or could not check; each site's log line says which) — those sites had NO end-to-end coverage tonight: ${undeclared:-unnamed}."
+          fi
+          if [ "$undeclaredform" -gt 0 ]; then
+            echo "::warning::fleet form-e2e: $undeclaredform of $total site(s) have a form off /contact and / that /health does not declare in forms.paths, so it was not submitted — NO end-to-end coverage tonight: ${formsat:-unnamed}."
           fi
           if [ "$unreadable" -gt 0 ]; then
             echo "::warning::fleet form-e2e: $unreadable of $total site(s) not probed because their /health could not be read, twice — NO end-to-end coverage tonight: ${unread:-unnamed}."
