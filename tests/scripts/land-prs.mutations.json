@@ -485,8 +485,8 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "      if (!takeOne(liveLeft, matchKey(t))) {",
-        "replace": "      if (!takeOne(removedLeft, matchKey(t))) {"
+        "find": "      if (!takeOne(liveLeft, matchKey(t)) || !backed) {",
+        "replace": "      if (!backed) {"
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
@@ -518,5 +518,18 @@
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
     "why": "#1998 round 6: the moved-closer reading replaces main's instead of adding to it, so a wrap main flags (+/* above a moved */) is lost."
+  },
+  {
+    "id": "P82-O-skip-pool-split-from-main",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "      const backed = takeOne(removedLeft, matchKey(t));",
+        "replace": "      const backed = true;"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1998 round 6 undone: a skip draws only on its own copy of the removed pool, so one removed line backs both an over-long added copy and an added skip, which main flags."
   }
 ]

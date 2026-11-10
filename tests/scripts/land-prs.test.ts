@@ -2613,6 +2613,30 @@ describe("land-prs: test changes", () => {
       ]);
     });
 
+    it("one removed line backs one added line, as on main: an over-long copy and a skip do not both draw on it (#1998 round 6)", () => {
+      const skip = 'it.skip("a", () => {});';
+      const long = `${skip} // ${"x".repeat(2000)}`;
+      expect(one(`@@ -1,1 +1,2 @@\n-${skip}\n+${long}\n+${skip}`)).toEqual([
+        { file: T, reasons: [`added skip: ${skip}`] },
+      ]);
+      expect(one(`@@ -1,1 +1,2 @@\n-${skip}\n+${skip}\n+${long}`)).toEqual([
+        {
+          file: T,
+          reasons: [`a changed line of ${long.length} characters, too long to scan: read it`],
+        },
+      ]);
+    });
+
+    it("known false flag: code just below a multi-line template that closes above the hunk reads as template text (#1998 round 6)", () => {
+      // The hunk opens inside an inline snapshot, so its closing backtick reads as an opener.
+      // `main` gives [] here; a reorder below the snapshot costs the author a line.
+      expect(
+        one(
+          '@@ -10,6 +10,6 @@ it("renders", () => {\n     "b": 2,\n   }\n   `);\n-  expect(a).toBe(1);\n   expect(b).toBe(2);\n+  expect(a).toBe(1);\n });',
+        ),
+      ).toEqual([{ file: T, reasons: ["removed assertion not re-added: expect(a).toBe(1);"] }]);
+    });
+
     it("only a line that is the closer alone reads as one: a // comment ending in */ does not", () => {
       expect(
         one("@@ -1,3 +1,3 @@\n keep();\n-run(); // dir/*/\n+run();\n expect(a).toBe(1);"),

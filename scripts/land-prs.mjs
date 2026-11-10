@@ -1246,7 +1246,8 @@ function renamedAway(before, after) {
  *  large diff), because nothing here can read it. Only a line's code counts: a
  *  commented-out call is neither (see `codeOf`). A renamed skip is flagged as an added skip.
  *  The first non-blank context line of each hunk that the PR's change puts inside a block comment
- *  is flagged (#1617; round 4: a blank one is not). A hunk starts inside a block comment only when
+ *  is flagged (#1617; round 4: a blank one is not), once for each reading of the hunk (see below),
+ *  so a hunk read two ways can flag two lines. A hunk starts inside a block comment only when
  *  its first line is a JSDoc continuation (`*`, as `jsdocFirstLine` reads it, round 5); it is also
  *  read as starting inside one when it removes a line that is `*\/` alone where its old side reads
  *  as code (`closerMovedDown`, #1946), and then both readings count (see `hunkShifts`); otherwise
@@ -1264,8 +1265,11 @@ function renamedAway(before, after) {
  *    Markdown bullet inside a template literal there makes the lines below it text: an added line
  *    there re-adds nothing, and a skip moved there is an added skip;
  *  - a hunk that starts inside a multi-line template literal is read as code, so a glob such as
- *    `src/*` added there can be flagged as a wrap, and a code fence added to it reads the lines
- *    below as template text;
+ *    `src/*` added there can be flagged as a wrap, and the template's closing backtick (or a
+ *    code fence added to it) reads as an opener, so the code below it is template text: an
+ *    assertion moved, re-indented or edited below an inline snapshot or a `test.each` table
+ *    that closes within the hunk's context is flagged as not re-added, and a skip moved there
+ *    as added (#1998 round 6);
  *  - text moved within text: a template literal or a comment holding a test or a skip, moved or
  *    re-indented, is flagged as a lost assertion or an added skip. Telling that from an assertion
  *    taken out of code and parked in a string needs the file's full text; pairing the two copies
@@ -1368,7 +1372,10 @@ export function testChangeFlags(files) {
       }
       const only = hasCall(t, ONLY);
       if (!only && !hasCall(t, SKIP) && !SKIP_BRACKET.test(t)) continue;
-      if (!takeOne(liveLeft, matchKey(t))) {
+      // `removedLeft` moves exactly as on `main`, so a removed line that backs a skip here is one
+      // `main` would also spend on it, never one an over-long added line also claims (round 6).
+      const backed = takeOne(removedLeft, matchKey(t));
+      if (!takeOne(liveLeft, matchKey(t)) || !backed) {
         reasons.push(only ? `added .only: ${t}` : `added skip: ${t}`);
       }
     }
