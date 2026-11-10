@@ -246,6 +246,16 @@ describe("relay: handlePrismicWebhook", () => {
     expect(h.calls.some((c) => c.url.startsWith("https://api.github.com/"))).toBe(false);
   });
 
+  it("a video found by its name, with an extensionless URL, lands in refused and is not dispatched", async () => {
+    const url = "https://reddoor-la.cdn.prismic.io/reddoor-la/abc123";
+    const h = harness();
+    h.cfg.getDocuments = async () => [docWith(url)];
+    const r = await handlePrismicWebhook({ method: "POST", body: hook() }, h.cfg);
+    expect(r.status).toBe(200);
+    expect(JSON.parse(r.body).refused).toEqual([url]);
+    expect(h.calls.some((c) => c.url.startsWith("https://api.github.com/"))).toBe(false);
+  });
+
   it("a URL whose path carries shell syntax is refused, not dispatched", async () => {
     const url = "https://reddoor-la.cdn.prismic.io/reddoor-la/$(id).mp4";
     const h = harness();

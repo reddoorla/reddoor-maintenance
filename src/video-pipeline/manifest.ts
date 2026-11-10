@@ -14,7 +14,10 @@ export type VideoManifest = {
   source: string;
   class: VideoClass;
   key: string;
-  /** The version directory under the key: `${class}-${YYYYMMDDTHHMMSSZ}`. Files never change in place. */
+  /**
+   * The version directory under the key: `${class}-${YYYYMMDDTHHMMSSZ}-${mmm}`, where mmm is the milliseconds of
+   * the encode (e.g. `player-20261110T000000Z-500`). The `-mmm` suffix is optional when parsing. Files never change in place.
+   */
   dir: string;
   encodedAt: string;
   files: ManifestFiles;

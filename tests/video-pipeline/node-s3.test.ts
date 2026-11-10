@@ -116,6 +116,17 @@ describe("node s3: getObject", () => {
     expect(got).toBeNull();
   });
 
+  it("a non-2xx names the first 200 characters of the response body", async () => {
+    const long = "x".repeat(300);
+    const fakeFetch = (async () => new Response(long, { status: 503 })) as unknown as typeof fetch;
+    const err = await getObject(cfg, "k/manifest.json", {
+      fetch: fakeFetch,
+      now: new Date("2026-11-10T12:00:00Z"),
+    }).catch((e: unknown) => e as Error);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toBe(`GET k/manifest.json: HTTP 503 ${"x".repeat(200)}`);
+  });
+
   it("a 200 is the body bytes, signed as a GET to the encoded key", async () => {
     const calls: { url: string; init: RequestInit }[] = [];
     const fakeFetch = (async (url: string, init: RequestInit) => {

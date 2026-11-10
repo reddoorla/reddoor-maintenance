@@ -3,9 +3,28 @@ import {
   fileNameOf,
   isPrismicFileUrl,
   manifestUrl,
+  relayRefusal,
   sourceOf,
   videoKey,
 } from "../../src/video-pipeline/key.js";
+
+describe("video-pipeline relayRefusal", () => {
+  it("a parenthesised file name is refused, with the unsafe-characters reason", () => {
+    const reason = relayRefusal("https://reddoor-la.cdn.prismic.io/reddoor-la/Hero(1).mp4");
+    expect(reason).toContain("refused by the relay");
+    expect(reason).toContain("unsafe characters");
+  });
+
+  it("a plain https Prismic URL is allowed (null)", () => {
+    expect(
+      relayRefusal("https://reddoor-la.cdn.prismic.io/reddoor-la/Offer%20Hero.mp4"),
+    ).toBeNull();
+  });
+
+  it("a URL that does not parse is refused", () => {
+    expect(relayRefusal("not a url")).not.toBeNull();
+  });
+});
 
 describe("video-pipeline key", () => {
   it("videoKey: site slug, file-stem slug, and a 10-hex hash of the source path", () => {

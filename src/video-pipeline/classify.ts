@@ -54,7 +54,10 @@ export function parseVideoRules(json: unknown): VideoRules | string {
   return json as VideoRules;
 }
 
-/** link_type === "Media", url is https, kind !== "image", name or url (pathname) matches VIDEO_EXT. */
+/**
+ * link_type === "Media", url is https, kind !== "image", and a video by name or by the URL's file name. A link
+ * found by its name but with no key-able URL is still found: the key step refuses it, so it is reported, not hidden.
+ */
 export function isVideoLink(value: unknown): value is { url: string } {
   if (!isObject(value) || value.link_type !== "Media") return false;
   if (typeof value.url !== "string") return false;
@@ -66,8 +69,8 @@ export function isVideoLink(value: unknown): value is { url: string } {
     return false;
   }
   if (url.protocol !== "https:") return false;
-  // The URL's own file name decides, the same rule key.ts uses to compute the key: a link the key cannot be built for is not a video.
-  return VIDEO_EXT.test(fileNameOf(value.url) ?? "");
+  const named = typeof value.name === "string" && VIDEO_EXT.test(value.name);
+  return named || VIDEO_EXT.test(fileNameOf(value.url) ?? "");
 }
 
 /** Every object inside an array, recursively, starting from a candidate's array values. */

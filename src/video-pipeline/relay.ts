@@ -1,4 +1,4 @@
-import { isPrismicFileUrl, videoKey } from "./key.js";
+import { isPrismicFileUrl, relayRefusal, videoKey } from "./key.js";
 import { dispatchEncode } from "./dispatch.js";
 import { findVideos, mergeFound } from "./classify.js";
 import type { DocLike, VideoRules } from "./classify.js";
@@ -21,12 +21,6 @@ export type RelayConfig = {
   fetch: typeof fetch;
 };
 export type RelayResult = { status: number; body: string };
-
-/**
- * The only characters a dispatched URL may carry, after WHATWG normalisation. Anything else (a `$`, `(`,
- * `'`, `;`, `!` or `*` in a path, say) is refused rather than handed to a workflow that might interpolate it.
- */
-const SAFE_URL = /^[A-Za-z0-9\-._~:/?=&%+#@]+$/;
 
 const json = (status: number, value: unknown): RelayResult => ({
   status,
@@ -68,11 +62,11 @@ export async function handlePrismicWebhook(
       refused.push(video.url);
       continue;
     }
-    const href = new URL(video.url).href;
-    if (!SAFE_URL.test(href)) {
+    if (relayRefusal(video.url) !== null) {
       refused.push(video.url);
       continue;
     }
+    const href = new URL(video.url).href;
     const key = videoKey(cfg.site, href);
     if (key === null) {
       refused.push(video.url);

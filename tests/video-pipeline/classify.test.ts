@@ -168,14 +168,25 @@ describe("classify: parseVideoRules", () => {
 });
 
 describe("classify: isVideoLink", () => {
-  it("the URL's own file name decides, not the name field", () => {
+  it("a link whose name is a video is found even when its URL has no extension (the relay refuses it)", () => {
     const link = {
       link_type: "Media",
       kind: "document",
       name: "clip.mp4",
       url: "https://x.cdn.prismic.io/x/abc123",
     };
-    expect(isVideoLink(link)).toBe(false);
+    expect(isVideoLink(link)).toBe(true);
+  });
+
+  it("a link whose name and URL are both not videos is not a video", () => {
+    expect(
+      isVideoLink({
+        link_type: "Media",
+        kind: "document",
+        name: "notes.txt",
+        url: "https://x.cdn.prismic.io/x/abc123",
+      }),
+    ).toBe(false);
   });
 
   it("a video URL whose name field is not a video is still a video", () => {

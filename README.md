@@ -164,9 +164,15 @@ tracking issue.
 
 `encode` flags: `--url <https Prismic file URL>` (must be on a `*.prismic.io`
 host), `--class background|player`, `--site <name>` (the first segment of every
-key). `stuck` flags: `--prismic <repo>`, `--site <name>`, `--media-base <url>`
+key; a lowercase letter, then letters, digits or hyphens, or the run exits `2`
+before any fetch), and `--key <key>` (optional: the relay's dispatch passes the
+key it computed, and a manual run leaves it blank; a blank value, `0` or `"0"`
+means no key, and any other value must equal the key for `--url` and `--site`).
+`stuck` flags: `--prismic <repo>`, `--site <name>`, `--media-base <url>`
 (the public host the manifests are read from), `--rules <path>` (a JSON file,
-below), `--open-issue`, `--repo owner/name` (the repo that holds the issue).
+below), `--open-issue`, `--repo owner/name` (the repo that holds the issue). Every
+`STUCK` line prints its `key=`; a video the relay cannot encode prints
+`cannot be encoded (<reason>)` instead.
 
 Environment: `encode` needs `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID` and
 `R2_SECRET_ACCESS_KEY`, and `CF_AI_TOKEN` for the player class (captions);
@@ -179,6 +185,18 @@ or `stuck` found a stuck video (deliberate: the hourly run going red is the
 alarm; a stuck video is never closed automatically); `2` an invalid argument,
 a missing variable, or a Prismic or rules error. A caption failure is a
 `WARN captions:` line and the video still ships without captions.
+
+Two runs over the same video can overlap. A background run re-reads the manifest
+just before it writes its own: if a player manifest has landed in the meantime, the
+run prints `SKIP <key>: a player manifest landed during this run (<dir>)`, exits `0`
+and writes no manifest (its renditions stay, unreferenced). A run that finds a player
+manifest before it starts also skips, before any download. A failed re-read is exit
+`1`, naming the manifest key. A site's workflow should therefore serialise its runs
+per video, with `concurrency: { group: video-encode-${{ inputs.url }}, cancel-in-progress: false }`,
+so a second dispatch waits for the first rather than racing it.
+A run whose class the existing manifest already holds also skips, before any
+download (`SKIP <key>: already encoded as <class> …`), so a re-publish during an
+encode does not encode twice; `--force` re-encodes into a new version directory.
 
 A site's build logs stuck videos and never fails on them: only the hourly `stuck` run goes red, so a
 stuck video cannot block a deploy. Captions are transcribed with Whisper, called with `language: "en"`.
@@ -221,7 +239,7 @@ public site repo, and this one cannot.
 The site's relay must pass the Prismic webhook's `url`, `class` and `key` inputs
 through the workflow's `env:` block and never inline them into a `run:` script,
 because the URL is carried in them. The relay refuses a URL with characters outside
-`A-Za-z0-9-._~:/?=&%+#@` and lists it under `refused`.
+`A-Za-z0-9-._~:/?=&%+#@` and lists it under `refused`; `stuck` reports the same URL as `cannot be encoded`.
 
 ---
 

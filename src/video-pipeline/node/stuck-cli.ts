@@ -4,8 +4,14 @@ import { readFile as fsReadFile } from "node:fs/promises";
 import { findVideos, mergeFound, parseVideoRules } from "../classify.js";
 import type { DocLike, VideoRules } from "../classify.js";
 import { REPO_NAME } from "../dispatch.js";
-import { isPrismicFileUrl, videoKey } from "../key.js";
-import { STUCK_LABEL, STUCK_TITLE, findStuck, stuckIssueBody } from "../stuck.js";
+import { SITE_NAME, videoKey } from "../key.js";
+import {
+  STUCK_LABEL,
+  STUCK_TITLE,
+  cannotEncodeReason,
+  findStuck,
+  stuckIssueBody,
+} from "../stuck.js";
 import type { Renditions } from "../manifest.js";
 import { resolveVideo } from "../manifest.js";
 
@@ -163,7 +169,14 @@ export async function runPipelineStuck(
       code: 2,
     };
   }
-  if (!opts.site) return { output: "--site <name> is required", code: 2 };
+  // cac passes numeric option values as numbers: coerce, then check the name before anything is fetched.
+  const site = opts.site == null ? "" : String(opts.site);
+  if (!SITE_NAME.test(site)) {
+    return {
+      output: `--site must be a site name (a lowercase letter, then letters, digits or hyphens); got ${JSON.stringify(site)}`,
+      code: 2,
+    };
+  }
   if (!opts.mediaBase) return { output: "--media-base <url> is required", code: 2 };
   if (opts.repo && !REPO_NAME.test(opts.repo)) {
     return { output: `--repo must be owner/name; got ${JSON.stringify(opts.repo)}`, code: 2 };
@@ -188,7 +201,7 @@ export async function runPipelineStuck(
     resolved.set(
       video.url,
       await resolveVideo(video.url, {
-        site: opts.site,
+        site,
         mediaBase: opts.mediaBase,
         fetch: fetchImpl,
         cache,
@@ -197,14 +210,14 @@ export async function runPipelineStuck(
   }
   const current = now();
   const stuck = findStuck(found, resolved, current);
-  const site = opts.site;
   const lines = [...warnings];
   lines.push(
-    ...stuck.map((v) =>
-      isPrismicFileUrl(v.url) && videoKey(site, v.url) !== null
-        ? `STUCK ${v.url} class=${v.class} document=${v.documentId} age=${v.ageMs === null ? "unknown" : `${Math.round(v.ageMs / 60000)}min`}`
-        : `cannot be encoded (${isPrismicFileUrl(v.url) ? "no video key for this site" : "not a Prismic file URL"}): ${v.url}`,
-    ),
+    ...stuck.map((v) => {
+      const reason = cannotEncodeReason(v.url, site);
+      if (reason !== null) return `cannot be encoded (${reason}): ${v.url}`;
+      const age = v.ageMs === null ? "unknown" : `${Math.round(v.ageMs / 60000)}min`;
+      return `STUCK ${v.url} class=${v.class} document=${v.documentId} age=${age} key=${videoKey(site, v.url)}`;
+    }),
   );
   lines.push(`documents: ${docs.length}, videos: ${found.length}`);
   lines.push(`stuck: ${stuck.length} of ${found.length} video(s)`);
@@ -216,7 +229,12 @@ export async function runPipelineStuck(
       return { output: [...lines, "--open-issue needs --repo owner/name"].join("\n"), code: 2 };
     try {
       lines.push(
-        await syncIssue(opts.repo!, env.GITHUB_TOKEN!, stuckIssueBody(stuck, current), fetchImpl),
+        await syncIssue(
+          opts.repo!,
+          env.GITHUB_TOKEN!,
+          stuckIssueBody(stuck, current, site),
+          fetchImpl,
+        ),
       );
     } catch (err) {
       return {

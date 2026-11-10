@@ -52,7 +52,7 @@ describe("dispatch: dispatchEncode", () => {
     ).rejects.toThrow("HTTP 404");
   });
 
-  it("a non-204 success status throws", async () => {
+  it("any 2xx is success: 200 resolves", async () => {
     const fetch = vi.fn(async () => new Response("{}", { status: 200 }));
     await expect(
       dispatchEncode(job, {
@@ -60,7 +60,18 @@ describe("dispatch: dispatchEncode", () => {
         token: "t",
         fetch: fetch as unknown as typeof globalThis.fetch,
       }),
-    ).rejects.toThrow("HTTP 200");
+    ).resolves.toBeUndefined();
+  });
+
+  it("a 422 is a failure, with its status in the message", async () => {
+    const fetch = vi.fn(async () => new Response("{}", { status: 422 }));
+    await expect(
+      dispatchEncode(job, {
+        repo: "reddoorla/site",
+        token: "t",
+        fetch: fetch as unknown as typeof globalThis.fetch,
+      }),
+    ).rejects.toThrow("HTTP 422");
   });
 
   it("a bad repo string throws without fetching", async () => {

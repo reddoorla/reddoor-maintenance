@@ -180,7 +180,8 @@ export async function getObject(
   );
   if (res.status === 404) return null;
   if (res.status < 200 || res.status > 299) {
-    throw new Error(`GET ${key}: HTTP ${res.status}`);
+    const text = await res.text().catch(() => "");
+    throw new Error(`GET ${key}: HTTP ${res.status} ${text.slice(0, 200)}`);
   }
   return new Uint8Array(await res.arrayBuffer());
 }

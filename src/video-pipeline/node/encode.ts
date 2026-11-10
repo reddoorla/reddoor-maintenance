@@ -8,7 +8,15 @@ import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import { defaultSpawn } from "../../audits/util/spawn.js";
 import type { SpawnFn } from "../../audits/util/spawn.js";
 import { runVideoCommand } from "../../cli/commands/video.js";
-import { fileNameOf, isPrismicFileUrl, keyStem, sourceOf, videoKey, VIDEO_EXT } from "../key.js";
+import {
+  fileNameOf,
+  isPrismicFileUrl,
+  keyStem,
+  SITE_NAME,
+  sourceOf,
+  videoKey,
+  VIDEO_EXT,
+} from "../key.js";
 import type { VideoClass } from "../key.js";
 import { parseManifest } from "../manifest.js";
 import type { ManifestFiles, VideoManifest } from "../manifest.js";
@@ -93,6 +101,8 @@ export async function runPipelineEncode(
     class?: string | undefined;
     site?: string | undefined;
     key?: string | undefined;
+    /** Re-encode even when the R2 manifest already holds this class. */
+    force?: boolean | undefined;
   },
   deps: EncodeDeps = {},
 ): Promise<{ output: string; code: number }> {
@@ -114,14 +124,21 @@ export async function runPipelineEncode(
   }
   const profile: VideoClass = cls;
   const site = opts.site == null ? "" : String(opts.site);
-  if (site.trim() === "") return fail("--site must name the site");
+  if (!SITE_NAME.test(site)) {
+    return fail(
+      `--site must be a site name (a lowercase letter, then letters, digits or hyphens); got ${JSON.stringify(site)}`,
+    );
+  }
   const key = videoKey(site, url.toString());
   if (key === null) {
     return fail(`--url must be a video file (${VIDEO_EXT.source}) whose name slugifies to a key`);
   }
   // The workflow dispatches a key it computed; an encode that would write under a different key is refused.
-  if (opts.key != null && String(opts.key) !== key) {
-    return fail(`--key ${String(opts.key)} does not match ${key} for --site ${site}`);
+  // A blank key (cac turns `--key ""` into 0, and a manual run leaves it out) means no key was given.
+  const givenKey = opts.key == null ? "" : String(opts.key);
+  const noKeyGiven = givenKey === "" || givenKey === "0";
+  if (!noKeyGiven && givenKey !== key) {
+    return fail(`--key ${givenKey} does not match ${key} for --site ${site}`);
   }
   const sourcePath = sourceOf(url.toString());
   if (sourcePath === null) return fail("--url must be an https Prismic file URL");
@@ -158,6 +175,13 @@ export async function runPipelineEncode(
   }
   if (existing !== null && existing.class === "player" && profile === "background") {
     return { output: `SKIP ${key}: already encoded as player (${existing.dir})`, code: 0 };
+  }
+  // A re-publish during an encode re-dispatches the same class; only --force re-encodes what R2 already serves.
+  if (existing !== null && existing.class === profile && opts.force !== true) {
+    return {
+      output: `SKIP ${key}: already encoded as ${profile} (${existing.dir}); --force re-encodes`,
+      code: 0,
+    };
   }
 
   const tmp = await mkdtemp(join(deps.tmpDir ?? tmpdir(), "video-encode-"));
@@ -286,10 +310,31 @@ export async function runPipelineEncode(
       }
       lines.push(`PUT ${objectKey} ${bytes.length}`);
     }
+    // A player manifest can land while this run downloads and encodes (a concurrent player run). Re-check
+    // just before the PUT, so a background run never overwrites it.
+    if (profile === "background") {
+      let latest: VideoManifest | null = null;
+      try {
+        const bytes = await getObject(cfg, manifestKey, { fetch: fetchImpl, now: now() });
+        if (bytes !== null) {
+          try {
+            latest = parseManifest(JSON.parse(new TextDecoder().decode(bytes)));
+          } catch {
+            latest = null;
+          }
+        }
+      } catch (err) {
+        throw new StepError(manifestKey, err instanceof Error ? err.message : String(err));
+      }
+      if (latest !== null && latest.class === "player") {
+        lines.push(`SKIP ${key}: a player manifest landed during this run (${latest.dir})`);
+        return { output: lines.join("\n"), code: 0 };
+      }
+    }
     try {
       await putObject(
         cfg,
-        `${key}/manifest.json`,
+        manifestKey,
         new TextEncoder().encode(JSON.stringify(manifest, null, 2)),
         {
           contentType: "application/json",
@@ -299,9 +344,9 @@ export async function runPipelineEncode(
         },
       );
     } catch (err) {
-      throw new StepError(`${key}/manifest.json`, err instanceof Error ? err.message : String(err));
+      throw new StepError(manifestKey, err instanceof Error ? err.message : String(err));
     }
-    lines.push(`MANIFEST ${key}/manifest.json`);
+    lines.push(`MANIFEST ${manifestKey}`);
     return { output: lines.join("\n"), code: 0 };
   } catch (err) {
     if (err instanceof StepError) return { output: [...lines, err.message].join("\n"), code: 1 };

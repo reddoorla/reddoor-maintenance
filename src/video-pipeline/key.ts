@@ -72,3 +72,26 @@ export function sourceOf(url: string): string | null {
   const u = parseHttps(url);
   return u === null ? null : u.pathname;
 }
+
+/** A site name as the pipeline takes it: a letter, then letters, digits or hyphens. Checked after the CLI has made every option a string. */
+export const SITE_NAME = /^[a-z][a-z0-9-]*$/;
+
+/**
+ * The only characters a dispatched URL may carry, after WHATWG normalisation. Anything else (a `$`, `(`,
+ * `'`, `;`, `!` or `*` in a path, say) is refused rather than handed to a workflow that might interpolate it.
+ */
+const SAFE_URL = /^[A-Za-z0-9\-._~:/?=&%+#@]+$/;
+
+export const RELAY_REFUSAL_REASON =
+  "refused by the relay (unsafe characters; rename the file in Prismic and republish, or run video-encode by hand)";
+
+/** The reason the relay refuses this URL, or null when it may be dispatched. Shared by the relay and the stuck check. */
+export function relayRefusal(url: string): string | null {
+  let href: string;
+  try {
+    href = new URL(url).href;
+  } catch {
+    return RELAY_REFUSAL_REASON;
+  }
+  return SAFE_URL.test(href) ? null : RELAY_REFUSAL_REASON;
+}

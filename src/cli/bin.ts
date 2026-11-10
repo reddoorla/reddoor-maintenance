@@ -511,8 +511,9 @@ cli
   .option("--class <class>", "encode: background (muted loop) or player (keeps audio)")
   .option(
     "--key <key>",
-    "encode: the key the workflow dispatched; refused unless it equals the key for --url and --site",
+    "encode: optional; the key the workflow dispatched (blank for a manual run). When given it must equal the key for --url and --site",
   )
+  .option("--force", "encode: re-encode even when R2 already serves this class")
   .option("--site <name>", "encode and stuck: the site's name, the first segment of each key")
   .option("--repo <owner/name>", "stuck --open-issue: the GitHub repo that holds the issue")
   .option("--prismic <repo>", "stuck: the Prismic repository to scan")

@@ -74,6 +74,7 @@ describe("stuck: stuckIssueBody", () => {
         { ...b, ageMs: null },
       ],
       NOW,
+      "reddoor-website",
     );
     expect(body).toContain(a.url);
     expect(body).toContain(b.url);

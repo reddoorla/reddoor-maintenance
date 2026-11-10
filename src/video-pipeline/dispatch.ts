@@ -14,8 +14,8 @@ const REF_NAME = /^[\w./-]+$/;
 /**
  * POST https://api.github.com/repos/${repo}/actions/workflows/${workflow}/dispatches, on `ref`.
  * This uses the workflow-dispatch API, which needs only Actions: write and cannot touch code. The
- * repository_dispatch route needs Contents: write, which can push to the public site repo. Resolves on 204;
- * throws otherwise. `repo`, `workflow` and `ref` are validated before any fetch and throw if they fail.
+ * repository_dispatch route needs Contents: write, which can push to the public site repo. Resolves on any 2xx
+ * (GitHub answers 204); throws otherwise. `repo`, `workflow` and `ref` are validated before any fetch and throw if they fail.
  */
 export async function dispatchEncode(
   job: EncodeJob,
@@ -51,7 +51,7 @@ export async function dispatchEncode(
       }),
     },
   );
-  if (res.status !== 204) {
+  if (res.status < 200 || res.status > 299) {
     const text = await res.text().catch(() => "");
     throw new Error(`dispatch ${job.key}: HTTP ${res.status} ${text.slice(0, 200)}`);
   }

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { runPipelineStuck } from "../../src/video-pipeline/node/stuck-cli.js";
-import { videoKey } from "../../src/video-pipeline/key.js";
+import { RELAY_REFUSAL_REASON, videoKey } from "../../src/video-pipeline/key.js";
 
 const PRISMIC_URL = "https://reddoor-la.cdn.prismic.io/reddoor-la/Offer%20Hero.mp4";
 const MEDIA = "https://media.example";
@@ -240,11 +240,19 @@ describe("node stuck CLI", () => {
 
 describe("node stuck CLI: keys, flags and rules", () => {
   it("a Prismic video whose key cannot be computed is printed as cannot be encoded, not as a re-runnable STUCK line", async () => {
-    const h = harness({ manifest: false });
-    const r = await runPipelineStuck({ ...opts, site: "!!!", openIssue: false }, deps(h.fetch));
+    // An extensionless file has no key whatever the site is; a site name must now be a valid slug (checked below).
+    const EXTENSIONLESS = "https://reddoor-la.cdn.prismic.io/reddoor-la/abc123";
+    const h = harness({
+      manifest: false,
+      respond: (url) =>
+        url.includes("/documents/search")
+          ? json({ results: [docWith(EXTENSIONLESS)], page: 1, total_pages: 1 })
+          : undefined,
+    });
+    const r = await runPipelineStuck({ ...opts, openIssue: false }, deps(h.fetch));
     expect(r.code).toBe(1);
-    expect(r.output).toContain(`cannot be encoded (no video key for this site): ${PRISMIC_URL}`);
-    expect(r.output).not.toContain(`STUCK ${PRISMIC_URL}`);
+    expect(r.output).toContain(`cannot be encoded (no video key for this site): ${EXTENSIONLESS}`);
+    expect(r.output).not.toContain(`STUCK ${EXTENSIONLESS}`);
     expect(r.output).toContain("stuck: 1 of 1 video(s)");
   });
 
@@ -288,5 +296,90 @@ describe("node stuck CLI: keys, flags and rules", () => {
       deps(h.fetch, { GITHUB_TOKEN: "gh" }, JSON.stringify(rules)),
     );
     expect(r.output).not.toContain("WARN rules: $document");
+  });
+});
+
+const NON_PRISMIC = "https://media.example/x/Hero.mp4";
+const UNSAFE = "https://reddoor-la.cdn.prismic.io/reddoor-la/Hero(1).mp4";
+const threeSlices = {
+  id: "d3",
+  last_publication_date: "2026-11-10T10:00:00Z",
+  data: {
+    body: [PRISMIC_URL, NON_PRISMIC, UNSAFE].map((url) => ({
+      slice_type: "offer_hero",
+      primary: {
+        video_mp4: { link_type: "Media", url, name: "Hero.mp4", kind: "document" },
+      },
+    })),
+  },
+};
+
+describe("node stuck CLI: the issue groups re-runnable videos apart from the rest", () => {
+  it("the re-run advice sits only over the re-runnable video, and each line carries its inputs", async () => {
+    const h = harness({
+      manifest: false,
+      issues: [],
+      respond: (url) =>
+        url.includes("/documents/search")
+          ? json({ results: [threeSlices], page: 1, total_pages: 1 })
+          : undefined,
+    });
+    const r = await runPipelineStuck(opts, deps(h.fetch));
+    expect(r.code).toBe(1);
+    expect(r.output).toContain(`STUCK ${PRISMIC_URL} class=player`);
+    expect(r.output).toContain(`key=${KEY}`);
+    expect(r.output).toContain(`cannot be encoded (not a Prismic file URL): ${NON_PRISMIC}`);
+    expect(r.output).toContain(`cannot be encoded (${RELAY_REFUSAL_REASON}): ${UNSAFE}`);
+    expect(r.output).not.toContain(`STUCK ${UNSAFE}`);
+
+    const post = h.calls.find(
+      (c) => c.method === "POST" && c.url === "https://api.github.com/repos/o/r/issues",
+    );
+    const issue = JSON.parse(post!.body!).body as string;
+    const lines = issue.split("\n");
+    const at = (url: string) => lines.findIndex((l) => l.startsWith(`- ${url} `));
+    const heading = lines.findIndex((l) => l.startsWith("Cannot be encoded"));
+    const advice = lines.findIndex((l) => l.includes("Re-run the `video-encode` workflow"));
+    expect(heading).toBeGreaterThan(-1);
+    expect(issue.split("Re-run the `video-encode` workflow").length - 1).toBe(1);
+    expect(advice).toBeGreaterThan(-1);
+    expect(advice).toBeLessThan(heading);
+
+    expect(at(PRISMIC_URL)).toBeGreaterThan(-1);
+    expect(at(PRISMIC_URL)).toBeLessThan(heading);
+    expect(lines[at(PRISMIC_URL)]).toContain(`class=player key=${KEY}`);
+
+    expect(at(NON_PRISMIC)).toBeGreaterThan(heading);
+    expect(lines[at(NON_PRISMIC)]).toContain("not a Prismic file URL");
+    expect(lines[at(NON_PRISMIC)]).not.toContain("class=");
+
+    expect(at(UNSAFE)).toBeGreaterThan(heading);
+    expect(lines[at(UNSAFE)]).toContain("refused by the relay");
+    expect(lines[at(UNSAFE)]).not.toContain("class=");
+  });
+
+  it("a stuck CLI with a numeric site is code 2 naming --site, does not throw, and makes no fetch", async () => {
+    const h = harness({ manifest: false });
+    const r = await runPipelineStuck(
+      { ...opts, site: 123 as unknown as string, openIssue: false },
+      deps(h.fetch),
+    );
+    expect(r.code).toBe(2);
+    expect(r.output).toContain("--site");
+    expect(h.calls).toHaveLength(0);
+  });
+
+  it("a video named clip.mp4 whose URL has no extension is reported as cannot be encoded, not hidden", async () => {
+    const EXTENSIONLESS = "https://reddoor-la.cdn.prismic.io/reddoor-la/abc123";
+    const h = harness({
+      manifest: false,
+      respond: (url) =>
+        url.includes("/documents/search")
+          ? json({ results: [docWith(EXTENSIONLESS)], page: 1, total_pages: 1 })
+          : undefined,
+    });
+    const r = await runPipelineStuck({ ...opts, openIssue: false }, deps(h.fetch));
+    expect(r.output).toContain(`cannot be encoded (no video key for this site): ${EXTENSIONLESS}`);
+    expect(r.output).toContain("stuck: 1 of 1 video(s)");
   });
 });
