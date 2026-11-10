@@ -322,7 +322,10 @@ describe("defaultDomainDeps against local TLS servers", () => {
   });
 
   it("an untrusted (self-signed) cert fails closed, with the verification code", async () => {
-    const port = await listen(tls.createServer({ key, cert }, (s) => s.end()));
+    const server = tls.createServer({ key, cert }, (s) => s.end());
+    let connections = 0;
+    server.on("connection", () => connections++);
+    const port = await listen(server);
     const r = await domainAudit({
       site: localSite,
       now,
@@ -335,6 +338,7 @@ describe("defaultDomainDeps against local TLS servers", () => {
       reason: "tls DEPTH_ZERO_SELF_SIGNED_CERT",
     });
     expect(r.summary).toBe("resolved, no usable TLS cert (tls DEPTH_ZERO_SELF_SIGNED_CERT)");
+    expect(connections).toBe(1); // a certificate failure is never retried
   });
 
   it("a peer that accepts TCP and never answers TLS times out, named as a timeout", async () => {
@@ -411,7 +415,11 @@ describe("defaultDomainDeps against local TLS servers", () => {
     });
     expect(n).toBe(2);
     expect(r.status).toBe("pass");
-    expect(r.details).toMatchObject({ reason: null, retriedAfter: "tls ECONNRESET" });
+    expect(r.details).toMatchObject({ reason: null });
+    // A write racing the RST can surface as EPIPE on some kernels; both are transient.
+    expect((r.details as { retriedAfter: string }).retriedAfter).toMatch(
+      /^tls (ECONNRESET|EPIPE)$/,
+    );
   });
 
   it("a refused connection carries its code", async () => {
@@ -514,6 +522,33 @@ describe("domainAudit retries a transient TLS failure once", () => {
     expect(lookups).toBe(1);
     expect(c.calls()).toBe(0);
     expect(r.details).toMatchObject({ resolved: false, reason: "dns EAI_AGAIN" });
+  });
+
+  it.each(["ECONNRESET", "ETIMEDOUT", "EPIPE", "ECONNABORTED"])(
+    "%s is transient: retried once, and a good second handshake passes",
+    async (code) => {
+      const c = scripted(codeErr(`socket ${code}`, code), GOOD);
+      const r = await domainAudit({ site, now: NOW, domainDeps: deps({ certValidTo: c.fn }) });
+      expect(c.calls()).toBe(2);
+      expect(r.status).toBe("pass");
+      expect(r.details).toMatchObject({ retriedAfter: `tls ${code}` });
+    },
+  );
+
+  it("a transient failure then no certificate names both, and fails", async () => {
+    let calls = 0;
+    const certValidTo = async () => {
+      if (calls++ === 0) throw new DomainTimeoutError(10_000);
+      return null;
+    };
+    const r = await domainAudit({ site, now: NOW, domainDeps: deps({ certValidTo }) });
+    expect(calls).toBe(2);
+    expect(r.status).toBe("warn");
+    expect(r.details).toMatchObject({
+      certDaysRemaining: null,
+      reason: "tls timeout after 10000ms, then tls no certificate returned",
+      retriedAfter: null,
+    });
   });
 
   it("a first-try pass records no retry", async () => {
