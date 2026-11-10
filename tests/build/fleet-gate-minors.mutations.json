@@ -1,43 +1,17 @@
 [
   {
-    "id": "1a-explicit-case-sensitive",
+    "id": "2-lf-not-folded",
     "edits": [
       {
-        "file": "src/cli/fleet/resolve-sites.ts",
-        "find": "(s.name ? [key(s.name)] : [])",
-        "replace": "(s.name ? [s.name] : [])"
+        "file": "src/cli/fleet/prepare-sites.ts",
+        "find": ".replace(/[ \\t]*\\r?\\n\\s*/g, \" / \")",
+        "replace": ""
       }
     ],
-    "test": ["tests/cli/fleet/resolve-sites.test.ts"],
-    "expect": "red"
-  },
-  {
-    "id": "1b-derived-count-case-sensitive",
-    "edits": [
-      {
-        "file": "src/cli/fleet/resolve-sites.ts",
-        "find": "derivedCount.set(key(name), (derivedCount.get(key(name)) ?? 0) + 1)",
-        "replace": "derivedCount.set(name, (derivedCount.get(name) ?? 0) + 1)"
-      },
-      {
-        "file": "src/cli/fleet/resolve-sites.ts",
-        "find": "derivedCount.get(key(name)) !== 1",
-        "replace": "derivedCount.get(name) !== 1"
-      }
+    "test": [
+      "tests/build/fleet-write-gate-workflows.test.ts",
+      "tests/cli/fleet/prepare-sites.test.ts"
     ],
-    "test": ["tests/cli/fleet/resolve-sites.test.ts"],
-    "expect": "red"
-  },
-  {
-    "id": "1c-taken-name-lowercased",
-    "edits": [
-      {
-        "file": "src/cli/fleet/resolve-sites.ts",
-        "find": "    return { ...site, name };",
-        "replace": "    return { ...site, name: key(name) };"
-      }
-    ],
-    "test": ["tests/cli/fleet/resolve-sites.test.ts"],
     "expect": "red"
   },
   {

@@ -58,10 +58,14 @@ export async function prepareFleetSites(
 /** One-line operator notice for sites dropped during fleet prep; null when none
  *  were skipped. The leading "⚠ … site(s) skipped (could not prepare)" token is
  *  what the nightly fleet-lighthouse workflow greps to raise a `::warning::`, so
- *  a tolerated skip stays visible in the Actions UI rather than buried. */
+ *  a tolerated skip stays visible in the Actions UI rather than buried. A reason's
+ *  line breaks (git's stderr has several) fold to ` / `, so the notice stays the one
+ *  line the workflows grep and every skipped site after a multi-line reason is still
+ *  named (#2003 round 1). A lone CR is left for the workflows to escape. */
 export function formatSkippedNotice(skipped: SkippedSite[]): string | null {
   if (skipped.length === 0) return null;
-  const detail = skipped.map((s) => `${s.site} (${s.reason})`).join("; ");
+  const oneLine = (t: string) => t.trim().replace(/[ \t]*\r?\n\s*/g, " / ");
+  const detail = skipped.map((s) => `${oneLine(s.site)} (${oneLine(s.reason)})`).join("; ");
   return `⚠ ${skipped.length} site(s) skipped (could not prepare): ${detail}`;
 }
 

@@ -318,6 +318,25 @@ describe.each(STEPS)("$file reads the write gate's verdict", ({ file, step, exit
     expect(line).not.toContain("\r");
     expect(line).toContain("site-%2541");
   });
+
+  it("a prep skip whose reason is git's multi-line stderr still names every skipped site (#2003 round 1)", async () => {
+    const notice = formatSkippedNotice([
+      {
+        site: "site-a",
+        reason:
+          "git clone failed (code 128): Cloning into '/w/site-a'...\nremote: Repository not found.",
+      },
+      { site: "site-b", reason: "cannot clone" },
+    ]);
+    const good = await cliOutput({ results: SLUGS.map(smokeMeasured), expectedSites: SLUGS });
+    const r = await runStep(file, step, `${notice}\n${good}`, exit);
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(
+      new RegExp(
+        `::warning::${label}: ⚠ 2 site\\(s\\) skipped[^\\n]*site-a [^\\n]*site-b \\(cannot clone\\)`,
+      ),
+    );
+  });
 });
 
 it("fleet smoke: no FLEET_SMOKE_UNMEASURED line still names the failed write (#1942 item 5)", async () => {
