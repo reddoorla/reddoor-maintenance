@@ -508,12 +508,17 @@ describe("lockfile regressions", () => {
     ]);
   });
 
-  it("an npm: alias's range is not the range of the package it shadows", () => {
-    // the importer edge reaches react@18.3.1; the alias range ^17 must not excuse its put-back
+  it("an npm: alias's range counts only for the package it names", () => {
+    // pnpm writes a same-name alias (`cookie: npm:cookie@^0.7.0`) with a plain version: that range
+    // is cookie's own, so a deliberate rollback through it is a downgrade on purpose
+    const staging = doc({ cookie: ["^1.0.0", "1.1.1"] }, ["cookie@1.1.1"]);
+    const back = doc({ cookie: ["npm:cookie@^0.7.0", "0.7.2"] }, ["cookie@0.7.2"]);
+    expect(lockfileRegressions(back, { staging })).toEqual([]);
+    // an alias of another package (`react: npm:@preact/compat@^17`) says nothing of react itself
     const spec = "npm:@preact/compat@^17.0.0";
-    const staging = doc({ react: [spec, "18.3.1"] }, ["react@18.3.1"]);
-    const merged = doc({ react: [spec, "18.3.0"] }, ["react@18.3.0"]);
-    expect(lockfileRegressions(merged, { staging })).toEqual([
+    const reactSide = doc({ react: [spec, "18.3.1"] }, ["react@18.3.1"]);
+    const reactMerged = doc({ react: [spec, "18.3.0"] }, ["react@18.3.0"]);
+    expect(lockfileRegressions(reactMerged, { staging: reactSide })).toEqual([
       { name: "react", side: "staging", had: "18.3.1", merged: "18.3.0" },
     ]);
   });

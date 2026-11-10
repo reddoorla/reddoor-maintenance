@@ -417,12 +417,25 @@
   },
   {
     "id": "M36-alias-range-counts",
-    "why": "an npm: alias's range excuses a put-back of the package it shadows (review round 5)",
+    "why": "an npm: alias of another package excuses a put-back of the package it shadows (review round 5)",
     "edits": [
       {
         "file": "scripts/staging-bring-main.mjs",
-        "find": "                !e.specifier.startsWith(\"npm:\") &&\n",
+        "find": "                !aliasOfAnother(name, e.specifier) &&\n",
         "replace": ""
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M37-every-alias-ignored",
+    "why": "a same-name npm: alias (`npm:cookie@^0.7.0`) is ignored, so a deliberate rollback through it is refused (review round 6)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "  return (at > 0 ? rest.slice(0, at) : rest) !== name;",
+        "replace": "  return true;"
       }
     ],
     "test": "tests/scripts/staging-bring-main.test.ts",

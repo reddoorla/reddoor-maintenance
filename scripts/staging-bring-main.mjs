@@ -308,6 +308,14 @@ const overrideTarget = (key) => {
   return at > 0 ? [key.slice(0, at), key.slice(at + 1)] : [key, undefined];
 };
 
+/** `npm:@preact/compat@^17` under `react` → true; `npm:cookie@^0.7.0` under `cookie` → false. */
+const aliasOfAnother = (name, specifier) => {
+  if (!specifier.startsWith("npm:")) return false;
+  const rest = specifier.slice(4);
+  const at = rest.indexOf("@", 1);
+  return (at > 0 ? rest.slice(0, at) : rest) !== name;
+};
+
 const stripPeers = (v) => String(v).split("(")[0];
 
 /**
@@ -413,7 +421,7 @@ function byLine(pkgs) {
  * longer has says nothing (nothing depends on that copy now: `cssesc` once
  * `postcss-selector-parser` 7.2.0 dropped it). Not a regression either: a version the merged
  * importer's own range rejects (P1-106 moved `@types/node` from 25 to 24 on purpose; an `npm:`
- * alias's range does not count), or one an override (not scoped under a parent) whose selector
+ * alias of another package does not count), or one an override (not scoped under a parent) whose selector
  * covers it pins lower. Peer edges are skipped: a peer follows the site's own choice, which its
  * importer edge checks. A version with no dependent on record (a lockfile with no snapshots, or
  * a version reached only as a peer) falls back to its line, a major or `0.minor`: the newest
@@ -441,10 +449,11 @@ export function lockfileRegressions(merged, sides) {
             if (p.importer) {
               const e = m.importers.get(p.importer)?.get(name);
               if (!e || !parseVersion(e.version)) continue;
-              // an `npm:` alias's range is another package's, so it excuses nothing here
+              // an `npm:` alias of another package (`react: npm:@preact/compat@^17`) ranges over
+              // that package, so it excuses nothing here; `cookie: npm:cookie@^0.7.0` is cookie's own
               if (
                 e.specifier !== undefined &&
-                !e.specifier.startsWith("npm:") &&
+                !aliasOfAnother(name, e.specifier) &&
                 satisfies(had, e.specifier) === false
               )
                 continue;
