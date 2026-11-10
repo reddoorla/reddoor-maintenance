@@ -265,6 +265,17 @@ export async function ingestSubmission(
   // has no business triggering. Re-enabled the moment the site leaves development.
   const spamHandlingEnabled = site.status !== "building";
 
+  // A `launching` site is where the same trap moved next: the operator tests it
+  // from the address they used on other sites (hedloc, 2026-11-09,
+  // sub_5cace6b7…, bucketed `repeat-sender`). Unlike a `building` site it is
+  // deployed and reachable, and the autoresponder goes to whatever address a bot
+  // types, so the classifier, Turnstile and duplicate scans stay on. Only the
+  // signal whose signature IS the operator's testing pattern is off: the
+  // cross-site repeat-sender scan. And its copies may be judged by the duplicate
+  // scans but may not retro-bucket other sites' rows (the operator, 2026-11-10,
+  // workspace decisions/2026-11-10-0008-launching-sites-spam-handling.md).
+  const launching = site.status === "launching";
+
   // A message the SITE composed is not visitor text, so the duplicate scans below
   // must not judge its template. reddoor's landing-page modal writes the same
   // sentence for every visitor's step one and the same question labels and
@@ -314,7 +325,7 @@ export async function ingestSubmission(
       turnstileHostnameAcceptable(verification.hostname, site.url));
   const scanVisitorText = gatedComposed && passedOnSiteHost;
   const scanText = scanVisitorText ? composedVisitorText(rawPayload) : n.message;
-  const mayRetroBucket = !composedFlag || (gatedComposed && passedOnSiteHost);
+  const mayRetroBucket = !launching && (!composedFlag || (gatedComposed && passedOnSiteHost));
   const stored: NormalizedSubmission = {
     ...n,
     extraFields: storedExtraFields(n.extraFields, composedFlag, scanVisitorText, rawPayload),
@@ -377,7 +388,12 @@ export async function ingestSubmission(
   // skipping this scan and the retro cleanup never fired for exactly the sprays it
   // was built for; escalation/reason still only applies when not already spam.
   // Best-effort — a lookup failure never blocks a lead.
-  if (spamHandlingEnabled && n.formType !== "newsletter" && deps.listRecentSubmissionsForEmail) {
+  if (
+    spamHandlingEnabled &&
+    !launching &&
+    n.formType !== "newsletter" &&
+    deps.listRecentSubmissionsForEmail
+  ) {
     try {
       const since = new Date(deps.now().getTime() - DUPLICATE_WINDOW_MS);
       const prior = await deps.listRecentSubmissionsForEmail(n.email, since);
