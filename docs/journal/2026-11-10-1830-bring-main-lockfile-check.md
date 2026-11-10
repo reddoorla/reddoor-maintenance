@@ -29,3 +29,18 @@ Landed in reddoorla/reddoor-maintenance#2021 (`fix(staging-bring-main)`). Worksp
 **Honest accounting.** Five dirty review rounds hit the operator's stop, and he chose a sixth. The 33 named mutations each turn a test red (table in the PR). The fixtures are Alamo's three lockfiles, gzipped. The Alamo and Mantis end-to-end runs need network and pnpm 12.5.1, so they live in the PR body, not in CI.
 
 Usage: $18.13, 4461/228533 tokens, 36370979/1097811 cache, rate limit allowed
+
+## Rounds 6 and 7 (a continuation session, 2026-11-10)
+
+**Round 6** (the operator's extra round) found one major in round 5's `npm:` guard: it also ignored a same-name alias (`cookie: npm:cookie@^0.7.0`, which pnpm writes with a plain version), so a deliberate rollback through it read as a put-back. The guard now ignores only an alias of another package (`a12fcb1d`). M31 was found equivalent and is marked `survives` with the reason.
+
+**Round 7** (the operator's call: a seventh round, land if clean) was not clean. It found four majors, which corrects two lines of "What it does not do" above:
+
+- **Aliases did not fall back to the line comparison; they were dropped.** pnpm 9 writes `foo: npm:bar@^1` as `version: bar@1.2.0`, and a snapshot's `string-width-cjs: string-width@4.2.3` the same way. Neither is semver, so no edge was recorded. A put-back through one passed whenever its line kept a newer copy (reproduced: `string-width` 4.2.3 → 4.2.0 under `@isaacs/cliui` gave `[]`), and a rollback through the alias's own range was refused. The edge is now the package's, held under the alias key.
+- **A dependent bumped on `main` hid the put-backs under it.** Staging's lock-file maintenance took `foo@1.0.0`'s `bar` to 2.1.0, main's Renovate took `foo` to 1.0.1, and pnpm kept main's `foo@1.0.1 → bar 2.0.0`. `foo@1.0.0` was "gone", so `bar` passed. It was in the real 11-10 merge too: `rolldown@1.3.0 → @oxc-project/types 0.157.0` went back to 0.156.0, masked only because `rolldown` itself was named. Each newer copy of the dependent in its line must now resolve the dependency at least as new. Across peer variants the lowest now stands, not the newest, which is the other corrected line.
+- **A `catalog:` specifier excused nothing**, so a rollback through a catalog was refused. It is now read through the lockfile's catalogs.
+- **The runbook's exit-2 step could not be followed** when neither side is newer on everything. It now says how to rebuild the lockfile and re-check it with a one-liner. The one-liner gave `[]` on Alamo's hand fix and named exactly the three packages on the bad merge.
+
+Each fix has a test that failed first and a named mutation, M38–M43. Alamo and Mantis still come out byte-identical to `8b2496b` and `6b56a7a`. The bumped-dependent rule makes one common shape stop with exit 2 where it used to pass silently: a Renovate bump on `main` overlapping staging's maintenance of that package's dependencies. That is the intended direction, and the operator decides whether it lands.
+
+Usage (this continuation, to this point): $5.49, 1666/65891 tokens, 8418648/446714 cache, rate limit allowed
