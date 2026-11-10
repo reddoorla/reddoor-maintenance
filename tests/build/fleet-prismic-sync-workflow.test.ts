@@ -348,9 +348,15 @@ describe("fleet-prismic-sync — site labels reach the annotations escaped (#200
   });
 
   it("a failed site in the error", async () => {
-    const r = await runGate({ stdout: `failed     ${LABEL} — refused\n${summary(1)}\n`, exit: 1 });
+    const r = await runGate({
+      stdout: `failed     ${LABEL} — refused\nfailed     Other — refused\n${summary(2)}\n`,
+      exit: 1,
+    });
     expect(r.code).not.toBe(0);
-    expect(line(r.out, "error")).toContain(`failed     ${WIRE} — refused`);
+    // Two failed sites: both on the one annotation line, not the second as a stray log line.
+    expect(line(r.out, "error")).toContain(
+      `failed     ${WIRE} — refused failed     Other — refused`,
+    );
   });
 
   it("the refusal in the no-summary error", async () => {

@@ -35,7 +35,9 @@ export function nameFromRepoWhenNameless(sites: Site[]): Site[] {
  *  (macOS), where the second is a prep skip at best. Refusing changes no label, so the write
  *  gate still sees each loaded site under the name prep gives it: the derived-name half of
  *  this check was dropped in #2003 because renaming at load did not. A name repeated exactly
- *  is not this check's; the Turso roster's names are lowercased slugs and never reach it. */
+ *  is not this check's; the Turso roster's names are lowercased slugs and never reach it.
+ *  `toLowerCase` is not the filesystem's case-folding (NFC/NFD forms, final sigma), which
+ *  only matters for non-ASCII names; none are in use. */
 export function assertNoCaseOnlyNameClash(sites: Site[]): Site[] {
   const byLower = new Map<string, string>();
   for (const site of sites) {

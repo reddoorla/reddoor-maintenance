@@ -290,7 +290,7 @@ jobs:
           done || true
 
           if [ "$rc" -ne 0 ]; then
-            failed=$(grep -E "^failed " "$out" | head -n5 || true)
+            failed=$(grep -E "^failed " "$out" | head -n5 | paste -sd' ' - || true)
             echo "::error::the Prismic pull-sync exited $rc: at least one site could not be synced. $(annot "$failed")"
             exit 1
           fi

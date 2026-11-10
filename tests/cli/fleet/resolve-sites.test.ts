@@ -131,9 +131,21 @@ describe("#2006: two explicit names that differ only in case are refused at load
       { name: "qux", path: "/c" },
       { path: "/d" },
       { path: "/e" },
+      // An explicit name against a derived one is not this check's (#2003 dropped that
+      // half): it runs before names are derived, so Foo and the derived foo both load.
+      { name: "Foo", path: "/f" },
+      { path: "/g", gitRepo: "reddoorla/foo" },
     ]);
     const sites = await resolveSites({ fleet, cwd: "/cwd" });
-    expect(sites.map((s) => s.name)).toEqual(["baz", "qux", "qux", undefined, undefined]);
+    expect(sites.map((s) => s.name)).toEqual([
+      "baz",
+      "qux",
+      "qux",
+      undefined,
+      undefined,
+      "Foo",
+      "foo",
+    ]);
   });
 
   it("a JSON inventory naming Baz and baz is refused, naming both", async () => {
