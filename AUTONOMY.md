@@ -93,6 +93,15 @@ once, with all its context" (five dirty rounds since 2026-10-12; two before
 that). It has happened at least 8 times; the PR body names the open finding
 and his decision (the operator, 2026-10-06, answering the two-touch review).
 
+That stop has one exception since 2026-11-10 (the operator, the "narrow
+rule"). At the fifth dirty round, when the worker's own pick is another
+round, it runs one more round without asking, and asks only if that round is
+dirty too. It does this only when the sixth round looks at the round-five fix
+alone, and that fix changes no behaviour and drops no scope. In every other
+case it asks, as now. A 🟡 PR does not land after an unasked sixth round; it
+waits for him. Every unasked round is recorded in the PR body and the
+journal.
+
 Land with `node scripts/land-prs.mjs`, which picks squash, merge or rebase per
 the base branch's rules (GitHub deletes the head branch; the cloud proxy
 refuses branch deletes), and append a journal entry. Patch/`fix` PRs need
