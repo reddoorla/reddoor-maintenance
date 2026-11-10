@@ -40,7 +40,12 @@ describe("checkDomain", () => {
         },
       }),
     );
-    expect(r).toEqual({ resolved: false, certDaysRemaining: null, reason: "dns ENOTFOUND" });
+    expect(r).toEqual({
+      resolved: false,
+      certDaysRemaining: null,
+      reason: "dns ENOTFOUND",
+      retriedAfter: null,
+    });
   });
 
   it("returns resolved + null cert when no cert is available", async () => {
@@ -52,6 +57,7 @@ describe("checkDomain", () => {
       resolved: true,
       certDaysRemaining: null,
       reason: "tls no certificate returned",
+      retriedAfter: null,
     });
   });
 
@@ -163,11 +169,11 @@ describe("domainAudit records why the domain check failed", () => {
       }),
     });
     expect(r.status).toBe("warn");
-    expect(r.summary).toBe("resolved, no usable TLS cert (tls ECONNRESET)");
+    expect(r.summary).toBe("resolved, no usable TLS cert (tls ECONNRESET, then tls ECONNRESET)");
     expect(r.details).toMatchObject({
       resolved: true,
       certDaysRemaining: null,
-      reason: "tls ECONNRESET",
+      reason: "tls ECONNRESET, then tls ECONNRESET",
     });
   });
 
@@ -195,12 +201,14 @@ describe("domainAudit records why the domain check failed", () => {
       }),
     });
     expect(r.status).toBe("warn");
-    expect(r.summary).toBe("resolved, no usable TLS cert (tls timeout after 10000ms)");
+    expect(r.summary).toBe(
+      "resolved, no usable TLS cert (tls timeout after 10000ms, then tls timeout after 10000ms)",
+    );
     expect(r.summary).not.toContain("did not resolve");
     expect(r.details).toMatchObject({
       resolved: true,
       certDaysRemaining: null,
-      reason: "tls timeout after 10000ms",
+      reason: "tls timeout after 10000ms, then tls timeout after 10000ms",
     });
   });
 
@@ -337,7 +345,10 @@ describe("defaultDomainDeps against local TLS servers", () => {
       domainDeps: defaultDomainDeps(now, { port, timeoutMs: 300 }),
     });
     expect(r.status).toBe("warn");
-    expect(r.details).toMatchObject({ resolved: true, reason: "tls timeout after 300ms" });
+    expect(r.details).toMatchObject({
+      resolved: true,
+      reason: "tls timeout after 300ms, then tls timeout after 300ms",
+    });
   });
 
   it("asks Node to verify the chain itself (rejectUnauthorized stays true)", async () => {
@@ -373,6 +384,36 @@ describe("defaultDomainDeps against local TLS servers", () => {
     });
   });
 
+  it("real sockets: a silent peer twice fails with both timeouts", async () => {
+    const port = await listen(net.createServer(() => {}));
+    const r = await domainAudit({
+      site: localSite,
+      now,
+      domainDeps: defaultDomainDeps(now, { port, timeoutMs: 200 }),
+    });
+    expect(r.status).toBe("warn");
+    expect(r.details).toMatchObject({
+      reason: "tls timeout after 200ms, then tls timeout after 200ms",
+    });
+  });
+
+  it("real sockets: a reset on the first connection, then a trusted cert, passes on the retry", async () => {
+    let n = 0;
+    const server = tls.createServer({ key, cert }, (s) => s.end());
+    server.prependListener("connection", (sock: net.Socket) => {
+      if (n++ === 0) sock.resetAndDestroy();
+    });
+    const port = await listen(server);
+    const r = await domainAudit({
+      site: localSite,
+      now,
+      domainDeps: defaultDomainDeps(now, { port, ca: cert }),
+    });
+    expect(n).toBe(2);
+    expect(r.status).toBe("pass");
+    expect(r.details).toMatchObject({ reason: null, retriedAfter: "tls ECONNRESET" });
+  });
+
   it("a refused connection carries its code", async () => {
     // Port 1 (tcpmux) is privileged and unused, so nothing else can grab it mid-test.
     const r = await domainAudit({
@@ -381,5 +422,105 @@ describe("defaultDomainDeps against local TLS servers", () => {
       domainDeps: defaultDomainDeps(now, { port: 1 }),
     });
     expect(r.details).toMatchObject({ resolved: true, reason: "tls ECONNREFUSED" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// One retry on a transient TLS failure (operator decision 2026-11-10-0016, pick (c)): a timeout
+// or connection reset is tried once more; a DNS failure or a certificate verification error is
+// never retried. The first failure is kept even when the retry passes.
+// ---------------------------------------------------------------------------
+describe("domainAudit retries a transient TLS failure once", () => {
+  const site = { path: "/tmp/acme", name: "acme", deployedUrl: "https://acme.example.com" };
+  const codeErr = (message: string, code: string) => Object.assign(new Error(message), { code });
+  const GOOD = new Date("2026-09-01T00:00:00.000Z"); // 75 days after NOW
+
+  /** A certValidTo that plays `outcomes` in order and counts its calls. */
+  function scripted(...outcomes: Array<Error | Date>) {
+    let calls = 0;
+    const fn = async () => {
+      const o = outcomes[Math.min(calls++, outcomes.length - 1)]!;
+      if (o instanceof Error) throw o;
+      return o;
+    };
+    return { fn, calls: () => calls };
+  }
+
+  it("a timeout then a good handshake passes, and says it needed the retry", async () => {
+    const c = scripted(new DomainTimeoutError(10_000), GOOD);
+    const r = await domainAudit({ site, now: NOW, domainDeps: deps({ certValidTo: c.fn }) });
+    expect(c.calls()).toBe(2);
+    expect(r.status).toBe("pass");
+    expect(r.summary).toBe(
+      "resolved, cert 75d remaining (passed on retry after tls timeout after 10000ms)",
+    );
+    expect(r.details).toMatchObject({
+      resolved: true,
+      certDaysRemaining: 75,
+      reason: null,
+      retriedAfter: "tls timeout after 10000ms",
+    });
+  });
+
+  it("a connection reset then a good handshake passes on the retry", async () => {
+    const c = scripted(codeErr("read ECONNRESET", "ECONNRESET"), GOOD);
+    const r = await domainAudit({ site, now: NOW, domainDeps: deps({ certValidTo: c.fn }) });
+    expect(c.calls()).toBe(2);
+    expect(r.status).toBe("pass");
+    expect(r.details).toMatchObject({ retriedAfter: "tls ECONNRESET" });
+  });
+
+  it("two timeouts fail, with both attempts in the reason, and no third try", async () => {
+    const c = scripted(new DomainTimeoutError(10_000), new DomainTimeoutError(10_000), GOOD);
+    const r = await domainAudit({ site, now: NOW, domainDeps: deps({ certValidTo: c.fn }) });
+    expect(c.calls()).toBe(2);
+    expect(r.status).toBe("warn");
+    expect(r.details).toMatchObject({
+      resolved: true,
+      certDaysRemaining: null,
+      reason: "tls timeout after 10000ms, then tls timeout after 10000ms",
+    });
+  });
+
+  it("a certificate verification error is not retried", async () => {
+    const c = scripted(codeErr("certificate has expired", "CERT_HAS_EXPIRED"), GOOD);
+    const r = await domainAudit({ site, now: NOW, domainDeps: deps({ certValidTo: c.fn }) });
+    expect(c.calls()).toBe(1);
+    expect(r.status).toBe("warn");
+    expect(r.details).toMatchObject({ reason: "tls CERT_HAS_EXPIRED", retriedAfter: null });
+  });
+
+  it("a refused connection is not retried", async () => {
+    const c = scripted(codeErr("connect ECONNREFUSED", "ECONNREFUSED"), GOOD);
+    const r = await domainAudit({ site, now: NOW, domainDeps: deps({ certValidTo: c.fn }) });
+    expect(c.calls()).toBe(1);
+    expect(r.details).toMatchObject({ reason: "tls ECONNREFUSED" });
+  });
+
+  it("a DNS failure is not retried", async () => {
+    let lookups = 0;
+    const c = scripted(GOOD);
+    const r = await domainAudit({
+      site,
+      now: NOW,
+      domainDeps: deps({
+        lookup: async () => {
+          lookups++;
+          throw codeErr("getaddrinfo EAI_AGAIN acme.example.com", "EAI_AGAIN");
+        },
+        certValidTo: c.fn,
+      }),
+    });
+    expect(lookups).toBe(1);
+    expect(c.calls()).toBe(0);
+    expect(r.details).toMatchObject({ resolved: false, reason: "dns EAI_AGAIN" });
+  });
+
+  it("a first-try pass records no retry", async () => {
+    const c = scripted(GOOD);
+    const r = await domainAudit({ site, now: NOW, domainDeps: deps({ certValidTo: c.fn }) });
+    expect(c.calls()).toBe(1);
+    expect(r.summary).toBe("resolved, cert 75d remaining");
+    expect(r.details).toMatchObject({ reason: null, retriedAfter: null });
   });
 });

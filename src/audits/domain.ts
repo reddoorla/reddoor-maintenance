@@ -13,6 +13,8 @@ export type DomainCheck = {
   resolved: boolean;
   certDaysRemaining: number | null;
   reason: string | null;
+  /** The transient failure a passing check needed one retry to get past, else null. */
+  retriedAfter: string | null;
 };
 
 /** Injected IO so the check is unit-testable without real DNS/TLS. `lookup` throws when the host
@@ -36,6 +38,17 @@ export class DomainTimeoutError extends Error {
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const TLS_TIMEOUT_MS = 10_000;
 
+/** Network codes a second try can plausibly get past. A DNS answer, a refused port and every
+ *  certificate verification error are deterministic and never retried (operator decision
+ *  2026-11-10-0016, pick (c): one Broken off a single 10 s edge stall on 11-09 was a false alarm). */
+const TRANSIENT_TLS_CODES = new Set(["ECONNRESET", "ETIMEDOUT", "EPIPE", "ECONNABORTED"]);
+
+function isTransient(err: unknown): boolean {
+  if (err instanceof DomainTimeoutError) return true;
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === "string" && TRANSIENT_TLS_CODES.has(code);
+}
+
 /** One short token for a failure: the error's `code` when Node gave one, else its message. */
 function why(stage: "dns" | "tls", err: unknown): string {
   if (err instanceof DomainTimeoutError) return `${stage} ${err.message}`;
@@ -56,27 +69,55 @@ export async function checkDomain(url: string, deps: DomainDeps): Promise<Domain
   try {
     host = new URL(url).hostname;
   } catch {
-    return { resolved: false, certDaysRemaining: null, reason: "invalid URL" };
+    return { resolved: false, certDaysRemaining: null, reason: "invalid URL", retriedAfter: null };
   }
   try {
     await deps.lookup(host);
   } catch (err) {
-    return { resolved: false, certDaysRemaining: null, reason: why("dns", err) };
+    return {
+      resolved: false,
+      certDaysRemaining: null,
+      reason: why("dns", err),
+      retriedAfter: null,
+    };
   }
   let validTo: Date | null;
+  let retriedAfter: string | null = null;
   try {
     validTo = await deps.certValidTo(host);
-  } catch (err) {
-    return { resolved: true, certDaysRemaining: null, reason: why("tls", err) };
+  } catch (first) {
+    if (!isTransient(first))
+      return {
+        resolved: true,
+        certDaysRemaining: null,
+        reason: why("tls", first),
+        retriedAfter: null,
+      };
+    retriedAfter = why("tls", first);
+    try {
+      validTo = await deps.certValidTo(host);
+    } catch (second) {
+      return {
+        resolved: true,
+        certDaysRemaining: null,
+        reason: `${retriedAfter}, then ${why("tls", second)}`,
+        retriedAfter: null,
+      };
+    }
   }
-  if (!validTo)
-    return { resolved: true, certDaysRemaining: null, reason: "tls no certificate returned" };
-  if (Number.isNaN(validTo.getTime()))
-    return { resolved: true, certDaysRemaining: null, reason: "tls certificate expiry unreadable" };
+  const failed = (reason: string): DomainCheck => ({
+    resolved: true,
+    certDaysRemaining: null,
+    reason: retriedAfter ? `${retriedAfter}, then ${reason}` : reason,
+    retriedAfter: null,
+  });
+  if (!validTo) return failed("tls no certificate returned");
+  if (Number.isNaN(validTo.getTime())) return failed("tls certificate expiry unreadable");
   return {
     resolved: true,
     certDaysRemaining: Math.floor((validTo.getTime() - deps.now.getTime()) / MS_PER_DAY),
     reason: null,
+    retriedAfter,
   };
 }
 
@@ -163,7 +204,8 @@ export async function domainAudit(ctx: AuditContext): Promise<AuditResult> {
     ? `did not resolve (${check.reason})`
     : check.certDaysRemaining === null
       ? `resolved, no usable TLS cert (${check.reason})`
-      : `resolved, cert ${check.certDaysRemaining}d remaining`;
+      : `resolved, cert ${check.certDaysRemaining}d remaining` +
+        (check.retriedAfter ? ` (passed on retry after ${check.retriedAfter})` : "");
   return {
     audit: "domain",
     site: label,
@@ -173,6 +215,7 @@ export async function domainAudit(ctx: AuditContext): Promise<AuditResult> {
       resolved: check.resolved,
       certDaysRemaining: check.certDaysRemaining,
       reason: check.reason,
+      retriedAfter: check.retriedAfter,
       checkedAt,
     },
   };
