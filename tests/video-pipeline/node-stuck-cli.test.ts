@@ -43,7 +43,7 @@ function harness(opts: { manifest?: boolean; issues?: unknown[]; respond?: Respo
     if (url.startsWith("https://reddoor-la.cdn.prismic.io/api/v2")) {
       return json({ refs: [{ ref: "R", isMasterRef: true }] });
     }
-    if (url.startsWith(MEDIA)) {
+    if (new URL(url).origin === MEDIA) {
       if (!opts.manifest) return new Response(null, { status: 404 });
       return json({
         version: 1,

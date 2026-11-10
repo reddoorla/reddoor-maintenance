@@ -14,9 +14,12 @@ function stamp(seconds: number): string {
   return `${pad(h, 2)}:${pad(m, 2)}:${pad(s, 2)}.${pad(milli, 3)}`;
 }
 
-/** Cue text is escaped for WebVTT: & and < as entities, and --> (which would end the cue) as ->. */
+/** Cue text is escaped for WebVTT: & and < as entities, and any run of dashes before > (`-->` would end the cue) as ->, so `--->` cannot become `-->`. */
 const cueText = (text: string): string =>
-  text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/-->/g, "->");
+  text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/-{2,}>/g, "->");
 
 /** Skips empty text, and a segment whose start or end is not a finite number or whose end is not after its start. */
 export function segmentsToVtt(segments: WhisperSegment[]): string {

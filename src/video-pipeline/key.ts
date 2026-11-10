@@ -9,7 +9,14 @@ export function slugify(input: string): string {
   return input
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+    .replace(/^-|-$/g, "");
+}
+
+/** `s` without its trailing slashes. A loop, not `/\/+$/`, which backtracks quadratically on a long run of slashes. */
+export function trimTrailingSlashes(s: string): string {
+  let end = s.length;
+  while (end > 0 && s[end - 1] === "/") end -= 1;
+  return s.slice(0, end);
 }
 
 export const VIDEO_EXT = /\.(mp4|m4v|mov|webm)$/i;
@@ -67,7 +74,7 @@ export function keyStem(key: string): string {
 }
 
 export function manifestUrl(mediaBase: string, key: string): string {
-  return `${mediaBase.replace(/\/+$/, "")}/${key}/manifest.json`;
+  return `${trimTrailingSlashes(mediaBase)}/${key}/manifest.json`;
 }
 
 /** The URL's pathname (still percent-encoded), without host, query or hash; null for a non-https or unparsable URL. */

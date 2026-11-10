@@ -53,7 +53,7 @@ function fakeFetch(calls: Call[], putFails: (url: string) => boolean = () => fal
         { status: 200 },
       );
     }
-    if (url.startsWith(R2)) {
+    if (new URL(url).origin === R2) {
       if (method === "GET" && url.endsWith("/manifest.json"))
         return new Response(null, { status: 404 });
       return new Response(null, { status: putFails(url) ? 500 : 200 });
@@ -662,7 +662,7 @@ describe("node encode: the manifest is re-checked just before its PUT", () => {
     const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? "GET";
-      if (method === "GET" && url.endsWith("/manifest.json") && url.startsWith(R2)) {
+      if (method === "GET" && url.endsWith("/manifest.json") && new URL(url).origin === R2) {
         gets += 1;
         calls.push({ url, method });
         return gets === 1 ? first() : later();

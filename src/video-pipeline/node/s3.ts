@@ -1,4 +1,5 @@
 import { createHash, createHmac } from "node:crypto";
+import { trimTrailingSlashes } from "../key.js";
 
 // Minimal AWS SigV4 for Cloudflare R2's S3-compatible API: path-style PUT and
 // HEAD only. Node-only; not part of the light video-pipeline subpath.
@@ -91,7 +92,7 @@ async function signedRequest(
   fetchImpl: typeof fetch,
   body?: Uint8Array,
 ): Promise<Response> {
-  const url = new URL(`${cfg.endpoint.replace(/\/+$/, "")}/${cfg.bucket}/${encodeKey(key)}`);
+  const url = new URL(`${trimTrailingSlashes(cfg.endpoint)}/${cfg.bucket}/${encodeKey(key)}`);
   const amzDate = amzDateOf(now);
   const region = cfg.region ?? "auto";
   const signHeaders = { host: url.host, "x-amz-date": amzDate, ...headers };

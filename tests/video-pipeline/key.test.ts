@@ -4,7 +4,9 @@ import {
   isPrismicFileUrl,
   manifestUrl,
   relayRefusal,
+  slugify,
   sourceOf,
+  trimTrailingSlashes,
   videoKey,
 } from "../../src/video-pipeline/key.js";
 
@@ -105,5 +107,21 @@ describe("video-pipeline isPrismicFileUrl", () => {
 
   it("refuses an unparsable string", () => {
     expect(isPrismicFileUrl("not a url")).toBe(false);
+  });
+});
+
+describe("video-pipeline trimTrailingSlashes and slugify", () => {
+  it("trims every trailing slash and nothing else", () => {
+    expect(trimTrailingSlashes("https://media.example///")).toBe("https://media.example");
+    expect(trimTrailingSlashes("https://media.example")).toBe("https://media.example");
+    expect(trimTrailingSlashes("///")).toBe("");
+    expect(manifestUrl("https://m.example//", "s/k")).toBe("https://m.example/s/k/manifest.json");
+  });
+
+  it("slugify drops leading and trailing separators, and stays fast on a long run of them", () => {
+    expect(slugify("--Hero Clip!!--")).toBe("hero-clip");
+    const t0 = Date.now();
+    expect(slugify("a" + "-".repeat(100_000) + "!")).toBe("a");
+    expect(Date.now() - t0).toBeLessThan(500);
   });
 });

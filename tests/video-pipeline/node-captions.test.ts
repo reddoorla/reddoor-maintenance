@@ -62,6 +62,11 @@ describe("node captions: segmentsToVtt", () => {
 });
 
 describe("node captions: segmentsToVtt escaping and timing", () => {
+  it("a longer run of dashes before > never leaves --> in cue text", () => {
+    const vtt = segmentsToVtt([{ start: 0, end: 1, text: "a ---> b ----> c" }]);
+    expect(vtt).toBe("WEBVTT\n\n00:00:00.000 --> 00:00:01.000\na -> b -> c\n\n");
+  });
+
   it("escapes & and <, and replaces --> in cue text", () => {
     const vtt = segmentsToVtt([{ start: 0, end: 1, text: "Tom & Jerry <3 --> go" }]);
     expect(vtt).toBe("WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nTom &amp; Jerry &lt;3 -> go\n\n");

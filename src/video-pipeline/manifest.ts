@@ -1,4 +1,4 @@
-import { manifestUrl, sourceOf, videoKey } from "./key.js";
+import { manifestUrl, sourceOf, trimTrailingSlashes, videoKey } from "./key.js";
 import type { VideoClass } from "./key.js";
 
 export type ManifestFiles = {
@@ -78,7 +78,7 @@ export type Renditions = {
 
 /** Absolute URLs `${base}/${m.key}/${m.dir}/${file}`, onR2: true, class: m.class. */
 export function renditionsFrom(m: VideoManifest, mediaBase: string): Renditions {
-  const at = (file: string) => `${mediaBase.replace(/\/+$/, "")}/${m.key}/${m.dir}/${file}`;
+  const at = (file: string) => `${trimTrailingSlashes(mediaBase)}/${m.key}/${m.dir}/${file}`;
   const opt = (file: string | undefined) => (file === undefined ? null : at(file));
   return {
     mp4: at(m.files.mp4),

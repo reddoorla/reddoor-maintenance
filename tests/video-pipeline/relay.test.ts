@@ -59,7 +59,7 @@ function harness(opts: { secret?: string; fetchImpl?: (call: Call) => Response }
     };
     calls.push(call);
     if (opts.fetchImpl) return opts.fetchImpl(call);
-    if (url.startsWith(MEDIA)) return new Response(null, { status: 404 });
+    if (new URL(url).origin === MEDIA) return new Response(null, { status: 404 });
     if (url.startsWith("https://api.github.com/")) return new Response(null, { status: 204 });
     return new Response(null, { status: 500 });
   });
