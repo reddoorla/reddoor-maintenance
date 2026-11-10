@@ -298,11 +298,14 @@ export function lockfilePackages(text) {
   return out;
 }
 
-/** `foo@<0.7.0` → [`foo`, `<0.7.0`]; `a>@s/foo` → [`@s/foo`, undefined]: what an override key covers. */
+// pnpm's own parent separator: a `>` not preceded by a space, `|` or `@`, so `a>b` names a
+// parent and `cookie@>=2.0.2` or `vite@>=6.0.0 <=6.1.5` is one package with a selector.
+const PARENT = /[^ |@]>/;
+
+/** `foo@<0.7.0` → [`foo`, `<0.7.0`]; `@s/foo` → [`@s/foo`, undefined]: what an override key covers. */
 const overrideTarget = (key) => {
-  const last = key.split(">").pop() ?? "";
-  const at = last.indexOf("@", 1);
-  return at > 0 ? [last.slice(0, at), last.slice(at + 1)] : [last, undefined];
+  const at = key.indexOf("@", 1);
+  return at > 0 ? [key.slice(0, at), key.slice(at + 1)] : [key, undefined];
 };
 
 const stripPeers = (v) => String(v).split("(")[0];
@@ -321,7 +324,7 @@ function lockfileGraph(text) {
   const parent = (child, p) => g.parents.set(child, [...(g.parents.get(child) ?? []), p]);
   for (const d of docs(text)) {
     for (const [key, range] of Object.entries(d.overrides ?? {}))
-      if (typeof range === "string" && !key.includes(">")) {
+      if (typeof range === "string" && !PARENT.test(key)) {
         const [name, selector] = overrideTarget(key);
         g.overrides.push({ name, selector, range });
       }
@@ -404,15 +407,19 @@ function byLine(pkgs) {
 /**
  * Where the merged lockfile went backwards, edge by edge. For each version a side's lockfile
  * resolved, through each importer or package that depended on it there: if the merged lockfile
- * still has that importer (same path) or package (same `name@version`), what it resolves the
- * name to now must be at least the side's version. A dependent the merged lockfile no longer
- * has says nothing (nothing depends on that copy now: `cssesc` once `postcss-selector-parser`
- * 7.2.0 dropped it). Not a regression either: a version the merged importer's own range
- * rejects (P1-106 moved `@types/node` from 25 to 24 on purpose), or one an override whose
- * selector covers it pins lower. A version with no dependent on record (a lockfile with no
- * snapshots) falls back to its line, a major or `0.minor`: the newest merged version in the
- * line must be at least the side's newest there, and a line the merged lockfile no longer has
- * is gone. Versions that are not semver (`file:`, `link:`, a tarball) are not compared.
+ * still has that importer (same role, pnpm 12's env or the project, and path) or package
+ * snapshot (the same peer variant, else all variants of that `name@version`), what it resolves
+ * the name to now must be at least the side's version. A dependent the merged lockfile no
+ * longer has says nothing (nothing depends on that copy now: `cssesc` once
+ * `postcss-selector-parser` 7.2.0 dropped it). Not a regression either: a version the merged
+ * importer's own range rejects (P1-106 moved `@types/node` from 25 to 24 on purpose; an `npm:`
+ * alias's range does not count), or one an override (not scoped under a parent) whose selector
+ * covers it pins lower. Peer edges are skipped: a peer follows the site's own choice, which its
+ * importer edge checks. A version with no dependent on record (a lockfile with no snapshots, or
+ * a version reached only as a peer) falls back to its line, a major or `0.minor`: the newest
+ * merged version in the line must be at least the side's newest there, and a line the merged
+ * lockfile no longer has is gone. Versions that are not semver (`file:`, `link:`, a tarball)
+ * are not compared.
  * @param {string} merged
  * @param {Record<string, string | undefined>} sides
  */
@@ -434,7 +441,13 @@ export function lockfileRegressions(merged, sides) {
             if (p.importer) {
               const e = m.importers.get(p.importer)?.get(name);
               if (!e || !parseVersion(e.version)) continue;
-              if (e.specifier !== undefined && satisfies(had, e.specifier) === false) continue;
+              // an `npm:` alias's range is another package's, so it excuses nothing here
+              if (
+                e.specifier !== undefined &&
+                !e.specifier.startsWith("npm:") &&
+                satisfies(had, e.specifier) === false
+              )
+                continue;
               to = e.version;
             } else {
               const got = m.deps.get(p.snapshot)?.get(name) ?? m.deps.get(`~${p.base}`)?.get(name);

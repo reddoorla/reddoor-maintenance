@@ -154,8 +154,8 @@ setting or the order below, so this is a runbook rather than a template there.
   package version that depended on a version, it must resolve it at least as
   new now. It lets through a dependent the merged lockfile no longer has
   (nothing depends on that copy now), a downgrade on purpose (the merged
-  `package.json` range rejects the old version, or an `overrides` pin that is
-  not scoped under a parent), peers (they follow the site's own choice, which
+  `package.json` range rejects the version the side had, or an `overrides`
+  pin that is not scoped under a parent), peers (they follow the site's own choice, which
   is checked), and versions that are not semver (`file:`, `link:`, a tarball).
   A version no dependent records (a lockfile with no snapshots, or a version
   reached only as a peer) is compared by line instead: a major, or `0.minor`,

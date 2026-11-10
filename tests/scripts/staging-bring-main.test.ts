@@ -509,11 +509,23 @@ describe("lockfile regressions", () => {
   });
 
   it("an npm: alias's range is not the range of the package it shadows", () => {
-    const staging = doc({ react: ["npm:@preact/compat@^17.0.0", "17.0.2"] }, ["react@18.3.1"]);
-    const merged = doc({ react: ["npm:@preact/compat@^17.0.0", "17.0.2"] }, ["react@18.3.0"]);
+    // the importer edge reaches react@18.3.1; the alias range ^17 must not excuse its put-back
+    const spec = "npm:@preact/compat@^17.0.0";
+    const staging = doc({ react: [spec, "18.3.1"] }, ["react@18.3.1"]);
+    const merged = doc({ react: [spec, "18.3.0"] }, ["react@18.3.0"]);
     expect(lockfileRegressions(merged, { staging })).toEqual([
       { name: "react", side: "staging", had: "18.3.1", merged: "18.3.0" },
     ]);
+  });
+
+  it("an override whose selector holds `>` (`cookie@>=2.0.2`) is global, not scoped under a parent", () => {
+    const staging = doc({}, ["cookie@2.0.2"]);
+    const pin = (key: string) =>
+      ["overrides:", `  '${key}': 2.0.1`, "", doc({}, ["cookie@2.0.1"])].join("\n");
+    expect(lockfileRegressions(pin("cookie@>=2.0.2"), { staging })).toEqual([]);
+    expect(lockfileRegressions(pin("cookie@>=2.0.0 <=2.0.5"), { staging })).toEqual([]);
+    // a parent-scoped key still speaks for no other copy
+    expect(lockfileRegressions(pin("kit@3>cookie"), { staging })).toHaveLength(1);
   });
 
   it("an override that pins a package lower is a downgrade on purpose", () => {

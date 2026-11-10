@@ -9,7 +9,10 @@ export interface Options {
   pnpm: string | undefined;
 }
 
-/** A version `side` resolved that a dependent the merged lockfile keeps now resolves lower (`merged`). */
+/**
+ * A version `side` resolved that the merged lockfile has put back to `merged`: a dependent it
+ * keeps resolves it lower, or, for a version with no dependent on record, its line's newest is lower.
+ */
 export interface Regression {
   name: string;
   side: string;
