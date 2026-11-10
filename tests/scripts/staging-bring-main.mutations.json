@@ -300,7 +300,7 @@
   },
   {
     "id": "M31-parent-override-counts",
-    "why": "an override scoped under one parent excuses every copy",
+    "why": "equivalent: overrideTarget reads a parent-scoped key (`foo@1>baz`, `kit>cookie`) as the parent's name, so it never names the child even without the PARENT filter; the filter stays as the statement of pnpm's rule, and M35 pins the regex itself",
     "edits": [
       {
         "file": "scripts/staging-bring-main.mjs",
@@ -309,7 +309,7 @@
       }
     ],
     "test": "tests/scripts/staging-bring-main.test.ts",
-    "expect": "red"
+    "expect": "survives"
   },
   {
     "id": "M14-gone-dependent-counts",
