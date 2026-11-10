@@ -599,6 +599,48 @@ describe("lockfile regressions", () => {
     expect(lockfileRegressions(merged("2.0.0"), { staging })).toEqual([]);
   });
 
+  it("a bumped dependent that leaves an override's major is not a put-back (round 8, reddoor-starter 7a95a3fe)", () => {
+    // `uuid@<11.1.1: '>=11.1.1'` pushed types-internal 3.11.2's uuid to 14.0.1; 3.17.2 asks for
+    // ^11.1.1 itself, so pnpm resolves 11.1.1: another major, not a put-back
+    const overrides = "\noverrides:\n  uuid@<11.1.1: '>=11.1.1'\n";
+    const side = (ti: string, uuid: string) =>
+      doc({ ti: [`^${ti}`, ti] }, [`ti@${ti}`, `uuid@${uuid}`], {
+        snaps: { [`ti@${ti}`]: { uuid } },
+      }) + overrides;
+    expect(
+      lockfileRegressions(side("3.17.2", "11.1.1"), { staging: side("3.11.2", "14.0.1") }),
+    ).toEqual([]);
+  });
+
+  it("a dependent that is not semver (a `file:` tarball) is not compared by line, and does not throw (round 8)", () => {
+    const side = (t: string) =>
+      doc(
+        { foo: [`file:foo-${t}.tgz`, `file:foo-${t}.tgz`] },
+        [`foo@file:foo-${t}.tgz`, "n@7.0.0"],
+        {
+          snaps: { [`foo@file:foo-${t}.tgz`]: { n: "7.0.0" } },
+        },
+      );
+    expect(
+      lockfileRegressions(side("1.1.0"), { main: side("1.0.0"), staging: side("1.0.0") }),
+    ).toEqual([]);
+  });
+
+  it("an importer edge whose key was renamed is checked through the package's other keys (round 8)", () => {
+    // staging held string-width as `str: npm:string-width@^4.2.0`; the merge dropped that key and
+    // kept the plain one, whose range still admits staging's 4.2.3
+    const staging = doc({ str: ["npm:string-width@^4.2.0", "string-width@4.2.3"] }, [
+      "string-width@4.2.3",
+    ]);
+    const merged = doc({ "string-width": ["^4.2.0", "4.2.0"] }, ["string-width@4.2.0"]);
+    expect(lockfileRegressions(merged, { staging })).toEqual([
+      { name: "string-width", side: "staging", had: "4.2.3", merged: "4.2.0" },
+    ]);
+    // the plain key's range rejects 4.2.3: a rollback on purpose
+    const rolled = doc({ "string-width": ["~4.2.0 <4.2.3", "4.2.0"] }, ["string-width@4.2.0"]);
+    expect(lockfileRegressions(rolled, { staging })).toEqual([]);
+  });
+
   it("a peer variant the merged lockfile lacks is compared with the lowest of its variants (review round 7)", () => {
     const staging = doc({ foo: ["^1", "1.0.0(react@18.3.0)"] }, ["foo@1.0.0", "bar@2.1.0"], {
       snaps: {
@@ -619,6 +661,19 @@ describe("lockfile regressions", () => {
     expect(lockfileRegressions(merged, { staging })).toEqual([
       { name: "bar", side: "staging", had: "2.1.0", merged: "2.0.0" },
     ]);
+    // a variant the merged lockfile keeps is still compared with itself alone: variants that
+    // resolve bar differently, unchanged, are no put-back
+    const split = doc(
+      { foo: ["^1", "1.0.0(react@18.3.0)"] },
+      ["foo@1.0.0", "bar@2.0.0", "bar@2.1.0"],
+      {
+        snaps: {
+          "foo@1.0.0(react@18.3.0)": { bar: "2.1.0" },
+          "foo@1.0.0(react@19.0.0)": { bar: "2.0.0" },
+        },
+      },
+    );
+    expect(lockfileRegressions(split, { staging: split })).toEqual([]);
   });
 
   it("an override whose selector holds `>` (`cookie@>=2.0.2`) is global, not scoped under a parent", () => {

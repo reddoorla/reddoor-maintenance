@@ -154,7 +154,9 @@ setting or the order below, so this is a runbook rather than a template there.
   package version that depended on a version, it must resolve it at least as
   new now. A dependent the merged lockfile moved up its own line (`main`'s
   Renovate took `foo` 1.0.0 to 1.0.1) still counts: each newer copy in that line
-  must resolve the dependency at least as new. An `npm:` alias (`foo: npm:bar@^1`) is checked as the package it names, under its alias. It lets
+  must resolve the dependency at least as new within the side's own line of it
+  (a newer copy that resolves another major, as an override's dependent does
+  once its own range catches up, changed its range). An `npm:` alias (`foo: npm:bar@^1`) is checked as the package it names, under its alias. It lets
   through a dependent the merged lockfile no longer has in that line
   (nothing depends on that copy now), a downgrade on purpose (the merged
   `package.json` range, a `catalog:` one read through the lockfile's catalogs,
@@ -174,13 +176,21 @@ setting or the order below, so this is a runbook rather than a template there.
   stops with exit 2, names every package put back and why each side could not
   seed, and makes nothing. Often neither side is newer on everything (`staging`
   newer on one package, `main` on another), so neither side's lockfile is the
-  answer as it stands. By hand: on a branch cut from `staging`, run
-  `git merge main`, take `staging`'s lockfile (`git checkout --ours pnpm-lock.yaml`) and run `pnpm install --lockfile-only`. Then bring forward
-  each package the output names as `(main)`, for example with `pnpm update <pkg>`, leaving `package.json` as the merge made it, and re-check the
-  result against both sides from the site checkout:
+  answer as it stands. By hand, on a branch cut from `staging` at the sha the
+  script printed:
+
+  1. `git merge --no-ff --no-commit <main sha>`, the sha it printed, not a local `main`.
+  2. `git show <staging sha>:pnpm-lock.yaml > pnpm-lock.yaml`, then
+     `pnpm install --lockfile-only`.
+  3. For each package the output names as `(main)` (under "seeded from
+     staging's lockfile" when it lists one),
+     `pnpm update --no-save --lockfile-only <pkg>`. Without `--no-save` it
+     rewrites that package's range in `package.json`.
+  4. `git add pnpm-lock.yaml`, and re-check the result against both sides from
+     the site checkout:
 
   ```sh
-  node -e "import('<maintenance>/scripts/staging-bring-main.mjs').then(({lockfileRegressions:r})=>{const s=(x)=>require('child_process').execSync('git show '+x+':pnpm-lock.yaml',{encoding:'utf8'});console.log(r(require('fs').readFileSync('pnpm-lock.yaml','utf8'),{main:s('<main sha>'),staging:s('<staging sha>')}))})"
+  node -e "import('<maintenance>/scripts/staging-bring-main.mjs').then(({lockfileRegressions:r})=>{const s=(x)=>require('child_process').execSync('git show '+x+':pnpm-lock.yaml',{encoding:'utf8',maxBuffer:1<<28});console.log(r(require('fs').readFileSync('pnpm-lock.yaml','utf8'),{main:s('<main sha>'),staging:s('<staging sha>')}))})"
   ```
 
   It must print `[]`, or only downgrades you mean (write those in the commit

@@ -486,8 +486,8 @@
     "edits": [
       {
         "file": "scripts/staging-bring-main.mjs",
-        "find": "                    (v) => lineOf(v) === lineOf(depVersion) && compareVersions(v, depVersion) > 0,\n",
-        "replace": "                    () => false,\n"
+        "find": "                      compareVersions(v, depVersion) > 0,\n",
+        "replace": "                      false,\n"
       }
     ],
     "test": "tests/scripts/staging-bring-main.test.ts",
@@ -499,8 +499,8 @@
     "edits": [
       {
         "file": "scripts/staging-bring-main.mjs",
-        "find": "                    (v) => lineOf(v) === lineOf(depVersion) && compareVersions(v, depVersion) > 0,\n",
-        "replace": "                    (v) => compareVersions(v, depVersion) > 0,\n"
+        "find": "                      lineOf(v) === lineOf(depVersion) &&\n",
+        "replace": ""
       }
     ],
     "test": "tests/scripts/staging-bring-main.test.ts",
@@ -514,6 +514,50 @@
         "file": "scripts/staging-bring-main.mjs",
         "find": "              to = oldest(got);\n",
         "replace": "              to = newest(got);\n"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M44-non-semver-dependent-compared",
+    "why": "a dependent that is not semver (a `file:` tarball) is compared by line, and the check throws (review round 8)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "                if (!parseVersion(depVersion)) continue;\n",
+        "replace": ""
+      },
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "                      parseVersion(v) &&\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M45-other-major-is-put-back",
+    "why": "a bumped dependent that resolves another major (an override's dependent catching up) reads as a put-back (review round 8, reddoor-starter 7a95a3fe)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "                  .filter((v) => lineOf(v) === lineOf(had));\n",
+        "replace": "                  .filter(Boolean);\n"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M46-renamed-key-dropped",
+    "why": "an importer edge whose key the merge dropped or renamed is skipped, so a put-back under the package's other key passes (review round 8)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "                  : [...(imp?.values() ?? [])].filter((e) => e.pkg === name);\n",
+        "replace": "                  : [];\n"
       }
     ],
     "test": "tests/scripts/staging-bring-main.test.ts",

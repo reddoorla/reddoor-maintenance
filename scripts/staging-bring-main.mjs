@@ -483,30 +483,51 @@ export function lockfileRegressions(merged, sides) {
           for (const p of ps) {
             let to;
             if (p.importer) {
-              // under the key the side held it by: `foo: npm:bar@^1` is bar's edge, held by foo
-              const e = m.importers.get(p.importer)?.get(p.key);
-              if (!e || e.pkg !== name || !parseVersion(e.version)) continue;
-              // an `npm:` alias of another package (`react: npm:@preact/compat@^17`) ranges over
-              // that package, so it excuses nothing here; `cookie: npm:cookie@^0.7.0` is cookie's own
-              if (
-                e.specifier !== undefined &&
-                !aliasOfAnother(name, e.specifier) &&
-                satisfies(had, e.specifier) === false
-              )
-                continue;
-              to = e.version;
+              // under the key the side held it by (`foo: npm:bar@^1` is bar's edge, held by foo);
+              // if the merge dropped that key or points it elsewhere, under every key there that
+              // still resolves the package
+              const imp = m.importers.get(p.importer);
+              const held = imp?.get(p.key);
+              const es =
+                held?.pkg === name
+                  ? [held]
+                  : [...(imp?.values() ?? [])].filter((e) => e.pkg === name);
+              const tos = es
+                .filter(
+                  (e) =>
+                    parseVersion(e.version) &&
+                    // a range that rejects the side's version is a downgrade on purpose. An `npm:`
+                    // alias of another package ranges over that package, so it excuses nothing
+                    // here; pnpm writes one as `pkg@version`, so this guards hand-written input
+                    !(
+                      e.specifier !== undefined &&
+                      !aliasOfAnother(name, e.specifier) &&
+                      satisfies(had, e.specifier) === false
+                    ),
+                )
+                .map((e) => e.version);
+              if (!tos.length) continue;
+              to = oldest(tos);
             } else {
               const at = `${p.key}\0${name}`;
               let got = m.deps.get(p.snapshot)?.get(at) ?? m.deps.get(`~${p.base}`)?.get(at);
               if (!got) {
                 // the dependent itself moved up its line (main's Renovate took foo 1.0.0 to
-                // 1.0.1): each newer copy in that line must still resolve the name as new
+                // 1.0.1): each newer copy in that line must still resolve the name as new, within
+                // the side's own line of it (a newer copy that asks for another major, as an
+                // override's dependent does once it catches up, changed its range). A dependent
+                // that is not semver (a `file:` tarball, a git commit) has no line.
                 const [dep, depVersion] = splitKey(p.base);
+                if (!parseVersion(depVersion)) continue;
                 got = (m.copies.get(dep) ?? [])
                   .filter(
-                    (v) => lineOf(v) === lineOf(depVersion) && compareVersions(v, depVersion) > 0,
+                    (v) =>
+                      parseVersion(v) &&
+                      lineOf(v) === lineOf(depVersion) &&
+                      compareVersions(v, depVersion) > 0,
                   )
-                  .flatMap((v) => m.deps.get(`~${dep}@${v}`)?.get(at) ?? []);
+                  .flatMap((v) => m.deps.get(`~${dep}@${v}`)?.get(at) ?? [])
+                  .filter((v) => lineOf(v) === lineOf(had));
                 if (!got.length) continue;
               }
               // the lowest: a variant that kept the side's version must not hide one that did not

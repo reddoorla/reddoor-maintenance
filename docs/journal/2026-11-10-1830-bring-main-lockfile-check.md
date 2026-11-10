@@ -44,3 +44,16 @@ Usage: $18.13, 4461/228533 tokens, 36370979/1097811 cache, rate limit allowed
 Each fix has a test that failed first and a named mutation, M38–M43. Alamo and Mantis still come out byte-identical to `8b2496b` and `6b56a7a`. The bumped-dependent rule makes one common shape stop with exit 2 where it used to pass silently: a Renovate bump on `main` overlapping staging's maintenance of that package's dependencies. That is the intended direction, and the operator decides whether it lands.
 
 Usage (this continuation, to this point): $5.49, 1666/65891 tokens, 8418648/446714 cache, rate limit allowed
+
+## Round 8 (the same continuation session)
+
+**Round 8** (the operator's eighth round, on round 7's new logic) found four real defects. Three were in round 7's own fixes:
+
+- **The bumped-dependent rule crashed on a dependent that is not semver.** A `file:` tarball or git dependent that differed between the sides threw `not a semver version` (exit 1). The reviewer reproduced it on lockfiles pnpm wrote. Such a dependent now has no line, as the rest of the check already assumed.
+- **The same rule refused correct merges in real history.** A replay of every merge with three lockfiles in 20 site repos (564 merges) found two: reddoor-website `43455b08` and reddoor-starter `7a95a3fe`. The starter's `uuid@<11.1.1: '>=11.1.1'` override had pushed `@prismicio/types-internal` 3.11.2's uuid to 14.0.1. Version 3.17.2 asks for `^11.1.1` itself, so pnpm rightly resolved 11.1.1. A newer copy is now compared only within the side's own line of the dependency. After the fix, the replay matches the pre-round-7 code on every merge.
+- **An importer edge whose key was renamed was dropped.** A put-back under the package's other key passed (rare: it needs a `package.json` rename on one side). Before round 7 the line fallback caught two of the three shapes. Now every key in the importer that still resolves the package is checked.
+- **The runbook's `pnpm update <pkg>` rewrote `package.json`** (reproduced on Alamo: `^4.0.0` → `^4.7.8`). Its `git checkout --ours` also kept a clean text merge instead of staging's lockfile. The steps now use `--no-save --lockfile-only` and `git show <staging sha>:pnpm-lock.yaml`. Followed on Alamo, they give `[]` and a lockfile byte-identical to `8b2496b`.
+
+**A correction to round 7's paragraph above.** It said the bumped-dependent shape "was in the real 11-10 merge too" (`@oxc-project/types` under `rolldown`). It was not. `rolldown` was not bumped on `main`; the merge put `rolldown` itself back. That is the "dependent itself put back" case, and the check still does not name dependencies under such a dependent, only the dependent.
+
+**The mutation run found a test gap.** M34 (peer variants pooled) survived at `17b3cff8`: once round 7 took the lowest across variants, pooling gave the same answer on the existing test. The round-7 peer test now also checks a side whose own variants resolve differently against itself, which only the exact-variant lookup passes.
