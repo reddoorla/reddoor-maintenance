@@ -16,6 +16,7 @@ import {
   extractLocale,
   probeMobile,
   probeDesktop,
+  probeRoutes,
   type RouteResult,
   type LinkResult,
   type BrowserRunner,
@@ -1936,6 +1937,128 @@ describe("probeDesktop — one retry for a navigation that threw (P1-107)", () =
     const gone = await chromium.launch();
     await gone.close();
     await expect(probeDesktop(gone, `${base}/drop-once`, "firefox")).rejects.toThrow(/closed/);
+  }, 60_000);
+});
+
+// P1-107b: each retry costs up to 10 s, times 15 routes × (3 engines + 2 devices), so a site
+// whose every route hangs took 59.6 min with both retries against 51.9 without desktop's
+// (measured 2026-11-10: workspace decisions/2026-11-10-2048-p1-107-desktop-retry-budget.md),
+// past fleet-lighthouse's 75-minute audit step once the rest of the fleet is added. One budget
+// of 3 retries per site, shared by desktop and mobile, bounds that to 30 s. These run the real
+// per-site loop in real Chromium (every engine slot on one Chromium: the engine's name only
+// decides which load reads the page facts).
+describe("probeRoutes — one retry budget of 3 per site, shared by desktop and mobile (P1-107b)", () => {
+  const head =
+    '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1"><title>t</title></head>';
+  const fits = `${head}<body><main><p>ok</p></main></body></html>`;
+  const noMain = `${head}<body><div>no main</div></body></html>`;
+  let server: Server;
+  let base = "";
+  let browser: Browser;
+  const served: Record<string, number> = {};
+
+  beforeAll(async () => {
+    server = createServer((req, res) => {
+      const path = req.url ?? "";
+      const n = (served[path] = (served[path] ?? 0) + 1);
+      // /alt/*: the 1st, 3rd, 5th… connection is cut and the others load, so every probe's
+      // first try throws and its retry, when it gets one, loads. /drop/*: every one is cut.
+      if (path.startsWith("/drop/") || (path.startsWith("/alt/") && n % 2 === 1)) {
+        req.socket.destroy();
+        return;
+      }
+      // /nomain/*: loads every time, and fails every time, without throwing.
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end(path.startsWith("/nomain/") ? noMain : fits);
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    browser = await chromium.launch();
+  }, 60_000);
+
+  afterAll(async () => {
+    await browser?.close();
+    await new Promise((r) => server?.close(r));
+  });
+
+  /** One site's browsers, in the production order: three desktop engines, then two devices. */
+  function site() {
+    return {
+      desktop: ["chromium", "firefox", "webkit"].map((engine) => ({ engine, browser })),
+      mobile: [
+        { target: { device: "Pixel 7", descriptor: devices["Pixel 7"]! }, browser },
+        { target: { device: "iPhone 14", descriptor: devices["iPhone 14"]! }, browser },
+      ],
+    };
+  }
+  const loaded = { ok: true, status: 200 };
+  const threwDesktop = { ok: false, status: null };
+
+  it("the first 3 throws are each retried once; the 4th is not, and fails as its first try did", async () => {
+    const [r] = await probeRoutes([`${base}/alt/a`], site());
+    // Three desktop throws, each retried once and loaded on the retry, as today.
+    expect(r!.desktop).toEqual([
+      { engine: "chromium", ...loaded },
+      { engine: "firefox", ...loaded },
+      { engine: "webkit", ...loaded },
+    ]);
+    // The 4th throw (Pixel 7's) is not retried: it stands as "load failed". iPhone 14's first
+    // try is the next request, which loads, so it spends nothing.
+    expect(r!.mobile).toEqual([
+      { device: "Pixel 7", ok: false, status: null, reason: "load failed" },
+      { device: "iPhone 14", ...loaded },
+    ]);
+    // Five first tries and three retries: one budget across desktop and mobile, not one each.
+    expect(served["/alt/a"]).toBe(8);
+  }, 60_000);
+
+  it("once the budget is spent, every later thrown navigation on the site fails on its first try", async () => {
+    const [first, second] = await probeRoutes([`${base}/alt/b`, `${base}/drop/c`], site());
+    expect(first!.desktop.every((d) => d.ok)).toBe(true);
+    expect(second!.desktop).toEqual([
+      { engine: "chromium", ...threwDesktop },
+      { engine: "firefox", ...threwDesktop },
+      { engine: "webkit", ...threwDesktop },
+    ]);
+    expect(second!.mobile).toEqual([
+      { device: "Pixel 7", ok: false, status: null, reason: "load failed" },
+      { device: "iPhone 14", ok: false, status: null, reason: "load failed" },
+    ]);
+    // No retries on the second route at all: 5 probes, 5 requests.
+    expect(served["/drop/c"]).toBe(5);
+  }, 60_000);
+
+  it("a new probeRoutes call (the next site) starts with a full budget", async () => {
+    const [d] = await probeRoutes([`${base}/alt/d`], site());
+    const [e] = await probeRoutes([`${base}/alt/e`], site());
+    for (const r of [d!, e!]) {
+      expect(r.desktop.map((x) => x.ok)).toEqual([true, true, true]);
+      expect(r.mobile.map((x) => x.ok)).toEqual([false, true]);
+    }
+    expect(served["/alt/d"]).toBe(8);
+    expect(served["/alt/e"]).toBe(8);
+  }, 60_000);
+
+  it("a probe whose first try did not throw never spends the budget", async () => {
+    const [nomain, ok, alt] = await probeRoutes(
+      [`${base}/nomain/f`, `${base}/fits/g`, `${base}/alt/h`],
+      site(),
+    );
+    // Ten probes that loaded (five failing, five passing) spent nothing, and none was retried.
+    expect(nomain!.desktop.map((x) => x.ok)).toEqual([false, false, false]);
+    expect(nomain!.mobile.map((x) => x.reason)).toEqual(["no visible <main>", "no visible <main>"]);
+    expect(ok!.desktop.map((x) => x.ok)).toEqual([true, true, true]);
+    expect(served["/nomain/f"]).toBe(5);
+    expect(served["/fits/g"]).toBe(5);
+    // So the third route still has all three retries.
+    expect(alt!.desktop.map((x) => x.ok)).toEqual([true, true, true]);
+    expect(served["/alt/h"]).toBe(8);
+  }, 60_000);
+
+  it("chromium's page facts come from its retried load", async () => {
+    const [r] = await probeRoutes([`${base}/alt/i`], site());
+    expect(r).toMatchObject({ status: 200, title: "t", lang: "en" });
   }, 60_000);
 });
 

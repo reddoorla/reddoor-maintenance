@@ -1,0 +1,77 @@
+[
+  {
+    "id": "b1-budget-ignored",
+    "why": "Every thrown probe retries again, so a site whose routes all hang costs 12.5 minutes of retries and fleet-lighthouse breaks its 75-minute step",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "  if (budget.left <= 0) return false;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "b2-module-level",
+    "why": "The budget is made once per module, not per probe call, so the first site to throw spends every later site's retries",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "export async function probeRoutes(urls: string[], site: SiteBrowsers): Promise<RouteResult[]> {\n  const budget: RetryBudget = { left: SITE_RETRY_BUDGET };\n",
+        "replace": "const budget: RetryBudget = { left: SITE_RETRY_BUDGET };\nexport async function probeRoutes(urls: string[], site: SiteBrowsers): Promise<RouteResult[]> {\n"
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "b3-loaded-probe-spends",
+    "why": "A probe whose first try loaded still spends a retry, so a healthy site's first route empties the budget before any throw",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "  if (first.threw && !spendRetry(budget)) return first;",
+        "replace": "  if (!spendRetry(budget) && first.threw) return first;"
+      },
+      {
+        "file": "src/audits/browser.ts",
+        "find": "  if (first.reason === \"load failed\" && !spendRetry(budget)) return first;",
+        "replace": "  if (!spendRetry(budget) && first.reason === \"load failed\") return first;"
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "b4-budget-per-kind",
+    "why": "Desktop and mobile each get 3 retries instead of sharing 3, doubling what a hanging site can cost",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "  const budget: RetryBudget = { left: SITE_RETRY_BUDGET };\n",
+        "replace": "  const budget: RetryBudget = { left: SITE_RETRY_BUDGET };\n  const mobileBudget: RetryBudget = { left: SITE_RETRY_BUDGET };\n"
+      },
+      {
+        "file": "src/audits/browser.ts",
+        "find": "      mobile.push(await probeMobile(browser, url, target, budget));",
+        "replace": "      mobile.push(await probeMobile(browser, url, target, mobileBudget));"
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "b5-budget-zero",
+    "why": "No retries at all through the audit: one thrown navigation puts a site at Broken again (2026-11-03, 2026-11-10)",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "export const SITE_RETRY_BUDGET = 3;",
+        "replace": "export const SITE_RETRY_BUDGET = 0;"
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  }
+]
