@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { runFleetWriteBack } from "../../src/cli/commands/audit.js";
 import { formatFleetWriteSummary } from "../../src/audits/write-audits.js";
 import { formatUnmeasuredSmokeSummary } from "../../src/audits/smoke.js";
+import { formatSkippedNotice } from "../../src/cli/fleet/prepare-sites.js";
 import type { AuditResult } from "../../src/types.js";
 import { websiteRowsFrom } from "../_helpers/raw-rows.js";
 import { stepRunScript, workflowPath } from "./_helpers/workflow-source.js";
@@ -73,7 +74,7 @@ async function runStep(
   step: string,
   stdout: string,
   exit: number,
-): Promise<{ code: number; out: string }> {
+): Promise<{ code: number; out: string; raw: string }> {
   const gate = stepRunScript(await readFile(workflowPath(file), "utf-8"), step);
   const dir = await mkdtemp(join(tmpdir(), "fleet-write-gate-"));
   const bin = join(dir, "bin");
@@ -90,13 +91,11 @@ async function runStep(
       cwd: dir,
       env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}`, RUNNER_TEMP: dir },
     });
-    return { code: 0, out: decodeAnnotations(o + stderr) };
+    return { code: 0, out: decodeAnnotations(o + stderr), raw: o + stderr };
   } catch (e) {
     const err = e as { code?: number; stdout?: string; stderr?: string };
-    return {
-      code: err.code ?? 1,
-      out: decodeAnnotations((err.stdout ?? "") + (err.stderr ?? "")),
-    };
+    const raw = (err.stdout ?? "") + (err.stderr ?? "");
+    return { code: err.code ?? 1, out: decodeAnnotations(raw), raw };
   }
 }
 
@@ -285,6 +284,87 @@ describe.each(STEPS)("$file reads the write gate's verdict", ({ file, step, exit
     expect(r.code).toBe(1);
     expect(r.out).toContain("printed no FLEET_WRITE_GATE verdict");
   });
+
+  it("a crash that left the summary but no verdict still names the failed write (#1942 item 5)", async () => {
+    const out = (
+      await cliOutput({ results: SLUGS.map(smokeMeasured), expectedSites: SLUGS, throwRow: "rec3" })
+    )
+      .split("\n")
+      .filter((l) => !l.startsWith("FLEET_WRITE_GATE verdict="))
+      .join("\n");
+    const r = await runStep(file, step, out, exit);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("printed no FLEET_WRITE_GATE verdict");
+    expect(r.out).toContain(
+      `::warning::${label}: 1 of 8 site(s) not written: site-3 (Turso write failed: HTTP 503)`,
+    );
+  });
+
+  it("a prep-skipped site's label and reason reach the annotation as written (#1942 item 2)", async () => {
+    const notice = formatSkippedNotice([
+      { site: "site-%41", reason: "clone failed: 100%0A done\rnext" },
+    ]);
+    const good = await cliOutput({ results: SLUGS.map(smokeMeasured), expectedSites: SLUGS });
+    const r = await runStep(file, step, `${notice}\n${good}`, exit);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain(
+      `::warning::${label}: ⚠ 1 site(s) skipped (could not prepare): site-%41 (clone failed: 100%0A done\rnext)`,
+    );
+    // A raw CR would end the workflow command early on the runner; it must arrive as %0D.
+    const line =
+      r.raw
+        .split("\n")
+        .find((l) => l.startsWith("::warning::") && l.includes("could not prepare")) ?? "";
+    expect(line).not.toContain("\r");
+    expect(line).toContain("site-%2541");
+  });
+
+  it("a prep skip whose reason is git's multi-line stderr still names every skipped site (#2003 round 1)", async () => {
+    const notice = formatSkippedNotice([
+      {
+        site: "site-a",
+        reason:
+          "git clone failed (code 128): Cloning into '/w/site-a'...\nremote: Repository not found.",
+      },
+      { site: "site-b", reason: "cannot clone" },
+    ]);
+    const good = await cliOutput({ results: SLUGS.map(smokeMeasured), expectedSites: SLUGS });
+    const r = await runStep(file, step, `${notice}\n${good}`, exit);
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(
+      new RegExp(
+        `::warning::${label}: ⚠ 2 site\\(s\\) skipped[^\\n]*site-a [^\\n]*site-b \\(cannot clone\\)`,
+      ),
+    );
+  });
+});
+
+it("fleet smoke: no FLEET_SMOKE_UNMEASURED line still names the failed write (#1942 item 5)", async () => {
+  const out = (
+    await cliOutput({ results: SLUGS.map(smokeMeasured), expectedSites: SLUGS, throwRow: "rec3" })
+  )
+    .split("\n")
+    .filter((l) => !l.startsWith("FLEET_SMOKE_UNMEASURED"))
+    .join("\n");
+  const r = await runStep("fleet-smoke.yml", "Fleet smoke suite + write-back", out, 1);
+  expect(r.code).toBe(1);
+  expect(r.out).toContain("::error::fleet smoke printed no FLEET_SMOKE_UNMEASURED line");
+  expect(r.out).toContain(
+    "::warning::fleet smoke: 1 of 8 site(s) not written: site-3 (Turso write failed: HTTP 503)",
+  );
+});
+
+it("fleet prismic drift: a refusal line reaches the outage annotation as written (#1942 item 2)", async () => {
+  const r = await runStep(
+    "fleet-prismic-drift.yml",
+    "Sweep the fleet for Prismic model drift",
+    "⛔ refused: no token for site-%0A\n",
+    2,
+  );
+  expect(r.code).toBe(1);
+  expect(r.out).toContain(
+    "::error::the Prismic model drift sweep exited 2 — this is an OUTAGE, not drift: ⛔ refused: no token for site-%0A",
+  );
 });
 
 it("fleet smoke: a never-measured site plus a failed write reds, and names the failed write too (#1938 round 2)", async () => {
