@@ -317,8 +317,8 @@
     "edits": [
       {
         "file": "scripts/staging-bring-main.mjs",
-        "find": "              const got = m.deps.get(p.snapshot)?.get(name);\n              if (!got) continue;\n",
-        "replace": "              const got = m.deps.get(p.snapshot)?.get(name) ?? [\"0.0.0\"];\n"
+        "find": "              if (!got) continue;\n              to = newest(got);\n",
+        "replace": "              to = newest(got ?? [\"0.0.0\"]);\n"
       }
     ],
     "test": "tests/scripts/staging-bring-main.test.ts",
@@ -365,7 +365,7 @@
   },
   {
     "id": "M32-no-edges",
-    "why": "every version falls back to its line, as before round 3",
+    "why": "no version is judged by its dependents: each line's newest is compared by line, as before round 3",
     "edits": [
       {
         "file": "scripts/staging-bring-main.mjs",
@@ -382,8 +382,21 @@
     "edits": [
       {
         "file": "scripts/staging-bring-main.mjs",
-        "find": "const key = `${i}:${path}`;",
-        "replace": "const key = `${i}`;"
+        "find": "const key = `${env ? \"env\" : \"project\"}:${path}`;",
+        "replace": "const key = `${env ? \"env\" : \"project\"}`;"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M34-peer-variants-pooled",
+    "why": "every peer variant of a package is pooled, so a new variant's newer version hides the old variant's put-back",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "m.deps.get(p.snapshot)?.get(name) ?? ",
+        "replace": ""
       }
     ],
     "test": "tests/scripts/staging-bring-main.test.ts",

@@ -40,7 +40,7 @@
 //      rejects, or an `overrides` pin (not one scoped under a parent, `a>b`) whose selector
 //      covers it (a downgrade on purpose); a peer, which follows the site's own choice and is
 //      checked there; versions that are not semver (`file:`, `link:`, a tarball). A version
-//      with no dependent on record (no snapshots) falls back to its line, a major or `0.minor`:
+//      with no dependent on record (no snapshots, or reached only as a peer) falls back to its line, a major or `0.minor`:
 //      the newest merged version in that line must be at least the side's newest there.
 //      On 2026-11-10 pnpm 12.5.1 merged alamo-anatomy's and mantis-landscaping's lockfiles
 //      cleanly and still put staging's rolldown 1.3.0, cookie 2.0.2 and @netlify/types 3.3.1
@@ -74,7 +74,9 @@ export const LOCKFILE = "pnpm-lock.yaml";
 const CHECKED =
   "Checked: every dependency the merged lockfile keeps (same importer, or same package " +
   "version) resolves at least as new as on either side, beyond downgrades the merged " +
-  "package.json ranges or overrides ask for.";
+  "package.json ranges or overrides ask for; peers are checked through the site's own choice, " +
+  "versions with no dependent on record by their major (or 0.minor) line, and versions that " +
+  "are not semver not at all.";
 const USAGE =
   "usage: node scripts/staging-bring-main.mjs --dir <site checkout> [--main <ref>] [--staging <ref>]\n" +
   '                                           [--branch <name>] [--no-fetch] [--pnpm "<command>"]\n' +
@@ -306,24 +308,36 @@ const overrideTarget = (key) => {
 const stripPeers = (v) => String(v).split("(")[0];
 
 /**
- * Who depends on what. `parents`: `name@version` → each importer (`<document>:<path>`) or
- * package (`name@version`, peers dropped) that resolved it; `importers`: importer → name →
+ * Who depends on what. `parents`: `name@version` → each importer (`env:<path>` in pnpm 12's
+ * own first document, `project:<path>` otherwise) or package snapshot that resolved it; `importers`: importer → name →
  * its `specifier` (the package.json range) and resolved version; `deps`: package → name → the
- * versions its snapshots resolved, peers left out; `overrides`: each top-level override that is not scoped
+ * versions its snapshot resolved, keyed by the snapshot (peer variant and all) and, as
+ * `~name@version`, across all its variants, peers left out; `overrides`: each top-level override that is not scoped
  * under a parent (`a>b` pins b only under a), with the selector its key carries. Aliases
  * (`npm:`, `name@version` values) and other non-semver resolutions are left out.
  */
 function lockfileGraph(text) {
   const g = { parents: new Map(), importers: new Map(), deps: new Map(), overrides: [] };
   const parent = (child, p) => g.parents.set(child, [...(g.parents.get(child) ?? []), p]);
-  docs(text).forEach((d, i) => {
+  for (const d of docs(text)) {
     for (const [key, range] of Object.entries(d.overrides ?? {}))
       if (typeof range === "string" && !key.includes(">")) {
         const [name, selector] = overrideTarget(key);
         g.overrides.push({ name, selector, range });
       }
+    // pnpm 12 writes its own env (packageManagerDependencies, configDependencies) as a first
+    // document; pnpm 10 and older write the project alone. Key importers by that role, not by
+    // position, so a side on either format meets the merged lockfile's project importers.
+    const imps = Object.values(d.importers ?? {});
+    const env =
+      imps.length > 0 &&
+      imps.every((imp) =>
+        Object.keys(imp ?? {}).every(
+          (k) => k === "packageManagerDependencies" || k === "configDependencies",
+        ),
+      );
     for (const [path, imp] of Object.entries(d.importers ?? {})) {
-      const key = `${i}:${path}`;
+      const key = `${env ? "env" : "project"}:${path}`;
       const m = new Map();
       for (const group of Object.values(imp ?? {}))
         if (group && typeof group === "object")
@@ -342,20 +356,26 @@ function lockfileGraph(text) {
     for (const [k, pkg] of Object.entries(d.packages ?? {}))
       peers.set(stripPeers(k).replace(/^\//, ""), Object.keys(pkg?.peerDependencies ?? {}));
     for (const [k, snap] of Object.entries(d.snapshots ?? {})) {
-      const pk = stripPeers(k).replace(/^\//, "");
+      const full = k.replace(/^\//, "");
+      const pk = stripPeers(full);
       // a peer resolves to the copy the site chose, and the importer's own edge checks that
       const own = (name) => !(peers.get(pk) ?? []).includes(name);
-      const m = g.deps.get(pk) ?? new Map();
+      // each peer variant (`foo@1.0.0(react@18.0.0)`) on its own, and all of them together
+      // (`~foo@1.0.0`) for a variant the other lockfile does not have
+      const exact = g.deps.get(full) ?? new Map();
+      const all = g.deps.get(`~${pk}`) ?? new Map();
       for (const group of ["dependencies", "optionalDependencies"])
         for (const [name, v] of Object.entries(snap?.[group] ?? {})) {
           const version = stripPeers(v);
           if (!parseVersion(version) || !own(name)) continue;
-          m.set(name, [...(m.get(name) ?? []), version]);
-          parent(`${name}@${version}`, { snapshot: pk });
+          exact.set(name, [...(exact.get(name) ?? []), version]);
+          all.set(name, [...(all.get(name) ?? []), version]);
+          parent(`${name}@${version}`, { snapshot: full, base: pk });
         }
-      g.deps.set(pk, m);
+      g.deps.set(full, exact);
+      g.deps.set(`~${pk}`, all);
     }
-  });
+  }
   return g;
 }
 
@@ -417,7 +437,7 @@ export function lockfileRegressions(merged, sides) {
               if (e.specifier !== undefined && satisfies(had, e.specifier) === false) continue;
               to = e.version;
             } else {
-              const got = m.deps.get(p.snapshot)?.get(name);
+              const got = m.deps.get(p.snapshot)?.get(name) ?? m.deps.get(`~${p.base}`)?.get(name);
               if (!got) continue;
               to = newest(got);
             }

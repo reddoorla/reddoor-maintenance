@@ -157,8 +157,9 @@ setting or the order below, so this is a runbook rather than a template there.
   `package.json` range rejects the old version, or an `overrides` pin that is
   not scoped under a parent), peers (they follow the site's own choice, which
   is checked), and versions that are not semver (`file:`, `link:`, a tarball).
-  A lockfile with no snapshots is compared by line instead: a major, or
-  `0.minor`, must keep its newest version.
+  A version no dependent records (a lockfile with no snapshots, or a version
+  reached only as a peer) is compared by line instead: a major, or `0.minor`,
+  must keep its newest version.
 - **On a regression it retries from a side's own lockfile**, as both incidents
   were fixed by hand: `staging`'s first, then `main`'s, and only a side whose
   `package.json` files, `patches/`, `pnpm-workspace.yaml`, `.npmrc` and

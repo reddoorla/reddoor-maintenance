@@ -374,7 +374,7 @@ describe("lockfile regressions", () => {
     ]);
   });
 
-  it("a package no longer depended on at all is not a regression (cssesc after postcss-selector-parser 7.2.0)", () => {
+  it("with no snapshots, a package whose line is gone is not a regression (cssesc after postcss-selector-parser 7.2.0)", () => {
     const main = doc({}, ["postcss-selector-parser@7.1.0", "cssesc@3.0.0"]);
     const merged = doc({}, ["postcss-selector-parser@7.2.0"]);
     expect(lockfileRegressions(merged, { main })).toEqual([]);
@@ -395,7 +395,7 @@ describe("lockfile regressions", () => {
     expect(lockfileRegressions(doc({}, ["foo@2.0.0"]), { staging })).toEqual([]);
   });
 
-  it("a direct range for one copy does not exempt another copy of the same name", () => {
+  it("with no snapshots, a direct range for one copy does not exempt another copy in its line", () => {
     const staging = doc({ cookie: ["^1.0.0", "1.0.2"] }, ["cookie@1.0.2", "cookie@2.0.2"]);
     const merged = doc({ cookie: ["^1.0.0", "1.0.2"] }, ["cookie@1.0.2", "cookie@2.0.1"]);
     expect(lockfileRegressions(merged, { staging })).toEqual([
@@ -403,7 +403,7 @@ describe("lockfile regressions", () => {
     ]);
   });
 
-  it("an exact direct pin does not excuse a transitive copy in the same line", () => {
+  it("with no snapshots, an exact direct pin does not excuse a transitive copy in its line", () => {
     const staging = doc({ foo: ["1.5.0", "1.5.0"] }, ["foo@1.5.0", "foo@1.9.0"]);
     const merged = doc({ foo: ["1.5.0", "1.5.0"] }, ["foo@1.5.0"]);
     expect(lockfileRegressions(merged, { staging })).toEqual([
@@ -453,6 +453,58 @@ describe("lockfile regressions", () => {
     });
     expect(lockfileRegressions(merged, { staging })).toEqual([
       { name: "foo", side: "staging", had: "2.5.0", merged: "2.1.0" },
+    ]);
+  });
+
+  it("a side written by an older pnpm, one document with no env, is still checked edge by edge", () => {
+    // pnpm 12 puts its own env first; pnpm 10 and older write the project alone
+    const env = [
+      "---",
+      "lockfileVersion: '9.0'",
+      "",
+      "importers:",
+      "",
+      "  .:",
+      "    packageManagerDependencies:",
+      "      pnpm:",
+      "        specifier: 12.5.1",
+      "        version: 12.5.1",
+      "",
+      "packages:",
+      "",
+      "  pnpm@12.5.1:",
+      "    resolution: {integrity: sha512-p}",
+      "",
+    ].join("\n");
+    const deps = { flatpickr: ["^4.6.13", "4.6.14"] } as Deps;
+    const side = doc(deps, ["flatpickr@4.6.14"]);
+    const merged = env + "\n" + doc({ flatpickr: ["^4.6.13", "4.6.13"] }, ["flatpickr@4.6.13"]);
+    const want = [{ name: "flatpickr", side: "main", had: "4.6.14", merged: "4.6.13" }];
+    expect(lockfileRegressions(merged, { main: side })).toEqual(want);
+    // and the other way round: a two-document side against a one-document merge
+    expect(
+      lockfileRegressions(doc({ flatpickr: ["^4.6.13", "4.6.13"] }, ["flatpickr@4.6.13"]), {
+        main: env + "\n" + side,
+      }),
+    ).toEqual(want);
+  });
+
+  it("each peer variant of a package is compared with its own variant", () => {
+    const staging = doc({ foo: ["^1", "1.0.0(react@18.0.0)"] }, ["foo@1.0.0", "bar@2.0.0"], {
+      snaps: { "foo@1.0.0(react@18.0.0)": { bar: "2.0.0" } },
+    });
+    const merged = doc(
+      { foo: ["^1", "1.0.0(react@18.0.0)"] },
+      ["foo@1.0.0", "bar@1.0.0", "bar@2.0.0"],
+      {
+        snaps: {
+          "foo@1.0.0(react@18.0.0)": { bar: "1.0.0" },
+          "foo@1.0.0(react@19.0.0)": { bar: "2.0.0" },
+        },
+      },
+    );
+    expect(lockfileRegressions(merged, { staging })).toEqual([
+      { name: "bar", side: "staging", had: "2.0.0", merged: "1.0.0" },
     ]);
   });
 
