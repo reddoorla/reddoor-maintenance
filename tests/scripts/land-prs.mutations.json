@@ -472,7 +472,7 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "    } else if (wholly(oldStates[k]) && !oldInh[k]) {\n      dead.push(text.trim());",
+        "find": "    } else if (wholly(oldStates[k]) && !oldInh[k] && agree) {\n      dead.push(text.trim());",
         "replace": "    } else {\n      dead.push(text.trim());"
       }
     ],
@@ -498,8 +498,8 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "} else if (wholly(oldStates[k]) && !oldInh[k]) {",
-        "replace": "} else if (wholly(oldStates[k])) {"
+        "find": "} else if (wholly(oldStates[k]) && !oldInh[k] && agree) {",
+        "replace": "} else if (wholly(oldStates[k]) && agree) {"
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
@@ -529,8 +529,8 @@
       },
       {
         "file": "scripts/land-prs.mjs",
-        "find": "} else if (wholly(oldStates[k]) && !oldInh[k]) {",
-        "replace": "} else if (wholly(oldStates[k])) {"
+        "find": "} else if (wholly(oldStates[k]) && !oldInh[k] && agree) {",
+        "replace": "} else if (wholly(oldStates[k]) && agree) {"
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
