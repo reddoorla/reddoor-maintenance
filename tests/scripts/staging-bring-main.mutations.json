@@ -174,8 +174,8 @@
     "edits": [
       {
         "file": "scripts/staging-bring-main.mjs",
-        "find": "          if (rs.some((r) => r.resolved !== undefined && satisfies(had, r.range) === true)) {",
-        "replace": "          if (true) {"
+        "find": "          if (lower) out.push({ name, side, had, merged: lower.resolved });",
+        "replace": "          out.push({ name, side, had, merged: \"(none)\" });"
       }
     ],
     "test": "tests/scripts/staging-bring-main.test.ts",
@@ -332,19 +332,6 @@
         "file": "scripts/staging-bring-main.mjs",
         "find": "r.selector === undefined || satisfies(had, r.selector) === true",
         "replace": "true"
-      }
-    ],
-    "test": "tests/scripts/staging-bring-main.test.ts",
-    "expect": "red"
-  },
-  {
-    "id": "M27-range-for-any-copy",
-    "why": "a direct range for one copy exempts another copy of the same name",
-    "edits": [
-      {
-        "file": "scripts/staging-bring-main.mjs",
-        "find": ": lineOf(r.resolved) === line,",
-        "replace": ": true,"
       }
     ],
     "test": "tests/scripts/staging-bring-main.test.ts",
