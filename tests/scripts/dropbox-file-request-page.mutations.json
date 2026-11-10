@@ -89,5 +89,18 @@
     ],
     "test": "tests/scripts/dropbox-file-request-page.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "8-complete-not-sticky",
+    "why": "#1994: a later 403 on a batch retry replaces a file's complete (the fix reverted)",
+    "edits": [
+      {
+        "file": "scripts/dropbox-file-request-upload.mjs",
+        "find": "    if (seen && commitComplete(seen.status, seen.text)) return;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/scripts/dropbox-file-request-page.test.ts",
+    "expect": "red"
   }
 ]

@@ -186,7 +186,8 @@ export function missingAfterDrop(body, names) {
  * Is this commit answer the page's last word on the file (#1471)? Read from the
  * upload page's own bundle on 2026-11-09 (`submission_edison-vfl7ETbh6.js`; the
  * runbook has the detail): its commit call resolves on any 200, whatever the body,
- * so a 200 is never re-sent, and on a 403 the page disables the form. Anything else
+ * so the call itself never re-sends a 200 (the scheduler may still re-send a whole
+ * batch, #1994), and on a 403 the page disables the form. Anything else
  * (a 5xx, another 4xx, no answer) is a rejection the page's upload scheduler may
  * retry, so the wait goes on until the deadline.
  */
@@ -212,6 +213,11 @@ export async function uploadBatch(browser, url, name, email, rows, { deadlineMs 
     const file = commitName(res.url());
     if (file === null) return;
     const text = await res.text().catch(() => "");
+    // A file that committed stays committed (#1994): if the page's scheduler
+    // retries a whole batch after another file's 5xx, a file already answered
+    // complete is committed again, and that answer (a 403) must not replace it.
+    const seen = committed.get(file);
+    if (seen && commitComplete(seen.status, seen.text)) return;
     committed.set(file, { status: res.status(), text });
   });
   try {
