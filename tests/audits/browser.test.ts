@@ -15,6 +15,7 @@ import {
   extractTitleMeta,
   extractLocale,
   probeMobile,
+  probeDesktop,
   type RouteResult,
   type LinkResult,
   type BrowserRunner,
@@ -1826,6 +1827,116 @@ describe("probeMobile — real Chromium, device-width overflow after styles appl
     const missing = await probeMobile(browser, `${base}/missing`, targets[0]!);
     expect(missing).toMatchObject({ ok: false, status: 404 });
   }, 30_000);
+});
+
+// P1-107: the 2026-11-10 nightly read reddoorla.com/ as failing on Firefox with no status, and
+// the cockpit put Reddoor at Broken, while Firefox and Chromium each loaded it twice that morning.
+// Desktop now gets mobile's one retry: only for a navigation that threw, in a fresh context, at
+// RETRY_PAGE_TIMEOUT_MS. These run the real probe in real Chromium against local fixtures.
+describe("probeDesktop — one retry for a navigation that threw (P1-107)", () => {
+  const ok =
+    '<!doctype html><html lang="en"><head><title>t</title></head><body><main>ok</main></body></html>';
+  const noMain =
+    '<!doctype html><html lang="en"><head><title>t</title></head><body><div>no main</div></body></html>';
+  let server: Server;
+  let base = "";
+  let browser: Browser;
+  const served: Record<string, number> = {};
+
+  beforeAll(async () => {
+    server = createServer((req, res) => {
+      const path = req.url ?? "";
+      const n = (served[path] = (served[path] ?? 0) + 1);
+      // /drop-once: the first connection is cut, later ones load. /drop-always: every one is cut.
+      if (path === "/drop-always" || (path === "/drop-once" && n === 1)) {
+        req.socket.destroy();
+        return;
+      }
+      // /nomain-once: loads, but with no <main> the first time only, so a retry would hide it.
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end(path === "/nomain-once" && n === 1 ? noMain : ok);
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    browser = await chromium.launch();
+  }, 60_000);
+
+  afterAll(async () => {
+    await browser?.close();
+    await new Promise((r) => server?.close(r));
+  });
+
+  /** The real browser, recording each context it opens and each navigation's timeout. */
+  function watched() {
+    const contexts: import("@playwright/test").BrowserContext[] = [];
+    const timeouts: (number | undefined)[] = [];
+    const spy = new Proxy(browser, {
+      get(target, prop) {
+        if (prop !== "newContext") return Reflect.get(target, prop, target);
+        return async (...args: Parameters<Browser["newContext"]>) => {
+          const ctx = await target.newContext(...args);
+          contexts.push(ctx);
+          const newPage = ctx.newPage.bind(ctx);
+          ctx.newPage = async () => {
+            const page = await newPage();
+            const goto = page.goto.bind(page);
+            page.goto = (u, o) => {
+              timeouts.push(o?.timeout);
+              return goto(u, o);
+            };
+            return page;
+          };
+          return ctx;
+        };
+      },
+    });
+    return { spy, contexts, timeouts };
+  }
+
+  it("a navigation that throws once is retried once, in a fresh context, at the retry's cap", async () => {
+    served["/drop-once"] = 0;
+    const w = watched();
+    const r = await probeDesktop(w.spy, `${base}/drop-once`, "firefox");
+    expect(r).toEqual({ ok: true, status: 200, threw: false });
+    expect(served["/drop-once"]).toBe(2);
+    // A fresh context for the retry, not the first one reused.
+    expect(w.contexts).toHaveLength(2);
+    expect(w.contexts[0]).not.toBe(w.contexts[1]);
+    // The first try keeps its 30 s; the retry is capped at RETRY_PAGE_TIMEOUT_MS (10 s).
+    expect(w.timeouts).toEqual([30_000, 10_000]);
+  }, 60_000);
+
+  it("a route that throws twice still fails, with no status, after exactly one retry", async () => {
+    served["/drop-always"] = 0;
+    const w = watched();
+    const r = await probeDesktop(w.spy, `${base}/drop-always`, "firefox");
+    expect(r).toMatchObject({ ok: false, status: null, threw: true });
+    // One retry, never more: its cost is what fleet-lighthouse's 75 minutes allow.
+    expect(served["/drop-always"]).toBe(2);
+    expect(w.contexts).toHaveLength(2);
+  }, 60_000);
+
+  it("a page that loaded but failed is not retried, and still fails", async () => {
+    served["/nomain-once"] = 0;
+    const w = watched();
+    const r = await probeDesktop(w.spy, `${base}/nomain-once`, "firefox");
+    expect(r).toEqual({ ok: false, status: 200, threw: false });
+    expect(served["/nomain-once"]).toBe(1);
+    expect(w.contexts).toHaveLength(1);
+  }, 60_000);
+
+  it("chromium's retried load supplies the route's page facts", async () => {
+    served["/drop-once"] = 0;
+    const r = await probeDesktop(browser, `${base}/drop-once`, "chromium");
+    expect(r).toMatchObject({ ok: true, status: 200, threw: false });
+    expect(r.page).toMatchObject({ status: 200, title: "t", lang: "en" });
+  }, 60_000);
+
+  it("a browser that has crashed throws, so the audit names the crash", async () => {
+    const gone = await chromium.launch();
+    await gone.close();
+    await expect(probeDesktop(gone, `${base}/drop-once`, "firefox")).rejects.toThrow(/closed/);
+  }, 60_000);
 });
 
 describe("summarizeBrowser — a failing mobile entry carries its measured cause (#1871)", () => {

@@ -1007,6 +1007,126 @@ async function probeMobileOnce(
   }
 }
 
+/** What chromium's desktop load reads off the page for the route-level checks. */
+type DesktopPageFacts = {
+  status: number | null;
+  title: string | null;
+  metaDescription: string | null;
+  links: string[];
+  leakedTemplateTokens: string[];
+  lang: string | null;
+  alternates: string[];
+};
+
+export type DesktopProbe = {
+  ok: boolean;
+  /** The navigation's HTTP status; null when it threw (timeout, dropped connection). */
+  status: number | null;
+  /** True when the navigation threw: the only case probeDesktop retries. */
+  threw: boolean;
+  /** Read on chromium only, and only from a load that did not throw. */
+  page?: DesktopPageFacts;
+};
+
+/**
+ * Loads one route on one desktop engine: a 2xx/3xx, no JS error and a visible main landmark.
+ *
+ * A navigation that threw gets one retry in a fresh context, capped at RETRY_PAGE_TIMEOUT_MS, as
+ * probeMobile's does (P1-107). The 2026-11-10 nightly read reddoorla.com/ as failing on Firefox
+ * with no status, which put Reddoor at Broken ("pages fail to render on desktop"), while Firefox
+ * and Chromium each loaded it twice that morning: 200, no errors. A route that hangs again costs
+ * 10 s more per engine, 7.5 minutes for a site whose 15 routes all hang. A route that throws twice
+ * stands, as does every fail on a page that loaded. A browser that has crashed still throws.
+ */
+export async function probeDesktop(
+  browser: Browser,
+  url: string,
+  engine: string,
+): Promise<DesktopProbe> {
+  const first = await probeDesktopOnce(browser, url, engine);
+  return first.threw ? probeDesktopOnce(browser, url, engine, RETRY_PAGE_TIMEOUT_MS) : first;
+}
+
+async function probeDesktopOnce(
+  browser: Browser,
+  url: string,
+  engine: string,
+  gotoTimeoutMs: number = PAGE_TIMEOUT_MS,
+): Promise<DesktopProbe> {
+  const ctx = await browser.newContext({ viewport: DESKTOP_VIEWPORT });
+  const page = await ctx.newPage();
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(String(e)));
+  let navStatus: number | null = null;
+  try {
+    const resp = await page.goto(url, { waitUntil: "domcontentloaded", timeout: gotoTimeoutMs });
+    navStatus = resp ? resp.status() : null;
+    const hasMain = await page
+      .locator("main, [role=main]")
+      .first()
+      .isVisible()
+      .catch(() => false);
+    const ok = !!resp && resp.ok() && errors.length === 0 && hasMain;
+    if (engine !== "chromium") return { ok, status: navStatus, threw: false };
+    const title = ((await page.title().catch(() => "")) as string).trim() || null;
+    const metaDescription =
+      (
+        ((await page
+          .evaluate(
+            "document.querySelector('meta[name=\"description\"]')?.getAttribute('content') || ''",
+          )
+          .catch(() => "")) as string) || ""
+      ).trim() || null;
+    // Link discovery runs on chromium only (cost). Links coverage therefore depends on
+    // chromium loading this route + the evaluate succeeding; if it yields nothing, the
+    // Links verdict is "not proven" (links.length===0 ⇒ linksOk null), never a pass.
+    // String-form evaluate so the browser-context code isn't type-checked against the
+    // Node lib (no DOM globals in this project's tsconfig). Returns absolute hrefs.
+    const hrefs = (await page
+      .evaluate("Array.from(document.querySelectorAll('a[href]')).map((a) => a.href)")
+      .catch(() => [])) as string[];
+    const origin = new URL(url).origin;
+    const links = new Set<string>();
+    for (const h of hrefs) {
+      try {
+        if (new URL(h).origin === origin) links.add(new URL(h).href);
+      } catch {
+        /* skip */
+      }
+    }
+    // Detect a broken app.html that shipped an unsubstituted SvelteKit placeholder
+    // (e.g. a "%sveltekit.body%" named in a comment BEFORE the real one, so the naive
+    // first-match template substitution fills the comment and leaves the real token
+    // literal). A "%sveltekit.*%" never appears in a correctly-built page — one in the
+    // shipped HTML is corruption the rendered checks can miss (the page may still show a
+    // <main>). Read the RAW response body, not the parsed DOM, so a placeholder the
+    // browser swallowed into a comment is still caught.
+    const html = resp ? await resp.text().catch(() => "") : "";
+    const leakedTemplateTokens = [...new Set(html.match(/%sveltekit\.[a-zA-Z0-9_.]+%/g) ?? [])];
+    // The same served HTML carries the page's locale: `<html lang>` and its hreflang
+    // alternates, for the duplicate-title check's translation exemption (#1872).
+    const { lang, alternates } = extractLocale(html, resp?.url() || url);
+    return {
+      ok,
+      status: navStatus,
+      threw: false,
+      page: {
+        status: navStatus,
+        title,
+        metaDescription,
+        links: [...links],
+        leakedTemplateTokens,
+        lang,
+        alternates,
+      },
+    };
+  } catch {
+    return { ok: false, status: navStatus, threw: true };
+  } finally {
+    await ctx.close().catch(() => {});
+  }
+}
+
 /**
  * Real Playwright runner. Launches chromium/firefox/webkit (desktop) + mobile-emulated chromium &
  * webkit, probes each route, and HEAD/GET-checks internal links. Every failure degrades to a
@@ -1043,73 +1163,17 @@ export async function defaultBrowserRunner(): Promise<BrowserRunner> {
           let alternates: string[] = [];
           for (let i = 0; i < desktopEngines.length; i++) {
             const engine = desktopEngines[i]!.engine;
-            const browser = browsers[i]!;
-            const ctx = await browser.newContext({ viewport: DESKTOP_VIEWPORT });
-            const page = await ctx.newPage();
-            const errors: string[] = [];
-            page.on("pageerror", (e) => errors.push(String(e)));
-            let ok = false;
-            let navStatus: number | null = null;
-            try {
-              const resp = await page.goto(url, {
-                waitUntil: "domcontentloaded",
-                timeout: PAGE_TIMEOUT_MS,
-              });
-              navStatus = resp ? resp.status() : null;
-              const hasMain = await page
-                .locator("main, [role=main]")
-                .first()
-                .isVisible()
-                .catch(() => false);
-              ok = !!resp && resp.ok() && errors.length === 0 && hasMain;
-              if (engine === "chromium") {
-                status = resp ? resp.status() : null;
-                title = ((await page.title().catch(() => "")) as string).trim() || null;
-                metaDescription =
-                  (
-                    ((await page
-                      .evaluate(
-                        "document.querySelector('meta[name=\"description\"]')?.getAttribute('content') || ''",
-                      )
-                      .catch(() => "")) as string) || ""
-                  ).trim() || null;
-                // Link discovery runs on chromium only (cost). Links coverage therefore depends on
-                // chromium loading this route + the evaluate succeeding; if it yields nothing, the
-                // Links verdict is "not proven" (links.length===0 ⇒ linksOk null), never a pass.
-                // String-form evaluate so the browser-context code isn't type-checked against the
-                // Node lib (no DOM globals in this project's tsconfig). Returns absolute hrefs.
-                const hrefs = (await page
-                  .evaluate("Array.from(document.querySelectorAll('a[href]')).map((a) => a.href)")
-                  .catch(() => [])) as string[];
-                const origin = new URL(url).origin;
-                for (const h of hrefs) {
-                  try {
-                    if (new URL(h).origin === origin) linkSet.add(new URL(h).href);
-                  } catch {
-                    /* skip */
-                  }
-                }
-                // Detect a broken app.html that shipped an unsubstituted SvelteKit placeholder
-                // (e.g. a "%sveltekit.body%" named in a comment BEFORE the real one, so the naive
-                // first-match template substitution fills the comment and leaves the real token
-                // literal). A "%sveltekit.*%" never appears in a correctly-built page — one in the
-                // shipped HTML is corruption the rendered checks can miss (the page may still show a
-                // <main>). Read the RAW response body, not the parsed DOM, so a placeholder the
-                // browser swallowed into a comment is still caught.
-                const html = resp ? await resp.text().catch(() => "") : "";
-                leakedTemplateTokens = [
-                  ...new Set(html.match(/%sveltekit\.[a-zA-Z0-9_.]+%/g) ?? []),
-                ];
-                // The same served HTML carries the page's locale: `<html lang>` and its hreflang
-                // alternates, for the duplicate-title check's translation exemption (#1872).
-                ({ lang, alternates } = extractLocale(html, resp?.url() || url));
-              }
-            } catch {
-              ok = false;
-            } finally {
-              await ctx.close().catch(() => {});
+            const r = await probeDesktop(browsers[i]!, url, engine);
+            desktop.push({ engine, ok: r.ok, status: r.status });
+            if (r.page) {
+              status = r.page.status;
+              title = r.page.title;
+              metaDescription = r.page.metaDescription;
+              for (const l of r.page.links) linkSet.add(l);
+              leakedTemplateTokens = r.page.leakedTemplateTokens;
+              lang = r.page.lang;
+              alternates = r.page.alternates;
             }
-            desktop.push({ engine, ok, status: navStatus });
           }
 
           const mobile: RouteResult["mobile"] = [];
