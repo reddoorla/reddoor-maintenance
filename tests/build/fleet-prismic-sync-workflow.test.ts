@@ -329,3 +329,33 @@ describe("fleet-prismic-sync — what leaves a build leg", () => {
     });
   });
 });
+
+/** #2006: a site label with `%0A` (decoded by a workflow command into a line break) and a raw
+ *  CR (which ends the command) reaches each annotation as `%250A` and `%0D`. */
+describe("fleet-prismic-sync — site labels reach the annotations escaped (#2006)", () => {
+  const LABEL = "Site %0A\rX";
+  const WIRE = "Site %250A%0DX";
+  const line = (out: string, kind: string) =>
+    out.split("\n").find((l) => l.startsWith(`::${kind}::`)) ?? "";
+
+  it("a held site's warning", async () => {
+    const r = await runGate({
+      stdout: `held       ${LABEL} — carries commits\n${summary(0)}\n`,
+      exit: 0,
+    });
+    expect(r.code).toBe(0);
+    expect(line(r.out, "warning")).toContain(`held       ${WIRE} — carries commits`);
+  });
+
+  it("a failed site in the error", async () => {
+    const r = await runGate({ stdout: `failed     ${LABEL} — refused\n${summary(1)}\n`, exit: 1 });
+    expect(r.code).not.toBe(0);
+    expect(line(r.out, "error")).toContain(`failed     ${WIRE} — refused`);
+  });
+
+  it("the refusal in the no-summary error", async () => {
+    const r = await runGate({ stdout: `⛔ refused: no token for ${LABEL}\n`, exit: 1 });
+    expect(r.code).not.toBe(0);
+    expect(line(r.out, "error")).toContain(`no token for ${WIRE}`);
+  });
+});

@@ -30,6 +30,32 @@ export function nameFromRepoWhenNameless(sites: Site[]): Site[] {
   });
 }
 
+/** Two explicit site names that differ only in case (`Baz` and `baz`) are refused at load
+ *  (#2006). `cloneIfNeeded` puts both in one directory on a case-insensitive filesystem
+ *  (macOS), where the second is a prep skip at best. Refusing changes no label, so the write
+ *  gate still sees each loaded site under the name prep gives it: the derived-name half of
+ *  this check was dropped in #2003 because renaming at load did not. A name repeated exactly
+ *  is not this check's; the Turso roster's names are lowercased slugs and never reach it. */
+export function assertNoCaseOnlyNameClash(sites: Site[]): Site[] {
+  const byLower = new Map<string, string>();
+  for (const site of sites) {
+    if (!site.name) continue;
+    const key = site.name.toLowerCase();
+    const seen = byLower.get(key);
+    if (seen !== undefined && seen !== site.name) {
+      throw Object.assign(
+        new Error(
+          `inventory names "${seen}" and "${site.name}" differ only in case; on a case-insensitive ` +
+            `filesystem they share one checkout. Rename one.`,
+        ),
+        { exitCode: 2 },
+      );
+    }
+    if (seen === undefined) byLower.set(key, site.name);
+  }
+  return sites;
+}
+
 /** The `--fleet` keyword that reads the fleet roster from the database (#646 step 4). */
 export const FLEET_KEYWORD = "turso";
 
@@ -88,7 +114,7 @@ export async function resolveSites(input: ResolveSitesInput): Promise<Site[]> {
     const ext = extname(fleetPath).toLowerCase();
     if (ext === ".json") {
       // fromJsonFile already scheme-allowlists deployedUrl internally.
-      return nameFromRepoWhenNameless(await fromJsonFile(fleetPath)());
+      return nameFromRepoWhenNameless(assertNoCaseOnlyNameClash(await fromJsonFile(fleetPath)()));
     }
     if (ext === ".js" || ext === ".mjs" || ext === ".cjs") {
       const mod = (await import(pathToFileURL(fleetPath).href)) as {
@@ -101,7 +127,9 @@ export async function resolveSites(input: ResolveSitesInput): Promise<Site[]> {
       }
       // A dynamic module's deployedUrl is unvalidated — sanitize before it can
       // reach a deployed audit (the JSON/Turso providers already do this).
-      return nameFromRepoWhenNameless(sanitizeDynamicSites(await mod.default()));
+      return nameFromRepoWhenNameless(
+        assertNoCaseOnlyNameClash(sanitizeDynamicSites(await mod.default())),
+      );
     }
     throw Object.assign(
       new Error(`--fleet ${input.fleet}: unsupported extension ${ext || "(none)"}`),

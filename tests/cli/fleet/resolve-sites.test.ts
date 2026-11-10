@@ -122,3 +122,49 @@ describe("review round 1: two sites never share one derived label", () => {
     expect(sites.map((s) => s.name)).toEqual(["web", "other"]);
   });
 });
+
+describe("#2006: two explicit names that differ only in case are refused at load", () => {
+  it("known-good: distinct names, a repeated exact name and nameless sites all load", async () => {
+    const fleet = await tmpJson([
+      { name: "baz", path: "/a" },
+      { name: "qux", path: "/b" },
+      { name: "qux", path: "/c" },
+      { path: "/d" },
+      { path: "/e" },
+    ]);
+    const sites = await resolveSites({ fleet, cwd: "/cwd" });
+    expect(sites.map((s) => s.name)).toEqual(["baz", "qux", "qux", undefined, undefined]);
+  });
+
+  it("a JSON inventory naming Baz and baz is refused, naming both", async () => {
+    const fleet = await tmpJson([
+      { name: "Baz", path: "/a" },
+      { name: "other", path: "/o" },
+      { name: "baz", path: "/b" },
+    ]);
+    const err = await resolveSites({ fleet, cwd: "/cwd" }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toBe(
+      'inventory names "Baz" and "baz" differ only in case; on a case-insensitive filesystem they share one checkout. Rename one.',
+    );
+    expect((err as { exitCode?: number }).exitCode).toBe(2);
+  });
+
+  it("a module inventory naming Baz and BAZ is refused", async () => {
+    const fleet = await tmpJs(
+      `export default async () => [{ name: "Baz", path: "/a" }, { name: "BAZ", path: "/b" }];`,
+    );
+    await expect(resolveSites({ fleet, cwd: "/cwd" })).rejects.toThrow(
+      /"Baz" and "BAZ" differ only in case/,
+    );
+  });
+
+  it("known-good: with the check in place, a nameless site still takes its derived name", async () => {
+    const fleet = await tmpJson([
+      { name: "keep", path: "/k" },
+      { path: "/x", gitRepo: "reddoorla/foo" },
+    ]);
+    const sites = await resolveSites({ fleet, cwd: "/cwd" });
+    expect(sites.map((s) => s.name)).toEqual(["keep", "foo"]);
+  });
+});
