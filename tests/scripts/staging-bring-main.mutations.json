@@ -44,8 +44,8 @@
     "edits": [
       {
         "file": "scripts/staging-bring-main.mjs",
-        "find": "      if (MARKER.test(readFileSync(join(wt, LOCKFILE), \"utf8\")))",
-        "replace": "      if (false && MARKER.test(readFileSync(join(wt, LOCKFILE), \"utf8\")))"
+        "find": "        if (MARKER.test(text))",
+        "replace": "        if (false && MARKER.test(text))"
       }
     ],
     "test": "tests/scripts/staging-bring-main.test.ts",
