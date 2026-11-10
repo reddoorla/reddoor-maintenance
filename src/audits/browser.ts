@@ -1036,7 +1036,8 @@ export type DesktopProbe = {
  * with no status, which put Reddoor at Broken ("pages fail to render on desktop"), while Firefox
  * and Chromium each loaded it twice that morning: 200, no errors. A route that hangs again costs
  * 10 s more per engine, 7.5 minutes for a site whose 15 routes all hang. A route that throws twice
- * stands, as does every fail on a page that loaded. A browser that has crashed still throws.
+ * stands, as does every fail on a page that loaded. A browser that has crashed still throws; if
+ * it dies during the first navigation, the retry's newContext throws on that same route.
  */
 export async function probeDesktop(
   browser: Browser,
@@ -1058,8 +1059,10 @@ async function probeDesktopOnce(
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   let navStatus: number | null = null;
+  let navigated = false;
   try {
     const resp = await page.goto(url, { waitUntil: "domcontentloaded", timeout: gotoTimeoutMs });
+    navigated = true;
     navStatus = resp ? resp.status() : null;
     const hasMain = await page
       .locator("main, [role=main]")
@@ -1121,7 +1124,8 @@ async function probeDesktopOnce(
       },
     };
   } catch {
-    return { ok: false, status: navStatus, threw: true };
+    // Only a navigation that threw is retried; anything after a load stands as a fail.
+    return { ok: false, status: navStatus, threw: !navigated };
   } finally {
     await ctx.close().catch(() => {});
   }
@@ -1129,9 +1133,9 @@ async function probeDesktopOnce(
 
 /**
  * Real Playwright runner. Launches chromium/firefox/webkit (desktop) + mobile-emulated chromium &
- * webkit, probes each route, and HEAD/GET-checks internal links. Every failure degrades to a
- * `false`/`null` (never throws past the audit), so a flaky run yields a non-pass (→ the box stays
- * manual) rather than a false green. Imported lazily so unit tests (which inject a fake runner)
+ * webkit, probes each route, and HEAD/GET-checks internal links. A failing page degrades to a
+ * `false`/`null`, so a flaky run yields a non-pass (→ the box stays manual) rather than a false
+ * green; a crashed browser throws, so the audit names the crash (probeMobile, probeDesktop). Imported lazily so unit tests (which inject a fake runner)
  * never load Playwright.
  */
 export async function defaultBrowserRunner(): Promise<BrowserRunner> {

@@ -49,8 +49,8 @@
       },
       {
         "file": "src/audits/browser.ts",
-        "find": "    return { ok: false, status: navStatus, threw: true };\n  } finally {\n    await ctx.close().catch(() => {});\n  }",
-        "replace": "    return { ok: false, status: navStatus, threw: true };\n  } finally {\n    if (gotoTimeoutMs === RETRY_PAGE_TIMEOUT_MS) await ctx.close().catch(() => {});\n  }"
+        "find": "    return { ok: false, status: navStatus, threw: !navigated };\n  } finally {\n    await ctx.close().catch(() => {});\n  }",
+        "replace": "    return { ok: false, status: navStatus, threw: !navigated };\n  } finally {\n    if (gotoTimeoutMs === RETRY_PAGE_TIMEOUT_MS) await ctx.close().catch(() => {});\n  }"
       },
       {
         "file": "src/audits/browser.ts",
