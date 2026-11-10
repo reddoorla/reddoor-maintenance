@@ -83,13 +83,29 @@ describe("assignTier — Require-Turnstile guardrail (watch half)", () => {
 
     // a stale "fail" the collector downgraded (no attention item arrives) — distinct copy
     const staleFail = assignTier(
-      site({ requireTurnstile: true, turnstileWidget: "fail" }),
+      site({
+        requireTurnstile: true,
+        turnstileWidget: "fail",
+        formE2eCheckedAt: "2026-06-01T08:00:00Z",
+      }),
       [],
       NOW,
     );
     expect(staleFail.tier).toBe("watch");
     expect(staleFail.watchReasons).toEqual([
       "Require Turnstile on; widget broken per a stale browser check",
+    ]);
+
+    // #1755: a "fail" no form-e2e run stamped is function-health's legacy flag, not a
+    // browser's verdict, and says so
+    const legacyFail = assignTier(
+      site({ requireTurnstile: true, turnstileWidget: "fail", formE2eCheckedAt: null }),
+      [],
+      NOW,
+    );
+    expect(legacyFail.tier).toBe("watch");
+    expect(legacyFail.watchReasons).toEqual([
+      "Require Turnstile on; widget flagged by the legacy /health check, not verified by a browser",
     ]);
   });
 

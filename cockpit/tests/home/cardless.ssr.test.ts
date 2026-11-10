@@ -14,7 +14,7 @@ import { siteRow, NOW, BASE } from "./fixtures.js";
  * link, and it is never held.
  */
 
-const LEGACY = siteRow({ id: "recL", name: "Legacy", status: "archived", statusRaw: "legacy" });
+const LEGACY = siteRow({ id: "recL", name: "Legacy", status: "archived", statusRaw: "archived" });
 const LIVE = siteRow({ id: "recA", name: "Acme Co" });
 
 function lane(deadLetters: Record<string, number>, oldest: Record<string, string> = {}) {
