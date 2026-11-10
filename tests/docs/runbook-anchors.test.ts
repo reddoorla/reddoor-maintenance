@@ -222,22 +222,6 @@ function codeSpanBlocks(lines: readonly string[]): Array<Array<{ text: string; l
  *     (`forms.testMode`, `sites.report_recipients_to`) still matches code that has only the
  *     bare one.
  */
-/**
- * Prose names a code identifier in kebab case (`needs-you` for `NeedsYouItem`). The camel
- * and Pascal forms must END a word (`NeedsYou` in `buildNeedsYouFeed` and `NeedsYouItem`,
- * where a capital follows), never run into lower case: a bare substring let `to-do` match
- * `toDouble` and `is-a` match `isArray`, a looser checker (#2010 round 1). Only segments
- * that start with a letter fold; `p1-82` is not an identifier.
- */
-export function kebabIdentifierPatterns(token: string): RegExp[] {
-  if (!/^[a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)+$/.test(token)) return [];
-  const camel = token.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
-  const pascal = camel[0]!.toUpperCase() + camel.slice(1);
-  // The camel form must also START a word (`personCall` is not `on-call`); the Pascal form
-  // may sit inside one, as `NeedsYou` does in `buildNeedsYouFeed` (#2010 round 2).
-  return [new RegExp(`(?<![A-Za-z0-9])${camel}(?![a-z0-9])`), new RegExp(`${pascal}(?![a-z0-9])`)];
-}
-
 export function tokenVariants(token: string): string[] {
   const variants = [token];
   const lead = /^[A-Za-z_][A-Za-z0-9_-]*/.exec(token)?.[0];
@@ -384,10 +368,8 @@ export function auditRunbook(runbook: string, markdown: string, read: FileReader
         continue;
       }
       const region = fileLines.slice(citation.start - 1, citation.end).join("\n");
-      const hit = candidates.some(
-        (token) =>
-          tokenVariants(token).some((variant) => regionContains(region, variant)) ||
-          kebabIdentifierPatterns(token).some((pattern) => pattern.test(region)),
+      const hit = candidates.some((token) =>
+        tokenVariants(token).some((variant) => regionContains(region, variant)),
       );
       if (hit) {
         verified += 1;
@@ -544,7 +526,7 @@ describe("the runbook-citation checker", () => {
       "src/page.ts": '<section class="needs-you">\n',
     };
     const para = (range: string) =>
-      `**The feed** is read first\n(\`src/feed.ts:${range}\`, rendered as the \`needs-you\` section, \`src/page.ts:1\`).\n` +
+      `**The feed** is read first\n(\`src/feed.ts:${range}\`, built by \`buildNeedsYouFeed\`, rendered as the \`needs-you\` section, \`src/page.ts:1\`).\n` +
       "Ordered `broken` → `watch`.\n";
 
     it("is anchored by the term after it on its line, not the paragraph's pool (FAIL control)", () => {
@@ -554,32 +536,10 @@ describe("the runbook-citation checker", () => {
       expect(report.failures[0]).toContain('"needs-you"');
     });
 
-    it("verifies once it points at the code the kebab-case term names (PASS control)", () => {
+    it("verifies once it points at the code its own terms name (PASS control)", () => {
       const report = auditRunbook("fixture.md", para("3"), fixtureReader(FEED));
       expect(report.failures).toEqual([]);
       expect(report).toMatchObject({ cited: 2, verified: 2, unanchored: 0 });
-    });
-
-    it("a kebab term matches only a whole identifier word, never a longer one (#2010 round 1)", () => {
-      const files = {
-        "src/a.ts":
-          "Array.isArray(x);\nx.toDouble();\nbutton.onCallback;\nconst preLaunchedAt = 1;\n",
-      };
-      for (const term of ["is-a", "to-do", "on-call", "pre-launch"]) {
-        const md = `The \`${term}\` path (\`src/a.ts:1–4\`).\n`;
-        const report = auditRunbook("fixture.md", md, fixtureReader(files));
-        expect(report.failures, term).toHaveLength(1);
-      }
-      // Nor the tail of a longer one (round 2).
-      const tails = {
-        "src/b.ts":
-          "const personCall = 1;\nfunction autoDo() {}\nconst thisA = 1;\nconst unpreLaunch = 1;\n",
-      };
-      for (const term of ["on-call", "to-do", "is-a", "pre-launch"]) {
-        const md = `The \`${term}\` path (\`src/b.ts:1–4\`).\n`;
-        expect(auditRunbook("fixture.md", md, fixtureReader(tails)).failures, term).toHaveLength(1);
-      }
-      expect(kebabIdentifierPatterns("p1-82")).toEqual([]);
     });
 
     it("does not borrow a term from the next line, which opens another sentence", () => {

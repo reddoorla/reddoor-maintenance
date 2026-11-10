@@ -26,58 +26,6 @@
     "expect": "red"
   },
   {
-    "id": "R3-no-kebab-variant",
-    "why": "runbook-anchors: needs-you no longer matches NeedsYou",
-    "edits": [
-      {
-        "file": "tests/docs/runbook-anchors.test.ts",
-        "find": " ||\n          kebabIdentifierPatterns(token).some((pattern) => pattern.test(region))",
-        "replace": ""
-      }
-    ],
-    "test": "tests/docs/runbook-anchors.test.ts",
-    "expect": "red"
-  },
-  {
-    "id": "K1-kebab-variant-unbounded",
-    "why": "#2010 r1 undone: to-do matches toDouble, is-a matches isArray",
-    "edits": [
-      {
-        "file": "tests/docs/runbook-anchors.test.ts",
-        "find": "new RegExp(`(?<![A-Za-z0-9])${camel}(?![a-z0-9])`)",
-        "replace": "new RegExp(`(?<![A-Za-z0-9])${camel}`)"
-      }
-    ],
-    "test": "tests/docs/runbook-anchors.test.ts",
-    "expect": "red"
-  },
-  {
-    "id": "K3-camel-variant-no-left-boundary",
-    "why": "#2010 r2 undone: on-call matches personCall, to-do matches autoDo",
-    "edits": [
-      {
-        "file": "tests/docs/runbook-anchors.test.ts",
-        "find": "new RegExp(`(?<![A-Za-z0-9])${camel}(?![a-z0-9])`)",
-        "replace": "new RegExp(`${camel}(?![a-z0-9])`)"
-      }
-    ],
-    "test": "tests/docs/runbook-anchors.test.ts",
-    "expect": "red"
-  },
-  {
-    "id": "K2-digit-segments-fold",
-    "why": "p1-82 folds to p182 and reads as an identifier",
-    "edits": [
-      {
-        "file": "tests/docs/runbook-anchors.test.ts",
-        "find": "if (!/^[a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)+$/.test(token)) return [];",
-        "replace": "if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)+$/.test(token)) return [];"
-      }
-    ],
-    "test": "tests/docs/runbook-anchors.test.ts",
-    "expect": "red"
-  },
-  {
     "id": "C1-workflow-defaults-outrank-job",
     "why": "ci-gate: the workflow's defaults.run.working-directory read before the job's",
     "edits": [
