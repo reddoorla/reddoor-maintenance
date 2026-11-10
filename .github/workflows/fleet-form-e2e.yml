@@ -85,6 +85,9 @@ jobs:
         run: |
           set -o pipefail
           out="${RUNNER_TEMP:-/tmp}/form-e2e.out"
+          # Site labels and reasons are escaped (`%` → `%25`, CR → `%0D`) before they reach
+          # a workflow command (#2006), as the prep-skip line is (#1942).
+          annot() { printf '%s' "$1" | sed -e 's/%/%25/g' -e 's/\r/%0D/g'; }
           # A failing submission makes the CLI exit non-zero BY DESIGN; tolerate it
           # and key the gate on the machine-readable FLEET_WRITE_SUMMARY line,
           # exactly like fleet-smoke/fleet-lighthouse. A site that hasn't rolled
@@ -170,13 +173,13 @@ jobs:
           uncovered=$(grep -B1 -E "does not declare forms.testMode|site /health could not be read|is not declared in /health forms.paths" "$out" | grep -E "^form-e2e +skip " | awk '{print $3}' | paste -sd, - || true)
           echo "FLEET_FORM_E2E_UNCOVERED sites=${uncovered:-none}"
           if [ "$selfskipped" -gt 0 ]; then
-            echo "::warning::fleet form-e2e: $selfskipped of $total site(s) self-skipped (no forms.testMode declaration, or a forms.none no-form claim the look found false or could not check; each site's log line says which) — those sites had NO end-to-end coverage tonight: ${undeclared:-unnamed}."
+            echo "::warning::fleet form-e2e: $selfskipped of $total site(s) self-skipped (no forms.testMode declaration, or a forms.none no-form claim the look found false or could not check; each site's log line says which) — those sites had NO end-to-end coverage tonight: $(annot "${undeclared:-unnamed}")."
           fi
           if [ "$undeclaredform" -gt 0 ]; then
-            echo "::warning::fleet form-e2e: $undeclaredform of $total site(s) have a form off /contact and / that /health does not declare in forms.paths, so it was not submitted — NO end-to-end coverage tonight: ${formsat:-unnamed}."
+            echo "::warning::fleet form-e2e: $undeclaredform of $total site(s) have a form off /contact and / that /health does not declare in forms.paths, so it was not submitted — NO end-to-end coverage tonight: $(annot "${formsat:-unnamed}")."
           fi
           if [ "$unreadable" -gt 0 ]; then
-            echo "::warning::fleet form-e2e: $unreadable of $total site(s) not probed because their /health could not be read, twice — NO end-to-end coverage tonight: ${unread:-unnamed}."
+            echo "::warning::fleet form-e2e: $unreadable of $total site(s) not probed because their /health could not be read, twice — NO end-to-end coverage tonight: $(annot "${unread:-unnamed}")."
           fi
 
           # A site that couldn't be prepared (bad URL/repo) is dropped from the run
@@ -198,7 +201,7 @@ jobs:
           # warn, never fail the run.
           thin=$(grep -B1 "BUDGET_THIN" "$out" | grep -v '^--$' | paste -sd' ' - | tr -s ' ' || true)
           if [ -n "$thin" ]; then
-            echo "::warning::fleet form-e2e ingest budget thin — $thin"
+            echo "::warning::fleet form-e2e ingest budget thin — $(annot "$thin")"
           fi
 
           # The write gate's own verdict (#1605), computed by fleetWriteGate in
@@ -235,7 +238,7 @@ jobs:
           probed=$(grep -cE "^form-e2e +(pass|warn) +" "$out" || true)
           echo "FLEET_FORM_E2E probed=$probed"
           if [ "$probed" -eq 0 ]; then
-            echo "::error::fleet form-e2e probed no site end to end: $selfskipped of $total self-skipped and $unreadable unreadable (${uncovered:-none}), and the probe drove no other site."
+            echo "::error::fleet form-e2e probed no site end to end: $selfskipped of $total self-skipped and $unreadable unreadable ($(annot "${uncovered:-none}")), and the probe drove no other site."
             exit 1
           fi
 

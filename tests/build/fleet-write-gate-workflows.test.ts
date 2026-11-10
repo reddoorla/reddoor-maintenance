@@ -402,3 +402,24 @@ it("every gated step writes its output under RUNNER_TEMP, never a shared /tmp fi
     expect(script, file).not.toMatch(/\/tmp\/[\w.-]+\.out\b/);
   }
 });
+
+it("fleet smoke: a never-measured site's label reaches the error escaped (#2006)", async () => {
+  // `%0A` would decode to a line break and a raw CR would end the command: on the wire they
+  // must read `%250A` and `%0D`.
+  const label = "site-%0A\rx";
+  const results: AuditResult[] = [
+    ...SLUGS.map(smokeMeasured),
+    { audit: "smoke", site: label, status: "skip", summary: "smoke: pnpm install failed (exit 1)" },
+  ];
+  const r = await runStep(
+    "fleet-smoke.yml",
+    "Fleet smoke suite + write-back",
+    await cliOutput({ results, expectedSites: SLUGS }),
+    1,
+  );
+  expect(r.code).toBe(1);
+  const error =
+    r.raw.split("\n").find((l) => l.startsWith("::error::") && l.includes("never measured")) ?? "";
+  expect(error).toMatch(/^::error::fleet smoke: 1 site\(s\) never measured — /);
+  expect(error).toContain("site-%250A%0Dx");
+});
