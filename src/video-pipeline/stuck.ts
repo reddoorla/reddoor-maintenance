@@ -1,4 +1,5 @@
 import type { FoundVideo } from "./classify.js";
+import { needsEncode } from "./manifest.js";
 import type { Renditions } from "./manifest.js";
 
 export const STUCK_LABEL = "video-pipeline";
@@ -6,7 +7,7 @@ export const STUCK_TITLE = "Videos stuck on Prismic: the R2 video pipeline has n
 export const STUCK_AFTER_MS = 60 * 60 * 1000;
 export type StuckVideo = FoundVideo & { ageMs: number | null };
 
-/** A video is stuck when resolved.onR2 is false and (publishedAt is null/unparsable, or now - publishedAt > thresholdMs). */
+/** A video is stuck when needsEncode(video, resolved) (nothing on R2, or a background on R2 for a player request) and (publishedAt is null/unparsable, or now - publishedAt > thresholdMs). */
 export function findStuck(
   found: FoundVideo[],
   resolved: Map<string, Renditions>,
@@ -15,7 +16,8 @@ export function findStuck(
 ): StuckVideo[] {
   const stuck: StuckVideo[] = [];
   for (const video of found) {
-    if (resolved.get(video.url)?.onR2) continue;
+    const r = resolved.get(video.url);
+    if (r !== undefined && !needsEncode(video, r)) continue;
     const published = video.publishedAt === null ? NaN : Date.parse(video.publishedAt);
     if (Number.isNaN(published)) {
       stuck.push({ ...video, ageMs: null });

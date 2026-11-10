@@ -14,12 +14,18 @@ function stamp(seconds: number): string {
   return `${pad(h, 2)}:${pad(m, 2)}:${pad(s, 2)}.${pad(milli, 3)}`;
 }
 
+/** Cue text is escaped for WebVTT: & and < as entities, and --> (which would end the cue) as ->. */
+const cueText = (text: string): string =>
+  text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/-->/g, "->");
+
+/** Skips empty text, and a segment whose start or end is not a finite number or whose end is not after its start. */
 export function segmentsToVtt(segments: WhisperSegment[]): string {
   let out = "WEBVTT\n\n";
   for (const seg of segments) {
     const text = seg.text.trim();
     if (text === "") continue;
-    out += `${stamp(seg.start)} --> ${stamp(seg.end)}\n${text}\n\n`;
+    if (!Number.isFinite(seg.start) || !Number.isFinite(seg.end) || seg.end <= seg.start) continue;
+    out += `${stamp(seg.start)} --> ${stamp(seg.end)}\n${cueText(text)}\n\n`;
   }
   return out;
 }

@@ -77,6 +77,30 @@ function harness(opts: { secret?: string; fetchImpl?: (call: Call) => Response }
   return { cfg, calls, fetch, getDocuments };
 }
 
+/** A relay config whose fetch answers the manifest URL for `key` with `manifest`; other media paths 404. */
+const manifestFor = (key: string, manifest: unknown) => (call: Call) => {
+  if (call.url === `${MEDIA}/${key}/manifest.json`) {
+    return new Response(JSON.stringify(manifest), { status: 200 });
+  }
+  if (call.url.startsWith("https://api.github.com/")) return new Response(null, { status: 204 });
+  return new Response(null, { status: 404 });
+};
+
+const docWith = (url: string) => ({
+  id: "d2",
+  last_publication_date: "2026-11-10T10:00:00Z",
+  data: {
+    body: [
+      {
+        slice_type: "offer_hero",
+        primary: {
+          video_mp4: { link_type: "Media", url, name: "Clip.mp4", kind: "document" },
+        },
+      },
+    ],
+  },
+});
+
 const hook = (over: Record<string, unknown> = {}) =>
   JSON.stringify({ secret: "s3cret", type: "api-update", documents: ["d1"], ...over });
 
@@ -123,6 +147,7 @@ describe("relay: handlePrismicWebhook", () => {
     ]);
     const out = JSON.parse(r.body);
     expect(out.dispatched).toEqual([videoKey(SITE, PLAYER_URL), videoKey(SITE, BG_URL)]);
+    expect(out.refused).toEqual([]);
   });
 
   it("a video whose manifest is valid is skipped, not dispatched", async () => {
@@ -137,6 +162,7 @@ describe("relay: handlePrismicWebhook", () => {
               source,
               class: "player",
               key,
+              dir: "player-20261110T000000Z",
               encodedAt: "2026-11-10T00:00:00Z",
               files: { mp4: "offer-hero-1080.mp4", poster: "offer-hero-poster.jpg" },
             }),
@@ -172,6 +198,70 @@ describe("relay: handlePrismicWebhook", () => {
     expect(out.dispatched).toEqual([videoKey(SITE, BG_URL)]);
     expect(out.failed).toHaveLength(1);
     expect(out.failed[0]).toContain("HTTP 500");
+  });
+
+  it("a background manifest for a player-class video is dispatched (the class upgrade)", async () => {
+    const key = videoKey(SITE, PLAYER_URL)!;
+    const h = harness({
+      fetchImpl: manifestFor(key, {
+        version: 1,
+        source: "/reddoor-la/Offer%20Hero.mp4",
+        class: "background",
+        key,
+        dir: "background-20261110T000000Z",
+        encodedAt: "2026-11-10T00:00:00Z",
+        files: { mp4: "offer-hero-1080.mp4", poster: "offer-hero-poster.jpg" },
+      }),
+    });
+    const r = await handlePrismicWebhook({ method: "POST", body: hook() }, h.cfg);
+    expect(r.status).toBe(200);
+    const out = JSON.parse(r.body);
+    expect(out.dispatched).toContain(key);
+    expect(out.skipped).not.toContain(key);
+  });
+
+  it("no VIDEO_MEDIA_BASE is a 500 after the secret check, and nothing runs", async () => {
+    const h = harness();
+    h.cfg.mediaBase = undefined;
+    const bad = await handlePrismicWebhook({ method: "POST", body: hook({ secret: "x" }) }, h.cfg);
+    expect(bad.status).toBe(401);
+    const r = await handlePrismicWebhook({ method: "POST", body: hook() }, h.cfg);
+    expect(r.status).toBe(500);
+    expect(r.body).toBe("VIDEO_MEDIA_BASE is not set");
+    expect(h.getDocuments).not.toHaveBeenCalled();
+  });
+
+  it("a video not on a prismic.io host is refused, listed, and not dispatched", async () => {
+    const url = "https://example.com/x/Clip.mp4";
+    const h = harness();
+    h.cfg.getDocuments = async () => [docWith(url)];
+    const r = await handlePrismicWebhook({ method: "POST", body: hook() }, h.cfg);
+    expect(r.status).toBe(200);
+    const out = JSON.parse(r.body);
+    expect(out.refused).toEqual([url]);
+    expect(h.calls.some((c) => c.url.startsWith("https://api.github.com/"))).toBe(false);
+  });
+
+  it("a URL whose path carries shell syntax is refused, not dispatched", async () => {
+    const url = "https://reddoor-la.cdn.prismic.io/reddoor-la/$(id).mp4";
+    const h = harness();
+    h.cfg.getDocuments = async () => [docWith(url)];
+    const r = await handlePrismicWebhook({ method: "POST", body: hook() }, h.cfg);
+    expect(r.status).toBe(200);
+    expect(JSON.parse(r.body).refused).toEqual([url]);
+    expect(h.calls.some((c) => c.url.startsWith("https://api.github.com/"))).toBe(false);
+  });
+
+  it("the dispatched url is the WHATWG href (a raw space comes out as %20)", async () => {
+    const raw = "https://reddoor-la.cdn.prismic.io/reddoor-la/Offer Hero.mp4";
+    const h = harness();
+    h.cfg.getDocuments = async () => [docWith(raw)];
+    const r = await handlePrismicWebhook({ method: "POST", body: hook() }, h.cfg);
+    expect(r.status).toBe(200);
+    const dispatch = h.calls.find((c) => c.url.startsWith("https://api.github.com/"))!;
+    expect(JSON.parse(dispatch.body!).client_payload.url).toBe(
+      "https://reddoor-la.cdn.prismic.io/reddoor-la/Offer%20Hero.mp4",
+    );
   });
 
   it("type test-trigger is 200 ignored with no dispatch", async () => {

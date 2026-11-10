@@ -1,14 +1,34 @@
 import { describe, it, expect } from "vitest";
-import { fileNameOf, manifestUrl, sourceOf, videoKey } from "../../src/video-pipeline/key.js";
+import {
+  fileNameOf,
+  isPrismicFileUrl,
+  manifestUrl,
+  sourceOf,
+  videoKey,
+} from "../../src/video-pipeline/key.js";
 
 describe("video-pipeline key", () => {
-  it("videoKey: site slug and file-stem slug", () => {
+  it("videoKey: site slug, file-stem slug, and a 10-hex hash of the source path", () => {
     expect(
       videoKey(
         "reddoor-website",
         "https://reddoor-la.cdn.prismic.io/reddoor-la/aBc123_Brand%20Film.mp4",
       ),
-    ).toBe("reddoor-website/abc123-brand-film");
+    ).toBe("reddoor-website/abc123-brand-film-446e58126a");
+  });
+
+  it("videoKey: My%20Clip.mp4 and my-clip.MOV get different keys", () => {
+    const a = videoKey("site", "https://x.prismic.io/r/My%20Clip.mp4");
+    const b = videoKey("site", "https://x.prismic.io/r/my-clip.MOV");
+    expect(a).toBe("site/my-clip-54af7ecd2c");
+    expect(b).toBe("site/my-clip-76f6a27078");
+    expect(a).not.toBe(b);
+  });
+
+  it("videoKey: a name with no ASCII slug is site/video-<hash>", () => {
+    const k = videoKey("site", "https://x.prismic.io/r/%E6%97%A5%E6%9C%AC.mp4");
+    expect(k).toBe("site/video-8e0b7a9d58");
+    expect(k).toMatch(/^site\/video-[0-9a-f]{10}$/);
   });
 
   it("videoKey: a non-video extension is null", () => {
@@ -17,6 +37,10 @@ describe("video-pipeline key", () => {
 
   it("videoKey: http (not https) is null", () => {
     expect(videoKey("site", "http://x.cdn.prismic.io/r/a.mp4")).toBeNull();
+  });
+
+  it("videoKey: an empty site slug is null", () => {
+    expect(videoKey("!!!", "https://x.cdn.prismic.io/r/a.mp4")).toBeNull();
   });
 
   it("fileNameOf decodes %20", () => {
@@ -34,5 +58,24 @@ describe("video-pipeline key", () => {
 
   it("sourceOf drops the query", () => {
     expect(sourceOf("https://h.prismic.io/r/a.mp4?x=1")).toBe("/r/a.mp4");
+  });
+});
+
+describe("video-pipeline isPrismicFileUrl", () => {
+  it("accepts an https *.prismic.io host", () => {
+    expect(isPrismicFileUrl("https://reddoor-la.cdn.prismic.io/reddoor-la/a.mp4")).toBe(true);
+    expect(isPrismicFileUrl("https://images.prismic.io/x/a.mp4")).toBe(true);
+  });
+
+  it("refuses http, other hosts, the bare apex and look-alike hosts", () => {
+    expect(isPrismicFileUrl("http://x.prismic.io/a.mp4")).toBe(false);
+    expect(isPrismicFileUrl("https://example.com/a.mp4")).toBe(false);
+    expect(isPrismicFileUrl("https://prismic.io/a.mp4")).toBe(false);
+    expect(isPrismicFileUrl("https://prismic.io.evil.com/a.mp4")).toBe(false);
+    expect(isPrismicFileUrl("https://evilprismic.io/a.mp4")).toBe(false);
+  });
+
+  it("refuses an unparsable string", () => {
+    expect(isPrismicFileUrl("not a url")).toBe(false);
   });
 });

@@ -60,3 +60,21 @@ describe("node captions: segmentsToVtt", () => {
     expect(vtt).toBe("WEBVTT\n\n01:01:01.250 --> 01:01:02.000\nlate\n\n");
   });
 });
+
+describe("node captions: segmentsToVtt escaping and timing", () => {
+  it("escapes & and <, and replaces --> in cue text", () => {
+    const vtt = segmentsToVtt([{ start: 0, end: 1, text: "Tom & Jerry <3 --> go" }]);
+    expect(vtt).toBe("WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nTom &amp; Jerry &lt;3 -> go\n\n");
+  });
+
+  it("skips a segment with a non-finite start or end, or an end not after its start", () => {
+    const vtt = segmentsToVtt([
+      { start: Number.NaN, end: 1, text: "nan start" },
+      { start: 0, end: Number.POSITIVE_INFINITY, text: "inf end" },
+      { start: 2, end: 2, text: "zero length" },
+      { start: 3, end: 1, text: "backwards" },
+      { start: 4, end: 5, text: "ok" },
+    ]);
+    expect(vtt).toBe("WEBVTT\n\n00:00:04.000 --> 00:00:05.000\nok\n\n");
+  });
+});

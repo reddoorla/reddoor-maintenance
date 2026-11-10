@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { findVideos, mergeFound } from "../../src/video-pipeline/classify.js";
+import { findVideos, mergeFound, parseVideoRules } from "../../src/video-pipeline/classify.js";
 import type { DocLike, VideoRules } from "../../src/video-pipeline/classify.js";
 
 const media = (url: string, extra: Record<string, unknown> = {}) => ({
@@ -104,5 +104,60 @@ describe("classify: mergeFound", () => {
       [U1, "player"],
       [U2, "background"],
     ]);
+  });
+});
+
+describe("classify: parseVideoRules", () => {
+  const good = {
+    offer_hero: [{ field: "video_mp4", class: "player" }],
+    screen_width_media: [
+      {
+        field: "video_mp4",
+        class: { flag: "loopvideo", whenTrue: "background", whenFalse: "player" },
+      },
+    ],
+    $document: [{ field: "booked_video_mp4", class: "player" }],
+  };
+
+  it("returns the rules for a well-formed object", () => {
+    expect(parseVideoRules(good)).toEqual(good);
+  });
+
+  it("an empty object is valid", () => {
+    expect(parseVideoRules({})).toEqual({});
+  });
+
+  it.each([
+    ["an array", []],
+    ["null", null],
+    ["a string", "rules"],
+    ["a number", 3],
+  ])("rejects %s with a message", (_label, json) => {
+    expect(typeof parseVideoRules(json)).toBe("string");
+  });
+
+  it("rejects a value that is not an array", () => {
+    expect(typeof parseVideoRules({ offer_hero: "player" })).toBe("string");
+  });
+
+  it("rejects a rule with no field", () => {
+    expect(typeof parseVideoRules({ offer_hero: [{ class: "player" }] })).toBe("string");
+  });
+
+  it("rejects a rule with an unknown class", () => {
+    expect(typeof parseVideoRules({ offer_hero: [{ field: "v", class: "loop" }] })).toBe("string");
+  });
+
+  it("rejects a flag rule missing whenFalse", () => {
+    expect(
+      typeof parseVideoRules({
+        offer_hero: [{ field: "v", class: { flag: "f", whenTrue: "background" } }],
+      }),
+    ).toBe("string");
+  });
+
+  it("names the slice type and index in the message", () => {
+    const msg = parseVideoRules({ offer_hero: [{ field: "v", class: "loop" }] });
+    expect(msg).toEqual(expect.stringContaining("offer_hero"));
   });
 });

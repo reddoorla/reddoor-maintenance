@@ -1,8 +1,10 @@
 // `reddoor-maint video-pipeline stuck`: lists videos that have sat on Prismic
 // without an R2 manifest, and opens or updates the tracking issue. Node-only.
 import { readFile as fsReadFile } from "node:fs/promises";
-import { findVideos, mergeFound } from "../classify.js";
+import { findVideos, mergeFound, parseVideoRules } from "../classify.js";
 import type { DocLike, VideoRules } from "../classify.js";
+import { REPO_NAME } from "../dispatch.js";
+import { isPrismicFileUrl } from "../key.js";
 import { STUCK_LABEL, STUCK_TITLE, findStuck, stuckIssueBody } from "../stuck.js";
 import type { Renditions } from "../manifest.js";
 import { resolveVideo } from "../manifest.js";
@@ -23,8 +25,23 @@ export type StuckDeps = {
   now?: () => Date;
 };
 
-type PrismicPage = { results?: DocLike[]; page?: number; total_pages?: number };
+const isObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
 
+/** The body of a 2xx Prismic response as JSON. Anything else throws `FAILED prismic: ...`. */
+async function prismicJson(res: Response): Promise<unknown> {
+  if (res.status < 200 || res.status > 299) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`FAILED prismic: HTTP ${res.status} ${text.slice(0, 200)}`);
+  }
+  try {
+    return await res.json();
+  } catch {
+    throw new Error(`FAILED prismic: HTTP ${res.status} body is not JSON`);
+  }
+}
+
+/** Every document on the master ref. Throws `FAILED prismic: ...` on any non-2xx, or a body without a master ref or a results array. */
 async function fetchAllDocuments(
   repo: string,
   fetchImpl: typeof fetch,
@@ -32,26 +49,33 @@ async function fetchAllDocuments(
 ): Promise<DocLike[]> {
   const q = token ? `?access_token=${encodeURIComponent(token)}` : "";
   const apiUrl = `https://${repo}.cdn.prismic.io/api/v2${q}`;
-  const info = (await (await fetchImpl(apiUrl)).json()) as {
-    refs?: { ref: string; isMasterRef?: boolean }[];
-  };
-  const ref = info.refs?.find((r) => r.isMasterRef)?.ref;
-  if (!ref) throw new Error("Prismic API returned no master ref");
+  const info = await prismicJson(await fetchImpl(apiUrl));
+  const refs = isObject(info) && Array.isArray(info.refs) ? info.refs : [];
+  const master = refs.find(
+    (r): r is { ref: string; isMasterRef: true } => isObject(r) && r.isMasterRef === true,
+  );
+  if (master === undefined || typeof master.ref !== "string") {
+    throw new Error("FAILED prismic: the api response has no master ref");
+  }
   const docs: DocLike[] = [];
   let page = 1;
   for (;;) {
-    const params = `ref=${encodeURIComponent(ref)}&pageSize=100&page=${page}${token ? `&access_token=${encodeURIComponent(token)}` : ""}`;
-    const body = (await (
-      await fetchImpl(`https://${repo}.cdn.prismic.io/api/v2/documents/search?${params}`)
-    ).json()) as PrismicPage;
-    docs.push(...(body.results ?? []));
-    if (body.total_pages === undefined || page >= body.total_pages) break;
+    const params = `ref=${encodeURIComponent(master.ref)}&pageSize=100&page=${page}&lang=*${token ? `&access_token=${encodeURIComponent(token)}` : ""}`;
+    const body = await prismicJson(
+      await fetchImpl(`https://${repo}.cdn.prismic.io/api/v2/documents/search?${params}`),
+    );
+    if (!isObject(body) || !Array.isArray(body.results)) {
+      throw new Error("FAILED prismic: the search response has no results array");
+    }
+    docs.push(...(body.results as DocLike[]));
+    const total = typeof body.total_pages === "number" ? body.total_pages : undefined;
+    if (total === undefined || page >= total) break;
     page += 1;
   }
   return docs;
 }
 
-type IssueRef = { number: number; body?: string };
+type IssueRef = { number: number; body?: string; pull_request?: unknown };
 
 /** Opens or updates the tracking issue. Returns the output line. */
 async function syncIssue(
@@ -71,7 +95,8 @@ async function syncIssue(
     { headers },
   );
   if (!listRes.ok) throw new Error(`list issues: HTTP ${listRes.status}`);
-  const open = (await listRes.json()) as IssueRef[];
+  // The issues endpoint also lists pull requests; only a real issue is the tracking issue.
+  const open = ((await listRes.json()) as IssueRef[]).filter((i) => i.pull_request === undefined);
   const existing = open[0];
   if (existing) {
     const res = await fetchImpl(`https://api.github.com/repos/${repo}/issues/${existing.number}`, {
@@ -104,7 +129,9 @@ export async function runPipelineStuck(
   if (!opts.rules) return { output: "--rules <path> is required", code: 2 };
   let rules: VideoRules;
   try {
-    rules = JSON.parse(await readFile(opts.rules)) as VideoRules;
+    const parsed = parseVideoRules(JSON.parse(await readFile(opts.rules)));
+    if (typeof parsed === "string") return { output: `--rules: ${parsed}`, code: 2 };
+    rules = parsed;
   } catch (err) {
     return {
       output: `--rules ${opts.rules}: ${err instanceof Error ? err.message : String(err)}`,
@@ -113,8 +140,18 @@ export async function runPipelineStuck(
   }
   if (!opts.prismic) return { output: "--prismic <repo> is required", code: 2 };
   if (!opts.site) return { output: "--site <name> is required", code: 2 };
+  if (!opts.mediaBase) return { output: "--media-base <url> is required", code: 2 };
+  if (opts.repo && !REPO_NAME.test(opts.repo)) {
+    return { output: `--repo must be owner/name; got ${JSON.stringify(opts.repo)}`, code: 2 };
+  }
 
-  const docs = await fetchAllDocuments(opts.prismic, fetchImpl, env.PRISMIC_ACCESS_TOKEN);
+  let docs: DocLike[];
+  try {
+    docs = await fetchAllDocuments(opts.prismic, fetchImpl, env.PRISMIC_ACCESS_TOKEN);
+  } catch (err) {
+    return { output: err instanceof Error ? err.message : String(err), code: 2 };
+  }
+  if (docs.length === 0) return { output: "FAILED prismic: no documents", code: 2 };
   const found = mergeFound(docs.flatMap((d) => findVideos(d, rules)));
   const cache = new Map<string, Promise<Renditions>>();
   const resolved = new Map<string, Renditions>();
@@ -131,10 +168,12 @@ export async function runPipelineStuck(
   }
   const current = now();
   const stuck = findStuck(found, resolved, current);
-  const lines = stuck.map(
-    (v) =>
-      `STUCK ${v.url} class=${v.class} document=${v.documentId} age=${v.ageMs === null ? "unknown" : `${Math.round(v.ageMs / 60000)}min`}`,
+  const lines = stuck.map((v) =>
+    isPrismicFileUrl(v.url)
+      ? `STUCK ${v.url} class=${v.class} document=${v.documentId} age=${v.ageMs === null ? "unknown" : `${Math.round(v.ageMs / 60000)}min`}`
+      : `cannot be encoded (not a Prismic file URL): ${v.url}`,
   );
+  lines.push(`documents: ${docs.length}, videos: ${found.length}`);
   lines.push(`stuck: ${stuck.length} of ${found.length} video(s)`);
 
   if (opts.openIssue && stuck.length > 0) {
@@ -156,5 +195,7 @@ export async function runPipelineStuck(
       };
     }
   }
+  // Exit 1 when anything is stuck is deliberate: the hourly run going red is the alarm. Stage 1 never
+  // closes the issue on its own; a stuck video that is later encoded simply stops appearing here.
   return { output: lines.join("\n"), code: stuck.length > 0 ? 1 : 0 };
 }

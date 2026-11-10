@@ -1,6 +1,7 @@
 // Pure helpers for the video pipeline's keys and URLs. This file is part of the
 // light `@reddoorla/maintenance/video-pipeline` subpath: it imports nothing but
 // its own siblings, so a Netlify function or a SvelteKit server can load it.
+import { createHash } from "node:crypto";
 
 export type VideoClass = "background" | "player";
 
@@ -34,14 +35,27 @@ export function fileNameOf(url: string): string | null {
   }
 }
 
-/** `${slugify(site)}/${slugify(name without extension)}`, or null when the URL is not https, its file name does not match VIDEO_EXT, or either slug is empty. */
+/** True for an https URL whose host ends in `.prismic.io` (the apex itself does not count). The one host check the pipeline uses. */
+export function isPrismicFileUrl(url: string): boolean {
+  const u = parseHttps(url);
+  return u !== null && u.hostname.endsWith(".prismic.io");
+}
+
+/**
+ * `${slugify(site)}/${stem}-${h}`: stem = slugify(name without extension), or "video" when that slug is
+ * empty; h = the first 10 hex of sha256(sourceOf(url)), so two files whose names slugify alike never share
+ * a key. Null when the URL is not https, its file name does not match VIDEO_EXT, or the site slug is empty.
+ */
 export function videoKey(site: string, url: string): string | null {
   const name = fileNameOf(url);
   if (name === null || !VIDEO_EXT.test(name)) return null;
   const siteSlug = slugify(site);
-  const stemSlug = slugify(name.replace(VIDEO_EXT, ""));
-  if (siteSlug === "" || stemSlug === "") return null;
-  return `${siteSlug}/${stemSlug}`;
+  if (siteSlug === "") return null;
+  const source = sourceOf(url);
+  if (source === null) return null;
+  const stemSlug = slugify(name.replace(VIDEO_EXT, "")) || "video";
+  const h = createHash("sha256").update(source, "utf8").digest("hex").slice(0, 10);
+  return `${siteSlug}/${stemSlug}-${h}`;
 }
 
 /** The last segment of a key: the file-name stem used for renditions. */

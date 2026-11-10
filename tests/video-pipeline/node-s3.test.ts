@@ -23,6 +23,45 @@ describe("node s3: SigV4", () => {
   });
 });
 
+describe("node s3: SigV4 AWS docs GET Object vector", () => {
+  it("GET Object with a Range header: exact signature from the AWS SigV4 examples", () => {
+    const { authorization, canonicalRequest } = signV4({
+      method: "GET",
+      url: new URL("https://examplebucket.s3.amazonaws.com/test.txt"),
+      headers: {
+        host: "examplebucket.s3.amazonaws.com",
+        range: "bytes=0-9",
+        "x-amz-content-sha256": EMPTY,
+        "x-amz-date": "20130524T000000Z",
+      },
+      payloadHash: EMPTY,
+      accessKeyId: "AKIAIOSFODNN7EXAMPLE",
+      secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+      region: "us-east-1",
+      service: "s3",
+      amzDate: "20130524T000000Z",
+    });
+    const signature = /Signature=([0-9a-f]+)$/.exec(authorization)![1];
+    expect(canonicalRequest.split("\n")[1]).toBe("/test.txt");
+    expect(signature).toBe("f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41");
+  });
+
+  it("the canonical URI of a key with a space is the percent-encoded path", () => {
+    const { canonicalRequest } = signV4({
+      method: "PUT",
+      url: new URL("https://acct.r2.cloudflarestorage.com/bucket/a/b%20c.mp4"),
+      headers: { host: "acct.r2.cloudflarestorage.com", "x-amz-date": "20130524T000000Z" },
+      payloadHash: EMPTY,
+      accessKeyId: "AK",
+      secretAccessKey: "SK",
+      region: "auto",
+      service: "s3",
+      amzDate: "20130524T000000Z",
+    });
+    expect(canonicalRequest.split("\n")[1]).toBe("/bucket/a/b%20c.mp4");
+  });
+});
+
 describe("node s3: putObject", () => {
   const cfg = {
     endpoint: "https://acct.r2.cloudflarestorage.com",

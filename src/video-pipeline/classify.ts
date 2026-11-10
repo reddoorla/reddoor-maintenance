@@ -23,6 +23,37 @@ const DOCUMENT_RULES = "$document";
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
+/**
+ * Validates a parsed rules file: an object whose every value is an array of
+ * { field: string, class: "background" | "player" | { flag, whenTrue, whenFalse } }.
+ * Returns the rules, or a string saying what is wrong (the message names the slice type and index).
+ */
+export function parseVideoRules(json: unknown): VideoRules | string {
+  if (!isObject(json)) return "must be a JSON object of slice_type to rule arrays";
+  const classOk = (c: unknown): boolean => {
+    if (c === "background" || c === "player") return true;
+    return (
+      isObject(c) &&
+      typeof c.flag === "string" &&
+      (c.whenTrue === "background" || c.whenTrue === "player") &&
+      (c.whenFalse === "background" || c.whenFalse === "player")
+    );
+  };
+  for (const [sliceType, rules] of Object.entries(json)) {
+    if (!Array.isArray(rules)) return `${sliceType}: must be an array of rules`;
+    for (let i = 0; i < rules.length; i += 1) {
+      const rule = rules[i];
+      const where = `${sliceType}[${i}]`;
+      if (!isObject(rule)) return `${where}: must be an object with field and class`;
+      if (typeof rule.field !== "string") return `${where}.field: must be a string`;
+      if (!classOk(rule.class)) {
+        return `${where}.class: must be "background", "player" or { flag, whenTrue, whenFalse }`;
+      }
+    }
+  }
+  return json as VideoRules;
+}
+
 /** link_type === "Media", url is https, kind !== "image", name or url (pathname) matches VIDEO_EXT. */
 export function isVideoLink(value: unknown): value is { url: string } {
   if (!isObject(value) || value.link_type !== "Media") return false;

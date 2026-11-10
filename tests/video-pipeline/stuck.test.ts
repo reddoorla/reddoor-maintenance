@@ -11,7 +11,9 @@ const onR2: Renditions = {
   poster: null,
   captions: null,
   onR2: true,
+  class: "player",
 };
+const onR2Background: Renditions = { ...onR2, class: "background" };
 const found = (url: string, publishedAt: string | null): FoundVideo => ({
   url,
   class: "player",
@@ -37,6 +39,21 @@ describe("stuck: findStuck", () => {
   it("on R2 two hours ago is not stuck", () => {
     const v = found("https://a.prismic.io/a.mp4", "2026-11-10T10:00:00Z");
     expect(findStuck([v], new Map([[v.url, onR2]]), NOW)).toEqual([]);
+  });
+
+  it("a background on R2 for a player video, published 2 h ago, is stuck", () => {
+    const v = found("https://a.prismic.io/a.mp4", "2026-11-10T10:00:00Z");
+    const stuck = findStuck([v], new Map([[v.url, onR2Background]]), NOW);
+    expect(stuck).toHaveLength(1);
+    expect(stuck[0]!.ageMs).toBe(2 * 60 * 60 * 1000);
+  });
+
+  it("a background on R2 for a background video is not stuck", () => {
+    const v = {
+      ...found("https://a.prismic.io/a.mp4", "2026-11-10T10:00:00Z"),
+      class: "background" as const,
+    };
+    expect(findStuck([v], new Map([[v.url, onR2Background]]), NOW)).toEqual([]);
   });
 
   it("null publishedAt is stuck with an unknown age", () => {

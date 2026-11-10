@@ -3,14 +3,15 @@ import type { VideoClass } from "./key.js";
 export type EncodeJob = { url: string; class: VideoClass; key: string };
 export const DISPATCH_EVENT = "video-encode";
 
-const REPO = /^[\w.-]+\/[\w.-]+$/;
+/** owner/name, the only shape of repo the pipeline will address. */
+export const REPO_NAME = /^[\w.-]+\/[\w.-]+$/;
 
 /** POST https://api.github.com/repos/${repo}/dispatches. Resolves on 204; throws otherwise. `repo` must match /^[\w.-]+\/[\w.-]+$/ or it throws before fetching. */
 export async function dispatchEncode(
   job: EncodeJob,
   opts: { repo: string; token: string; fetch: typeof fetch },
 ): Promise<void> {
-  if (!REPO.test(opts.repo))
+  if (!REPO_NAME.test(opts.repo))
     throw new Error(`dispatch ${job.key}: bad repo ${JSON.stringify(opts.repo)}`);
   const res = await opts.fetch(`https://api.github.com/repos/${opts.repo}/dispatches`, {
     method: "POST",

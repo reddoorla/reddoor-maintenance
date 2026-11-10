@@ -8,7 +8,7 @@ import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import { defaultSpawn } from "../../audits/util/spawn.js";
 import type { SpawnFn } from "../../audits/util/spawn.js";
 import { runVideoCommand } from "../../cli/commands/video.js";
-import { fileNameOf, keyStem, sourceOf, videoKey, VIDEO_EXT } from "../key.js";
+import { fileNameOf, isPrismicFileUrl, keyStem, sourceOf, videoKey, VIDEO_EXT } from "../key.js";
 import type { VideoClass } from "../key.js";
 import { parseManifest } from "../manifest.js";
 import type { ManifestFiles, VideoManifest } from "../manifest.js";
@@ -35,6 +35,12 @@ export type EncodeDeps = {
 };
 
 const MAX_MASTER_BYTES = 120 * 1024 * 1024;
+/** The version directory's stamp: 2026-11-10T00:00:00.000Z becomes 20261110T000000Z. */
+const versionStamp = (d: Date): string =>
+  d
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d{3}Z$/, "Z");
 const IMMUTABLE = "public, max-age=31536000, immutable";
 const MANIFEST_CACHE = "public, max-age=60";
 const CONTENT_TYPES: Record<string, string> = {
@@ -92,16 +98,17 @@ export async function runPipelineEncode(
 
   const fail = (output: string, code = 2) => ({ output, code });
 
-  const url = parseUrl(opts.url);
-  if (url === null || url.protocol !== "https:" || !url.hostname.endsWith(".prismic.io")) {
+  // cac passes numeric flag values as numbers, so every option is coerced to a string first.
+  const url = parseUrl(opts.url == null ? undefined : String(opts.url));
+  if (url === null || !isPrismicFileUrl(url.toString())) {
     return fail("--url must be an https Prismic file URL");
   }
-  const cls = opts.class;
+  const cls = opts.class == null ? undefined : String(opts.class);
   if (cls !== "background" && cls !== "player") {
     return fail(`--class must be background or player; got ${JSON.stringify(opts.class)}`);
   }
   const profile: VideoClass = cls;
-  const site = opts.site ?? "";
+  const site = opts.site == null ? "" : String(opts.site);
   if (site.trim() === "") return fail("--site must name the site");
   const key = videoKey(site, url.toString());
   if (key === null) {
@@ -141,7 +148,9 @@ export async function runPipelineEncode(
       { out, name: stem, profile },
       { spawn, ...(deps.stderr ? { stderr: deps.stderr } : {}) },
     );
-    if (encoded.code !== 0) return { output: encoded.output, code: encoded.code };
+    if (encoded.code !== 0) {
+      return { output: [...lines, encoded.output].join("\n"), code: encoded.code };
+    }
     lines.push(encoded.output);
 
     const names = new Set(await readdir(out));
@@ -161,59 +170,68 @@ export async function runPipelineEncode(
     }
     if (!names.has(files.poster)) throw new StepError("encode", `${files.poster} was not written`);
 
+    // Captions are optional: a failure in any step below is a WARN line, and the video still ships.
     if (profile === "player") {
-      const probe = await spawn("ffprobe", [
-        "-v",
-        "error",
-        "-select_streams",
-        "a",
-        "-show_entries",
-        "stream=index",
-        "-of",
-        "csv=p=0",
-        master,
-      ]);
-      if (probe.code !== 0) throw new StepError("audio probe", probe.stderr.trim());
-      if (probe.stdout.trim() === "") {
-        lines.push("no audio stream; no captions");
-      } else {
-        const audio = join(tmp, "audio.mp3");
-        const extract = await spawn("ffmpeg", [
-          "-hide_banner",
-          "-loglevel",
+      try {
+        const probe = await spawn("ffprobe", [
+          "-v",
           "error",
-          "-y",
-          "-i",
+          "-select_streams",
+          "a",
+          "-show_entries",
+          "stream=index",
+          "-of",
+          "csv=p=0",
           master,
-          "-vn",
-          "-ac",
-          "1",
-          "-ar",
-          "16000",
-          "-c:a",
-          "libmp3lame",
-          "-b:a",
-          "32k",
-          audio,
         ]);
-        if (extract.code !== 0) throw new StepError("audio extract", extract.stderr.trim());
-        const vtt = await transcribe(new Uint8Array(await readFile(audio)), {
-          accountId: cfAccount,
-          token: env.CF_AI_TOKEN!,
-          fetch: fetchImpl,
-        });
-        await mkdir(out, { recursive: true });
-        await writeFile(join(out, `${stem}.vtt`), vtt);
-        files.captions = `${stem}.vtt`;
+        if (probe.code !== 0) throw new StepError("audio probe", probe.stderr.trim());
+        if (probe.stdout.trim() === "") {
+          lines.push("no audio stream; no captions");
+        } else {
+          const audio = join(tmp, "audio.mp3");
+          const extract = await spawn("ffmpeg", [
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            master,
+            "-vn",
+            "-ac",
+            "1",
+            "-ar",
+            "16000",
+            "-c:a",
+            "libmp3lame",
+            "-b:a",
+            "32k",
+            audio,
+          ]);
+          if (extract.code !== 0) throw new StepError("audio extract", extract.stderr.trim());
+          const vtt = await transcribe(new Uint8Array(await readFile(audio)), {
+            accountId: cfAccount,
+            token: env.CF_AI_TOKEN!,
+            fetch: fetchImpl,
+          });
+          await mkdir(out, { recursive: true });
+          await writeFile(join(out, `${stem}.vtt`), vtt);
+          files.captions = `${stem}.vtt`;
+        }
+      } catch (err) {
+        delete files.captions;
+        lines.push(`WARN captions: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
+    const encodedAt = now();
+    const dir = `${profile}-${versionStamp(encodedAt)}`;
     const manifest = parseManifest({
       version: 1,
       source: sourcePath,
       class: profile,
       key,
-      encodedAt: now().toISOString(),
+      dir,
+      encodedAt: encodedAt.toISOString(),
       files,
     } satisfies VideoManifest);
     if (manifest === null) throw new StepError("manifest", "built manifest failed its own parse");
@@ -227,17 +245,18 @@ export async function runPipelineEncode(
     ].filter((f): f is string => f !== undefined);
     for (const file of uploads) {
       const bytes = await readFile(join(out, file));
+      const objectKey = `${key}/${dir}/${file}`;
       try {
-        await putObject(cfg, `${key}/${file}`, new Uint8Array(bytes), {
+        await putObject(cfg, objectKey, new Uint8Array(bytes), {
           contentType: CONTENT_TYPES[extname(file)] ?? "application/octet-stream",
           cacheControl: IMMUTABLE,
           fetch: fetchImpl,
           now: now(),
         });
       } catch (err) {
-        throw new StepError(`${key}/${file}`, err instanceof Error ? err.message : String(err));
+        throw new StepError(objectKey, err instanceof Error ? err.message : String(err));
       }
-      lines.push(`PUT ${key}/${file} ${bytes.length}`);
+      lines.push(`PUT ${objectKey} ${bytes.length}`);
     }
     try {
       await putObject(

@@ -105,8 +105,45 @@ describe("node encode: validation", () => {
   });
 });
 
+const STEM = "offer-hero-2394de2bb3"; // videoKey("reddoor-website", PRISMIC) → reddoor-website/offer-hero-2394de2bb3
+const KEY = `reddoor-website/${STEM}`;
+const NOW = new Date("2026-11-10T00:00:00Z");
+
+/** Serves the Prismic master as `body`; every other URL goes to the normal fakes. */
+function masterFetch(body: Response, calls: Call[]) {
+  const inner = fakeFetch(calls);
+  return (async (input: string | URL | Request, init?: RequestInit) => {
+    if (String(input) === PRISMIC) return body;
+    return inner(input, init);
+  }) as unknown as typeof globalThis.fetch;
+}
+
+/** ffprobe reports no audio stream; ffmpeg and the rest behave as in spawnWritesOutputs. */
+function spawnNoAudio(calls: Call[]): SpawnFn {
+  const base = spawnWritesOutputs(calls);
+  return async (cmd, args, opts) => {
+    if (cmd === "ffprobe" && args[args.indexOf("-select_streams") + 1] === "a") {
+      calls.push({ cmd, args: [...args] });
+      return { code: 0, stdout: "", stderr: "" };
+    }
+    return base(cmd, args, opts);
+  };
+}
+
+/** ffmpeg exits 1 on the first call. */
+function spawnFfmpegFails(calls: Call[]): SpawnFn {
+  const base = spawnWritesOutputs(calls);
+  return async (cmd, args, opts) => {
+    if (cmd === "ffmpeg") {
+      calls.push({ cmd, args: [...args] });
+      return { code: 1, stdout: "", stderr: "boom" };
+    }
+    return base(cmd, args, opts);
+  };
+}
+
 describe("node encode: end to end with fakes", () => {
-  it("a player job uploads renditions and captions, manifest last, and the manifest parses", async () => {
+  it("a player job uploads renditions and captions under a player- version directory, manifest last", async () => {
     const calls: Call[] = [];
     const tmp = await mkdtemp(join(tmpdir(), "enc-e2e-"));
     const r = await runPipelineEncode(
@@ -116,30 +153,217 @@ describe("node encode: end to end with fakes", () => {
         fetch: fakeFetch(calls),
         spawn: spawnWritesOutputs(calls),
         tmpDir: tmp,
-        now: () => new Date("2026-11-10T00:00:00Z"),
+        now: () => NOW,
         stderr: { write: () => true },
       },
     );
     expect(r.code, r.output).toBe(0);
     const puts = calls.filter((c) => c.method === "PUT");
-    expect(puts.at(-1)!.url).toBe(`${R2}/reddoor-video/reddoor-website/offer-hero/manifest.json`);
+    expect(puts.at(-1)!.url).toBe(`${R2}/reddoor-video/${KEY}/manifest.json`);
     const putUrls = puts.map((c) => c.url!);
+    const dir = `${R2}/reddoor-video/${KEY}/player-20261110T000000Z`;
     for (const file of [
-      "offer-hero-1080.mp4",
-      "offer-hero-720.mp4",
-      "offer-hero-poster.jpg",
-      "offer-hero.vtt",
+      `${STEM}-1080.mp4`,
+      `${STEM}-720.mp4`,
+      `${STEM}-poster.jpg`,
+      `${STEM}.vtt`,
     ]) {
-      expect(putUrls).toContain(`${R2}/reddoor-video/reddoor-website/offer-hero/${file}`);
+      expect(putUrls).toContain(`${dir}/${file}`);
     }
     const manifest = parseManifest(JSON.parse(bodyText(puts.at(-1)!.body)));
     expect(manifest).not.toBeNull();
-    expect(manifest!.key).toBe("reddoor-website/offer-hero");
+    expect(manifest!.key).toBe(KEY);
+    expect(manifest!.dir).toBe("player-20261110T000000Z");
     expect(manifest!.source).toBe("/reddoor-la/Offer%20Hero.mp4");
-    expect(manifest!.files.captions).toBe("offer-hero.vtt");
-    expect(manifest!.files.mobileMp4).toBe("offer-hero-720.mp4");
-    expect(r.output).toContain("MANIFEST reddoor-website/offer-hero/manifest.json");
+    expect(manifest!.files.captions).toBe(`${STEM}.vtt`);
+    expect(manifest!.files.mobileMp4).toBe(`${STEM}-720.mp4`);
+    expect(r.output).toContain(`MANIFEST ${KEY}/manifest.json`);
   });
+
+  it("a background job maps webm and the -phone-720 mp4, and uploads under a background- directory", async () => {
+    const calls: Call[] = [];
+    const tmp = await mkdtemp(join(tmpdir(), "enc-bg-"));
+    const r = await runPipelineEncode(
+      { url: PRISMIC, class: "background", site: "reddoor-website" },
+      {
+        env,
+        fetch: fakeFetch(calls),
+        spawn: spawnWritesOutputs(calls),
+        tmpDir: tmp,
+        now: () => NOW,
+        stderr: { write: () => true },
+      },
+    );
+    expect(r.code, r.output).toBe(0);
+    const puts = calls.filter((c) => c.method === "PUT");
+    const dir = `${R2}/reddoor-video/${KEY}/background-20261110T000000Z`;
+    expect(puts.map((c) => c.url!)).toContain(`${dir}/${STEM}-1080.webm`);
+    expect(puts.map((c) => c.url!)).toContain(`${dir}/${STEM}-phone-720.mp4`);
+    const manifest = parseManifest(JSON.parse(bodyText(puts.at(-1)!.body)));
+    expect(manifest!.class).toBe("background");
+    expect(manifest!.dir).toBe("background-20261110T000000Z");
+    expect(manifest!.files.webm).toBe(`${STEM}-1080.webm`);
+    expect(manifest!.files.mobileMp4).toBe(`${STEM}-phone-720.mp4`);
+    expect(manifest!.files.captions).toBeUndefined();
+    expect(calls.some((c) => c.url?.startsWith("https://api.cloudflare.com/"))).toBe(false);
+  });
+
+  it("a failed upload of the last rendition (the vtt) is code 1 and no manifest is written", async () => {
+    const calls: Call[] = [];
+    const tmp = await mkdtemp(join(tmpdir(), "enc-vtt-"));
+    const r = await runPipelineEncode(
+      { url: PRISMIC, class: "player", site: "reddoor-website" },
+      {
+        env,
+        fetch: fakeFetch(calls, (u) => u.endsWith(".vtt")),
+        spawn: spawnWritesOutputs(calls),
+        tmpDir: tmp,
+        now: () => NOW,
+        stderr: { write: () => true },
+      },
+    );
+    expect(r.code).toBe(1);
+    expect(r.output).toContain(`FAILED ${KEY}/player-20261110T000000Z/${STEM}.vtt`);
+    const puts = calls.filter((c) => c.method === "PUT").map((c) => c.url!);
+    expect(puts.some((u) => u.endsWith("manifest.json"))).toBe(false);
+  });
+
+  it("a Whisper 500 is a WARN, the manifest is still written without captions, and code stays 0", async () => {
+    const calls: Call[] = [];
+    const tmp = await mkdtemp(join(tmpdir(), "enc-warn-"));
+    const inner = fakeFetch(calls);
+    const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input).startsWith("https://api.cloudflare.com/")) {
+        calls.push({ url: String(input), method: "POST" });
+        return new Response("nope", { status: 500 });
+      }
+      return inner(input, init);
+    }) as unknown as typeof globalThis.fetch;
+    const r = await runPipelineEncode(
+      { url: PRISMIC, class: "player", site: "reddoor-website" },
+      {
+        env,
+        fetch,
+        spawn: spawnWritesOutputs(calls),
+        tmpDir: tmp,
+        now: () => NOW,
+        stderr: { write: () => true },
+      },
+    );
+    expect(r.code, r.output).toBe(0);
+    expect(r.output).toContain("WARN captions");
+    const puts = calls.filter((c) => c.method === "PUT");
+    const manifest = parseManifest(JSON.parse(bodyText(puts.at(-1)!.body)));
+    expect(puts.at(-1)!.url).toMatch(/manifest\.json$/);
+    expect(manifest!.files.captions).toBeUndefined();
+    expect(puts.some((c) => c.url!.endsWith(".vtt"))).toBe(false);
+  });
+
+  it("a player with no audio stream makes no Whisper call, no captions, and code 0", async () => {
+    const calls: Call[] = [];
+    const tmp = await mkdtemp(join(tmpdir(), "enc-silent-"));
+    const r = await runPipelineEncode(
+      { url: PRISMIC, class: "player", site: "reddoor-website" },
+      {
+        env,
+        fetch: fakeFetch(calls),
+        spawn: spawnNoAudio(calls),
+        tmpDir: tmp,
+        now: () => NOW,
+        stderr: { write: () => true },
+      },
+    );
+    expect(r.code, r.output).toBe(0);
+    expect(r.output).toContain("no audio stream; no captions");
+    expect(r.output).not.toContain("WARN captions");
+    expect(calls.some((c) => c.url?.startsWith("https://api.cloudflare.com/"))).toBe(false);
+    expect(calls.some((c) => c.cmd === "ffmpeg" && c.args?.includes("libmp3lame"))).toBe(false);
+    const manifest = parseManifest(
+      JSON.parse(bodyText(calls.filter((c) => c.method === "PUT").at(-1)!.body)),
+    );
+    expect(manifest!.files.captions).toBeUndefined();
+  });
+
+  it("a failing ffmpeg keeps the 'downloaded' line in the output and is code 1", async () => {
+    const calls: Call[] = [];
+    const tmp = await mkdtemp(join(tmpdir(), "enc-ff-"));
+    const r = await runPipelineEncode(
+      { url: PRISMIC, class: "background", site: "reddoor-website" },
+      {
+        env,
+        fetch: fakeFetch(calls),
+        spawn: spawnFfmpegFails(calls),
+        tmpDir: tmp,
+        now: () => NOW,
+        stderr: { write: () => true },
+      },
+    );
+    expect(r.code).toBe(1);
+    expect(r.output).toContain("downloaded ");
+    expect(r.output).toContain("ffmpeg exited 1");
+  });
+
+  it("a numeric site (cac passes numbers) is coerced, not a TypeError", async () => {
+    const failingFetch = (async () =>
+      new Response(null, { status: 500 })) as unknown as typeof globalThis.fetch;
+    const tmp = await mkdtemp(join(tmpdir(), "enc-num-"));
+    const r = await runPipelineEncode(
+      { url: PRISMIC, class: "background", site: 123 as unknown as string },
+      { env, fetch: failingFetch, tmpDir: tmp },
+    );
+    expect(r.code).toBe(1);
+    expect(r.output).toContain("FAILED download");
+  });
+
+  it("a master whose declared content-length is over 120 MiB is code 1 before its body is read", async () => {
+    let pulls = 0;
+    // highWaterMark 0: the stream asks its source for nothing until something reads it.
+    const body = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          pulls += 1;
+          controller.enqueue(new Uint8Array(1024));
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    const master = new Response(body, {
+      status: 200,
+      headers: { "content-length": String(120 * 1024 * 1024 + 1) },
+    });
+    const tmp = await mkdtemp(join(tmpdir(), "enc-cap-decl-"));
+    const r = await runPipelineEncode(
+      { url: PRISMIC, class: "background", site: "reddoor-website" },
+      { env, fetch: masterFetch(master, []), tmpDir: tmp, now: () => NOW },
+    );
+    expect(r.code).toBe(1);
+    expect(r.output).toContain("larger than");
+    expect(pulls).toBe(0);
+  });
+
+  it("a streamed master over 120 MiB with no content-length is code 1", async () => {
+    const chunk = new Uint8Array(1024 * 1024);
+    let sent = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent >= 121) return controller.close();
+        sent += 1;
+        controller.enqueue(chunk);
+      },
+    });
+    const tmp = await mkdtemp(join(tmpdir(), "enc-cap-stream-"));
+    const r = await runPipelineEncode(
+      { url: PRISMIC, class: "background", site: "reddoor-website" },
+      {
+        env,
+        fetch: masterFetch(new Response(body, { status: 200 }), []),
+        tmpDir: tmp,
+        now: () => NOW,
+      },
+    );
+    expect(r.code).toBe(1);
+    expect(r.output).toContain("larger than");
+  }, 60_000);
 
   it("a rendition PUT failure is code 1 and no manifest is written", async () => {
     const calls: Call[] = [];

@@ -1,8 +1,8 @@
-import { videoKey } from "./key.js";
+import { isPrismicFileUrl, videoKey } from "./key.js";
 import { dispatchEncode } from "./dispatch.js";
 import { findVideos, mergeFound } from "./classify.js";
 import type { DocLike, VideoRules } from "./classify.js";
-import { resolveVideo } from "./manifest.js";
+import { needsEncode, resolveVideo } from "./manifest.js";
 import type { Renditions } from "./manifest.js";
 import { parsePrismicWebhook, verifyPrismicSecret } from "./webhook.js";
 
@@ -17,6 +17,12 @@ export type RelayConfig = {
   fetch: typeof fetch;
 };
 export type RelayResult = { status: number; body: string };
+
+/**
+ * The only characters a dispatched URL may carry, after WHATWG normalisation. Anything else (a `$`, `(`,
+ * `'`, `;`, `!` or `*` in a path, say) is refused rather than handed to a workflow that might interpolate it.
+ */
+const SAFE_URL = /^[A-Za-z0-9\-._~:/?=&%+#@]+$/;
 
 const json = (status: number, value: unknown): RelayResult => ({
   status,
@@ -37,6 +43,7 @@ export async function handlePrismicWebhook(
   }
   if (!verifyPrismicSecret(body, cfg.secret)) return { status: 401, body: "bad secret" };
   if (!cfg.dispatchToken) return { status: 500, body: "VIDEO_DISPATCH_TOKEN is not set" };
+  if (!cfg.mediaBase) return { status: 500, body: "VIDEO_MEDIA_BASE is not set" };
 
   const hook = parsePrismicWebhook(body);
   if (hook.type !== "api-update" || hook.documents.length === 0) {
@@ -48,23 +55,33 @@ export async function handlePrismicWebhook(
   const cache = new Map<string, Promise<Renditions>>();
   const dispatched: string[] = [];
   const skipped: string[] = [];
+  const refused: string[] = [];
   const failed: string[] = [];
   for (const video of found) {
-    const key = videoKey(cfg.site, video.url);
+    if (!isPrismicFileUrl(video.url)) {
+      refused.push(video.url);
+      continue;
+    }
+    const href = new URL(video.url).href;
+    if (!SAFE_URL.test(href)) {
+      refused.push(video.url);
+      continue;
+    }
+    const key = videoKey(cfg.site, href);
     if (key === null) continue;
-    const r = await resolveVideo(video.url, {
+    const r = await resolveVideo(href, {
       site: cfg.site,
       mediaBase: cfg.mediaBase,
       fetch: cfg.fetch,
       cache,
     });
-    if (r.onR2) {
+    if (!needsEncode(video, r)) {
       skipped.push(key);
       continue;
     }
     try {
       await dispatchEncode(
-        { url: video.url, class: video.class, key },
+        { url: href, class: video.class, key },
         { repo: cfg.repo, token: cfg.dispatchToken, fetch: cfg.fetch },
       );
       dispatched.push(key);
@@ -72,6 +89,6 @@ export async function handlePrismicWebhook(
       failed.push(err instanceof Error ? err.message : String(err));
     }
   }
-  if (failed.length > 0) return json(502, { dispatched, skipped, failed });
-  return json(200, { dispatched, skipped });
+  if (failed.length > 0) return json(502, { dispatched, skipped, refused, failed });
+  return json(200, { dispatched, skipped, refused });
 }

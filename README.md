@@ -98,8 +98,8 @@ Standalone, outside the `[site]` loop above (it audits an external URL, not a fl
 
 `reddoor-maint video <input>` turns one video master into the renditions
 the fleet's hero loops and players play, and can push them straight into a
-site's Prismic media library. Background loops are muted, so every rendition
-drops the audio track (`-an`). It needs `ffmpeg` and `ffprobe` on `PATH`
+site's Prismic media library. The background profile mutes its loops, so every
+background rendition drops the audio track (`-an`). It needs `ffmpeg` and `ffprobe` on `PATH`
 (`brew install ffmpeg` / `apt install ffmpeg`); without them it exits `2`.
 
 For a master of height `H` and `T = min(--max-height, H)`:
@@ -119,11 +119,8 @@ encode shows which file the `-stats` line belongs to.
 
 Flags: `--out <dir>` (default `./video-out`), `--name <slug>` (default: the
 input's basename, slugified), `--max-height <n>` (default `1080`),
-`--profile <name>` (`background` by default; see below). After
-encoding it probes each output and prints a table of file, WxH, size in MB
-and kbps. After
-encoding it probes each output and prints a table of file, WxH, size in MB
-and kbps.
+`--profile <name>` (`background` by default; see below). After encoding it
+probes each output and prints a table of file, WxH, size in MB and kbps.
 
 `--profile player` is for a video a visitor starts (a click to play) and
 keeps the audio. The outputs differ, and every mp4 carries AAC audio, stereo,
@@ -155,6 +152,66 @@ input exits `2`. The upload path is tested against a fake fetch only and has
 not run live (Williamson's files went through that site's
 `prismic-media-upload` workflow; see the 2026-10-01 journal entry), so the
 first live run is to be read, not assumed.
+
+### Video pipeline (R2)
+
+`reddoor-maint video-pipeline encode` runs in a site's GitHub Action: it takes
+one Prismic video URL, encodes it, and writes the renditions and a manifest to
+R2. `reddoor-maint video-pipeline stuck` runs on an hourly schedule: it lists
+the videos on a Prismic repository that have sat past an hour without an R2
+manifest, and with `--open-issue` opens or updates the `video-pipeline`
+tracking issue.
+
+`encode` flags: `--url <https Prismic file URL>` (must be on a `*.prismic.io`
+host), `--class background|player`, `--site <name>` (the first segment of every
+key). `stuck` flags: `--prismic <repo>`, `--site <name>`, `--media-base <url>`
+(the public host the manifests are read from), `--rules <path>` (a JSON file,
+below), `--open-issue`, `--repo owner/name` (the repo that holds the issue).
+
+Environment: `encode` needs `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID` and
+`R2_SECRET_ACCESS_KEY`, and `CF_AI_TOKEN` for the player class (captions);
+`R2_BUCKET` (default `reddoor-video`), `R2_ENDPOINT` and `CF_ACCOUNT_ID` are
+optional. `stuck` reads `PRISMIC_ACCESS_TOKEN` when the repo is private and
+`GITHUB_TOKEN` for `--open-issue`.
+
+Exit codes: `0` success (`stuck`: nothing stuck); `1` an encode step failed,
+or `stuck` found a stuck video (deliberate: the hourly run going red is the
+alarm; a stuck video is never closed automatically); `2` an invalid argument,
+a missing variable, or a Prismic or rules error. A caption failure is a
+`WARN captions:` line and the video still ships without captions.
+
+Layout on R2: `<site>/<stem>-<hash>/manifest.json` (cached 60 s), and beside it
+`<class>-<YYYYMMDDTHHMMSSZ>/` holding the renditions (cached immutably). The
+manifest names its version directory in `dir`, so a re-encode writes a new
+directory and never overwrites a file. `<stem>-<hash>` is the file name's slug
+plus the first 10 hex of the sha256 of its path, so two files whose names
+slugify alike do not share a key. A background manifest is upgraded to a
+player when a document asks for a player.
+
+The rules file maps each slice type to the video fields it carries:
+
+```json
+{
+  "offer_hero": [{ "field": "video_mp4", "class": "player" }],
+  "screen_width_media": [
+    {
+      "field": "video_mp4",
+      "class": { "flag": "loopvideo", "whenTrue": "background", "whenFalse": "player" }
+    }
+  ],
+  "$document": [{ "field": "booked_video_mp4", "class": "player" }]
+}
+```
+
+Each value is an array of `{ field, class }`, where `class` is `background`,
+`player`, or a flag rule. The key `$document` applies its rules to the
+document's own fields rather than to a slice. A file that does not match this
+shape exits `2` with `--rules: <what is wrong>`.
+
+The site's relay must pass the Prismic webhook's `client_payload` through the
+workflow's `env:` block and never inline it into a `run:` script, because the
+payload carries the video URL. The relay refuses a URL with characters outside
+`A-Za-z0-9-._~:/?=&%+#@` and lists it under `refused`.
 
 ---
 
