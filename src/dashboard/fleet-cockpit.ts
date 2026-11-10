@@ -342,10 +342,14 @@ export function assignTier(
     candidates.push({
       signal: "turnstile-unverified",
       acceptKeys: ["turnstile-unverified", "turnstile unverified", "turnstile"],
+      // A "fail" with no form-e2e stamp is function-health's legacy /health flag, which no
+      // browser checked (#1710), so it is not called a browser's verdict (#1755).
       reason:
-        site.turnstileWidget === "fail"
-          ? "Require Turnstile on; widget broken per a stale browser check"
-          : "Require Turnstile on; widget not verified by a browser",
+        site.turnstileWidget !== "fail"
+          ? "Require Turnstile on; widget not verified by a browser"
+          : site.formE2eCheckedAt === null
+            ? "Require Turnstile on; widget flagged by the legacy /health check, not verified by a browser"
+            : "Require Turnstile on; widget broken per a stale browser check",
     });
   }
 

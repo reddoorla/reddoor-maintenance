@@ -283,6 +283,22 @@ describe("a workflow that runs the suite syncs the cockpit before it", () => {
     ).toEqual([]);
   });
 
+  // #1755 (from #1748 r2): the job's defaults outrank the workflow's.
+  it("reads the job's defaults.run.working-directory before the workflow's", () => {
+    expect(
+      unsyncedSuiteJobs({
+        defaults: { run: { "working-directory": "." } },
+        ...job({ run: "pnpm typecheck" }, { run: { "working-directory": "cockpit" } }),
+      }),
+    ).toEqual(["test"]);
+    expect(
+      unsyncedSuiteJobs({
+        defaults: { run: { "working-directory": "cockpit" } },
+        ...job({ run: "pnpm typecheck" }, { run: { "working-directory": "." } }),
+      }),
+    ).toEqual([]);
+  });
+
   it("lets a step's working-directory override the job's and the workflow's defaults", () => {
     expect(
       unsyncedSuiteJobs(

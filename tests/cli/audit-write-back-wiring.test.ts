@@ -129,3 +129,38 @@ describe("runFleetWriteBack mirror wiring (#539 Phase 3)", () => {
     expect(res.summary).toContain("FLEET_WRITE_SUMMARY wrote=1 failed=1 total=2");
   });
 });
+
+// #1755, answering #1669's W6 with one run through the real writer: a night where every
+// form-e2e probe threw (`runOneAudit` writes it as status `fail`, "unexpected error") is red
+// at the write gate on its own, not only at the workflow's probed-nothing check: the writer
+// files each thrown site as "nothing measured" and the gate names that.
+describe("a form-e2e night where every probe threw (#1669 W6)", () => {
+  it("is red at the write gate, which names form-e2e as having measured nothing", async () => {
+    const slugs = Array.from({ length: 6 }, (_, i) => `site-${i}`);
+    const rows = websiteRowsFrom(
+      slugs.map((s, i) => ({ id: `rec${i}`, fields: { Name: s, Status: "maintenance" } })),
+    );
+    const results: AuditResult[] = slugs.map((site) => ({
+      audit: "form-e2e",
+      site,
+      status: "fail",
+      summary: "form-e2e: unexpected error — Error: browserType.launch: Executable doesn't exist",
+    }));
+    const wb = await runFleetWriteBack({
+      results,
+      which: ["form-e2e"],
+      expectedSites: slugs,
+      deps: {
+        roster: async () => rows,
+        makeMirror: async () => async () => true,
+        recordEvents: async () => {},
+      },
+    });
+    const lines = wb.summary.split("\n");
+    expect(lines).toContain("FLEET_WRITE_GATE verdict=red");
+    expect(lines).toContain(
+      "FLEET_WRITE_GATE_REASON form-e2e measured nothing on 6 of 6 site(s): site-0, site-1, site-2, site-3, site-4, site-5 (>25%25)",
+    );
+    expect(wb.summary).toContain("FLEET_WRITE_SUMMARY wrote=0 failed=6 total=6");
+  });
+});
