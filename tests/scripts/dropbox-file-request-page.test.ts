@@ -13,8 +13,9 @@ import { plan, uploadBatch } from "../../scripts/dropbox-file-request-upload.mjs
  * `#browse-target`, the name and email fields only after a drop, and one
  * `POST /drops/commit_file_request_by_token?name=<file>` per file. The stand-in
  * sends the SHA-256 of the bytes it was handed in place of uploading them, so a
- * test sees exactly what Chromium read, and it re-sends a commit answered 5xx, the
- * one retry the real page may make.
+ * test sees exactly what Chromium read, and it re-sends a commit answered 5xx. With
+ * `?batch` in the URL it instead re-sends the whole batch after any 5xx, the other
+ * retry the real page may make (its scheduler was not read; #1994).
  */
 
 const URL = "https://www.dropbox.com/request/standin0000000000000";
@@ -39,17 +40,29 @@ app.addEventListener("drop", (e) => {
   app.insertAdjacentHTML("beforeend",
     '<input name="name"><input name="email"><button type="button">Upload</button>');
   app.querySelector("button").addEventListener("click", () => {
-    for (const f of files) commit(f, 0);
+    if (batch) commitAll(0);
+    else for (const f of files) commit(f, 0);
   });
 });
-async function commit(f, attempt) {
+// "?batch" in the request URL: commit every file with one Promise.all and, when
+// any answer is a 5xx, re-send the whole batch, files already answered included
+// (the retry the runbook could not rule out, #1994).
+const batch = new URLSearchParams(location.search).has("batch");
+async function send(f) {
   const digest = await crypto.subtle.digest("SHA-256", await f.arrayBuffer());
   const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-  const res = await fetch("/drops/commit_file_request_by_token?name=" + encodeURIComponent(f.name), {
+  return fetch("/drops/commit_file_request_by_token?name=" + encodeURIComponent(f.name), {
     method: "POST",
     body: JSON.stringify({ sha256: hex, size: f.size }),
   });
+}
+async function commit(f, attempt) {
+  const res = await send(f);
   if (res.status >= 500 && attempt < 2) setTimeout(() => commit(f, attempt + 1), 300);
+}
+async function commitAll(attempt) {
+  const answers = await Promise.all(files.map(send));
+  if (answers.some((r) => r.status >= 500) && attempt < 2) setTimeout(() => commitAll(attempt + 1), 300);
 }
 </script></body></html>`;
 
@@ -103,11 +116,16 @@ function file(name: string, bytes: Buffer): string {
 
 const sha256 = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 
-async function run(paths: string[], answers: Record<string, Answer[]>, deadlineMs = 20_000) {
+async function run(
+  paths: string[],
+  answers: Record<string, Answer[]>,
+  deadlineMs = 20_000,
+  url = URL,
+) {
   const s = standIn(answers);
   const rows = plan(paths, "Claude");
   const t = Date.now();
-  const got = await uploadBatch(s.fake, URL, "Claude", "a@example.com", rows, { deadlineMs });
+  const got = await uploadBatch(s.fake, url, "Claude", "a@example.com", rows, { deadlineMs });
   return { got, ms: Date.now() - t, ...s };
 }
 
@@ -167,6 +185,27 @@ describe("uploadBatch through the page (stand-in for Dropbox)", () => {
     });
     expect(attempts.get("flaky.pdf")).toBe(2);
     expect(got[0]?.ok).toBe(true);
+  }, 60_000);
+
+  // #1994: the batch is re-sent after another file's 5xx, so a file already
+  // answered complete is committed again and answered 403. It committed: the
+  // later answer must not turn it FAILED. The second file 5xxs twice, so the
+  // 403 is recorded before the third round lets the wait end.
+  it("a file answered complete stays committed when a batch retry re-commits it and gets 403", async () => {
+    const { got, attempts } = await run(
+      [file("done.pdf", Buffer.from("done")), file("slow.pdf", Buffer.from("slow"))],
+      {
+        "done.pdf": [COMPLETE, { status: 403, body: '{"error":"closed"}' }],
+        "slow.pdf": [{ status: 503, body: "" }, { status: 503, body: "" }, COMPLETE],
+      },
+      20_000,
+      `${URL}?batch`,
+    );
+    expect(attempts.get("done.pdf")).toBe(3);
+    expect(got.map((r) => [r.ok, r.why])).toEqual([
+      [true, 'commit answered 200 {"status": "complete"}'],
+      [true, 'commit answered 200 {"status": "complete"}'],
+    ]);
   }, 60_000);
 
   it("a 5xx that never clears is FAILED at the deadline, not before", async () => {
