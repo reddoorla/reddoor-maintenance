@@ -228,6 +228,64 @@ describe("ingestSubmission — a `launching` site skips repeat-sender only", () 
     expect(retroBucket).toHaveBeenCalledWith(["recCOPY"], "retro:duplicate-body");
   });
 
+  // The other path that could retro-bucket before #2009: a site-composed copy on a
+  // Turnstile-gated site whose token passed on the site's own host (#2008). Its
+  // visitorText is scanned, and a near-copy of it elsewhere buckets the incoming
+  // copy; on a launching site it still may not retro-bucket other sites' rows.
+  const gated = { url: "https://hedloc.com", requireTurnstile: true };
+  const composedCopy = {
+    email: "visitor@example.com",
+    message: 'Landing-page inquiry — opened from "Services".',
+    extra: {
+      composedMessage: true,
+      visitorText: "We offer guaranteed first-page rankings for hedloc.com, reply for pricing.",
+    },
+  };
+  const passOnSiteHost = { outcome: "pass" as const, hostname: "hedloc.com" };
+  const nearCopyElsewhere = {
+    exact: [],
+    similar: [{ id: "recNEAR", status: "new", siteId: "recOTHERSITE", email: "x@y.co" }],
+  };
+
+  it("buckets a composed, Turnstile-passed near-copy `similar-body`, but retro-buckets nothing", async () => {
+    const retroBucket = vi.fn().mockResolvedValue(undefined);
+    const d = deps({
+      getWebsiteBySlug: vi
+        .fn()
+        .mockResolvedValue(makeWebsiteRow({ id: "recHEDLOC", status: "launching", ...gated })),
+      createSubmission: echoCreate(),
+      findRecentDuplicates: vi.fn().mockResolvedValue(nearCopyElsewhere),
+      retroBucket,
+    });
+    const r = await ingestSubmission(d, "hedloc", composedCopy, passOnSiteHost);
+    expect(r).toMatchObject({ status: "accepted", notifyStatus: "skipped" });
+    expect(d.findRecentDuplicates).toHaveBeenCalledWith(
+      composedCopy.extra.visitorText,
+      expect.any(Date),
+    );
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "spam_auto", spamReason: "similar-body" }),
+    );
+    expect(retroBucket).not.toHaveBeenCalled();
+  });
+
+  it("CONTROL: the same composed copy on a `maintained` site retro-buckets the other row", async () => {
+    const retroBucket = vi.fn().mockResolvedValue(undefined);
+    const d = deps({
+      getWebsiteBySlug: vi
+        .fn()
+        .mockResolvedValue(makeWebsiteRow({ id: "recHEDLOC", status: "maintained", ...gated })),
+      createSubmission: echoCreate(),
+      findRecentDuplicates: vi.fn().mockResolvedValue(nearCopyElsewhere),
+      retroBucket,
+    });
+    await ingestSubmission(d, "hedloc", composedCopy, passOnSiteHost);
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "spam_auto", spamReason: "similar-body" }),
+    );
+    expect(retroBucket).toHaveBeenCalledExactlyOnceWith(["recNEAR"], "retro:duplicate-body");
+  });
+
   it("still buckets a submission the classifier calls spam", async () => {
     const d = deps({
       getWebsiteBySlug: vi.fn().mockResolvedValue(launching),
