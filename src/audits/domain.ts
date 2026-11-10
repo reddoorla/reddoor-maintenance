@@ -82,7 +82,8 @@ export async function checkDomain(url: string, deps: DomainDeps): Promise<Domain
 
 /** Options for the real deps. Production passes none: port 443, a 10 s idle budget, and Node's
  *  default trust store. `port`, `timeoutMs` and `ca` exist so tests can point the real TLS code
- *  at a local server; `ca` ADDS a trusted root, it never turns verification off. */
+ *  at a local server. `ca` REPLACES Node's default roots (it does not add to them), so it is for
+ *  tests only; verification itself is never turned off. */
 export type DomainDepsOptions = { port?: number; timeoutMs?: number; ca?: string };
 
 /** Real DNS + TLS. `certValidTo` opens a TLS socket (SNI = host), reads the peer cert's

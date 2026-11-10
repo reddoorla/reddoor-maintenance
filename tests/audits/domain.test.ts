@@ -357,13 +357,28 @@ describe("defaultDomainDeps against local TLS servers", () => {
     }
   });
 
+  it("a cert for another host fails closed, even from a trusted CA", async () => {
+    // The cert names `localhost`; the site is `127.0.0.1`, so the SAN does not match.
+    const port = await listen(tls.createServer({ key, cert }, (s) => s.end()));
+    const r = await domainAudit({
+      site: { ...localSite, deployedUrl: "https://127.0.0.1/" },
+      now,
+      domainDeps: defaultDomainDeps(now, { port, ca: cert }),
+    });
+    expect(r.status).toBe("warn");
+    expect(r.details).toMatchObject({
+      resolved: true,
+      certDaysRemaining: null,
+      reason: "tls ERR_TLS_CERT_ALTNAME_INVALID",
+    });
+  });
+
   it("a refused connection carries its code", async () => {
-    const port = await listen(net.createServer());
-    await new Promise((r) => servers.pop()!.close(() => r(undefined)));
+    // Port 1 (tcpmux) is privileged and unused, so nothing else can grab it mid-test.
     const r = await domainAudit({
       site: localSite,
       now,
-      domainDeps: defaultDomainDeps(now, { port }),
+      domainDeps: defaultDomainDeps(now, { port: 1 }),
     });
     expect(r.details).toMatchObject({ resolved: true, reason: "tls ECONNREFUSED" });
   });
