@@ -8,6 +8,7 @@ import {
   FORM_E2E_TESTMODE_UNDECLARED_SUMMARY,
   formE2eDeclaredNoneSummary,
   formE2eHealthUnreadableSummary,
+  formE2eUndeclaredFormSummary,
 } from "../../src/audits/form-e2e.js";
 import { stepRunScript, workflowPath, workflowSteps } from "./_helpers/workflow-source.js";
 import { fleetWriteOutput } from "./_helpers/fleet-write-output.js";
@@ -541,5 +542,44 @@ describe("fleet-form-e2e — a positive control runs before any client row is wr
     expect(s).toBeDefined();
     expect(s?.source).not.toContain("TURSO_");
     expect(s?.source).not.toContain("REDDOOR_FORM_E2E_LIVE");
+  });
+});
+
+describe("fleet-form-e2e — a form off the declared routes is uncovered, named with its path", () => {
+  /** From the audit's own summary builder, so a reword reds this file. */
+  const undeclaredForm = (site: string, path: string): string =>
+    resultBlock("skip", site, formE2eUndeclaredFormSummary(path));
+  const kept = (site: string, path: string) => ({
+    slug: site,
+    reason: `form-e2e: ${formE2eUndeclaredFormSummary(path)}`,
+  });
+
+  it("counts it, lists it as UNCOVERED, and names the site and path in its own warning", async () => {
+    const r = await runGate({
+      stdout:
+        `${probed(SIX_COVERED)}\n${selfSkips(["caltex"])}\n` +
+        `${undeclaredForm("williamson-construction-co", "/join-the-team")}\n` +
+        `${writeSummary(7, 0, [kept("williamson-construction-co", "/join-the-team")])}\n`,
+      exit: 0,
+    });
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("FLEET_FORM_E2E undeclared_form=1");
+    expect(r.out).toContain("FLEET_FORM_E2E_UNCOVERED sites=caltex,williamson-construction-co");
+    const warning =
+      r.out.split("\n").find((l) => l.startsWith("::warning::") && l.includes("forms.paths")) ?? "";
+    expect(warning).toContain("1 of 8 site(s)");
+    expect(warning).toContain("williamson-construction-co (/join-the-team)");
+    // Not an undeclared-testMode site: the self-skip warning names caltex only.
+    const selfSkip = r.out.split("\n").find((l) => l.includes("self-skipped")) ?? "";
+    expect(selfSkip).not.toContain("williamson");
+  });
+
+  it("prints undeclared_form=0 and no such warning on a sweep without one", async () => {
+    const r = await runGate({
+      stdout: `${probed(SIX_COVERED)}\n${writeSummary(6, 0)}\n`,
+      exit: 0,
+    });
+    expect(r.out).toContain("FLEET_FORM_E2E undeclared_form=0");
+    expect(r.out).not.toContain("forms.paths");
   });
 });

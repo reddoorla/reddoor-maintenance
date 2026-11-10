@@ -6,80 +6,128 @@ import { siteLabel } from "../util/site.js";
 
 /** Result of probing a site's domain: did DNS resolve, and how many days until the TLS cert
  *  expires (null when unresolved or no usable cert). The auto-tick verdict is recomputed from
- *  the persisted fields — this is just the raw signal. */
+ *  the persisted fields — this is just the raw signal. `reason` says why a probe failed
+ *  (`dns ENOTFOUND`, `tls ECONNRESET`, `tls timeout after 10000ms`, …), null when it did not:
+ *  run 42711182637 (2026-11-09) logged `domain warn msot` with no reason, and none survived. */
 export type DomainCheck = {
   resolved: boolean;
   certDaysRemaining: number | null;
+  reason: string | null;
 };
 
 /** Injected IO so the check is unit-testable without real DNS/TLS. `lookup` throws when the host
- *  doesn't resolve; `certValidTo` returns the cert's notAfter date, or null when there's none. */
+ *  doesn't resolve; `certValidTo` returns the cert's notAfter date, or throws why it has none
+ *  (null is still read as "no certificate returned"). */
 export type DomainDeps = {
   lookup: (host: string) => Promise<void>;
   certValidTo: (host: string) => Promise<Date | null>;
   now: Date;
 };
 
+/** The TLS socket went idle for the whole budget: no handshake (or no TCP) answer at all. A
+ *  distinct type so a timeout is never reported as a DNS failure or as an error code. */
+export class DomainTimeoutError extends Error {
+  constructor(readonly timeoutMs: number) {
+    super(`timeout after ${timeoutMs}ms`);
+    this.name = "DomainTimeoutError";
+  }
+}
+
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const TLS_TIMEOUT_MS = 10_000;
+
+/** One short token for a failure: the error's `code` when Node gave one, else its message. */
+function why(stage: "dns" | "tls", err: unknown): string {
+  if (err instanceof DomainTimeoutError) return `${stage} ${err.message}`;
+  const code = (err as { code?: unknown } | null)?.code;
+  if (typeof code === "string" && code) return `${stage} ${code}`;
+  const message = err instanceof Error ? err.message : String(err);
+  return `${stage} ${message || "unknown error"}`;
+}
 
 /**
  * Probe one URL's domain: resolve DNS, then read the TLS certificate expiry. PURE given its deps.
  * Any failure degrades safely — an unresolvable host or a missing/unreadable cert yields
- * `certDaysRemaining: null` (which the auto-tick rule treats as "not provable", never a pass).
+ * `certDaysRemaining: null` (which the auto-tick rule treats as "not provable", never a pass) —
+ * and keeps its reason.
  */
 export async function checkDomain(url: string, deps: DomainDeps): Promise<DomainCheck> {
   let host: string;
   try {
     host = new URL(url).hostname;
   } catch {
-    return { resolved: false, certDaysRemaining: null };
+    return { resolved: false, certDaysRemaining: null, reason: "invalid URL" };
   }
   try {
     await deps.lookup(host);
-  } catch {
-    return { resolved: false, certDaysRemaining: null };
+  } catch (err) {
+    return { resolved: false, certDaysRemaining: null, reason: why("dns", err) };
   }
   let validTo: Date | null;
   try {
     validTo = await deps.certValidTo(host);
-  } catch {
-    validTo = null;
+  } catch (err) {
+    return { resolved: true, certDaysRemaining: null, reason: why("tls", err) };
   }
-  if (!validTo || Number.isNaN(validTo.getTime()))
-    return { resolved: true, certDaysRemaining: null };
+  if (!validTo)
+    return { resolved: true, certDaysRemaining: null, reason: "tls no certificate returned" };
+  if (Number.isNaN(validTo.getTime()))
+    return { resolved: true, certDaysRemaining: null, reason: "tls certificate expiry unreadable" };
   return {
     resolved: true,
     certDaysRemaining: Math.floor((validTo.getTime() - deps.now.getTime()) / MS_PER_DAY),
+    reason: null,
   };
 }
 
+/** Options for the real deps. Production passes none: port 443, a 10 s idle budget, and Node's
+ *  default trust store. `port`, `timeoutMs` and `ca` exist so tests can point the real TLS code
+ *  at a local server. `ca` REPLACES Node's default roots (it does not add to them), so it is for
+ *  tests only; verification itself is never turned off. */
+export type DomainDepsOptions = { port?: number; timeoutMs?: number; ca?: string };
+
 /** Real DNS + TLS. `certValidTo` opens a TLS socket (SNI = host), reads the peer cert's
- *  `valid_to`, and closes immediately — no HTTP request. */
-export function defaultDomainDeps(now: Date): DomainDeps {
+ *  `valid_to`, and closes immediately — no HTTP request. A failure rejects with the socket's
+ *  error (its `code` is the reason) or a `DomainTimeoutError`. */
+export function defaultDomainDeps(now: Date, opts: DomainDepsOptions = {}): DomainDeps {
+  const port = opts.port ?? 443;
+  const timeoutMs = opts.timeoutMs ?? TLS_TIMEOUT_MS;
   return {
     lookup: async (host) => {
       await dnsPromises.lookup(host);
     },
     certValidTo: (host) =>
-      new Promise<Date | null>((resolvePromise) => {
+      new Promise<Date | null>((resolvePromise, rejectPromise) => {
         // `rejectUnauthorized: true` is what makes this check HONEST and the green box truthful:
         // the secureConnect callback only fires on a trusted, host-matching (SNI), unexpired
         // chain — an expired / self-signed / untrusted-CA / SAN-mismatched cert fires "error"
-        // → null → fail. The whole "valid cert" claim depends on this. NEVER set it false.
+        // → fail. The whole "valid cert" claim depends on this. NEVER set it false.
         // `socket.authorized` is asserted belt-and-suspenders before trusting `valid_to`.
         const socket = tls.connect(
-          { host, port: 443, servername: host, timeout: 10_000, rejectUnauthorized: true },
+          {
+            host,
+            port,
+            servername: host,
+            timeout: timeoutMs,
+            rejectUnauthorized: true,
+            ...(opts.ca ? { ca: opts.ca } : {}),
+          },
           () => {
-            const cert = socket.authorized ? socket.getPeerCertificate() : null;
+            if (!socket.authorized) {
+              const code = String(socket.authorizationError ?? "unauthorized");
+              socket.destroy();
+              rejectPromise(Object.assign(new Error(code), { code }));
+              return;
+            }
+            const cert = socket.getPeerCertificate();
             socket.end();
-            const validTo = cert && cert.valid_to ? new Date(cert.valid_to) : null;
-            resolvePromise(validTo);
+            resolvePromise(cert && cert.valid_to ? new Date(cert.valid_to) : null);
           },
         );
-        socket.on("error", () => resolvePromise(null));
+        socket.on("error", (err) => rejectPromise(err));
         socket.on("timeout", () => {
           socket.destroy();
-          resolvePromise(null);
+          rejectPromise(new DomainTimeoutError(timeoutMs));
         });
       }),
     now,
@@ -112,15 +160,20 @@ export async function domainAudit(ctx: AuditContext): Promise<AuditResult> {
       ? "pass"
       : "warn";
   const summary = !check.resolved
-    ? "did not resolve"
+    ? `did not resolve (${check.reason})`
     : check.certDaysRemaining === null
-      ? "resolved, no usable TLS cert"
+      ? `resolved, no usable TLS cert (${check.reason})`
       : `resolved, cert ${check.certDaysRemaining}d remaining`;
   return {
     audit: "domain",
     site: label,
     status,
     summary,
-    details: { resolved: check.resolved, certDaysRemaining: check.certDaysRemaining, checkedAt },
+    details: {
+      resolved: check.resolved,
+      certDaysRemaining: check.certDaysRemaining,
+      reason: check.reason,
+      checkedAt,
+    },
   };
 }
