@@ -335,7 +335,7 @@ describe("lockfile regressions", () => {
       "    dependencies:",
       ...Object.entries(deps).flatMap(([n, [spec, v]]) => [
         `      '${n}':`,
-        `        specifier: ${spec}`,
+        `        specifier: '${spec}'`,
         `        version: ${v}`,
       ]),
       "",
@@ -384,6 +384,25 @@ describe("lockfile regressions", () => {
     ]);
   });
 
+  it("an exact direct pin does not excuse a transitive copy in the same line", () => {
+    const staging = doc({ foo: ["1.5.0", "1.5.0"] }, ["foo@1.5.0", "foo@1.9.0"]);
+    const merged = doc({ foo: ["1.5.0", "1.5.0"] }, ["foo@1.5.0"]);
+    expect(lockfileRegressions(merged, { staging })).toEqual([
+      { name: "foo", side: "staging", had: "1.9.0", merged: "1.5.0" },
+    ]);
+    // the pinned copy itself moving down on purpose is still exempt
+    const pinned = doc({ foo: ["1.4.0", "1.4.0"] }, ["foo@1.4.0"]);
+    expect(
+      lockfileRegressions(pinned, { staging: doc({ foo: ["1.5.0", "1.5.0"] }, ["foo@1.5.0"]) }),
+    ).toEqual([]);
+  });
+
+  it("a gone line whose range resolved to a newer version is an upgrade, not a put-back", () => {
+    const staging = doc({ qux: ["*", "2.1.0"] }, ["qux@2.1.0", "qux@1.9.0"]);
+    const merged = doc({ qux: ["*", "2.1.0"] }, ["qux@2.1.0"]);
+    expect(lockfileRegressions(merged, { staging })).toEqual([]);
+  });
+
   it("an npm: alias's range is not the range of the package it shadows", () => {
     const staging = doc({ react: ["npm:@preact/compat@^17.0.0", "17.0.2"] }, ["react@18.3.1"]);
     const merged = doc({ react: ["npm:@preact/compat@^17.0.0", "17.0.2"] }, ["react@18.3.0"]);
@@ -396,10 +415,13 @@ describe("lockfile regressions", () => {
     const staging = doc({}, ["bar@1.2.0"]);
     const merged = ["overrides:", "  bar: 1.0.0", "", doc({}, ["bar@1.0.0"])].join("\n");
     expect(lockfileRegressions(merged, { staging })).toEqual([]);
-    const scoped = ["overrides:", "  'foo>@s/bar@^1': 1.0.0", "", doc({}, ["@s/bar@1.0.0"])].join(
-      "\n",
-    );
+    const scoped = ["overrides:", "  '@s/bar@^1': 1.0.0", "", doc({}, ["@s/bar@1.0.0"])].join("\n");
     expect(lockfileRegressions(scoped, { staging: doc({}, ["@s/bar@1.2.0"]) })).toEqual([]);
+    // an override under one parent (`foo@1>baz`) does not speak for baz's other copies
+    const parent = ["overrides:", "  'foo@1>baz': 1.0.0", "", doc({}, ["baz@1.0.0"])].join("\n");
+    expect(lockfileRegressions(parent, { staging: doc({}, ["baz@1.0.0", "baz@1.9.0"]) })).toEqual([
+      { name: "baz", side: "staging", had: "1.9.0", merged: "1.0.0" },
+    ]);
   });
 
   it("reads pnpm 8's `/name@version` keys, so a side on the older format is still compared", () => {
@@ -417,7 +439,7 @@ describe("lockfile regressions", () => {
     ]);
   });
 
-  it("compares the newest version of each name, and skips versions that are not semver", () => {
+  it("compares the newest version of each line, and skips versions that are not semver", () => {
     const staging = doc({}, ["a@1.0.0", "a@2.1.0", "t@https://example.com/t.tgz"]);
     const merged = doc({}, ["a@2.1.0", "a@1.0.1", "t@file:vendor/t.tgz"]);
     expect(lockfileRegressions(merged, { staging })).toEqual([]);

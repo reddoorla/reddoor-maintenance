@@ -33,13 +33,15 @@
 //      file but the lockfile;
 //   6. check what pnpm chose. Take every `name@version` in either side's lockfile (every
 //      `packages:` section, in both of pnpm 12's YAML documents) line by line: a version's line
-//      is its major, or `0.minor` below 1.0.0, so every copy of a name is compared, not only its
-//      newest. For each line a side has, the newest merged version in that line must be at
-//      least the side's newest there. Exempt: a line the merged lockfile no longer has, unless
-//      a merged importer `specifier` (the merged package.json's range) still admits the side's
-//      version (nothing depends on that copy now); a version the range of the importer copy
-//      resolved in that line rejects, or an `overrides` pin whose selector covers it (a
-//      downgrade on purpose); and versions that are not semver (`file:`, `link:`, a tarball).
+//      is its major, or `0.minor` below 1.0.0, so a package's older majors are compared too,
+//      not only its newest. For each line a side has, the newest merged version in that line
+//      must be at least the side's newest there (two copies inside one line are compared by
+//      their newest only). Exempt: a line the merged lockfile no longer has, unless a merged
+//      importer `specifier` (the merged package.json's range) still admits the side's version
+//      and resolved lower (nothing depends on that copy now); a downgrade on purpose, where the
+//      side's version was a direct dependency's resolved version and the merged range for it
+//      rejects that version, or an `overrides` pin (not one scoped under a parent, `a>b`)
+//      whose selector covers it; and versions that are not semver (`file:`, `link:`, a tarball).
 //      On 2026-11-10 pnpm 12.5.1 merged alamo-anatomy's and mantis-landscaping's lockfiles
 //      cleanly and still put staging's rolldown 1.3.0, cookie 2.0.2 and @netlify/types 3.3.1
 //      back to main's older versions (alamo-anatomy#108, mantis-landscaping#87);
@@ -49,8 +51,8 @@
 //      pnpm-workspace.yaml, .npmrc and .pnpmfile.cjs/.mjs match the merged tree's, so its
 //      lockfile already answers them. The seeded result goes through steps 5 and 6 again,
 //      against both sides, so a seed that drops the other side's lockfile-only change stops
-//      too. If no seed passes, stop with exit 2 and name each package put back: that lockfile
-//      is a human's;
+//      too. A pnpm failure during a seed stops with exit 1. If no seed passes, stop with exit 2,
+//      name each package put back and why each side could not seed: that lockfile is a human's;
 //   8. commit it as a merge commit, so `main` is a parent and the promotion PR has nothing
 //      left to merge from `main`, and create <branch> at it in the checkout.
 //
@@ -70,8 +72,9 @@ import { flagValue, isMain } from "./lib/cli.mjs";
 
 export const LOCKFILE = "pnpm-lock.yaml";
 const CHECKED =
-  "Checked: no copy of a package is older than on either side, beyond downgrades the merged " +
-  "package.json ranges or overrides ask for.";
+  "Checked: no major (or 0.minor) line of any package has a newer version on either side than " +
+  "here, beyond downgrades the merged package.json ranges or overrides ask for, lines nothing " +
+  "depends on any more, and versions that are not semver.";
 const USAGE =
   "usage: node scripts/staging-bring-main.mjs --dir <site checkout> [--main <ref>] [--staging <ref>]\n" +
   '                                           [--branch <name>] [--no-fetch] [--pnpm "<command>"]\n' +
@@ -313,7 +316,8 @@ function lockfileRanges(text) {
     out.set(name, [...(out.get(name) ?? []), { range, resolved, selector }]);
   for (const d of docs(text)) {
     for (const [key, range] of Object.entries(d.overrides ?? {}))
-      if (typeof range === "string") {
+      // `foo@1>baz` pins baz only under foo@1, which says nothing of baz's other copies
+      if (typeof range === "string" && !key.includes(">")) {
         const [name, selector] = overrideTarget(key);
         add(name, range, undefined, selector);
       }
@@ -369,17 +373,27 @@ export function lockfileRegressions(merged, sides) {
   const out = [];
   for (const [side, text] of Object.entries(sides)) {
     if (text === undefined) continue;
+    // the versions this side's importers resolved directly: only those a direct range speaks for
+    const direct = new Set(
+      [...lockfileRanges(text)].flatMap(([name, rs]) =>
+        rs.filter((r) => r.resolved !== undefined).map((r) => `${name}@${r.resolved}`),
+      ),
+    );
     for (const [name, lines] of byLine(lockfilePackages(text)))
       for (const [line, vs] of lines) {
         const had = newest(vs);
         const rs = ranges.get(name) ?? [];
         const got = now.get(name)?.get(line);
         if (!got) {
-          // the copy is gone: a regression only if a range still asks for it
-          if (rs.some((r) => r.resolved !== undefined && satisfies(had, r.range) === true)) {
-            const left = [...(now.get(name)?.values() ?? [])].flat();
-            out.push({ name, side, had, merged: left.length ? newest(left) : "(none)" });
-          }
+          // the copy is gone: a regression only if a range still admits it and resolved lower
+          const lower = rs.find(
+            (r) =>
+              r.resolved !== undefined &&
+              satisfies(had, r.range) === true &&
+              parseVersion(r.resolved) &&
+              compareVersions(r.resolved, had) < 0,
+          );
+          if (lower) out.push({ name, side, had, merged: lower.resolved });
           continue;
         }
         const best = newest(got);
@@ -387,7 +401,7 @@ export function lockfileRegressions(merged, sides) {
         const mine = rs.filter((r) =>
           r.resolved === undefined
             ? r.selector === undefined || satisfies(had, r.selector) === true
-            : lineOf(r.resolved) === line,
+            : lineOf(r.resolved) === line && direct.has(`${name}@${had}`),
         );
         if (mine.some((r) => satisfies(had, r.range) === false)) continue;
         out.push({ name, side, had, merged: best });
@@ -406,7 +420,7 @@ export function lockfileRegressions(merged, sides) {
   );
 }
 
-/** `cookie 2.0.2 (staging) -> 2.0.1, …`, cut to `limit` names with a count of the rest. */
+/** `cookie 2.0.2 (staging) -> 2.0.1, …`, cut to `limit` entries with a count of the rest. */
 export function describeRegressions(rs, limit = Infinity) {
   const shown = rs.slice(0, limit).map((r) => `${r.name} ${r.had} (${r.side}) -> ${r.merged}`);
   return shown.join(", ") + (rs.length > limit ? `, and ${rs.length - limit} more` : "");
@@ -458,7 +472,8 @@ export function bringMain(o) {
 
     let regressions = [];
     let seededFrom = null;
-    if (existsSync(join(wt, LOCKFILE))) {
+    const hasLockfile = existsSync(join(wt, LOCKFILE));
+    if (hasLockfile) {
       const [cmd, ...pre] = pnpmCommand(wt, o.pnpm);
       const env = { ...process.env, COREPACK_ENABLE_DOWNLOAD_PROMPT: "0" };
       const args = [
@@ -554,8 +569,10 @@ export function bringMain(o) {
       : conflicted.includes(LOCKFILE)
         ? `${LOCKFILE} conflicted, and pnpm merged it (\`pnpm install --lockfile-only\`), not a hand edit. ` +
           CHECKED
-        : `${LOCKFILE} merged as text, then went through \`pnpm install --lockfile-only\`. ` +
-          CHECKED;
+        : hasLockfile
+          ? `${LOCKFILE} merged as text, then went through \`pnpm install --lockfile-only\`. ` +
+            CHECKED
+          : `No ${LOCKFILE}, so nothing to merge or check.`;
     mustGit(wt, [
       "commit",
       "-q",
@@ -610,13 +627,13 @@ if (isMain(import.meta.url)) {
       const tried = [
         ...r.seeds.map(
           (x) =>
-            `Seeded from ${x.side}'s lockfile instead, it put back ${describeRegressions(x.regressions, 8)}.`,
+            `Seeded from ${x.side}'s lockfile instead, it put back ${describeRegressions(x.regressions)}.`,
         ),
         ...r.skipped.map((x) => `Not seeded from ${x.side}'s lockfile: ${x.reason}.`),
       ].join(" ");
       console.error(
         `stopped: pnpm's merge of ${LOCKFILE} put back versions a side already had: ` +
-          `${describeRegressions(r.regressions, 8)}. ${tried} Nothing was made; this lockfile is a human's ` +
+          `${describeRegressions(r.regressions)}. ${tried} Nothing was made; this lockfile is a human's ` +
           '(docs/runbooks/staging-flow.md, "Promotion, each time").',
       );
       code = 2;

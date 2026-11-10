@@ -5,8 +5,8 @@
     "edits": [
       {
         "file": "scripts/staging-bring-main.mjs",
-        "find": "    if (existsSync(join(wt, LOCKFILE))) {",
-        "replace": "    if (false && existsSync(join(wt, LOCKFILE))) {"
+        "find": "    if (hasLockfile) {",
+        "replace": "    if (false && hasLockfile) {"
       }
     ],
     "test": "tests/scripts/staging-bring-main.test.ts",
@@ -357,6 +357,45 @@
       {
         "file": "scripts/staging-bring-main.mjs",
         "find": "  \"pnpm-workspace.yaml\",\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M29-pin-speaks-for-any-copy",
+    "why": "an exact direct pin excuses a transitive copy in its line (review round 2's major)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": ": lineOf(r.resolved) === line && direct.has(`${name}@${had}`),",
+        "replace": ": lineOf(r.resolved) === line,"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M30-gone-line-any-range",
+    "why": "a gone line is reported whenever a range admits it, even where the range resolved higher",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "compareVersions(r.resolved, had) < 0,",
+        "replace": "true,"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M31-parent-override-counts",
+    "why": "an override scoped under one parent excuses every copy",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": " && !key.includes(\">\")",
         "replace": ""
       }
     ],

@@ -9,7 +9,7 @@ export interface Options {
   pnpm: string | undefined;
 }
 
-/** A copy (one major line, or `0.minor`) of a package that the merged lockfile has older than `side` had it. */
+/** A line (a major, or `0.minor`) of a package whose newest merged version is older than `side`'s newest there. */
 export interface Regression {
   name: string;
   side: string;

@@ -150,13 +150,14 @@ setting or the order below, so this is a runbook rather than a template there.
   `rolldown` 1.3.0, `cookie` 2.0.2 and `@netlify/types` 3.3.1 back to `main`'s
   older versions on both (alamo-anatomy#108, mantis-landscaping#87). So it
   reads every `name@version` in both sides' lockfiles (both of pnpm 12's YAML
-  documents) by line, a line being a major, or `0.minor` below 1.0.0, so every
-  copy of a package counts, not only its newest. For each line a side has, the
-  merged lockfile's newest version in that line must be at least the side's.
-  It lets three things through: a line nothing depends on any more (no merged
-  `package.json` range still admits it), a downgrade the merged `package.json`
-  range for that copy or an `overrides` pin asks for, and versions that are not
-  semver (`file:`, `link:`, a tarball).
+  documents) by line, a line being a major, or `0.minor` below 1.0.0, so a
+  package's older majors are checked too, not only its newest. For each line a
+  side has, the merged lockfile's newest version in that line must be at least
+  the side's (two copies inside one line are compared by their newest only).
+  It lets three things through: a line nothing depends on any more, a
+  downgrade on purpose (the merged `package.json` range of a direct dependency
+  that resolved to that version, or an `overrides` pin that is not scoped under
+  a parent), and versions that are not semver (`file:`, `link:`, a tarball).
 - **On a regression it retries from a side's own lockfile**, as both incidents
   were fixed by hand: `staging`'s first, then `main`'s, and only a side whose
   `package.json` files, `patches/`, `pnpm-workspace.yaml`, `.npmrc` and
@@ -164,7 +165,7 @@ setting or the order below, so this is a runbook rather than a template there.
   answers them. The seeded result is checked against both sides the same way,
   so a seed that would drop the other side's lockfile-only change is refused
   too. Its output and commit message say when it seeded. If no seed passes, it
-  stops with exit 2, names each package put back and why each side could not
+  stops with exit 2, names every package put back and why each side could not
   seed, and makes nothing: rebuild that lockfile by hand from the newer side's
   and record why in the site's journal.
 - **Merge its PR as a merge commit, while `staging` is still where the script
