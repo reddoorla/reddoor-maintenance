@@ -1,0 +1,77 @@
+[
+  {
+    "id": "d1-retry-every-fail",
+    "why": "Every desktop fail is retried, so a page that loaded but failed (no <main>, a JS error) is hidden by a second load that passes",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "  return first.threw ? probeDesktopOnce(browser, url, engine, RETRY_PAGE_TIMEOUT_MS) : first;",
+        "replace": "  return first.ok ? first : probeDesktopOnce(browser, url, engine, RETRY_PAGE_TIMEOUT_MS);"
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "d2-no-retry",
+    "why": "One thrown navigation fails the route again (the 2026-11-10 Reddoor Broken)",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "  return first.threw ? probeDesktopOnce(browser, url, engine, RETRY_PAGE_TIMEOUT_MS) : first;",
+        "replace": "  return first;"
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "d3-retries-twice",
+    "why": "A second retry multiplies a hanging site's cost against fleet-lighthouse's 75-minute budget",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "  return first.threw ? probeDesktopOnce(browser, url, engine, RETRY_PAGE_TIMEOUT_MS) : first;",
+        "replace": "  if (!first.threw) return first;\n  const second = await probeDesktopOnce(browser, url, engine, RETRY_PAGE_TIMEOUT_MS);\n  return second.threw ? probeDesktopOnce(browser, url, engine, RETRY_PAGE_TIMEOUT_MS) : second;"
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "d4-reuses-first-context",
+    "why": "The retry runs in the first try's context, carrying its state, instead of a fresh one",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "): Promise<DesktopProbe> {\n  const ctx = await browser.newContext({ viewport: DESKTOP_VIEWPORT });",
+        "replace": "): Promise<DesktopProbe> {\n  const ctx =\n    gotoTimeoutMs === RETRY_PAGE_TIMEOUT_MS && reusedDesktopCtx\n      ? reusedDesktopCtx\n      : await browser.newContext({ viewport: DESKTOP_VIEWPORT });\n  reusedDesktopCtx = ctx;"
+      },
+      {
+        "file": "src/audits/browser.ts",
+        "find": "    return { ok: false, status: navStatus, threw: !navigated };\n  } finally {\n    await ctx.close().catch(() => {});\n  }",
+        "replace": "    return { ok: false, status: navStatus, threw: !navigated };\n  } finally {\n    if (gotoTimeoutMs === RETRY_PAGE_TIMEOUT_MS) await ctx.close().catch(() => {});\n  }"
+      },
+      {
+        "file": "src/audits/browser.ts",
+        "find": "/** What chromium's desktop load reads off the page for the route-level checks. */",
+        "replace": "let reusedDesktopCtx: import(\"@playwright/test\").BrowserContext | undefined;\n/** What chromium's desktop load reads off the page for the route-level checks. */"
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "d5-retry-full-cap",
+    "why": "The retry runs at the first try's 30 s cap, so a route that hangs twice costs 60 s per engine",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "  return first.threw ? probeDesktopOnce(browser, url, engine, RETRY_PAGE_TIMEOUT_MS) : first;",
+        "replace": "  return first.threw ? probeDesktopOnce(browser, url, engine) : first;"
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  }
+]
