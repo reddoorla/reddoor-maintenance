@@ -152,9 +152,13 @@ setting or the order below, so this is a runbook rather than a template there.
   checks each dependency in both sides' lockfiles (both of pnpm 12's YAML
   documents): wherever the merged lockfile keeps the importer or the exact
   package version that depended on a version, it must resolve it at least as
-  new now. It lets through a dependent the merged lockfile no longer has
+  new now. A dependent the merged lockfile moved up its own line (`main`'s
+  Renovate took `foo` 1.0.0 to 1.0.1) still counts: each newer copy in that line
+  must resolve the dependency at least as new. An `npm:` alias (`foo: npm:bar@^1`) is checked as the package it names, under its alias. It lets
+  through a dependent the merged lockfile no longer has in that line
   (nothing depends on that copy now), a downgrade on purpose (the merged
-  `package.json` range rejects the version the side had, or an `overrides`
+  `package.json` range, a `catalog:` one read through the lockfile's catalogs,
+  rejects the version the side had, or an `overrides`
   pin that is not scoped under a parent), peers (they follow the site's own choice, which
   is checked), and versions that are not semver (`file:`, `link:`, a tarball).
   A version no dependent records (a lockfile with no snapshots, or a version
@@ -168,8 +172,21 @@ setting or the order below, so this is a runbook rather than a template there.
   so a seed that would drop the other side's lockfile-only change is refused
   too. Its output and commit message say when it seeded. If no seed passes, it
   stops with exit 2, names every package put back and why each side could not
-  seed, and makes nothing: rebuild that lockfile by hand from the newer side's
-  and record why in the site's journal.
+  seed, and makes nothing. Often neither side is newer on everything (`staging`
+  newer on one package, `main` on another), so neither side's lockfile is the
+  answer as it stands. By hand: on a branch cut from `staging`, run
+  `git merge main`, take `staging`'s lockfile (`git checkout --ours pnpm-lock.yaml`) and run `pnpm install --lockfile-only`. Then bring forward
+  each package the output names as `(main)`, for example with `pnpm update <pkg>`, leaving `package.json` as the merge made it, and re-check the
+  result against both sides from the site checkout:
+
+  ```sh
+  node -e "import('<maintenance>/scripts/staging-bring-main.mjs').then(({lockfileRegressions:r})=>{const s=(x)=>require('child_process').execSync('git show '+x+':pnpm-lock.yaml',{encoding:'utf8'});console.log(r(require('fs').readFileSync('pnpm-lock.yaml','utf8'),{main:s('<main sha>'),staging:s('<staging sha>')}))})"
+  ```
+
+  It must print `[]`, or only downgrades you mean (write those in the commit
+  message). Commit the merge, record why in the site's journal, and land it
+  exactly as below.
+
 - **Merge its PR as a merge commit, while `staging` is still where the script
   started.** A worker lands it, under AUTONOMY.md's merge authority. Push the branch it names and open its PR into `staging`. Just
   before merging on green, read `staging`'s live tip

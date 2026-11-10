@@ -319,16 +319,39 @@ const aliasOfAnother = (name, specifier) => {
 const stripPeers = (v) => String(v).split("(")[0];
 
 /**
+ * A resolution as [package, version]: `1.2.0` under `foo` is foo's; `bar@1.2.0` under `foo` (an
+ * `npm:` alias of another package, as pnpm 9 writes it) is bar's.
+ */
+const resolved = (key, v) => {
+  const s = stripPeers(v);
+  const at = s.lastIndexOf("@");
+  return !parseVersion(s) && at > 0 && parseVersion(s.slice(at + 1))
+    ? [s.slice(0, at), s.slice(at + 1)]
+    : [key, s];
+};
+
+/** `foo@1.0.0` → [`foo`, `1.0.0`] */
+const splitKey = (k) => [k.slice(0, k.lastIndexOf("@")), k.slice(k.lastIndexOf("@") + 1)];
+
+/**
  * Who depends on what. `parents`: `name@version` → each importer (`env:<path>` in pnpm 12's
- * own first document, `project:<path>` otherwise) or package snapshot that resolved it; `importers`: importer → name →
- * its `specifier` (the package.json range) and resolved version; `deps`: package → name → the
- * versions its snapshot resolved, keyed by the snapshot (peer variant and all) and, as
- * `~name@version`, across all its variants, peers left out; `overrides`: each top-level override that is not scoped
- * under a parent (`a>b` pins b only under a), with the selector its key carries. Aliases
- * (`npm:`, `name@version` values) and other non-semver resolutions are left out.
+ * own first document, `project:<path>` otherwise) or package snapshot that resolved it, with
+ * the `key` it sits under (an alias's own name); `importers`: importer → key → its `specifier`
+ * (the package.json range, a `catalog:` one read through the lockfile's catalogs), the package
+ * it resolves and its version; `deps`: package → `key\0package` → the versions its snapshot
+ * resolved, keyed by the snapshot (peer variant and all) and, as `~name@version`, across all
+ * its variants, peers left out; `copies`: package → the versions it has snapshots for;
+ * `overrides`: each top-level override that is not scoped under a parent (`a>b` pins b only
+ * under a), with the selector its key carries. Non-semver resolutions are left out.
  */
 function lockfileGraph(text) {
-  const g = { parents: new Map(), importers: new Map(), deps: new Map(), overrides: [] };
+  const g = {
+    parents: new Map(),
+    importers: new Map(),
+    deps: new Map(),
+    copies: new Map(),
+    overrides: [],
+  };
   const parent = (child, p) => g.parents.set(child, [...(g.parents.get(child) ?? []), p]);
   for (const d of docs(text)) {
     for (const [key, range] of Object.entries(d.overrides ?? {}))
@@ -347,6 +370,12 @@ function lockfileGraph(text) {
           (k) => k === "packageManagerDependencies" || k === "configDependencies",
         ),
       );
+    // `catalog:` and `catalog:<name>` name a range in the lockfile's own catalogs
+    const catalog = (name, spec) => {
+      if (typeof spec !== "string" || !spec.startsWith("catalog:")) return spec;
+      const range = d.catalogs?.[spec.slice(8) || "default"]?.[name]?.specifier;
+      return typeof range === "string" ? range : spec;
+    };
     for (const [path, imp] of Object.entries(d.importers ?? {})) {
       const key = `${env ? "env" : "project"}:${path}`;
       const m = new Map();
@@ -354,12 +383,13 @@ function lockfileGraph(text) {
         if (group && typeof group === "object")
           for (const [name, e] of Object.entries(group)) {
             if (!e || typeof e !== "object" || e.version === undefined) continue;
-            const version = stripPeers(e.version);
+            const [pkg, version] = resolved(name, e.version);
             m.set(name, {
-              specifier: typeof e.specifier === "string" ? e.specifier : undefined,
+              specifier: typeof e.specifier === "string" ? catalog(name, e.specifier) : undefined,
+              pkg,
               version,
             });
-            if (parseVersion(version)) parent(`${name}@${version}`, { importer: key });
+            if (parseVersion(version)) parent(`${pkg}@${version}`, { importer: key, key: name });
           }
       g.importers.set(key, m);
     }
@@ -369,19 +399,24 @@ function lockfileGraph(text) {
     for (const [k, snap] of Object.entries(d.snapshots ?? {})) {
       const full = k.replace(/^\//, "");
       const pk = stripPeers(full);
-      // a peer resolves to the copy the site chose, and the importer's own edge checks that
+      // a peer resolves to the copy the site chose: its importer edge checks it when the site
+      // names it, and otherwise (an auto-installed peer) another edge or the line fallback does
       const own = (name) => !(peers.get(pk) ?? []).includes(name);
       // each peer variant (`foo@1.0.0(react@18.0.0)`) on its own, and all of them together
       // (`~foo@1.0.0`) for a variant the other lockfile does not have
       const exact = g.deps.get(full) ?? new Map();
       const all = g.deps.get(`~${pk}`) ?? new Map();
+      const [base, baseVersion] = splitKey(pk);
+      if (!(g.copies.get(base) ?? []).includes(baseVersion))
+        g.copies.set(base, [...(g.copies.get(base) ?? []), baseVersion]);
       for (const group of ["dependencies", "optionalDependencies"])
         for (const [name, v] of Object.entries(snap?.[group] ?? {})) {
-          const version = stripPeers(v);
+          const [pkg, version] = resolved(name, v);
           if (!parseVersion(version) || !own(name)) continue;
-          exact.set(name, [...(exact.get(name) ?? []), version]);
-          all.set(name, [...(all.get(name) ?? []), version]);
-          parent(`${name}@${version}`, { snapshot: full, base: pk });
+          const at = `${name}\0${pkg}`;
+          exact.set(at, [...(exact.get(at) ?? []), version]);
+          all.set(at, [...(all.get(at) ?? []), version]);
+          parent(`${pkg}@${version}`, { snapshot: full, base: pk, key: name });
         }
       g.deps.set(full, exact);
       g.deps.set(`~${pk}`, all);
@@ -397,6 +432,7 @@ const lineOf = (v) => {
 };
 
 const newest = (vs) => vs.reduce((a, b) => (a && compareVersions(a, b) >= 0 ? a : b), undefined);
+const oldest = (vs) => vs.reduce((a, b) => (a && compareVersions(a, b) <= 0 ? a : b), undefined);
 
 /** name → line → its semver versions */
 function byLine(pkgs) {
@@ -447,8 +483,9 @@ export function lockfileRegressions(merged, sides) {
           for (const p of ps) {
             let to;
             if (p.importer) {
-              const e = m.importers.get(p.importer)?.get(name);
-              if (!e || !parseVersion(e.version)) continue;
+              // under the key the side held it by: `foo: npm:bar@^1` is bar's edge, held by foo
+              const e = m.importers.get(p.importer)?.get(p.key);
+              if (!e || e.pkg !== name || !parseVersion(e.version)) continue;
               // an `npm:` alias of another package (`react: npm:@preact/compat@^17`) ranges over
               // that package, so it excuses nothing here; `cookie: npm:cookie@^0.7.0` is cookie's own
               if (
@@ -459,9 +496,21 @@ export function lockfileRegressions(merged, sides) {
                 continue;
               to = e.version;
             } else {
-              const got = m.deps.get(p.snapshot)?.get(name) ?? m.deps.get(`~${p.base}`)?.get(name);
-              if (!got) continue;
-              to = newest(got);
+              const at = `${p.key}\0${name}`;
+              let got = m.deps.get(p.snapshot)?.get(at) ?? m.deps.get(`~${p.base}`)?.get(at);
+              if (!got) {
+                // the dependent itself moved up its line (main's Renovate took foo 1.0.0 to
+                // 1.0.1): each newer copy in that line must still resolve the name as new
+                const [dep, depVersion] = splitKey(p.base);
+                got = (m.copies.get(dep) ?? [])
+                  .filter(
+                    (v) => lineOf(v) === lineOf(depVersion) && compareVersions(v, depVersion) > 0,
+                  )
+                  .flatMap((v) => m.deps.get(`~${dep}@${v}`)?.get(at) ?? []);
+                if (!got.length) continue;
+              }
+              // the lowest: a variant that kept the side's version must not hide one that did not
+              to = oldest(got);
             }
             if (compareVersions(to, had) < 0 && (!lower || compareVersions(to, lower) < 0))
               lower = to;

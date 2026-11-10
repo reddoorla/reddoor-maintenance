@@ -317,8 +317,8 @@
     "edits": [
       {
         "file": "scripts/staging-bring-main.mjs",
-        "find": "              if (!got) continue;\n              to = newest(got);\n",
-        "replace": "              to = newest(got ?? [\"0.0.0\"]);\n"
+        "find": "                if (!got.length) continue;\n",
+        "replace": "                if (!got.length) got = [\"0.0.0\"];\n"
       }
     ],
     "test": "tests/scripts/staging-bring-main.test.ts",
@@ -395,7 +395,7 @@
     "edits": [
       {
         "file": "scripts/staging-bring-main.mjs",
-        "find": "m.deps.get(p.snapshot)?.get(name) ?? ",
+        "find": "m.deps.get(p.snapshot)?.get(at) ?? ",
         "replace": ""
       }
     ],
@@ -436,6 +436,84 @@
         "file": "scripts/staging-bring-main.mjs",
         "find": "  return (at > 0 ? rest.slice(0, at) : rest) !== name;",
         "replace": "  return true;"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M38-alias-edge-dropped",
+    "why": "a `bar@1.2.0` resolution under an alias key is not read as bar's, so its edge is dropped (review round 7)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "  return !parseVersion(s) && at > 0 && parseVersion(s.slice(at + 1))\n",
+        "replace": "  return false\n"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M39-alias-key-ignored",
+    "why": "a snapshot edge is looked up by the package's own name, so a plain edge to a newer copy hides the alias's put-back (review round 7)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "              const at = `${p.key}\\0${name}`;\n",
+        "replace": "              const at = `${name}\\0${name}`;\n"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M40-catalog-unread",
+    "why": "a `catalog:` specifier is not read through the lockfile's catalogs, so a rollback through it is refused (review round 7)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "      return typeof range === \"string\" ? range : spec;\n",
+        "replace": "      return spec;\n"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M41-bumped-dependent-gone",
+    "why": "a dependent moved up its line counts as gone, so a put-back under it passes (review round 7)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "                    (v) => lineOf(v) === lineOf(depVersion) && compareVersions(v, depVersion) > 0,\n",
+        "replace": "                    () => false,\n"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M42-dependent-any-line",
+    "why": "a dependent's new major is held to its old dependencies, refusing a change the major may ask for (review round 7)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "                    (v) => lineOf(v) === lineOf(depVersion) && compareVersions(v, depVersion) > 0,\n",
+        "replace": "                    (v) => compareVersions(v, depVersion) > 0,\n"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M43-newest-of-variants",
+    "why": "the newest of a package's peer variants stands for all of them, so one that kept the side's version hides one that did not (review round 7)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "              to = oldest(got);\n",
+        "replace": "              to = newest(got);\n"
       }
     ],
     "test": "tests/scripts/staging-bring-main.test.ts",

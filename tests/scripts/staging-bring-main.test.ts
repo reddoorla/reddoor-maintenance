@@ -523,6 +523,104 @@ describe("lockfile regressions", () => {
     ]);
   });
 
+  it("an npm: alias of another package is checked as that package, under its alias key (review round 7)", () => {
+    // pnpm writes `foo: npm:bar@^1.0.0` with `version: bar@1.2.0`: the edge is bar's, held by `foo`
+    const staging = doc({ foo: ["npm:bar@^1.0.0", "bar@1.2.0"], bar: ["^1.5.0", "1.5.0"] }, [
+      "bar@1.2.0",
+      "bar@1.5.0",
+    ]);
+    const back = doc({ foo: ["npm:bar@^1.0.0", "bar@1.1.0"], bar: ["^1.5.0", "1.5.0"] }, [
+      "bar@1.1.0",
+      "bar@1.5.0",
+    ]);
+    expect(lockfileRegressions(back, { staging })).toEqual([
+      { name: "bar", side: "staging", had: "1.2.0", merged: "1.1.0" },
+    ]);
+    // the alias's own range moved below 1.2.0: a rollback on purpose
+    const rolled = doc({ foo: ["npm:bar@~1.1.0", "bar@1.1.5"], bar: ["^1.5.0", "1.5.0"] }, [
+      "bar@1.1.5",
+      "bar@1.5.0",
+    ]);
+    expect(lockfileRegressions(rolled, { staging })).toEqual([]);
+    // in a snapshot (`@isaacs/cliui` holds `string-width-cjs: string-width@4.2.3`), beside a plain
+    // edge to a newer copy that must not hide it
+    const snap = (cjs: string) =>
+      doc(
+        { cliui: ["^8", "8.0.2"] },
+        ["cliui@8.0.2", `string-width@${cjs}`, "string-width@5.1.2"],
+        {
+          snaps: {
+            "cliui@8.0.2": { "string-width": "5.1.2", "string-width-cjs": `string-width@${cjs}` },
+          },
+        },
+      );
+    expect(lockfileRegressions(snap("4.2.3"), { staging: snap("4.2.3") })).toEqual([]);
+    expect(lockfileRegressions(snap("4.2.0"), { staging: snap("4.2.3") })).toEqual([
+      { name: "string-width", side: "staging", had: "4.2.3", merged: "4.2.0" },
+    ]);
+  });
+
+  it("a catalog: specifier is read through the merged lockfile's catalogs (review round 7)", () => {
+    const cat = (range: string) =>
+      [
+        "",
+        "catalogs:",
+        "  default:",
+        "    react:",
+        `      specifier: ${range}`,
+        "      version: x",
+        "",
+      ].join("\n");
+    const staging = doc({ react: ["catalog:", "19.1.0"] }, ["react@19.1.0"]) + cat("^19.0.0");
+    // the catalog moved to ^18.3.0: a rollback on purpose
+    const rolled = doc({ react: ["catalog:", "18.3.1"] }, ["react@18.3.1"]) + cat("^18.3.0");
+    expect(lockfileRegressions(rolled, { staging })).toEqual([]);
+    // the catalog still admits 19.1.0: a put-back
+    const back = doc({ react: ["catalog:", "19.0.0"] }, ["react@19.0.0"]) + cat("^19.0.0");
+    expect(lockfileRegressions(back, { staging })).toEqual([
+      { name: "react", side: "staging", had: "19.1.0", merged: "19.0.0" },
+    ]);
+  });
+
+  it("a dependent bumped to a newer copy in its line still resolves its dependencies at least as new (review round 7)", () => {
+    // staging's maintenance moved foo@1.0.0's bar to 2.1.0; main's Renovate moved foo to 1.0.1,
+    // whose snapshot pnpm kept with bar 2.0.0
+    const staging = doc({ foo: ["^1.0.0", "1.0.0"] }, ["foo@1.0.0", "bar@2.1.0"], {
+      snaps: { "foo@1.0.0": { bar: "2.1.0" } },
+    });
+    const merged = (foo: string) =>
+      doc({ foo: [`^${foo}`, foo] }, [`foo@${foo}`, "bar@2.0.0"], {
+        snaps: { [`foo@${foo}`]: { bar: "2.0.0" } },
+      });
+    expect(lockfileRegressions(merged("1.0.1"), { staging })).toEqual([
+      { name: "bar", side: "staging", had: "2.1.0", merged: "2.0.0" },
+    ]);
+    // a new major of the dependent may ask for another bar: gone, as before
+    expect(lockfileRegressions(merged("2.0.0"), { staging })).toEqual([]);
+  });
+
+  it("a peer variant the merged lockfile lacks is compared with the lowest of its variants (review round 7)", () => {
+    const staging = doc({ foo: ["^1", "1.0.0(react@18.3.0)"] }, ["foo@1.0.0", "bar@2.1.0"], {
+      snaps: {
+        "foo@1.0.0(react@18.3.0)": { bar: "2.1.0" },
+        "foo@1.0.0(react@19.0.0)": { bar: "2.1.0" },
+      },
+    });
+    const merged = doc(
+      { foo: ["^1", "1.0.0(react@18.3.1)"] },
+      ["foo@1.0.0", "bar@2.0.0", "bar@2.1.0"],
+      {
+        snaps: {
+          "foo@1.0.0(react@18.3.1)": { bar: "2.0.0" },
+          "foo@1.0.0(react@19.0.0)": { bar: "2.1.0" },
+        },
+      },
+    );
+    expect(lockfileRegressions(merged, { staging })).toEqual([
+      { name: "bar", side: "staging", had: "2.1.0", merged: "2.0.0" },
+    ]);
+  });
+
   it("an override whose selector holds `>` (`cookie@>=2.0.2`) is global, not scoped under a parent", () => {
     const staging = doc({}, ["cookie@2.0.2"]);
     const pin = (key: string) =>
