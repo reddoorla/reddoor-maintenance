@@ -128,5 +128,148 @@
     ],
     "test": "tests/scripts/staging-bring-main.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "M11-first-document-only",
+    "why": "only pnpm 12's first YAML document (its own env) is read, about 15 entries of ~390",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "yaml.loadAll(text).filter(",
+        "replace": "yaml.loadAll(text).slice(0, 1).filter("
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M12-no-check",
+    "why": "the merged lockfile is not compared with either side (the 2026-11-10 behaviour)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "      regressions = lockfileRegressions(regenerate(), sides);",
+        "replace": "      regenerate();\n      regressions = [];"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M13-staging-side-only",
+    "why": "only staging's versions are guarded; a version main had and the seed dropped passes",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "    if (text === undefined) continue;\n",
+        "replace": "    if (text === undefined || side === \"main\") continue;\n"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M14-gone-is-regression",
+    "why": "a name the merged lockfile no longer has counts as put back (cssesc)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "      const got = newest(now.get(name));",
+        "replace": "      const got = newest(now.get(name)) ?? \"0.0.0\";"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M15-no-range-exemption",
+    "why": "a downgrade the merged package.json asks for is reported (P1-106's @types/node)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "      if (ranges.length && ranges.every((r) => satisfies(had, r) === false)) continue;",
+        "replace": ""
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M16-prerelease-equal",
+    "why": "a prerelease compares equal to its release",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "  if (!a.length || !b.length) return (a.length ? -1 : 0) + (b.length ? 1 : 0);",
+        "replace": "  if (!a.length || !b.length) return 0;"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M17-prerelease-rule-off",
+    "why": "a range admits any prerelease that sits inside its bounds",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "      v.pre.length &&",
+        "replace": "      false &&"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M18-no-seed",
+    "why": "a regression is never retried from a side's lockfile",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "          if (sides[side] === undefined) continue;",
+        "replace": "          continue;"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M19-seed-any-side",
+    "why": "a side's lockfile seeds the retry even when the merged package.json is not that side's",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "...RESOLUTION_INPUTS]).code !== 0",
+        "replace": "...RESOLUTION_INPUTS]).code !== 0 && false"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M20-trust-the-seed",
+    "why": "the seeded lockfile is committed without the check",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "          if (!rs.length) {",
+        "replace": "          if (true) {"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M21-trimmed-seed",
+    "why": "the side's lockfile is read trimmed, so the seed loses its final newline",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "        return r.status === 0 ? r.stdout : undefined;",
+        "replace": "        return r.status === 0 ? r.stdout.trim() : undefined;"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
   }
 ]

@@ -144,6 +144,22 @@ setting or the order below, so this is a runbook rather than a template there.
   A conflict in any other file stops it with exit 2 and makes nothing: that
   is a real fork, such as a major on `staging` and a minor of the same package
   on `main`, and a human's.
+- **It checks what pnpm chose, not only that pnpm finished.** A clean pnpm
+  merge can still go backwards: on 2026-11-10 pnpm 12.5.1 merged
+  alamo-anatomy's and mantis-landscaping's lockfiles and put `staging`'s
+  `rolldown` 1.3.0, `cookie` 2.0.2 and `@netlify/types` 3.3.1 back to `main`'s
+  older versions (alamo-anatomy#108, mantis-landscaping#87). So for every
+  package name in either side's lockfile (both of pnpm 12's YAML documents),
+  the newest version in the merged lockfile must be at least the newest that
+  side had, except a name nothing depends on any more and a version the merged
+  `package.json` range no longer admits. On a regression it retries from a
+  side's own lockfile, `staging`'s first, as both incidents were fixed by hand,
+  but only from a side whose `package.json` files (and `pnpm-workspace.yaml`,
+  `.npmrc`, `.pnpmfile`) the merged tree still has, and it checks that result
+  the same way. Its output and commit message say when it seeded. If no seed
+  passes, it stops with exit 2, names each package put back and makes nothing:
+  rebuild that lockfile by hand from the newer side's and record why in the
+  site's journal.
 - **Merge its PR as a merge commit, while `staging` is still where the script
   started.** A worker lands it, under AUTONOMY.md's merge authority. Push the branch it names and open its PR into `staging`. Just
   before merging on green, read `staging`'s live tip

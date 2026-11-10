@@ -5,13 +5,18 @@
 // and the promotion cannot merge.
 import { describe, it, expect, afterAll } from "vitest";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gunzipSync } from "node:zlib";
 import {
   bringMain,
+  compareVersions,
+  lockfilePackages,
+  lockfileRegressions,
   parseArgs,
   pnpmCommand,
+  satisfies,
   type Options,
 } from "../../scripts/staging-bring-main.mjs";
 
@@ -251,5 +256,308 @@ describe("staging-bring-main", () => {
       branch: "claude/main-into-staging-20261103-2005",
     });
     expect(() => parseArgs(["--bogus"])).toThrow(/unknown argument/);
+  });
+});
+
+// The 2026-11-10 promotions (reddoorla/alamo-anatomy#108, reddoorla/mantis-landscaping#87): pnpm
+// 12.5.1 merged its own lockfile conflict, the script passed it, and the merge had put three of
+// staging's lock-file-maintenance versions back to main's older ones. The fixtures are Alamo's
+// lockfiles at main 490f148 and staging fbe8c7e, and the one this script's pnpm merge made from
+// them (`--main 490f148 --staging fbe8c7e --no-fetch`, pnpm 12.5.1).
+const ALAMO = join(__dirname, "..", "fixtures", "bring-main-lockfiles", "alamo-2026-11-10");
+const alamo = (side: "main" | "staging" | "merged") =>
+  gunzipSync(readFileSync(join(ALAMO, `${side}.pnpm-lock.yaml.gz`))).toString("utf8");
+
+describe("lockfile regressions", () => {
+  it("reads every packages: section of pnpm 12's two-document lockfile", () => {
+    const pkgs = lockfilePackages(alamo("staging"));
+    // the first document is pnpm's own env; the project's ~390 entries are in the second
+    expect(pkgs.get("@pnpm/exe.linux-x64")).toEqual(["12.5.1"]);
+    expect(pkgs.get("rolldown")).toContain("1.3.0");
+    expect([...pkgs.values()].flat().length).toBeGreaterThan(380);
+  });
+
+  it("a known-good merge passes: staging's own lockfile against both parents", () => {
+    expect(
+      lockfileRegressions(alamo("staging"), { main: alamo("main"), staging: alamo("staging") }),
+    ).toEqual([]);
+  });
+
+  it("the 2026-11-10 Alamo merge is caught, naming each package put back", () => {
+    const r = lockfileRegressions(alamo("merged"), {
+      main: alamo("main"),
+      staging: alamo("staging"),
+    });
+    expect(r.every((x) => x.side === "staging")).toBe(true);
+    const by = Object.fromEntries(r.map((x) => [x.name, `${x.had} -> ${x.merged}`]));
+    expect(by).toMatchObject({
+      rolldown: "1.3.0 -> 1.2.16",
+      cookie: "2.0.2 -> 2.0.1",
+      "@netlify/types": "3.3.1 -> 3.3.0",
+    });
+    expect(Object.keys(by)).toContain("@rolldown/binding-linux-x64-gnu");
+  });
+
+  it("orders versions by semver precedence, prereleases included", () => {
+    expect(compareVersions("2.0.0-beta.2", "2.0.0")).toBeLessThan(0);
+    expect(compareVersions("2.0.0-beta.10", "2.0.0-beta.2")).toBeGreaterThan(0);
+    expect(compareVersions("2.0.0-beta.2", "1.9.9")).toBeGreaterThan(0);
+    expect(compareVersions("1.10.0", "1.9.0")).toBeGreaterThan(0);
+    expect(compareVersions("3.3.1", "3.3.1")).toBe(0);
+  });
+
+  it("knows which versions a package.json range admits, and says when it cannot tell", () => {
+    expect(satisfies("25.0.3", "^24.10.1")).toBe(false);
+    expect(satisfies("24.12.0", "^24.10.1")).toBe(true);
+    expect(satisfies("1.2.9", "~1.2.3")).toBe(true);
+    expect(satisfies("1.3.0", "~1.2.3")).toBe(false);
+    expect(satisfies("0.3.9", "^0.2.0")).toBe(false);
+    expect(satisfies("2.5.0", ">=2.0.0 <3")).toBe(true);
+    expect(satisfies("3.0.0", "^1 || ^2")).toBe(false);
+    expect(satisfies("2.1.0", "^1 || ^2")).toBe(true);
+    expect(satisfies("12.5.1", "12.5.1")).toBe(true);
+    expect(satisfies("1.4.0", "1.x")).toBe(true);
+    expect(satisfies("4.0.0", "*")).toBe(true);
+    expect(satisfies("2.0.0-beta.3", "^2.0.0-beta.2")).toBe(true);
+    expect(satisfies("2.1.0-beta.1", "^2.0.0")).toBe(false);
+    expect(satisfies("1.0.0", "workspace:*")).toBeUndefined();
+    expect(satisfies("1.0.0", "catalog:")).toBeUndefined();
+  });
+
+  const doc = (deps: Record<string, [string, string]>, pkgs: string[]) =>
+    [
+      "---",
+      "lockfileVersion: '9.0'",
+      "",
+      "importers:",
+      "",
+      "  .:",
+      "    dependencies:",
+      ...Object.entries(deps).flatMap(([n, [spec, v]]) => [
+        `      '${n}':`,
+        `        specifier: ${spec}`,
+        `        version: ${v}`,
+      ]),
+      "",
+      "packages:",
+      "",
+      ...pkgs.flatMap((p) => [`  '${p}':`, "    resolution: {integrity: sha512-x}", ""]),
+    ].join("\n");
+
+  it("a version the merged package.json no longer admits is not a regression (P1-106's @types/node 25 to 24)", () => {
+    const staging = doc({ "@types/node": ["^25.0.0", "25.0.3"] }, ["@types/node@25.0.3"]);
+    const merged = doc({ "@types/node": ["^24.10.1", "24.12.0"] }, ["@types/node@24.12.0"]);
+    expect(lockfileRegressions(merged, { staging })).toEqual([]);
+    // the same lockfile with the range still admitting 25 is one
+    const kept = doc({ "@types/node": ["^25.0.0", "24.12.0"] }, ["@types/node@24.12.0"]);
+    expect(lockfileRegressions(kept, { staging })).toEqual([
+      { name: "@types/node", side: "staging", had: "25.0.3", merged: "24.12.0" },
+    ]);
+  });
+
+  it("a package no longer depended on at all is not a regression (cssesc after postcss-selector-parser 7.2.0)", () => {
+    const main = doc({}, ["postcss-selector-parser@7.1.0", "cssesc@3.0.0"]);
+    const merged = doc({}, ["postcss-selector-parser@7.2.0"]);
+    expect(lockfileRegressions(merged, { main })).toEqual([]);
+  });
+
+  it("compares the newest version of each name, and skips versions that are not semver", () => {
+    const staging = doc({}, ["a@1.0.0", "a@2.1.0", "t@https://example.com/t.tgz"]);
+    const merged = doc({}, ["a@2.1.0", "a@1.0.1", "t@file:vendor/t.tgz"]);
+    expect(lockfileRegressions(merged, { staging })).toEqual([]);
+    expect(lockfileRegressions(doc({}, ["a@2.0.9"]), { staging })).toEqual([
+      { name: "a", side: "staging", had: "2.1.0", merged: "2.0.9" },
+    ]);
+  });
+});
+
+/**
+ * A two-document pnpm 12 lockfile (pnpm's env, then the project) with the given versions. Each
+ * version sits on its own line, so two branches that move the same package conflict in git.
+ */
+function lock(v: Record<string, string>) {
+  const env = [
+    "---",
+    "lockfileVersion: '9.0'",
+    "",
+    "packages:",
+    "",
+    `  '@pnpm/exe@${v.pnpm ?? "12.5.1"}':`,
+    "    resolution: {integrity: sha512-p}",
+    "",
+  ];
+  const project = ["---", "lockfileVersion: '9.0'", "", "packages:", ""];
+  for (const [n, ver] of Object.entries(v))
+    if (n !== "pnpm")
+      project.push(`  ${n}@${ver}:`, `    resolution: {integrity: sha512-${n}}`, "");
+  return [...env, ...project].join("\n");
+}
+
+/**
+ * A site whose main and staging each rewrote pnpm-lock.yaml (and, when given, package.json),
+ * and a pnpm stub that merges a conflicted lockfile the way pnpm 12.5.1 did on 2026-11-10: it
+ * writes `bad` over it. On a lockfile with no markers it changes nothing.
+ */
+function regressFixture(f: {
+  base: Record<string, string>;
+  main: Record<string, string>;
+  staging: Record<string, string>;
+  bad: Record<string, string>;
+  mainPkg?: boolean;
+  stagingPkg?: boolean;
+}) {
+  const root = mkdtempSync(join(tmpdir(), "bring-main-regress-"));
+  roots.push(root);
+  const dir = join(root, "site");
+  mkdirSync(dir);
+  const pkg = (o: { description?: string | undefined; extra?: boolean | undefined }) =>
+    JSON.stringify(
+      {
+        name: "site",
+        description: o.description ?? "a site",
+        private: true,
+        version: "0.0.0",
+        type: "module",
+        license: "UNLICENSED",
+        dependencies: { cookie: "^2.0.0", ...(o.extra ? { zz: "^1.0.0" } : {}) },
+      },
+      null,
+      2,
+    );
+  const commit = (msg: string, lockfile: Record<string, string>, p: string) => {
+    writeFileSync(join(dir, "package.json"), p);
+    writeFileSync(join(dir, "pnpm-lock.yaml"), lock(lockfile));
+    git(dir, "add", "-A");
+    git(dir, "commit", "-q", "-m", msg);
+  };
+  git(dir, "init", "-q", "-b", "main");
+  commit("base", f.base, pkg({}));
+  git(dir, "branch", "staging");
+  commit("main", f.main, pkg({ description: f.mainPkg ? "main moved" : undefined }));
+  git(dir, "checkout", "-q", "staging");
+  commit("staging", f.staging, pkg({ extra: f.stagingPkg }));
+  git(dir, "checkout", "-q", "main");
+  const bad = join(root, "bad.yaml");
+  writeFileSync(bad, lock(f.bad));
+  const stub = join(root, "pnpm-stub.sh");
+  writeFileSync(
+    stub,
+    `if grep -q '^<<<<<<<' pnpm-lock.yaml; then cp '${bad}' pnpm-lock.yaml; fi\n`,
+  );
+  return { dir, pnpm: `sh ${stub}` };
+}
+
+describe("staging-bring-main: what pnpm chose", () => {
+  it("the stub fixture's clean case: pnpm keeps the newer side, and the merge is made as before", () => {
+    const f = regressFixture({
+      base: { cookie: "2.0.0" },
+      main: { cookie: "2.0.1" },
+      staging: { cookie: "2.0.2" },
+      bad: { cookie: "2.0.2" },
+    });
+    const r = bringMain(opts(f.dir, { pnpm: f.pnpm }));
+    expect(r).toMatchObject({ status: "made", seededFrom: null, regressions: [] });
+    expect(code(f.dir, "diff", "--quiet", "staging", "bring", "--", "pnpm-lock.yaml")).toBe(0);
+  });
+
+  it("pnpm's merge puts staging's version back, main changed no package.json: retried from staging's lockfile", () => {
+    const f = regressFixture({
+      base: { cookie: "2.0.0" },
+      main: { cookie: "2.0.1" },
+      staging: { cookie: "2.0.2" },
+      bad: { cookie: "2.0.1" },
+    });
+    const r = bringMain(opts(f.dir, { pnpm: f.pnpm }));
+    expect(r).toMatchObject({
+      status: "made",
+      seededFrom: "staging",
+      regressions: [{ name: "cookie", side: "staging", had: "2.0.2", merged: "2.0.1" }],
+    });
+    // staging's lockfile byte for byte, final newline included
+    expect(code(f.dir, "diff", "--quiet", "staging", "bring", "--", "pnpm-lock.yaml")).toBe(0);
+    expect(code(f.dir, "merge-base", "--is-ancestor", "main", "bring")).toBe(0);
+    expect(git(f.dir, "log", "-1", "--format=%B", "bring")).toMatch(
+      /seeded from staging's pnpm-lock.yaml/,
+    );
+    onlyCheckout(f.dir);
+  });
+
+  it("both sides changed package.json: no side's lockfile can seed it, so it stops and names the package", () => {
+    const f = regressFixture({
+      base: { cookie: "2.0.0" },
+      main: { cookie: "2.0.1" },
+      staging: { cookie: "2.0.2" },
+      bad: { cookie: "2.0.1" },
+      mainPkg: true,
+      stagingPkg: true,
+    });
+    const r = bringMain(opts(f.dir, { pnpm: f.pnpm }));
+    expect(r).toMatchObject({
+      status: "regressed",
+      regressions: [{ name: "cookie", side: "staging", had: "2.0.2", merged: "2.0.1" }],
+      seeds: [],
+    });
+    expect(code(f.dir, "rev-parse", "--verify", "-q", "refs/heads/bring")).not.toBe(0);
+    onlyCheckout(f.dir);
+  });
+
+  it("the seeded lockfile is checked too: main's newer version of another package stops it", () => {
+    const f = regressFixture({
+      base: { cookie: "2.0.0", foo: "1.0.0" },
+      main: { cookie: "2.0.1", foo: "1.1.0" },
+      staging: { cookie: "2.0.2", foo: "1.0.0" },
+      bad: { cookie: "2.0.1", foo: "1.1.0" },
+    });
+    const r = bringMain(opts(f.dir, { pnpm: f.pnpm }));
+    expect(r).toMatchObject({
+      status: "regressed",
+      regressions: [{ name: "cookie", side: "staging" }],
+      // neither side changed package.json, so each side's lockfile is tried, and each puts the other's back
+      seeds: [
+        {
+          side: "staging",
+          regressions: [{ name: "foo", side: "main", had: "1.1.0", merged: "1.0.0" }],
+        },
+        {
+          side: "main",
+          regressions: [{ name: "cookie", side: "staging", had: "2.0.2", merged: "2.0.1" }],
+        },
+      ],
+    });
+    expect(code(f.dir, "rev-parse", "--verify", "-q", "refs/heads/bring")).not.toBe(0);
+    onlyCheckout(f.dir);
+  });
+
+  it("the CLI exits 2 on a regression it could not repair, naming each package", () => {
+    const f = regressFixture({
+      base: { cookie: "2.0.0" },
+      main: { cookie: "2.0.1" },
+      staging: { cookie: "2.0.2" },
+      bad: { cookie: "2.0.1" },
+      mainPkg: true,
+      stagingPkg: true,
+    });
+    const r = spawnSync(
+      process.execPath,
+      [
+        join(__dirname, "..", "..", "scripts", "staging-bring-main.mjs"),
+        ...[
+          "--dir",
+          f.dir,
+          "--no-fetch",
+          "--main",
+          "main",
+          "--staging",
+          "staging",
+          "--branch",
+          "bring",
+          "--pnpm",
+          f.pnpm,
+        ],
+      ],
+      { env: ENV, encoding: "utf8" },
+    );
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/cookie 2\.0\.2 \(staging\) -> 2\.0\.1/);
   });
 });
