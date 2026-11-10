@@ -58,12 +58,10 @@ follows these rules. Why each exists: the workspace's `directives/sessions.md`.
   4. If an answer came, write it under the file's `## Answer`, set
      `status: answered`, and push again. If AskUserQuestion is not available,
      end the session: the morning pass reads the file.
-- **Three forks a worker takes on its own pick, and no others** (DRAFT,
-  2026-11-10, for the operator to strike or keep: it rests on his interview
-  answer Q5(b), in the workspace's
-  `plans/2026-11-10-prioritization-system/interview.md`, and he has not seen
-  this list in a dialog). Defaulted: (i)
-  how often a worker re-checks something it is waiting on; (ii) one more test
+- **Three forks a worker takes on its own pick, and no others** (the
+  operator, 2026-11-10, the workspace's
+  `decisions/2026-11-10-2007-prioritization-rule-edits-read-the-diff.md`).
+  Defaulted: (i) how often a worker re-checks something it is waiting on; (ii) one more test
   submission from a Reddoor address to a site that is not yet `maintained`
   and whose form notifications go only to Reddoor addresses; (iii) keeping
   existing code in place, when the choice has no effect a client or visitor
