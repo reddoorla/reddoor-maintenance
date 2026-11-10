@@ -41,3 +41,7 @@ Two more run on real sockets: a silent peer twice, and a server that resets the 
 | (5) A third attempt            | 1   |
 
 **Instrument note.** My first pass at mutations 1, 2 and 4 printed nothing. They had broken the type check, and the suite's global setup runs `pnpm build`, so no test ran. A mutation must still compile before its silence means anything. I rewrote them at the call site so they compile, and they then went red as listed.
+
+**A CI defect the container could not show.** The first CI run on this PR (602f141) failed the real-socket reset test: the server counted **1** connection where the test expected 2. In this container `localhost` resolves to `127.0.0.1` only. On GitHub's ubuntu runners it is also `::1`, and the test servers listened on `127.0.0.1` alone. The likely mechanism: under suite load, Node's happy-eyeballs (250 ms per attempt) gave up on the IPv4 attempt after the server had accepted it, then failed on `::1` with `ECONNREFUSED`. That code is rightly not retried, so the server saw one connection. This is inferred from the count and the hosts difference; it did not reproduce here. The real-socket tests now use the literal `127.0.0.1` with an `IP:127.0.0.1` cert, and the host-mismatch test has its own `other.invalid` cert. The #2007 tests already on `main` had the same latent dependency, and this PR fixes them too. **Belief corrected:** "passes here on Node 22 and 24" said nothing about name resolution on the runner.
+
+Usage (since the #2007 entry): $3.32, 595/23524 tokens, 9921312/145145 cache, rate limit allowed
