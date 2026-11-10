@@ -1112,48 +1112,20 @@ function sideStates(lines, side, start) {
   return states;
 }
 
-/** The block-comment shifts of one hunk: `wrapped`, at most one, the first non-blank context line
- *  the PR's change puts inside a block comment, a comment opened by an added line above it in the
- *  hunk (and not open on the old side); `commented`, each added line wholly inside a block comment
- *  or a template literal; and `dead`, each removed line wholly inside one on the old side (#1941).
- *  A context line that starts with `*\/` is never the wrapped line: it hides nothing,
- *  since the code after its closer runs, and it is what a glob added to a comment that opened
- *  above the hunk makes look wrapped (round 7). A hunk starts in `"comment"` on both sides when its
- *  first line is a JSDoc continuation, so the JSDoc's opener above the hunk is not missed, or when
- *  `closerMovedDown` reads a comment opened above it; otherwise each side starts in `"code"`.
- *  `assumed` holds the added lines a JSDoc start alone puts inside a comment (see below). */
-function hunkShifts({ jsdoc, lines }) {
-  const start = jsdoc || closerMovedDown(lines) ? "comment" : "code";
+/** The block-comment shifts of one hunk, read from one starting state: `wrapped`, at most one, the
+ *  index of the first non-blank context line the PR's change puts inside a block comment, a
+ *  comment opened by an added line above it in the hunk (and not open on the old side);
+ *  `commented`, the index of each added line wholly inside a block comment or a template literal;
+ *  and `dead`, the index of each removed line wholly inside one on the old side (#1941). A context
+ *  line that starts with `*\/` is never the wrapped line: it hides nothing, since the code after
+ *  its closer runs, and it is what a glob added to a comment that opened above the hunk makes look
+ *  wrapped (round 7). */
+function shiftsFrom(lines, start) {
   const oldStates = sideStates(lines, "old", start);
   const newStates = sideStates(lines, "new", start);
   const wrapped = [];
   const commented = [];
   const dead = [];
-  // A JSDoc-start hunk only assumes it opens inside a comment (a Markdown bullet in a template
-  // can start one too), so until a side's state first changes its lines are not trusted as text:
-  // a removed line there is not dead, and an added one (`assumed`) re-adds nothing, as on `main`.
-  // Otherwise an assertion commented out below a bullet pairs off as text moved within text
-  // (#1998 round 3).
-  const assumed = [];
-  const inherited = (states) => {
-    const out = [];
-    let still = jsdoc;
-    for (const s of states) {
-      if (s && (s.before !== start || s.after !== start)) still = false;
-      out.push(still);
-    }
-    return out;
-  };
-  const oldInh = inherited(oldStates);
-  const newInh = inherited(newStates);
-  // The same holds for a whole hunk whose two sides disagree on any context line's state: one
-  // side gained or lost a backtick or a closer (a code fence added to a fixture, a closer moved),
-  // so at least one side is misread, and neither side's text is trusted (#1998 round 4).
-  const agree = lines.every(
-    ({ kind }, k) =>
-      kind !== " " ||
-      (oldStates[k].before === newStates[k].before && oldStates[k].after === newStates[k].after),
-  );
   for (let k = 0; k < lines.length; k++) {
     const { kind, text } = lines[k];
     if (kind === " ") {
@@ -1166,18 +1138,33 @@ function hunkShifts({ jsdoc, lines }) {
         text.trim() !== "" &&
         !text.trim().startsWith("*/")
       ) {
-        wrapped.push(text.trim());
+        wrapped.push(k);
       }
     } else if (kind === "+") {
-      if (wholly(newStates[k])) {
-        if (newInh[k] || !agree) assumed.push(text.trim());
-        else commented.push(text.trim());
-      }
-    } else if (wholly(oldStates[k]) && !oldInh[k] && agree) {
-      dead.push(text.trim());
+      if (wholly(newStates[k])) commented.push(k);
+    } else if (wholly(oldStates[k])) {
+      dead.push(k);
     }
   }
-  return { wrapped, commented, dead, assumed };
+  return { wrapped, commented, dead };
+}
+
+/** The block-comment shifts of one hunk, as text. A hunk starts in `"comment"` on both sides when
+ *  its first line is a JSDoc continuation, so the JSDoc's opener above the hunk is not missed;
+ *  otherwise each side starts in `"code"`, as on `main`. When `closerMovedDown` reads a comment
+ *  opened above the hunk (#1946 item 2), the hunk is also read from `"comment"`, and each list is
+ *  the union of the two readings. A union, not a replacement, so that every line `main`'s reading
+ *  wraps or comments is still wrapped or commented: each list only ever adds flags (a wrap, an
+ *  assertion not re-added, a skip not backed), so no reading can weaken the gate (#1998 round 6). */
+function hunkShifts({ jsdoc, lines }) {
+  const base = jsdoc ? "comment" : "code";
+  const readings = [shiftsFrom(lines, base)];
+  if (base === "code" && closerMovedDown(lines)) readings.push(shiftsFrom(lines, "comment"));
+  const pick = (key) =>
+    [...new Set(readings.flatMap((r) => r[key]))]
+      .sort((x, y) => x - y)
+      .map((k) => lines[k].text.trim());
+  return { wrapped: pick("wrapped"), commented: pick("commented"), dead: pick("dead") };
 }
 
 /** A line that starts and ends inside one block comment or one template literal: text, not code
@@ -1212,15 +1199,13 @@ function blockCommentShifts(patch) {
   const wrapped = [];
   const commented = [];
   const dead = [];
-  const assumed = [];
   for (const hunk of hunksOf(patch)) {
     const shift = hunkShifts(hunk);
     wrapped.push(...shift.wrapped);
     commented.push(...shift.commented);
     dead.push(...shift.dead);
-    assumed.push(...shift.assumed);
   }
-  return { wrapped, commented, dead, assumed };
+  return { wrapped, commented, dead };
 }
 
 /** How many times each line occurs: a removed line is matched by one added copy, so
@@ -1262,25 +1247,33 @@ function renamedAway(before, after) {
  *  commented-out call is neither (see `codeOf`). A renamed skip is flagged as an added skip.
  *  The first non-blank context line of each hunk that the PR's change puts inside a block comment
  *  is flagged (#1617; round 4: a blank one is not). A hunk starts inside a block comment only when
- *  its first line is a JSDoc continuation (`*`, as `jsdocFirstLine` reads it, round 5), or when it
- *  removes a line that is `*\/` alone where its old side reads as code (`closerMovedDown`, #1946);
- *  otherwise it starts outside one, so a comment opened above a hunk is not seen, nor is a closer
- *  with text before it moved down out of one. An added line wholly inside a block comment or a
- *  template literal does not re-add a removed assertion, and a removed line wholly inside one does
- *  not back an added skip (see `blockCommentShifts`, #1941), unless the same text is moved within
- *  text, which counts as neither. Five rare false flags are known, each costing the author one line:
- *  a hunk that starts on a line beginning with `*` is taken to start inside a JSDoc block, so a
- *  Markdown bullet inside a template literal there can deny credit for a re-added line; and a hunk
- *  that starts inside a multi-line template literal is read as code, so a glob such as `src/*`
- *  added there can be flagged as a wrap, and an assertion moved from it into a template opened in
- *  a later hunk is flagged as not re-added: from the patch alone that move cannot be told from an
- *  assertion taken out of code and parked in a string (#1998 round 2); and a lone `*\/` removed
- *  from a commented-out test put back into use reads as moved down when a JSDoc is added lower in
- *  the same hunk, whose own `*\/` stands in for the re-added closer (#1998 round 3); and, for the
- *  same reason as #1946 item 2, a lone `*\/` moved down inside a template fixture whose comment
- *  opened above the hunk (a CSS or JS comment in a fixture) is read as a closer moved down, and
- *  the line it passes over as wrapped (#1998 round 4). A hunk whose two sides disagree on a
- *  context line's state trusts neither side's text: none of its lines is dead or commented. */
+ *  its first line is a JSDoc continuation (`*`, as `jsdocFirstLine` reads it, round 5); it is also
+ *  read as starting inside one when it removes a line that is `*\/` alone where its old side reads
+ *  as code (`closerMovedDown`, #1946), and then both readings count (see `hunkShifts`); otherwise
+ *  a comment opened above a hunk is not seen, nor is a closer with text before it moved down out
+ *  of one. An added line wholly inside a block comment or a template literal does not re-add a
+ *  removed assertion, and a removed line wholly inside one does not back an added skip (see
+ *  `blockCommentShifts`, #1941).
+ *
+ *  Never looser than `main` (#1998 round 6): each of those rules only takes credit away (an added
+ *  line stops re-adding, a removed line stops backing a skip) or adds a wrap, so no input gets
+ *  fewer reasons than `main` gives it. The price is false flags, each costing the author one line
+ *  under Test changes. They need a block comment or a template literal that the patch alone can
+ *  misread or that holds test code:
+ *  - a hunk that starts on a line beginning with `*` is taken to start inside a JSDoc block, so a
+ *    Markdown bullet inside a template literal there makes the lines below it text: an added line
+ *    there re-adds nothing, and a skip moved there is an added skip;
+ *  - a hunk that starts inside a multi-line template literal is read as code, so a glob such as
+ *    `src/*` added there can be flagged as a wrap, and a code fence added to it reads the lines
+ *    below as template text;
+ *  - text moved within text: a template literal or a comment holding a test or a skip, moved or
+ *    re-indented, is flagged as a lost assertion or an added skip. Telling that from an assertion
+ *    taken out of code and parked in a string needs the file's full text; pairing the two copies
+ *    from the patch alone let a commented-out assertion through in rounds 3 to 5 of #1998;
+ *  - a lone `*\/` removed from a commented-out test put back into use reads as moved down when a
+ *    JSDoc is added lower in the same hunk, whose own `*\/` stands in for the re-added closer
+ *    (#1998 round 3), and a lone `*\/` moved down inside a template fixture whose comment opened
+ *    above the hunk reads the same way (round 4): the line it passes over is flagged as wrapped. */
 export function testChangeFlags(files) {
   const out = [];
   for (const f of Array.isArray(files) ? files : []) {
@@ -1348,16 +1341,14 @@ export function testChangeFlags(files) {
     const removedLeft = lineCounts(removed.map(matchKey));
     const valueLeft = lineCounts(valueLines(f.patch));
     const shifts = blockCommentShifts(f.patch);
-    // Text moved within text (a template or comment re-indented or moved: the same line dead on
-    // the old side and commented on the new) is neither lost nor added, so each such pair is set
-    // aside first, and keeps both copies in the pools (#1998 round 1). What is left: a commented
-    // added line re-adds nothing, and a dead removed line backs no added skip or .only (#1941).
-    const deadLeft = lineCounts(shifts.dead.map(matchKey));
-    for (const c of shifts.commented) {
-      if (!takeOne(deadLeft, matchKey(c))) takeOne(addedLeft, matchKey(c));
-    }
-    for (const c of shifts.assumed) takeOne(addedLeft, matchKey(c));
-    for (const [key, n] of deadLeft) for (let i = 0; i < n; i++) takeOne(removedLeft, key);
+    // An added line wholly inside a block comment or a template literal re-adds nothing (#1941
+    // item 2). A removed line wholly inside one backs no added skip or .only (#1941 item 1), and
+    // that is all it does: it stays in `removedLeft`, and a removed assertion is judged against
+    // `addedLeft` as on `main`. Both only take credit away, so neither can pass what `main` flags
+    // (#1998 round 6; rounds 1 to 5 paired dead and commented text, which could).
+    for (const c of shifts.commented) takeOne(addedLeft, matchKey(c));
+    const liveLeft = new Map(removedLeft);
+    for (const d of shifts.dead) takeOne(liveLeft, matchKey(d));
     const reasons = away ? [away] : [];
     const tooLong = (t) => `a changed line of ${t.length} characters, too long to scan: read it`;
     for (const t of removed) {
@@ -1377,7 +1368,7 @@ export function testChangeFlags(files) {
       }
       const only = hasCall(t, ONLY);
       if (!only && !hasCall(t, SKIP) && !SKIP_BRACKET.test(t)) continue;
-      if (!takeOne(removedLeft, matchKey(t))) {
+      if (!takeOne(liveLeft, matchKey(t))) {
         reasons.push(only ? `added .only: ${t}` : `added skip: ${t}`);
       }
     }

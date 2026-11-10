@@ -2487,17 +2487,25 @@ describe("land-prs: test changes", () => {
       ).toEqual([]);
     });
 
-    it("below a line that only looks like JSDoc, a moved skip is still no added skip, and after a real JSDoc closes text pairs again (#1998 round 3)", () => {
+    it("known false flags: a skip moved below a line that only looks like JSDoc, and template text re-indented below a real JSDoc (#1998 round 6)", () => {
+      // The hunk starts on a Markdown bullet, so it is read as inside a comment and the removed
+      // skip is dead: it backs no added skip. `main` gives [] here; with the pairing gone, the
+      // move costs the author a line under Test changes.
       expect(
         one(
           '@@ -3,6 +3,6 @@\n * item two\n `;\n-it.skip("a", () => {});\n keep();\n+it.skip("a", () => {});\n done();',
         ),
-      ).toEqual([]);
+      ).toEqual([{ file: T, reasons: ['added skip: it.skip("a", () => {});'] }]);
       expect(
         one(
           '@@ -1,8 +1,10 @@\n  * Docs.\n  */\n-const SPEC = `\n-test("x", () => { expect(1).toBe(1); });\n-`;\n+describe("x", () => {\n+  const SPEC = `\n+  test("x", () => { expect(1).toBe(1); });\n+  `;\n+});\n run();',
         ),
-      ).toEqual([]);
+      ).toEqual([
+        {
+          file: T,
+          reasons: ['removed assertion not re-added: test("x", () => { expect(1).toBe(1); });'],
+        },
+      ]);
     });
 
     it("known false flag: an uncommented test with a new JSDoc added lower in the same hunk (#1998 round 3)", () => {
@@ -2512,7 +2520,7 @@ describe("land-prs: test changes", () => {
       ]);
     });
 
-    it("a hunk whose sides disagree on a context line trusts neither side's text (#1998 round 4)", () => {
+    it("a code fence added to a fixture: a commented-out assertion is still lost, and a skip moved below it is a known false flag (#1998 rounds 4 and 6)", () => {
       // A code fence added to a Markdown fixture that opened above the hunk: the old side reads
       // the test below as template text, the new side as code.
       expect(
@@ -2520,12 +2528,13 @@ describe("land-prs: test changes", () => {
           '@@ -8,6 +8,9 @@\n const x = 1;\n+\\`\\`\\`\n `;\n it("x", () => {\n-  expect(a).toBe(1);\n+  /*\n+  expect(a).toBe(1);\n+  */\n });',
         ),
       ).toEqual([{ file: T, reasons: ["removed assertion not re-added: expect(a).toBe(1);"] }]);
-      // The other direction: a skip moved below the same fence is still no added skip.
+      // Known false flag: a skip moved below the same fence. The old side reads the removed skip
+      // as template text, so it backs nothing. `main` gives [] here.
       expect(
         one(
           '@@ -8,6 +8,6 @@\n const x = 1;\n+\\`\\`\\`\n `;\n-it.skip("x", () => {});\n keep();\n+it.skip("x", () => {});',
         ),
-      ).toEqual([]);
+      ).toEqual([{ file: T, reasons: ['added skip: it.skip("x", () => {});'] }]);
     });
 
     it("known false flag: a lone */ moved down inside a template fixture reads as a closer moved down (#1998 round 4)", () => {
@@ -2540,30 +2549,68 @@ describe("land-prs: test changes", () => {
       );
     });
 
-    it("text moved within text is neither lost nor added: a template or comment re-indented (#1998 round 1)", () => {
+    it("known false flag: text moved within text, a template or comment re-indented, is flagged (#1998 rounds 1 and 6)", () => {
+      // Round 1 paired the dead and commented copies off; that pairing is what rounds 3 to 5
+      // found trusting a misread state, so it is gone and each move costs the author a line.
+      // `main` gives [] for the first two and flags the third: a comment re-indented there is
+      // already a lost assertion on `main`.
       expect(
         one(
           '@@ -1,6 +1,8 @@\n-const SPEC = `\n-import { test, expect } from "@playwright/test";\n-test("hang", () => { expect(1).toBe(1); });\n-`;\n+describe("x", () => {\n+  const SPEC = `\n+  import { test, expect } from "@playwright/test";\n+  test("hang", () => { expect(1).toBe(1); });\n+  `;\n+});\n run();',
         ),
-      ).toEqual([]);
+      ).toEqual([
+        {
+          file: T,
+          reasons: ['removed assertion not re-added: test("hang", () => { expect(1).toBe(1); });'],
+        },
+      ]);
       expect(
         one(
           '@@ -1,4 +1,4 @@\n-const s = `\n-it.skip("x", () => {});\n-`;\n+const s = `\n+  it.skip("x", () => {});\n+`;\n run();',
         ),
-      ).toEqual([]);
+      ).toEqual([{ file: T, reasons: ['added skip: it.skip("x", () => {});'] }]);
       expect(
         one(
           "@@ -1,4 +1,4 @@\n-/*\n-expect(x).toBe(1);\n-*/\n+  /*\n+  expect(x).toBe(1);\n+  */\n run();",
         ),
-      ).toEqual([]);
+      ).toEqual([{ file: T, reasons: ["removed assertion not re-added: expect(x).toBe(1);"] }]);
     });
 
-    it("a real assertion removed beside moved template text still counts once", () => {
+    it("a real assertion removed beside moved template text is flagged, once for each removed copy", () => {
+      // The added copy is template text, so it re-adds neither removed copy.
       expect(
         one(
           "@@ -1,5 +1,4 @@\n-expect(x).toBe(1);\n-const s = `\n-expect(x).toBe(1);\n-`;\n+const s = `\n+  expect(x).toBe(1);\n+`;\n run();",
         ),
-      ).toEqual([{ file: T, reasons: ["removed assertion not re-added: expect(x).toBe(1);"] }]);
+      ).toEqual([
+        {
+          file: T,
+          reasons: [
+            "removed assertion not re-added: expect(x).toBe(1);",
+            "removed assertion not re-added: expect(x).toBe(1);",
+          ],
+        },
+      ]);
+    });
+
+    it("an assertion commented out beside a moved line holding a backtick is still lost (#1998 round 5)", () => {
+      // The hunk opens inside a template begun above it, so each side's backtick parity is
+      // inverted; the commented-out copy re-adds nothing whatever state it is read in.
+      expect(
+        one(
+          '@@ -10,5 +10,7 @@\n `;\n it("a", () => {\n-  expect(add(1, 2)).toBe(3);\n-  const tick = "`";\n+  const tick = "`";\n+  /*\n+  expect(add(1, 2)).toBe(3);\n+  */\n });',
+        ),
+      ).toEqual([
+        { file: T, reasons: ["removed assertion not re-added: expect(add(1, 2)).toBe(3);"] },
+      ]);
+    });
+
+    it("a closer moved down adds a reading, and never replaces main's: a wrap main sees is still flagged (#1998 round 6)", () => {
+      // Read from "code", as on `main`, the added `/*` hides `foo();`. Read from "comment" (the
+      // closer moved down), it hides nothing. Both readings count.
+      expect(one("@@ -1,3 +1,4 @@\n+/*\n foo();\n-*/\n+*/")).toEqual([
+        { file: T, reasons: ["existing line now inside a block comment: foo();"] },
+      ]);
     });
 
     it("only a line that is the closer alone reads as one: a // comment ending in */ does not", () => {

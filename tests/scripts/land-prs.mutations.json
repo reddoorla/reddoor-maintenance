@@ -212,8 +212,8 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "      if (!takeOne(deadLeft, matchKey(c))) takeOne(addedLeft, matchKey(c));",
-        "replace": "      void c;"
+        "find": "    for (const c of shifts.commented) takeOne(addedLeft, matchKey(c));",
+        "replace": "    for (const c of shifts.commented) void c;"
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
@@ -407,7 +407,7 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "    for (const [key, n] of deadLeft) for (let i = 0; i < n; i++) takeOne(removedLeft, key);\n",
+        "find": "    for (const d of shifts.dead) takeOne(liveLeft, matchKey(d));\n",
         "replace": ""
       }
     ],
@@ -433,8 +433,8 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "const start = jsdoc || closerMovedDown(lines) ? \"comment\" : \"code\";",
-        "replace": "const start = jsdoc ? \"comment\" : \"code\";"
+        "find": "  if (base === \"code\" && closerMovedDown(lines)) readings.push(shiftsFrom(lines, \"comment\"));\n",
+        "replace": ""
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
@@ -472,8 +472,8 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "    } else if (wholly(oldStates[k]) && !oldInh[k] && agree) {\n      dead.push(text.trim());",
-        "replace": "    } else {\n      dead.push(text.trim());"
+        "find": "    } else if (wholly(oldStates[k])) {\n      dead.push(k);",
+        "replace": "    } else {\n      dead.push(k);"
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
@@ -481,73 +481,42 @@
     "why": "#1941 over-broad: a skip moved in code is flagged as added."
   },
   {
-    "id": "P82-F-no-moved-text-pairing",
+    "id": "P82-A2-skip-backed-by-any-removed-line",
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "      if (!takeOne(deadLeft, matchKey(c))) takeOne(addedLeft, matchKey(c));",
-        "replace": "      takeOne(addedLeft, matchKey(c));"
+        "find": "      if (!takeOne(liveLeft, matchKey(t))) {",
+        "replace": "      if (!takeOne(removedLeft, matchKey(t))) {"
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
-    "why": "#1998 round 1: a template holding test code, re-indented, reads as a lost assertion again."
+    "why": "#1941 item 1 undone at the use: a skip is backed from the whole removed pool, dead text included."
   },
   {
-    "id": "P82-H-assumed-start-line-is-dead",
+    "id": "P82-L-moved-text-pairing-revived",
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "} else if (wholly(oldStates[k]) && !oldInh[k] && agree) {",
-        "replace": "} else if (wholly(oldStates[k]) && agree) {"
+        "find": "    for (const c of shifts.commented) takeOne(addedLeft, matchKey(c));\n",
+        "replace": "    const deadLeft = lineCounts(shifts.dead.map(matchKey));\n    for (const c of shifts.commented) if (!takeOne(deadLeft, matchKey(c))) takeOne(addedLeft, matchKey(c));\n"
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
-    "why": "#1998 round 3 undone: a removed assertion in a hunk only assumed to start in a JSDoc is dead text, and pairs with its commented-out copy."
+    "why": "#1998 round 6: round 1's dead/commented pairing put back; the round-5 backtick case passes a commented-out assertion that main flags."
   },
   {
-    "id": "P82-I-assumed-start-never-ends",
+    "id": "P82-N-moved-closer-replaces-main-reading",
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "if (s && (s.before !== start || s.after !== start)) still = false;",
-        "replace": "if (s && false) still = false;"
+        "find": "  const readings = [shiftsFrom(lines, base)];\n  if (base === \"code\" && closerMovedDown(lines)) readings.push(shiftsFrom(lines, \"comment\"));",
+        "replace": "  const readings = [shiftsFrom(lines, base === \"code\" && closerMovedDown(lines) ? \"comment\" : base)];"
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
-    "why": "over-broad: every line of a JSDoc-start hunk is untrusted, so text moved within a template opened after the JSDoc closes no longer pairs."
-  },
-  {
-    "id": "P82-J-round-3-undone",
-    "edits": [
-      {
-        "file": "scripts/land-prs.mjs",
-        "find": "if (newInh[k] || !agree) assumed.push(text.trim());",
-        "replace": "if (!agree) assumed.push(text.trim());"
-      },
-      {
-        "file": "scripts/land-prs.mjs",
-        "find": "wholly(oldStates[k]) && !oldInh[k] && agree) {",
-        "replace": "wholly(oldStates[k]) && agree) {"
-      }
-    ],
-    "test": "tests/scripts/land-prs.test.ts",
-    "expect": "red",
-    "why": "#1998 round 3 undone, both halves (each alone is enough for p5): an assertion commented out below a Markdown bullet pairs with its removed copy as text moved within text, and passes."
-  },
-  {
-    "id": "P82-K-sides-disagree-still-trusted",
-    "edits": [
-      {
-        "file": "scripts/land-prs.mjs",
-        "find": "  const agree = lines.every(",
-        "replace": "  const agree = true || lines.every("
-      }
-    ],
-    "test": "tests/scripts/land-prs.test.ts",
-    "expect": "red",
-    "why": "#1998 round 4 undone: a code fence added to a fixture above the hunk lets an assertion commented out below it pair off as text moved within text."
+    "why": "#1998 round 6: the moved-closer reading replaces main's instead of adding to it, so a wrap main flags (+/* above a moved */) is lost."
   }
 ]
