@@ -37,7 +37,7 @@ the workspace's `directives/sessions.md`.
 ## Worker sessions ask a blocking question once, with all its context
 
 A worker started from a backlog item or a brief (`docs/worker-brief.md`)
-follows three rules. Why each exists: the workspace's `directives/sessions.md`.
+follows these rules. Why each exists: the workspace's `directives/sessions.md`.
 
 - **At a stop condition, write the question down, then ask it with the
   AskUserQuestion tool** (the operator, 2026-10-05). The question stands alone
@@ -58,6 +58,17 @@ follows three rules. Why each exists: the workspace's `directives/sessions.md`.
   4. If an answer came, write it under the file's `## Answer`, set
      `status: answered`, and push again. If AskUserQuestion is not available,
      end the session: the morning pass reads the file.
+- **Three forks a worker takes on its own pick, and no others** (the
+  operator, 2026-11-10, the workspace's
+  `decisions/2026-11-10-2007-prioritization-rule-edits-read-the-diff.md`).
+  Defaulted: (i) how often a worker re-checks something it is waiting on; (ii) one more test
+  submission from a Reddoor address to a site that is not yet `maintained`
+  and whose form notifications go only to Reddoor addresses; (iii) keeping
+  existing code in place, when the choice has no effect a client or visitor
+  can see. The worker records each in a decision file with
+  `status: answered` and "defaulted" on its first line. Anything else asks. A
+  fork that departs from the brief always asks. None of the three overrides
+  `AUTONOMY.md`'s six stop conditions.
 - **Five dirty review rounds, then stop; a minors-only round is clean**
   (the operator, 2026-10-12, Operator decisions 107(a)). Label every finding
   `blocker`, `critical`, `major`, `minor` or `nit`; a minor is `minor` or
@@ -67,12 +78,24 @@ follows three rules. Why each exists: the workspace's `directives/sessions.md`.
   already touches, whose fix needs no new test, is folded in instead (the
   operator, 2026-10-20). A reproduced behaviour
   defect is never a minor. If the fifth round still finds a real defect, the
-  PR goes to a decision file with each round's findings, not into a sixth
-  round; a PR held under the old two-round stop stays with the operator
-  unless he says to resume. At the hold your pick may not be "land as is"
+  PR goes to a decision file with each round's findings, unless the next
+  paragraph's one exception sends it to a sixth round first; a PR held under
+  the old two-round stop stays with the operator unless he says to resume.
+
+  **The one sixth round a worker may run unasked** (the operator,
+  2026-11-10, the "narrow rule"). At the fifth dirty round, when the
+  worker's own pick is another round, it runs one more round without asking,
+  and asks only if that round is dirty too. It does this only when the sixth
+  round looks at the round-five fix alone, and that fix changes no behaviour
+  and drops no scope. In every other case it asks, as now. A 🟡 PR does not
+  land after an unasked sixth round; it waits for him. Every unasked round is
+  recorded in the PR body and the journal.
+
+  At the hold your pick may not be "land as is"
   while a reproduced behaviour defect is unfixed (a concrete input and the
   wrong output it gives, through the entry point production uses); the
   operator can still choose it.
+
 - **The mutations are named before the code.** A brief lists the mutations the
   worker commits to running against its own tests. Run each, record whether a
   test went red, and put the table in the PR body. A test no mutation turns
