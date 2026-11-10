@@ -1941,7 +1941,8 @@ describe("probeDesktop — one retry for a navigation that threw (P1-107)", () =
 });
 
 // P1-107b: each retry costs up to 10 s, times 15 routes × (3 engines + 2 devices), so a site
-// whose every route hangs took 59.6 min with both retries against 51.9 without desktop's,
+// whose every route hangs took 59.6 min with both retries against 51.9 without desktop's
+// (measured 2026-11-10: workspace decisions/2026-11-10-2048-p1-107-desktop-retry-budget.md),
 // past fleet-lighthouse's 75-minute audit step once the rest of the fleet is added. One budget
 // of 3 retries per site, shared by desktop and mobile, bounds that to 30 s. These run the real
 // per-site loop in real Chromium (every engine slot on one Chromium: the engine's name only
@@ -2055,7 +2056,7 @@ describe("probeRoutes — one retry budget of 3 per site, shared by desktop and 
     expect(served["/alt/h"]).toBe(8);
   }, 60_000);
 
-  it("chromium's page facts still come from its load, retried or not", async () => {
+  it("chromium's page facts come from its retried load", async () => {
     const [r] = await probeRoutes([`${base}/alt/i`], site());
     expect(r).toMatchObject({ status: 200, title: "t", lang: "en" });
   }, 60_000);

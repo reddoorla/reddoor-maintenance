@@ -946,7 +946,9 @@ export async function probeMobile(
   // is spent, a throw stands as the "load failed" it returned. A route that fails to load
   // twice stands, as does every fail on a page that did load. A browser that has crashed
   // still throws, so the audit names the crash instead of failing every route as
-  // "load failed".
+  // "load failed": at the retry's newContext while the budget lasts, otherwise at that
+  // browser's next probe (on a site's last route, a crash after the budget is spent reads
+  // as "load failed").
   if (first.reason === "load failed" && !spendRetry(budget)) return first;
   return first.reason === "load failed"
     ? probeMobileOnce(browser, url, target, RETRY_PAGE_TIMEOUT_MS)
@@ -957,10 +959,11 @@ export async function probeMobile(
 const RETRY_PAGE_TIMEOUT_MS = 10_000;
 
 /**
- * Retries one site may spend, across desktop and mobile together (P1-107b). Each costs up to
- * RETRY_PAGE_TIMEOUT_MS, so a site whose every route hangs costs at most 30 s more than with
- * no retries, where one retry per probe cost 15 routes × 5 probes × 10 s, 12.5 minutes, and
- * pushed fleet-lighthouse's 75-minute audit step past its cap. Both false Brokens on record
+ * Retries one site may spend, across desktop and mobile together (P1-107b). A retry that hangs
+ * costs RETRY_PAGE_TIMEOUT_MS (a mobile retry that loads can add its load and font waits), so a
+ * site whose every route hangs costs at most 30 s more than with no retries, where one retry per
+ * probe cost 15 routes × 5 probes × 10 s, 12.5 minutes, and pushed fleet-lighthouse's 75-minute
+ * audit step past its cap (measured: workspace decisions/2026-11-10-2048-p1-107-desktop-retry-budget.md). Both false Brokens on record
  * (2026-11-03 mobile, 2026-11-10 desktop) were a single throw on a single route.
  */
 export const SITE_RETRY_BUDGET = 3;
@@ -1066,7 +1069,9 @@ export type DesktopProbe = {
  * pays at most 30 s for retries (P1-107b); once the budget is spent, a throw stands as the
  * `{ ok: false, status: null }` it returned. A route that throws twice stands, as does every fail
  * on a page that loaded. A browser that has crashed still throws; if it dies during the first
- * navigation, the retry's newContext throws on that same route.
+ * navigation, the retry's newContext throws on that same route while the budget lasts, and that
+ * browser's next probe throws once it is spent (on a site's last route, such a crash reads as a
+ * fail with no status).
  */
 export async function probeDesktop(
   browser: Browser,
