@@ -18,8 +18,8 @@
     "edits": [
       {
         "file": "scripts/staging-bring-main.mjs",
-        "find": "    const how = conflicted.includes(LOCKFILE)",
-        "replace": "    git(wt, [\"update-ref\", \"-d\", \"MERGE_HEAD\"]);\n    const how = conflicted.includes(LOCKFILE)"
+        "find": "    const how = seededFrom",
+        "replace": "    git(wt, [\"update-ref\", \"-d\", \"MERGE_HEAD\"]);\n    const how = seededFrom"
       }
     ],
     "test": "tests/scripts/staging-bring-main.test.ts",
