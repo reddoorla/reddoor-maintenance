@@ -1,0 +1,106 @@
+[
+  {
+    "id": "1-snapshot-sends-ack-text",
+    "why": "#1679: the snapshot keeps sending the acked report",
+    "edits": [
+      {
+        "file": "src/dashboard/snapshot.ts",
+        "find": "            prismicAckDrift: null,\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/dashboard/snapshot-prismic-ack.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2-flag-always-true",
+    "why": "the server says every ack names tonight's report",
+    "edits": [
+      {
+        "file": "src/dashboard/snapshot.ts",
+        "find": "prismicAckNamesReport: prismicAckNamesReport(site),",
+        "replace": "prismicAckNamesReport: true,"
+      }
+    ],
+    "test": "tests/dashboard/snapshot-prismic-ack.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "3-flag-always-false",
+    "why": "the server says no ack names tonight's report",
+    "edits": [
+      {
+        "file": "src/dashboard/snapshot.ts",
+        "find": "prismicAckNamesReport: prismicAckNamesReport(site),",
+        "replace": "prismicAckNamesReport: false,"
+      }
+    ],
+    "test": "tests/dashboard/snapshot-prismic-ack.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "4-covers-ignores-flag",
+    "why": "the browser compares text the snapshot no longer carries",
+    "edits": [
+      {
+        "file": "src/alerts/digest-collectors.ts",
+        "find": "return site.prismicAckNamesReport ?? prismicAckNamesReport(site);",
+        "replace": "return prismicAckNamesReport(site);"
+      }
+    ],
+    "test": "tests/dashboard/snapshot-prismic-ack.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "5-flag-skips-expiry",
+    "why": "a true flag outlives the ack's expiry",
+    "edits": [
+      {
+        "file": "src/alerts/digest-collectors.ts",
+        "find": "  if (!prismicAckIsLive(site.prismicAckUntil, now)) return false;\n  return site.prismicAckNamesReport",
+        "replace": "  if (site.prismicAckNamesReport === undefined && !prismicAckIsLive(site.prismicAckUntil, now)) return false;\n  return site.prismicAckNamesReport"
+      }
+    ],
+    "test": "tests/dashboard/snapshot-prismic-ack.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "6-text-beats-false-flag",
+    "why": "matching text overrides the server's false",
+    "edits": [
+      {
+        "file": "src/alerts/digest-collectors.ts",
+        "find": "return site.prismicAckNamesReport ?? prismicAckNamesReport(site);",
+        "replace": "return prismicAckNamesReport(site) || (site.prismicAckNamesReport ?? false);"
+      }
+    ],
+    "test": "tests/dashboard/snapshot-prismic-ack.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "7-flag-always-false-parity",
+    "why": "the snapshot-derived card raises the Prismic alert the loader keeps muted",
+    "edits": [
+      {
+        "file": "src/dashboard/snapshot.ts",
+        "find": "prismicAckNamesReport: prismicAckNamesReport(site),",
+        "replace": "prismicAckNamesReport: false,"
+      }
+    ],
+    "test": "cockpit/tests/snapshot/parity.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "8-parity-normaliser-drops-text",
+    "why": "the snapshot keeps the acked text; the parity file's holds case sees it still sent",
+    "edits": [
+      {
+        "file": "src/dashboard/snapshot.ts",
+        "find": "            prismicAckDrift: null,\n",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/snapshot/parity.ssr.test.ts",
+    "expect": "red"
+  }
+]

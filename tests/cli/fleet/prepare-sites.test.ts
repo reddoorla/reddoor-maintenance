@@ -104,6 +104,22 @@ describe("formatSkippedNotice", () => {
     expect(note).toContain("erp (cannot clone)");
     expect(note).toContain("foo (git clone failed)");
   });
+
+  it("stays one line when a reason carries git's multi-line stderr (#2003 round 1)", () => {
+    const note = formatSkippedNotice([
+      {
+        site: "site-a",
+        reason:
+          "git clone failed (code 128): Cloning into '/w/site-a'...\nremote: Repository not found.\r\nfatal: not found\n",
+      },
+      { site: "site-b", reason: "cannot clone" },
+    ]);
+    expect(note).not.toMatch(/[\r\n]/);
+    expect(note).toContain(
+      "site-a (git clone failed (code 128): Cloning into '/w/site-a'... / remote: Repository not found. / fatal: not found)",
+    );
+    expect(note).toContain("site-b (cannot clone)");
+  });
 });
 
 describe("appendSkipNotice", () => {

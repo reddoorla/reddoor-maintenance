@@ -11,6 +11,7 @@ import { readDigestState, readCockpitRollup } from "../db/digest-state.js";
 import { listRecentProspectAudits } from "../db/prospect-audits.js";
 import { readCockpitVersion } from "../db/cockpit-version.js";
 import { orElse } from "./or-else.js";
+import { prismicAckNamesReport } from "../alerts/digest-collectors.js";
 import { readLatestDeps, readOverviewNights } from "../fleet-daily/read.js";
 import type { SubmissionRow } from "../reports/submission-row.js";
 import {
@@ -131,6 +132,11 @@ export async function loadCockpitSnapshot(
             // snapshot.
             ...site,
             mailchimpApiKey: site.mailchimpApiKey === null ? null : MAILCHIMP_KEY_REDACTED,
+            // The acked drift report only answers "is this tonight's report?", so
+            // the server answers it and the text stays here (#1679). The ack's
+            // expiry is still read in the browser, against the browser's clock.
+            prismicAckDrift: null,
+            prismicAckNamesReport: prismicAckNamesReport(site),
           })),
     slugById: new Map((slugs ?? []).map((r) => [r.id, r.slug])),
     reports,

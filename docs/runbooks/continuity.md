@@ -112,10 +112,10 @@ tiers — `broken`, `attention`, `watch`, `healthy`, `pre-launch` (`src/dashboar
 worst-band-wins on the severity ladder (`src/alerts/ladder.ts`, P1-78b), with the watch band being
 the soft zone beneath the alert floor (a Lighthouse score in [75, 85), a check stale past 30 days).
 A watch reason the operator has explicitly accepted is routed to `acceptedReasons` and leaves the
-band rather than raising it (`fleet-cockpit.ts:359`, `:427–429`).
+band rather than raising it (`fleet-cockpit.ts:363`, `:431–434`).
 
 **The "Needs you" feed** is real and is the thing to read first
-(`src/dashboard/fleet-cockpit.ts:603–715`, rendered as the triage page's `needs-you` section,
+(`src/dashboard/fleet-cockpit.ts:599–721`, built by `buildNeedsYouFeed`, rendered as the triage page's `needs-you` section,
 `cockpit/src/routes/triage/+page.svelte:28–44`).
 One row per site, every reason combined, ordered `broken` → `watch` → `approval`, critical-first
 within `broken`. A vuln the fleet is still auto-patching is amber `watch`; a vuln whose
@@ -132,7 +132,7 @@ go out without a human approval.** Two independent gates:
 - `cockpit/src/lib/server/endpoints/approve-report.ts:73` — `requireOperator(req, { wants: "json" })`. Every
   approval runs through one Basic-auth credential, checked before any store read, behind a
   CSRF check. No credential, no approval.
-- `src/reports/send/orchestrate.ts:234–254` — `sendOne` **throws** rather than send when the health
+- `src/reports/send/orchestrate.ts:232–254` — `sendOne` **throws** rather than send when the health
   gate is not clear, _even if "Approved to send" was set directly in the database_. The row is
   skipped, `Sent at` stays null, and the at-least-once retry is preserved.
 

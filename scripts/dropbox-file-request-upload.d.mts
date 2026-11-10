@@ -45,13 +45,8 @@ export function afterError(
 export function squash(s: string): string;
 export function exitCode(results: Verdict[]): number;
 
-export interface Payload {
-  name: string;
-  type: string;
-  b64: string;
-}
-
-export function payloadFor(rows: Row[]): Payload[];
+export function unchangedPaths(rows: Row[]): string[];
+export function commitFinal(status: number): boolean;
 export function missingAfterDrop(body: string, names: string[]): string[];
 export function waitForCommits(
   committed: Map<string, { status: number; text: string }>,
@@ -60,3 +55,17 @@ export function waitForCommits(
   sleep: (ms: number) => Promise<unknown>,
   now?: () => number,
 ): Promise<void>;
+
+/** The part of a Playwright `Browser` that `uploadBatch` uses. */
+export interface BrowserLike {
+  newContext(options?: { viewport?: { width: number; height: number } }): Promise<unknown>;
+}
+
+export function uploadBatch(
+  browser: BrowserLike,
+  url: string,
+  name: string,
+  email: string,
+  rows: Row[],
+  options?: { deadlineMs?: number },
+): Promise<Verdict[]>;

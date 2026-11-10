@@ -364,6 +364,17 @@ describe("loadCockpitSnapshot on a batchReads Db", () => {
     const db = await batchedDb(c.client);
     await expect(db.transaction().execute(async () => 1)).rejects.toThrow(/no transaction/);
   });
+
+  // #1755 (from #1738 r2): Kysely's startTransaction() reaches the client the same way as
+  // transaction(), through the dialect's beginTransaction → client.transaction(), so the
+  // one trap refuses both. Pinned here so a dialect that took another route would show.
+  it("refuses startTransaction too, before any statement reaches the store", async () => {
+    const c = await countingClient();
+    const db = await batchedDb(c.client);
+    await expect(db.startTransaction().execute()).rejects.toThrow(/no transaction/);
+    expect(c.executes).toEqual([]);
+    expect(c.batches).toEqual([]);
+  });
 });
 
 describe("the root layout's load", () => {

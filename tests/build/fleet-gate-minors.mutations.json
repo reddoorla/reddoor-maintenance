@@ -1,0 +1,209 @@
+[
+  {
+    "id": "2-lf-not-folded",
+    "edits": [
+      {
+        "file": "src/cli/fleet/prepare-sites.ts",
+        "find": ".replace(/[ \\t\\r]*\\r?\\n\\s*/g, \" / \")",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/build/fleet-write-gate-workflows.test.ts",
+      "tests/cli/fleet/prepare-sites.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "2-fleet-lighthouse-skip-unescaped",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-lighthouse.yml",
+        "find": "skipped=$(grep -oE \"⚠ [0-9]+ site\\(s\\) skipped \\(could not prepare\\):.*\" \"${RUNNER_TEMP:-/tmp}/audit.out\" | tail -n1 | sed -e 's/%/%25/g' -e 's/\\r/%0D/g'",
+        "replace": "skipped=$(grep -oE \"⚠ [0-9]+ site\\(s\\) skipped \\(could not prepare\\):.*\" \"${RUNNER_TEMP:-/tmp}/audit.out\" | tail -n1"
+      }
+    ],
+    "test": ["tests/build/fleet-write-gate-workflows.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "5-fleet-lighthouse-warnings-after-verdict-check",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-lighthouse.yml",
+        "find": "          # The gate's warnings print before the no-verdict exit too, so a crash that left a\n          # summary but no verdict still names the sites it could not write (#1942 item 5).\n          grep -E \"^FLEET_WRITE_GATE_WARNING \" \"${RUNNER_TEMP:-/tmp}/audit.out\" | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet Lighthouse: /' || true\n          gate=$(grep -E \"^FLEET_WRITE_GATE verdict=(red|green)$\" \"${RUNNER_TEMP:-/tmp}/audit.out\" | tail -n1 || true)\n          if [ -z \"$gate\" ]; then\n            echo \"::error::fleet Lighthouse printed no FLEET_WRITE_GATE verdict — cannot confirm what was measured.\"\n            exit 1\n          fi\n",
+        "replace": "          gate=$(grep -E \"^FLEET_WRITE_GATE verdict=(red|green)$\" \"${RUNNER_TEMP:-/tmp}/audit.out\" | tail -n1 || true)\n          if [ -z \"$gate\" ]; then\n            echo \"::error::fleet Lighthouse printed no FLEET_WRITE_GATE verdict — cannot confirm what was measured.\"\n            exit 1\n          fi\n          grep -E \"^FLEET_WRITE_GATE_WARNING \" \"${RUNNER_TEMP:-/tmp}/audit.out\" | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet Lighthouse: /' || true\n"
+      }
+    ],
+    "test": ["tests/build/fleet-write-gate-workflows.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "2-fleet-security-skip-unescaped",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-security.yml",
+        "find": "skipped=$(grep -oE \"⚠ [0-9]+ site\\(s\\) skipped \\(could not prepare\\):.*\" \"${RUNNER_TEMP:-/tmp}/audit.out\" | tail -n1 | sed -e 's/%/%25/g' -e 's/\\r/%0D/g'",
+        "replace": "skipped=$(grep -oE \"⚠ [0-9]+ site\\(s\\) skipped \\(could not prepare\\):.*\" \"${RUNNER_TEMP:-/tmp}/audit.out\" | tail -n1"
+      }
+    ],
+    "test": ["tests/build/fleet-write-gate-workflows.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "5-fleet-security-warnings-after-verdict-check",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-security.yml",
+        "find": "          # The gate's warnings print before the no-verdict exit too, so a crash that left a\n          # summary but no verdict still names the sites it could not write (#1942 item 5).\n          grep -E \"^FLEET_WRITE_GATE_WARNING \" \"${RUNNER_TEMP:-/tmp}/audit.out\" | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet security: /' || true\n          gate=$(grep -E \"^FLEET_WRITE_GATE verdict=(red|green)$\" \"${RUNNER_TEMP:-/tmp}/audit.out\" | tail -n1 || true)\n          if [ -z \"$gate\" ]; then\n            echo \"::error::fleet security printed no FLEET_WRITE_GATE verdict — cannot confirm what was measured.\"\n            exit 1\n          fi\n",
+        "replace": "          gate=$(grep -E \"^FLEET_WRITE_GATE verdict=(red|green)$\" \"${RUNNER_TEMP:-/tmp}/audit.out\" | tail -n1 || true)\n          if [ -z \"$gate\" ]; then\n            echo \"::error::fleet security printed no FLEET_WRITE_GATE verdict — cannot confirm what was measured.\"\n            exit 1\n          fi\n          grep -E \"^FLEET_WRITE_GATE_WARNING \" \"${RUNNER_TEMP:-/tmp}/audit.out\" | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet security: /' || true\n"
+      }
+    ],
+    "test": ["tests/build/fleet-write-gate-workflows.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "2-fleet-a11y-skip-unescaped",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-a11y.yml",
+        "find": "skipped=$(grep -oE \"⚠ [0-9]+ site\\(s\\) skipped \\(could not prepare\\):.*\" \"${RUNNER_TEMP:-/tmp}/audit.out\" | tail -n1 | sed -e 's/%/%25/g' -e 's/\\r/%0D/g'",
+        "replace": "skipped=$(grep -oE \"⚠ [0-9]+ site\\(s\\) skipped \\(could not prepare\\):.*\" \"${RUNNER_TEMP:-/tmp}/audit.out\" | tail -n1"
+      }
+    ],
+    "test": ["tests/build/fleet-write-gate-workflows.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "5-fleet-a11y-warnings-after-verdict-check",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-a11y.yml",
+        "find": "          # The gate's warnings print before the no-verdict exit too, so a crash that left a\n          # summary but no verdict still names the sites it could not write (#1942 item 5).\n          grep -E \"^FLEET_WRITE_GATE_WARNING \" \"${RUNNER_TEMP:-/tmp}/audit.out\" | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet a11y: /' || true\n          gate=$(grep -E \"^FLEET_WRITE_GATE verdict=(red|green)$\" \"${RUNNER_TEMP:-/tmp}/audit.out\" | tail -n1 || true)\n          if [ -z \"$gate\" ]; then\n            echo \"::error::fleet a11y printed no FLEET_WRITE_GATE verdict — cannot confirm what was measured.\"\n            exit 1\n          fi\n",
+        "replace": "          gate=$(grep -E \"^FLEET_WRITE_GATE verdict=(red|green)$\" \"${RUNNER_TEMP:-/tmp}/audit.out\" | tail -n1 || true)\n          if [ -z \"$gate\" ]; then\n            echo \"::error::fleet a11y printed no FLEET_WRITE_GATE verdict — cannot confirm what was measured.\"\n            exit 1\n          fi\n          grep -E \"^FLEET_WRITE_GATE_WARNING \" \"${RUNNER_TEMP:-/tmp}/audit.out\" | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet a11y: /' || true\n"
+      }
+    ],
+    "test": ["tests/build/fleet-write-gate-workflows.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "2-fleet-form-e2e-skip-unescaped",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-form-e2e.yml",
+        "find": "skipped=$(grep -oE \"⚠ [0-9]+ site\\(s\\) skipped \\(could not prepare\\):.*\" \"$out\" | tail -n1 | sed -e 's/%/%25/g' -e 's/\\r/%0D/g'",
+        "replace": "skipped=$(grep -oE \"⚠ [0-9]+ site\\(s\\) skipped \\(could not prepare\\):.*\" \"$out\" | tail -n1"
+      }
+    ],
+    "test": ["tests/build/fleet-write-gate-workflows.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "5-fleet-form-e2e-warnings-after-verdict-check",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-form-e2e.yml",
+        "find": "          # The gate's warnings print before the no-verdict exit too, so a crash that left a\n          # summary but no verdict still names the sites it could not write (#1942 item 5).\n          grep -E \"^FLEET_WRITE_GATE_WARNING \" \"$out\" | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet form-e2e: /' || true\n          gate=$(grep -E \"^FLEET_WRITE_GATE verdict=(red|green)$\" \"$out\" | tail -n1 || true)\n          if [ -z \"$gate\" ]; then\n            echo \"::error::fleet form-e2e printed no FLEET_WRITE_GATE verdict — cannot confirm what was measured.\"\n            exit 1\n          fi\n",
+        "replace": "          gate=$(grep -E \"^FLEET_WRITE_GATE verdict=(red|green)$\" \"$out\" | tail -n1 || true)\n          if [ -z \"$gate\" ]; then\n            echo \"::error::fleet form-e2e printed no FLEET_WRITE_GATE verdict — cannot confirm what was measured.\"\n            exit 1\n          fi\n          grep -E \"^FLEET_WRITE_GATE_WARNING \" \"$out\" | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet form-e2e: /' || true\n"
+      }
+    ],
+    "test": ["tests/build/fleet-write-gate-workflows.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "2-fleet-smoke-skip-unescaped",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-smoke.yml",
+        "find": "skipped=$(grep -oE \"⚠ [0-9]+ site\\(s\\) skipped \\(could not prepare\\):.*\" \"${RUNNER_TEMP:-/tmp}/smoke.out\" | tail -n1 | sed -e 's/%/%25/g' -e 's/\\r/%0D/g'",
+        "replace": "skipped=$(grep -oE \"⚠ [0-9]+ site\\(s\\) skipped \\(could not prepare\\):.*\" \"${RUNNER_TEMP:-/tmp}/smoke.out\" | tail -n1"
+      }
+    ],
+    "test": ["tests/build/fleet-write-gate-workflows.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "5-fleet-smoke-warnings-after-verdict-check",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-smoke.yml",
+        "find": "          # The gate's warnings print before the no-verdict exit too, so a crash that left a\n          # summary but no verdict still names the sites it could not write (#1942 item 5).\n          grep -E \"^FLEET_WRITE_GATE_WARNING \" \"${RUNNER_TEMP:-/tmp}/smoke.out\" | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet smoke: /' || true\n          gate=$(grep -E \"^FLEET_WRITE_GATE verdict=(red|green)$\" \"${RUNNER_TEMP:-/tmp}/smoke.out\" | tail -n1 || true)\n          if [ -z \"$gate\" ]; then\n            echo \"::error::fleet smoke printed no FLEET_WRITE_GATE verdict — cannot confirm what was measured.\"\n            exit 1\n          fi\n",
+        "replace": "          gate=$(grep -E \"^FLEET_WRITE_GATE verdict=(red|green)$\" \"${RUNNER_TEMP:-/tmp}/smoke.out\" | tail -n1 || true)\n          if [ -z \"$gate\" ]; then\n            echo \"::error::fleet smoke printed no FLEET_WRITE_GATE verdict — cannot confirm what was measured.\"\n            exit 1\n          fi\n          grep -E \"^FLEET_WRITE_GATE_WARNING \" \"${RUNNER_TEMP:-/tmp}/smoke.out\" | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet smoke: /' || true\n"
+      }
+    ],
+    "test": ["tests/build/fleet-write-gate-workflows.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "2-fleet-prismic-drift-skip-unescaped",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-prismic-drift.yml",
+        "find": "skipped=$(grep -oE \"⚠ [0-9]+ site\\(s\\) skipped \\(could not prepare\\):.*\" \"$out\" | tail -n1 | sed -e 's/%/%25/g' -e 's/\\r/%0D/g'",
+        "replace": "skipped=$(grep -oE \"⚠ [0-9]+ site\\(s\\) skipped \\(could not prepare\\):.*\" \"$out\" | tail -n1"
+      }
+    ],
+    "test": ["tests/build/fleet-write-gate-workflows.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "5-fleet-prismic-drift-warnings-after-verdict-check",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-prismic-drift.yml",
+        "find": "          # The gate's warnings print before the no-verdict exit too, so a crash that left a\n          # summary but no verdict still names the sites it could not write (#1942 item 5).\n          grep -E \"^FLEET_WRITE_GATE_WARNING \" \"$out\" | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet prismic drift: /' || true\n          gate=$(grep -E \"^FLEET_WRITE_GATE verdict=(red|green)$\" \"$out\" | tail -n1 || true)\n          if [ -z \"$gate\" ]; then\n            echo \"::error::fleet prismic drift printed no FLEET_WRITE_GATE verdict — cannot confirm what was measured.\"\n            exit 1\n          fi\n",
+        "replace": "          gate=$(grep -E \"^FLEET_WRITE_GATE verdict=(red|green)$\" \"$out\" | tail -n1 || true)\n          if [ -z \"$gate\" ]; then\n            echo \"::error::fleet prismic drift printed no FLEET_WRITE_GATE verdict — cannot confirm what was measured.\"\n            exit 1\n          fi\n          grep -E \"^FLEET_WRITE_GATE_WARNING \" \"$out\" | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet prismic drift: /' || true\n"
+      }
+    ],
+    "test": ["tests/build/fleet-write-gate-workflows.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "2-cr-left-raw",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-a11y.yml",
+        "find": "tail -n1 | sed -e 's/%/%25/g' -e 's/\\r/%0D/g'",
+        "replace": "tail -n1 | sed -e 's/%/%25/g'"
+      }
+    ],
+    "test": ["tests/build/fleet-write-gate-workflows.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "2-cr-before-percent",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-a11y.yml",
+        "find": "tail -n1 | sed -e 's/%/%25/g' -e 's/\\r/%0D/g'",
+        "replace": "tail -n1 | sed -e 's/\\r/%0D/g' -e 's/%/%25/g'"
+      }
+    ],
+    "test": ["tests/build/fleet-write-gate-workflows.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "2-prismic-refusal-unescaped",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-prismic-drift.yml",
+        "find": "grep -m1 \"⛔\" \"$out\" | sed -e 's/%/%25/g' -e 's/\\r/%0D/g'",
+        "replace": "grep -m1 \"⛔\" \"$out\""
+      }
+    ],
+    "test": ["tests/build/fleet-write-gate-workflows.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "5-smoke-unmeasured-exit-silent",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-smoke.yml",
+        "find": "          if [ -z \"$unmeasured_line\" ]; then\n            grep -E \"^FLEET_WRITE_GATE_WARNING \" \"${RUNNER_TEMP:-/tmp}/smoke.out\" | sed 's/^FLEET_WRITE_GATE_WARNING /::warning::fleet smoke: /' || true\n",
+        "replace": "          if [ -z \"$unmeasured_line\" ]; then\n"
+      }
+    ],
+    "test": ["tests/build/fleet-write-gate-workflows.test.ts"],
+    "expect": "red"
+  }
+]

@@ -165,16 +165,15 @@ export function exitCode(results) {
   return results.length > 0 && results.every((r) => r.ok) ? 0 : 1;
 }
 
-export function payloadFor(rows) {
+/** The paths to hand Chromium, once each file is shown to still hash as planned.
+ *  Chromium reads the files itself (`setInputFiles` with paths), so no file's bytes
+ *  cross the DevTools pipe, which closes the page on a message of about 120 MB
+ *  (measured 2026-11-09; #1396). */
+export function unchangedPaths(rows) {
   return rows.map((r) => {
-    const buf = readFileSync(r.file);
-    if (contentHash(buf) !== r.contentHash)
+    if (contentHash(readFileSync(r.file)) !== r.contentHash)
       throw new Error(`${r.file} changed after it was hashed`);
-    return {
-      name: basename(r.file),
-      type: r.file.toLowerCase().endsWith(".pdf") ? "application/pdf" : "application/octet-stream",
-      b64: buf.toString("base64"),
-    };
+    return r.file;
   });
 }
 
@@ -183,15 +182,30 @@ export function missingAfterDrop(body, names) {
   return names.filter((n) => !text.includes(squash(n)));
 }
 
-export async function waitForCommits(committed, names, until, sleep, now = Date.now) {
-  const done = (n) => {
-    const c = committed.get(n);
-    return Boolean(c) && commitComplete(c.status, c.text);
-  };
-  while (names.some((n) => !done(n)) && now() < until) await sleep(500);
+/**
+ * Is this commit answer the page's last word on the file (#1471)? Read from the
+ * upload page's own bundle on 2026-11-09 (`submission_edison-vfl7ETbh6.js`; the
+ * runbook has the detail): its commit call resolves on any 200, whatever the body,
+ * so the call itself never re-sends a 200 (the scheduler may still re-send a whole
+ * batch, #1994), and on a 403 the page disables the form. Anything else
+ * (a 5xx, another 4xx, no answer) is a rejection the page's upload scheduler may
+ * retry, so the wait goes on until the deadline.
+ */
+export function commitFinal(status) {
+  return status === 200 || status === 403;
 }
 
-async function uploadBatch(browser, url, name, email, rows) {
+export async function waitForCommits(committed, names, until, sleep, now = Date.now) {
+  const final = (n) => {
+    const c = committed.get(n);
+    return Boolean(c) && commitFinal(c.status);
+  };
+  while (names.some((n) => !final(n)) && now() < until) await sleep(500);
+}
+
+/** One batch through one page. `deadlineMs` is how long the commits may take; it
+ *  defaults to `timeoutMs` of the batch's bytes, and exists for the wiring test. */
+export async function uploadBatch(browser, url, name, email, rows, { deadlineMs } = {}) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await ctx.newPage();
   const committed = new Map();
@@ -199,6 +213,11 @@ async function uploadBatch(browser, url, name, email, rows) {
     const file = commitName(res.url());
     if (file === null) return;
     const text = await res.text().catch(() => "");
+    // A file that committed stays committed (#1994): if the page's scheduler
+    // retries a whole batch after another file's 5xx, a file already answered
+    // complete is committed again, and that answer (a 403) must not replace it.
+    const seen = committed.get(file);
+    if (seen && commitComplete(seen.status, seen.text)) return;
     committed.set(file, { status: res.status(), text });
   });
   try {
@@ -207,37 +226,40 @@ async function uploadBatch(browser, url, name, email, rows) {
     const zone = await page.waitForSelector("#browse-target", { timeout: 30_000 }).catch(() => {
       throw new Error("no drop zone on the page: the request may be closed or past its deadline");
     });
-    const payload = payloadFor(rows);
-    const dt = await page.evaluateHandle((files) => {
+    const paths = unchangedPaths(rows);
+    const names = paths.map((p) => basename(p));
+    // A file input of our own, outside the page's app, filled from the paths; the
+    // drop then carries the Files it holds. The page's own input does nothing when
+    // set (runbook), so the drop stays the route in.
+    const input = await page.evaluateHandle(() => {
+      const el = globalThis.document.createElement("input");
+      el.type = "file";
+      el.multiple = true;
+      el.hidden = true;
+      globalThis.document.body.append(el);
+      return el;
+    });
+    await input.setInputFiles(paths);
+    const dt = await input.evaluateHandle((el) => {
       const dt = new globalThis.DataTransfer();
-      for (const f of files) {
-        const bin = atob(f.b64);
-        const u8 = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
-        dt.items.add(new File([u8], f.name, { type: f.type }));
-      }
+      for (const f of el.files) dt.items.add(f);
+      el.remove();
       return dt;
-    }, payload);
+    });
     const target = await zone.evaluateHandle((el) => el.closest("div[class]")?.parentElement || el);
     for (const ev of ["dragenter", "dragover", "drop"]) {
       await target.dispatchEvent(ev, { dataTransfer: dt });
     }
     await page.waitForSelector('input[name="email"]', { timeout: 30_000 });
-    const missing = missingAfterDrop(
-      await page.innerText("body"),
-      payload.map((f) => f.name),
-    );
+    const missing = missingAfterDrop(await page.innerText("body"), names);
     if (missing.length)
       throw new Error(`the page did not list ${missing.join(", ")} after the drop`);
     await page.fill('input[name="name"]', name);
     await page.fill('input[name="email"]', email);
     await page.getByRole("button", { name: "Upload", exact: true }).click();
     const bytes = rows.reduce((n, r) => n + r.size, 0);
-    await waitForCommits(
-      committed,
-      payload.map((f) => f.name),
-      Date.now() + timeoutMs(bytes),
-      (ms) => page.waitForTimeout(ms),
+    await waitForCommits(committed, names, Date.now() + (deadlineMs ?? timeoutMs(bytes)), (ms) =>
+      page.waitForTimeout(ms),
     );
     return verdicts(rows, committed);
   } catch (e) {

@@ -1,0 +1,93 @@
+[
+  {
+    "id": "R1-following-terms-ignored",
+    "why": "runbook-anchors: a termless citation goes straight to the paragraph's pool again",
+    "edits": [
+      {
+        "file": "tests/docs/runbook-anchors.test.ts",
+        "find": "following.length > 0\n              ? following",
+        "replace": "false\n              ? following"
+      }
+    ],
+    "test": "tests/docs/runbook-anchors.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "R2-following-terms-any-line",
+    "why": "runbook-anchors: a term on the next line, opening another sentence, anchors the citation",
+    "edits": [
+      {
+        "file": "tests/docs/runbook-anchors.test.ts",
+        "find": " && t.line === citation.line",
+        "replace": ""
+      }
+    ],
+    "test": "tests/docs/runbook-anchors.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "C1-workflow-defaults-outrank-job",
+    "why": "ci-gate: the workflow's defaults.run.working-directory read before the job's",
+    "edits": [
+      {
+        "file": "tests/ci-gate.test.ts",
+        "find": "dir: j.defaults?.run?.[\"working-directory\"] ?? workflowDir,",
+        "replace": "dir: workflowDir ?? j.defaults?.run?.[\"working-directory\"],"
+      }
+    ],
+    "test": "tests/ci-gate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "S1-sync-regex-unanchored",
+    "why": "mutate: a cockpit:sync with a prefix hands its tail to svelte-kit",
+    "edits": [
+      {
+        "file": "scripts/mutate.mjs",
+        "find": "/^\\s*svelte-kit\\s+(sync(?:\\s+\\S+)*)\\s*$/",
+        "replace": "/svelte-kit\\s+(sync(?:\\s+\\S+)*)\\s*$/"
+      }
+    ],
+    "test": "tests/scripts/mutate.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "T1-no-transaction-trap",
+    "why": "batchReads: transaction() and startTransaction() reach the store",
+    "edits": [
+      {
+        "file": "src/db/client.ts",
+        "find": "if (prop === \"transaction\") {",
+        "replace": "if (prop === \"transaction-trap-removed\") {"
+      }
+    ],
+    "test": "cockpit/tests/snapshot/snapshot.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "U1-legacy-fail-called-stale",
+    "why": "Turnstile: a fail with no form-e2e stamp is called a stale browser check again",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "site.formE2eCheckedAt === null\n",
+        "replace": "false\n"
+      }
+    ],
+    "test": "tests/dashboard/fleet-cockpit.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "W6-measured-nothing-only-warns",
+    "why": "#1669 W6: the gate only warns when form-e2e measured nothing fleet-wide",
+    "edits": [
+      {
+        "file": "src/audits/write-audits.ts",
+        "find": "if (sites.length * 4 > of) reasons.push(`${line} (>25%)`);",
+        "replace": "if (sites.length * 4 > of) warnings.push(`${line} (>25%)`);"
+      }
+    ],
+    "test": "tests/cli/audit-write-back-wiring.test.ts",
+    "expect": "red"
+  }
+]
