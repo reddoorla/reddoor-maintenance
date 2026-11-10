@@ -931,6 +931,7 @@ export async function probeMobile(
   browser: Browser,
   url: string,
   target: MobileTarget,
+  budget?: RetryBudget,
 ): Promise<RouteResult["mobile"][number]> {
   const first = await probeMobileOnce(browser, url, target);
   // A navigation that threw (no answer, a dropped connection, a 30 s timeout) is one
@@ -938,12 +939,15 @@ export async function probeMobile(
   // "load failed" on Pixel 7 on 2026-11-03 while iPhone 14 (the same Chromium), all three
   // desktop engines and the plain-fetch re-check loaded it, and it fit on every later
   // probe. That one throw put Reddoor at Broken. It gets one fresh context, with a
-  // shorter navigation cap: a route that hangs again costs RETRY_PAGE_TIMEOUT_MS more
-  // per device, 5 minutes for a site whose 15 routes all hang (fleet-lighthouse has a
-  // 75-minute budget for the fleet); one that loads slowly on the retry can add its load and font waits
-  // too (STYLE_SETTLE_MS each). A route that fails to load twice stands, as does every
-  // fail on a page that did load. A browser that has crashed still throws, so the
-  // audit names the crash instead of failing every route as "load failed".
+  // shorter navigation cap, while the site's retry budget lasts (SITE_RETRY_BUDGET,
+  // shared with probeDesktop): a route that hangs again costs RETRY_PAGE_TIMEOUT_MS more,
+  // at most 30 s for a site whose 15 routes all hang (P1-107b); one that loads slowly on
+  // the retry can add its load and font waits too (STYLE_SETTLE_MS each). Once the budget
+  // is spent, a throw stands as the "load failed" it returned. A route that fails to load
+  // twice stands, as does every fail on a page that did load. A browser that has crashed
+  // still throws, so the audit names the crash instead of failing every route as
+  // "load failed".
+  if (first.reason === "load failed" && !spendRetry(budget)) return first;
   return first.reason === "load failed"
     ? probeMobileOnce(browser, url, target, RETRY_PAGE_TIMEOUT_MS)
     : first;
@@ -951,6 +955,29 @@ export async function probeMobile(
 
 /** The retry's navigation cap: shorter than the first try's, to bound what it costs. */
 const RETRY_PAGE_TIMEOUT_MS = 10_000;
+
+/**
+ * Retries one site may spend, across desktop and mobile together (P1-107b). Each costs up to
+ * RETRY_PAGE_TIMEOUT_MS, so a site whose every route hangs costs at most 30 s more than with
+ * no retries, where one retry per probe cost 15 routes × 5 probes × 10 s, 12.5 minutes, and
+ * pushed fleet-lighthouse's 75-minute audit step past its cap. Both false Brokens on record
+ * (2026-11-03 mobile, 2026-11-10 desktop) were a single throw on a single route.
+ */
+export const SITE_RETRY_BUDGET = 3;
+
+/** A site's remaining retries; probeRoutes makes one per call, so no site spends another's. */
+export type RetryBudget = { left: number };
+
+/**
+ * Whether a probe whose first try threw may retry, spending one retry if so. With no budget
+ * (a direct call outside probeRoutes) every throw gets its one retry, as before P1-107b.
+ */
+function spendRetry(budget: RetryBudget | undefined): boolean {
+  if (!budget) return true;
+  if (budget.left <= 0) return false;
+  budget.left -= 1;
+  return true;
+}
 
 async function probeMobileOnce(
   browser: Browser,
@@ -1034,17 +1061,21 @@ export type DesktopProbe = {
  * A navigation that threw gets one retry in a fresh context, capped at RETRY_PAGE_TIMEOUT_MS, as
  * probeMobile's does (P1-107). The 2026-11-10 nightly read reddoorla.com/ as failing on Firefox
  * with no status, which put Reddoor at Broken ("pages fail to render on desktop"), while Firefox
- * and Chromium each loaded it twice that morning: 200, no errors. A route that hangs again costs
- * 10 s more per engine, 7.5 minutes for a site whose 15 routes all hang. A route that throws twice
- * stands, as does every fail on a page that loaded. A browser that has crashed still throws; if
- * it dies during the first navigation, the retry's newContext throws on that same route.
+ * and Chromium each loaded it twice that morning: 200, no errors. The retry is spent from the
+ * site's budget (SITE_RETRY_BUDGET, shared with probeMobile), so a site whose 15 routes all hang
+ * pays at most 30 s for retries (P1-107b); once the budget is spent, a throw stands as the
+ * `{ ok: false, status: null }` it returned. A route that throws twice stands, as does every fail
+ * on a page that loaded. A browser that has crashed still throws; if it dies during the first
+ * navigation, the retry's newContext throws on that same route.
  */
 export async function probeDesktop(
   browser: Browser,
   url: string,
   engine: string,
+  budget?: RetryBudget,
 ): Promise<DesktopProbe> {
   const first = await probeDesktopOnce(browser, url, engine);
+  if (first.threw && !spendRetry(budget)) return first;
   return first.threw ? probeDesktopOnce(browser, url, engine, RETRY_PAGE_TIMEOUT_MS) : first;
 }
 
@@ -1131,6 +1162,64 @@ async function probeDesktopOnce(
   }
 }
 
+/** One site's launched browsers: the desktop engines in order, then the mobile devices. */
+export type SiteBrowsers = {
+  desktop: { engine: string; browser: Browser }[];
+  mobile: { target: MobileTarget; browser: Browser }[];
+};
+
+/**
+ * Probes one site's routes, each on every desktop engine and then every mobile device, with
+ * one retry budget for the whole site (P1-107b). The budget is made here, once per call, so
+ * one site can never spend the next site's retries.
+ */
+export async function probeRoutes(urls: string[], site: SiteBrowsers): Promise<RouteResult[]> {
+  const budget: RetryBudget = { left: SITE_RETRY_BUDGET };
+  const results: RouteResult[] = [];
+  for (const url of urls) {
+    const desktop: RouteResult["desktop"] = [];
+    const linkSet = new Set<string>();
+    let status: number | null = null;
+    let title: string | null = null;
+    let metaDescription: string | null = null;
+    let leakedTemplateTokens: string[] = [];
+    let lang: string | null = null;
+    let alternates: string[] = [];
+    for (const { engine, browser } of site.desktop) {
+      const r = await probeDesktop(browser, url, engine, budget);
+      desktop.push({ engine, ok: r.ok, status: r.status });
+      if (r.page) {
+        status = r.page.status;
+        title = r.page.title;
+        metaDescription = r.page.metaDescription;
+        for (const l of r.page.links) linkSet.add(l);
+        leakedTemplateTokens = r.page.leakedTemplateTokens;
+        lang = r.page.lang;
+        alternates = r.page.alternates;
+      }
+    }
+
+    const mobile: RouteResult["mobile"] = [];
+    for (const { target, browser } of site.mobile) {
+      mobile.push(await probeMobile(browser, url, target, budget));
+    }
+
+    results.push({
+      url,
+      desktop,
+      mobile,
+      links: [...linkSet],
+      status,
+      title,
+      metaDescription,
+      leakedTemplateTokens,
+      lang,
+      alternates,
+    });
+  }
+  return results;
+}
+
 /**
  * Real Playwright runner. Launches chromium/firefox/webkit (desktop) + mobile-emulated chromium &
  * webkit, probes each route, and HEAD/GET-checks internal links. A failing page degrades to a
@@ -1152,56 +1241,16 @@ export async function defaultBrowserRunner(): Promise<BrowserRunner> {
 
   return {
     async probe(urls) {
-      const results: RouteResult[] = [];
       const browsers = await Promise.all(desktopEngines.map((e) => e.type.launch()));
       const mobileBrowsers = await Promise.all(mobileTargets.map(() => chromium.launch()));
       try {
-        for (const url of urls) {
-          const desktop: RouteResult["desktop"] = [];
-          const linkSet = new Set<string>();
-          let status: number | null = null;
-          let title: string | null = null;
-          let metaDescription: string | null = null;
-          let leakedTemplateTokens: string[] = [];
-          let lang: string | null = null;
-          let alternates: string[] = [];
-          for (let i = 0; i < desktopEngines.length; i++) {
-            const engine = desktopEngines[i]!.engine;
-            const r = await probeDesktop(browsers[i]!, url, engine);
-            desktop.push({ engine, ok: r.ok, status: r.status });
-            if (r.page) {
-              status = r.page.status;
-              title = r.page.title;
-              metaDescription = r.page.metaDescription;
-              for (const l of r.page.links) linkSet.add(l);
-              leakedTemplateTokens = r.page.leakedTemplateTokens;
-              lang = r.page.lang;
-              alternates = r.page.alternates;
-            }
-          }
-
-          const mobile: RouteResult["mobile"] = [];
-          for (let i = 0; i < mobileTargets.length; i++) {
-            mobile.push(await probeMobile(mobileBrowsers[i]!, url, mobileTargets[i]!));
-          }
-
-          results.push({
-            url,
-            desktop,
-            mobile,
-            links: [...linkSet],
-            status,
-            title,
-            metaDescription,
-            leakedTemplateTokens,
-            lang,
-            alternates,
-          });
-        }
+        return await probeRoutes(urls, {
+          desktop: desktopEngines.map((e, i) => ({ engine: e.engine, browser: browsers[i]! })),
+          mobile: mobileTargets.map((target, i) => ({ target, browser: mobileBrowsers[i]! })),
+        });
       } finally {
         await Promise.all([...browsers, ...mobileBrowsers].map((b) => b.close().catch(() => {})));
       }
-      return results;
     },
 
     async checkLinks(urls) {
