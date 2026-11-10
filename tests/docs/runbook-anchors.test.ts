@@ -228,6 +228,11 @@ export function tokenVariants(token: string): string[] {
   if (lead !== undefined && lead.length >= 3 && lead !== token && !STOPLIST.has(lead)) {
     variants.push(lead);
   }
+  // Prose names a code identifier in kebab case (`needs-you` for `NeedsYouItem`).
+  if (/^[a-z][a-z0-9]*(?:-[a-z0-9]+)+$/.test(token)) {
+    const camel = token.replace(/-([a-z0-9])/g, (_, c: string) => c.toUpperCase());
+    variants.push(camel, camel[0]!.toUpperCase() + camel.slice(1));
+  }
   const dot = token.lastIndexOf(".");
   if (dot > 0) {
     const tail = token.slice(dot + 1);
@@ -273,7 +278,7 @@ export function auditRunbook(runbook: string, markdown: string, read: FileReader
 
   for (const block of codeSpanBlocks(lines)) {
     const citations: Citation[] = [];
-    const tokens: Array<{ text: string; order: number }> = [];
+    const tokens: Array<{ text: string; order: number; line: number }> = [];
     block.forEach((span, order) => {
       const match = CITATION.exec(span.text);
       const written = match?.[1];
@@ -291,7 +296,7 @@ export function auditRunbook(runbook: string, markdown: string, read: FileReader
         }
       }
       if (span.text.length >= MIN_TOKEN_LENGTH && !STOPLIST.has(span.text)) {
-        tokens.push({ text: span.text, order });
+        tokens.push({ text: span.text, order, line: span.line });
       }
     });
 
@@ -303,7 +308,7 @@ export function auditRunbook(runbook: string, markdown: string, read: FileReader
     // belong to that citation, not to this one.
     let previousCitationOrder = -1;
 
-    for (const citation of citations) {
+    for (const [i, citation] of citations.entries()) {
       // The terms THIS citation introduces: everything backticked between the previous
       // citation and this one. A paragraph that cites one thing and then names three others
       // must not have the later three vouch for the earlier citation's range.
@@ -344,10 +349,24 @@ export function auditRunbook(runbook: string, markdown: string, read: FileReader
       }
 
       // A citation that introduces nothing of its own (it leads its sentence, or shares a
-      // parenthetical with the citation before it) falls back to the block's whole pool —
-      // no evidence is better than evidence borrowed from the wrong clause.
+      // parenthetical with the citation before it) is anchored next by the terms that follow
+      // it on its own line, up to the next citation — the shape that leads with the citation
+      // and names its term afterwards — and only when there are none by the block's whole
+      // pool. A term on a later line usually opens the next sentence, about something else. Going straight to
+      // the pool let `fleet-cockpit.ts:487–510`, written for the `needs-you` feed, pass on a
+      // `watch` named two sentences later about the tiers (#1755, from #1729 r1).
+      const nextOrder = citations[i + 1]?.order ?? Number.POSITIVE_INFINITY;
+      const following = tokens
+        .filter((t) => t.order > citation.order && t.order < nextOrder && t.line === citation.line)
+        .map((t) => t.text);
       const candidates = [
-        ...new Set(introduced.length > 0 ? introduced : tokens.map((t) => t.text)),
+        ...new Set(
+          introduced.length > 0
+            ? introduced
+            : following.length > 0
+              ? following
+              : tokens.map((t) => t.text),
+        ),
       ];
       if (candidates.length === 0) {
         unanchored += 1;
@@ -501,6 +520,41 @@ describe("the runbook-citation checker", () => {
     const report = auditRunbook("fixture.md", md, fixtureReader(FILES));
     expect(report.failures).toHaveLength(1);
     expect(report.failures[0]!).toContain("not a file in the repo");
+  });
+
+  // #1755 (from #1729 r1): `fleet-cockpit.ts:487–510`, cited for the `needs-you` feed, sat on
+  // the CockpitModel type block and passed on a `watch` the paragraph named later about tiers.
+  describe("a citation that introduces no term of its own", () => {
+    const FEED = {
+      "src/feed.ts":
+        "export type Tier = 'broken' | 'watch';\n// the watch band\nexport function buildNeedsYouFeed() {}\n",
+      "src/page.ts": '<section class="needs-you">\n',
+    };
+    const para = (range: string) =>
+      `**The feed** is read first\n(\`src/feed.ts:${range}\`, rendered as the \`needs-you\` section, \`src/page.ts:1\`).\n` +
+      "Ordered `broken` → `watch`.\n";
+
+    it("is anchored by the term after it on its line, not the paragraph's pool (FAIL control)", () => {
+      const report = auditRunbook("fixture.md", para("1–2"), fixtureReader(FEED));
+      expect(report.failures).toHaveLength(1);
+      expect(report.failures[0]).toContain("`src/feed.ts:1–2`");
+      expect(report.failures[0]).toContain('"needs-you"');
+    });
+
+    it("verifies once it points at the code the kebab-case term names (PASS control)", () => {
+      const report = auditRunbook("fixture.md", para("3"), fixtureReader(FEED));
+      expect(report.failures).toEqual([]);
+      expect(report).toMatchObject({ cited: 2, verified: 2, unanchored: 0 });
+    });
+
+    it("does not borrow a term from the next line, which opens another sentence", () => {
+      const md =
+        "The `watch` band is at `src/feed.ts:2`, and the type (`src/feed.ts:1–2`).\n" +
+        "Routing has its own `NotifyRouting` type.\n";
+      const report = auditRunbook("fixture.md", md, fixtureReader(FEED));
+      expect(report.failures).toEqual([]);
+      expect(report).toMatchObject({ cited: 2, verified: 2 });
+    });
   });
 
   it("reports a citation whose paragraph names nothing as unanchored, and does not fail it", () => {
