@@ -264,8 +264,11 @@ describe("defaultDomainDeps against local TLS servers", () => {
   const servers: Array<tls.Server | net.Server> = [];
   const sockets: net.Socket[] = [];
 
-  beforeAll(() => {
-    dir = mkdtempSync(join(tmpdir(), "domain-tls-"));
+  // Every real-socket test targets the literal 127.0.0.1, never `localhost`: GitHub's runners map
+  // `localhost` to ::1 as well, and under suite load Node's happy-eyeballs gave up on the IPv4
+  // attempt (after the server had accepted it) and failed on ::1 with ECONNREFUSED (PR #2011's
+  // first CI run). An IP literal needs no lookup and has one address.
+  function makeCert(name: string, san: string): { key: string; cert: string } {
     execFileSync(
       "openssl",
       [
@@ -277,18 +280,27 @@ describe("defaultDomainDeps against local TLS servers", () => {
         "-days",
         "30",
         "-subj",
-        "/CN=localhost",
+        `/CN=${name}`,
         "-addext",
-        "subjectAltName=DNS:localhost",
+        `subjectAltName=${san}`,
         "-keyout",
-        join(dir, "key.pem"),
+        join(dir, `${name}.key.pem`),
         "-out",
-        join(dir, "cert.pem"),
+        join(dir, `${name}.cert.pem`),
       ],
       { stdio: "ignore" },
     );
-    key = readFileSync(join(dir, "key.pem"), "utf8");
-    cert = readFileSync(join(dir, "cert.pem"), "utf8");
+    return {
+      key: readFileSync(join(dir, `${name}.key.pem`), "utf8"),
+      cert: readFileSync(join(dir, `${name}.cert.pem`), "utf8"),
+    };
+  }
+  let other: { key: string; cert: string };
+
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), "domain-tls-"));
+    ({ key, cert } = makeCert("loopback", "IP:127.0.0.1"));
+    other = makeCert("other.invalid", "DNS:other.invalid");
   });
 
   afterAll(async () => {
@@ -306,7 +318,7 @@ describe("defaultDomainDeps against local TLS servers", () => {
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
     return (server.address() as net.AddressInfo).port;
   }
-  const localSite = { path: "/tmp/local", name: "local", deployedUrl: "https://localhost/" };
+  const localSite = { path: "/tmp/local", name: "local", deployedUrl: "https://127.0.0.1/" };
   const now = new Date();
 
   it("positive control: a cert the client trusts passes", async () => {
@@ -365,7 +377,7 @@ describe("defaultDomainDeps against local TLS servers", () => {
       expect(spy).toHaveBeenCalledTimes(1);
       expect(spy.mock.calls[0]![0]).toMatchObject({
         rejectUnauthorized: true,
-        servername: "localhost",
+        servername: "127.0.0.1",
       });
     } finally {
       spy.mockRestore();
@@ -373,12 +385,14 @@ describe("defaultDomainDeps against local TLS servers", () => {
   });
 
   it("a cert for another host fails closed, even from a trusted CA", async () => {
-    // The cert names `localhost`; the site is `127.0.0.1`, so the SAN does not match.
-    const port = await listen(tls.createServer({ key, cert }, (s) => s.end()));
+    // The cert names `other.invalid` and is trusted; the site is `127.0.0.1`, so the SAN does not match.
+    const port = await listen(
+      tls.createServer({ key: other.key, cert: other.cert }, (s) => s.end()),
+    );
     const r = await domainAudit({
-      site: { ...localSite, deployedUrl: "https://127.0.0.1/" },
+      site: localSite,
       now,
-      domainDeps: defaultDomainDeps(now, { port, ca: cert }),
+      domainDeps: defaultDomainDeps(now, { port, ca: other.cert }),
     });
     expect(r.status).toBe("warn");
     expect(r.details).toMatchObject({
