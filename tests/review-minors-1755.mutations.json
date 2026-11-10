@@ -44,8 +44,21 @@
     "edits": [
       {
         "file": "tests/docs/runbook-anchors.test.ts",
-        "find": "new RegExp(`${w}(?![a-z0-9])`)",
-        "replace": "new RegExp(w)"
+        "find": "new RegExp(`(?<![A-Za-z0-9])${camel}(?![a-z0-9])`)",
+        "replace": "new RegExp(`(?<![A-Za-z0-9])${camel}`)"
+      }
+    ],
+    "test": "tests/docs/runbook-anchors.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "K3-camel-variant-no-left-boundary",
+    "why": "#2010 r2 undone: on-call matches personCall, to-do matches autoDo",
+    "edits": [
+      {
+        "file": "tests/docs/runbook-anchors.test.ts",
+        "find": "new RegExp(`(?<![A-Za-z0-9])${camel}(?![a-z0-9])`)",
+        "replace": "new RegExp(`${camel}(?![a-z0-9])`)"
       }
     ],
     "test": "tests/docs/runbook-anchors.test.ts",

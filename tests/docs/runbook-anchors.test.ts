@@ -233,7 +233,9 @@ export function kebabIdentifierPatterns(token: string): RegExp[] {
   if (!/^[a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)+$/.test(token)) return [];
   const camel = token.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
   const pascal = camel[0]!.toUpperCase() + camel.slice(1);
-  return [camel, pascal].map((w) => new RegExp(`${w}(?![a-z0-9])`));
+  // The camel form must also START a word (`personCall` is not `on-call`); the Pascal form
+  // may sit inside one, as `NeedsYou` does in `buildNeedsYouFeed` (#2010 round 2).
+  return [new RegExp(`(?<![A-Za-z0-9])${camel}(?![a-z0-9])`), new RegExp(`${pascal}(?![a-z0-9])`)];
 }
 
 export function tokenVariants(token: string): string[] {
@@ -567,6 +569,15 @@ describe("the runbook-citation checker", () => {
         const md = `The \`${term}\` path (\`src/a.ts:1–4\`).\n`;
         const report = auditRunbook("fixture.md", md, fixtureReader(files));
         expect(report.failures, term).toHaveLength(1);
+      }
+      // Nor the tail of a longer one (round 2).
+      const tails = {
+        "src/b.ts":
+          "const personCall = 1;\nfunction autoDo() {}\nconst thisA = 1;\nconst unpreLaunch = 1;\n",
+      };
+      for (const term of ["on-call", "to-do", "is-a", "pre-launch"]) {
+        const md = `The \`${term}\` path (\`src/b.ts:1–4\`).\n`;
+        expect(auditRunbook("fixture.md", md, fixtureReader(tails)).failures, term).toHaveLength(1);
       }
       expect(kebabIdentifierPatterns("p1-82")).toEqual([]);
     });
