@@ -5,8 +5,8 @@
     "edits": [
       {
         "file": "scripts/staging-bring-main.mjs",
-        "find": "    if (existsSync(join(wt, LOCKFILE))) {",
-        "replace": "    if (false && existsSync(join(wt, LOCKFILE))) {"
+        "find": "    if (hasLockfile) {",
+        "replace": "    if (false && hasLockfile) {"
       }
     ],
     "test": "tests/scripts/staging-bring-main.test.ts",
@@ -18,8 +18,8 @@
     "edits": [
       {
         "file": "scripts/staging-bring-main.mjs",
-        "find": "    const how = conflicted.includes(LOCKFILE)",
-        "replace": "    git(wt, [\"update-ref\", \"-d\", \"MERGE_HEAD\"]);\n    const how = conflicted.includes(LOCKFILE)"
+        "find": "    const how = seededFrom",
+        "replace": "    git(wt, [\"update-ref\", \"-d\", \"MERGE_HEAD\"]);\n    const how = seededFrom"
       }
     ],
     "test": "tests/scripts/staging-bring-main.test.ts",
@@ -44,8 +44,8 @@
     "edits": [
       {
         "file": "scripts/staging-bring-main.mjs",
-        "find": "      if (MARKER.test(readFileSync(join(wt, LOCKFILE), \"utf8\")))",
-        "replace": "      if (false && MARKER.test(readFileSync(join(wt, LOCKFILE), \"utf8\")))"
+        "find": "        if (MARKER.test(text))",
+        "replace": "        if (false && MARKER.test(text))"
       }
     ],
     "test": "tests/scripts/staging-bring-main.test.ts",
@@ -124,6 +124,440 @@
         "file": "scripts/staging-bring-main.mjs",
         "find": "  try {\n    // Inside the try: a `worktree add` that fails part-way (a hook, a lazy blob fetch cut off)\n    // still leaves a registered worktree, which the finally removes.\n    mustGit(o.dir, [\"worktree\", \"add\", \"-q\", \"--detach\", wt, staging]);\n",
         "replace": "  mustGit(o.dir, [\"worktree\", \"add\", \"-q\", \"--detach\", wt, staging]);\n  try {\n"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M11-first-document-only",
+    "why": "only pnpm 12's first YAML document (its own env) is read, about 15 entries of ~390",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "yaml.loadAll(text).filter(",
+        "replace": "yaml.loadAll(text).slice(0, 1).filter("
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M12-no-check",
+    "why": "the merged lockfile is not compared with either side (the 2026-11-10 behaviour)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "      regressions = lockfileRegressions(regenerate(), sides);",
+        "replace": "      regenerate();\n      regressions = [];"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M13-staging-side-only",
+    "why": "only staging's versions are guarded; a version main had and the seed dropped passes",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "    if (text === undefined) continue;\n",
+        "replace": "    if (text === undefined || side === \"main\") continue;\n"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M16-prerelease-equal",
+    "why": "a prerelease compares equal to its release",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "  if (!a.length || !b.length) return (a.length ? -1 : 0) + (b.length ? 1 : 0);",
+        "replace": "  if (!a.length || !b.length) return 0;"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M17-prerelease-rule-off",
+    "why": "a range admits any prerelease that sits inside its bounds",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "      v.pre.length &&",
+        "replace": "      false &&"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M18-no-seed",
+    "why": "a regression is never retried from a side's lockfile",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "          if (sides[side] === undefined) {",
+        "replace": "          if (true) {"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M19-seed-any-side",
+    "why": "a side's lockfile seeds the retry even when the merged package.json is not that side's",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "...RESOLUTION_INPUTS]).code !== 0",
+        "replace": "...RESOLUTION_INPUTS]).code !== 0 && false"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M20-trust-the-seed",
+    "why": "the seeded lockfile is committed without the check",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "          if (!rs.length) {",
+        "replace": "          if (true) {"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M21-trimmed-seed",
+    "why": "the side's lockfile is read trimmed, so the seed loses its final newline",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "        return r.status === 0 ? r.stdout : undefined;",
+        "replace": "        return r.status === 0 ? r.stdout.trim() : undefined;"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M22-newest-only",
+    "why": "one line per name: a version with no dependent on record is compared only against the newest version of its name overall",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "  return p ? (p.t[0] > 0 ? `${p.t[0]}` : `0.${p.t[1]}`) : undefined;",
+        "replace": "  return p ? \"all\" : undefined;"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M23-zero-major-one-line",
+    "why": "every 0.x version is one line, as if ^ read 0.2 and 0.3 alike",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "  return p ? (p.t[0] > 0 ? `${p.t[0]}` : `0.${p.t[1]}`) : undefined;",
+        "replace": "  return p ? (p.t[0] > 0 ? `${p.t[0]}` : \"0\") : undefined;"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M24-no-v6-keys",
+    "why": "pnpm 8's `/name@version` keys are read as the name `/name`",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "      if (bare.startsWith(\"/\")) bare = bare.slice(1);\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M28-workspace-file-not-input",
+    "why": "a pnpm-workspace.yaml one side changed no longer stops the other side's lockfile seeding",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "  \"pnpm-workspace.yaml\",\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M31-parent-override-counts",
+    "why": "equivalent: overrideTarget reads a parent-scoped key (`foo@1>baz`, `kit>cookie`) as the parent's name, so it never names the child even without the PARENT filter; the filter stays as the statement of pnpm's rule, and M35 pins the regex itself",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": " && !PARENT.test(key)",
+        "replace": ""
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "survives"
+  },
+  {
+    "id": "M14-gone-dependent-counts",
+    "why": "a dependent the merged lockfile no longer has counts as resolving lower (review round 3's false positive)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "                if (!got.length) continue;\n",
+        "replace": "                if (!got.length) got = [\"0.0.0\"];\n"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M15-no-range-exemption",
+    "why": "a downgrade the merged package.json asks for is reported (P1-106's @types/node)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "                satisfies(had, e.specifier) === false\n",
+        "replace": "                false\n"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M26-override-selector-ignored",
+    "why": "`cookie@<0.7.0: ^0.7.2` excuses every cookie (Alamo's cookie 2.0.2 passes)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "o.selector === undefined || satisfies(had, o.selector) === true",
+        "replace": "true"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M29-peer-edges-count",
+    "why": "a peer edge is compared, so main's @types/node 25 reaching vite flags staging's deliberate 24",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "!parseVersion(version) || !own(name)",
+        "replace": "!parseVersion(version)"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M32-no-edges",
+    "why": "no version is judged by its dependents: each line's newest is compared by line, as before round 3",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "const ps = g.parents.get(`${name}@${had}`) ?? [];",
+        "replace": "const ps = [];"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M33-importers-merged",
+    "why": "importers are not told apart by path: one importer's pin excuses another's copy",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "const key = `${env ? \"env\" : \"project\"}:${path}`;",
+        "replace": "const key = `${env ? \"env\" : \"project\"}`;"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M34-peer-variants-pooled",
+    "why": "every peer variant of a package is pooled, so a new variant's newer version hides the old variant's put-back",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "m.deps.get(p.snapshot)?.get(at) ?? ",
+        "replace": ""
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M35-gt-is-always-a-parent",
+    "why": "`cookie@>=2.0.2` reads as parent-scoped, so a global pin with a `>=` selector excuses nothing (review round 5)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "const PARENT = /[^ |@]>/;",
+        "replace": "const PARENT = />/;"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M36-alias-range-counts",
+    "why": "an npm: alias of another package excuses a put-back of the package it shadows (review round 5)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "                !aliasOfAnother(name, e.specifier) &&\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M37-every-alias-ignored",
+    "why": "a same-name npm: alias (`npm:cookie@^0.7.0`) is ignored, so a deliberate rollback through it is refused (review round 6)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "  return (at > 0 ? rest.slice(0, at) : rest) !== name;",
+        "replace": "  return true;"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M38-alias-edge-dropped",
+    "why": "a `bar@1.2.0` resolution under an alias key is not read as bar's, so its edge is dropped (review round 7)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "  return !parseVersion(s) && at > 0 && parseVersion(s.slice(at + 1))\n",
+        "replace": "  return false\n"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M39-alias-key-ignored",
+    "why": "a snapshot edge is looked up by the package's own name, so a plain edge to a newer copy hides the alias's put-back (review round 7)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "              const at = `${p.key}\\0${name}`;\n",
+        "replace": "              const at = `${name}\\0${name}`;\n"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M40-catalog-unread",
+    "why": "a `catalog:` specifier is not read through the lockfile's catalogs, so a rollback through it is refused (review round 7)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "      return typeof range === \"string\" ? range : spec;\n",
+        "replace": "      return spec;\n"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M41-bumped-dependent-gone",
+    "why": "a dependent moved up its line counts as gone, so a put-back under it passes (review round 7)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "                      compareVersions(v, depVersion) > 0,\n",
+        "replace": "                      false,\n"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M42-dependent-any-line",
+    "why": "a dependent's new major is held to its old dependencies, refusing a change the major may ask for (review round 7)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "                      lineOf(v) === lineOf(depVersion) &&\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M43-newest-of-variants",
+    "why": "the newest of a package's peer variants stands for all of them, so one that kept the side's version hides one that did not (review round 7)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "              to = oldest(got);\n",
+        "replace": "              to = newest(got);\n"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M44-non-semver-dependent-compared",
+    "why": "a dependent that is not semver (a `file:` tarball) is compared by line, and the check throws (review round 8)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "                if (!parseVersion(depVersion)) continue;\n",
+        "replace": ""
+      },
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "                      parseVersion(v) &&\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M45-other-major-is-put-back",
+    "why": "a bumped dependent that resolves another major (an override's dependent catching up) reads as a put-back (review round 8, reddoor-starter 7a95a3fe)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "                  .filter((v) => lineOf(v) === lineOf(had));\n",
+        "replace": "                  .filter(Boolean);\n"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M46-renamed-key-dropped",
+    "why": "an importer edge whose key the merge dropped or renamed is skipped, so a put-back under the package's other key passes (review round 8)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "                  : [...(imp?.values() ?? [])].filter((e) => e.pkg === name);\n",
+        "replace": "                  : [];\n"
       }
     ],
     "test": "tests/scripts/staging-bring-main.test.ts",
