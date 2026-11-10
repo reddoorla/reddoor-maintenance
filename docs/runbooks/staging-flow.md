@@ -144,6 +144,59 @@ setting or the order below, so this is a runbook rather than a template there.
   A conflict in any other file stops it with exit 2 and makes nothing: that
   is a real fork, such as a major on `staging` and a minor of the same package
   on `main`, and a human's.
+- **It checks what pnpm chose, not only that pnpm finished.** A clean pnpm
+  merge can still go backwards: on 2026-11-10 pnpm 12.5.1 merged
+  alamo-anatomy's and mantis-landscaping's lockfiles and put `staging`'s
+  `rolldown` 1.3.0, `cookie` 2.0.2 and `@netlify/types` 3.3.1 back to `main`'s
+  older versions on both (alamo-anatomy#108, mantis-landscaping#87). So it
+  checks each dependency in both sides' lockfiles (both of pnpm 12's YAML
+  documents): wherever the merged lockfile keeps the importer or the exact
+  package version that depended on a version, it must resolve it at least as
+  new now. A dependent the merged lockfile moved up its own line (`main`'s
+  Renovate took `foo` 1.0.0 to 1.0.1) still counts: each newer copy in that line
+  must resolve the dependency at least as new within the side's own line of it
+  (a newer copy that resolves another major, as an override's dependent does
+  once its own range catches up, changed its range). An `npm:` alias (`foo: npm:bar@^1`) is checked as the package it names, under its alias. It lets
+  through a dependent the merged lockfile no longer has in that line
+  (nothing depends on that copy now), a downgrade on purpose (the merged
+  `package.json` range, a `catalog:` one read through the lockfile's catalogs,
+  rejects the version the side had, or an `overrides`
+  pin that is not scoped under a parent), peers (they follow the site's own choice, which
+  is checked), and versions that are not semver (`file:`, `link:`, a tarball).
+  A version no dependent records (a lockfile with no snapshots, or a version
+  reached only as a peer) is compared by line instead: a major, or `0.minor`,
+  must keep its newest version.
+- **On a regression it retries from a side's own lockfile**, as both incidents
+  were fixed by hand: `staging`'s first, then `main`'s, and only a side whose
+  `package.json` files, `patches/`, `pnpm-workspace.yaml`, `.npmrc` and
+  `.pnpmfile.cjs`/`.mjs` the merged tree still has, so its lockfile already
+  answers them. The seeded result is checked against both sides the same way,
+  so a seed that would drop the other side's lockfile-only change is refused
+  too. Its output and commit message say when it seeded. If no seed passes, it
+  stops with exit 2, names every package put back and why each side could not
+  seed, and makes nothing. Often neither side is newer on everything (`staging`
+  newer on one package, `main` on another), so neither side's lockfile is the
+  answer as it stands. By hand, on a branch cut from `staging` at the sha the
+  script printed:
+
+  1. `git merge --no-ff --no-commit <main sha>`, the sha it printed, not a local `main`.
+  2. `git show <staging sha>:pnpm-lock.yaml > pnpm-lock.yaml`, then
+     `pnpm install --lockfile-only`.
+  3. For each package the output names as `(main)` (under "seeded from
+     staging's lockfile" when it lists one),
+     `pnpm update --no-save --lockfile-only <pkg>`. Without `--no-save` it
+     rewrites that package's range in `package.json`.
+  4. `git add pnpm-lock.yaml`, and re-check the result against both sides from
+     the site checkout:
+
+  ```sh
+  node -e "import('<maintenance>/scripts/staging-bring-main.mjs').then(({lockfileRegressions:r})=>{const s=(x)=>require('child_process').execSync('git show '+x+':pnpm-lock.yaml',{encoding:'utf8',maxBuffer:1<<28});console.log(r(require('fs').readFileSync('pnpm-lock.yaml','utf8'),{main:s('<main sha>'),staging:s('<staging sha>')}))})"
+  ```
+
+  It must print `[]`, or only downgrades you mean (write those in the commit
+  message). Commit the merge, record why in the site's journal, and land it
+  exactly as below.
+
 - **Merge its PR as a merge commit, while `staging` is still where the script
   started.** A worker lands it, under AUTONOMY.md's merge authority. Push the branch it names and open its PR into `staging`. Just
   before merging on green, read `staging`'s live tip
