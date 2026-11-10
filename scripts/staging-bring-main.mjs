@@ -31,20 +31,26 @@
 //      clean hunks can still leave a lockfile that disagrees with package.json;
 //   5. refuse the result if a conflict marker or unmerged path is left, or if pnpm changed any
 //      file but the lockfile;
-//   6. check what pnpm chose. For every package name in either side's lockfile (every
-//      `packages:` section, in both of pnpm 12's YAML documents), the newest version in the
-//      merged lockfile must be at least the newest that side had. Exempt: a name the merged
-//      lockfile no longer has (nothing depends on it now), and a version the merged
-//      package.json's range for that name no longer admits (a downgrade on purpose). On
-//      2026-11-10 pnpm 12.5.1 merged alamo-anatomy's and mantis-landscaping's lockfiles cleanly
-//      and still put staging's rolldown 1.3.0, cookie 2.0.2 and @netlify/types 3.3.1 back to
-//      main's older versions (alamo-anatomy#108, mantis-landscaping#87);
+//   6. check what pnpm chose. Take every `name@version` in either side's lockfile (every
+//      `packages:` section, in both of pnpm 12's YAML documents) line by line: a version's line
+//      is its major, or `0.minor` below 1.0.0, so every copy of a name is compared, not only its
+//      newest. For each line a side has, the newest merged version in that line must be at
+//      least the side's newest there. Exempt: a line the merged lockfile no longer has, unless
+//      a merged importer `specifier` (the merged package.json's range) still admits the side's
+//      version (nothing depends on that copy now); a version the range of the importer copy
+//      resolved in that line rejects, or an `overrides` pin whose selector covers it (a
+//      downgrade on purpose); and versions that are not semver (`file:`, `link:`, a tarball).
+//      On 2026-11-10 pnpm 12.5.1 merged alamo-anatomy's and mantis-landscaping's lockfiles
+//      cleanly and still put staging's rolldown 1.3.0, cookie 2.0.2 and @netlify/types 3.3.1
+//      back to main's older versions (alamo-anatomy#108, mantis-landscaping#87);
 //   7. on a regression, retry the way both incidents were fixed by hand: write a side's own
 //      lockfile over the merged one and run step 4 again, `staging`'s first, then `main`'s,
-//      but only a side whose package.json files (and pnpm-workspace.yaml, .npmrc, .pnpmfile)
-//      match the merged tree's, so its lockfile already answers them. The seeded result goes
-//      through steps 5 and 6 again. If no seed passes, stop with exit 2 and name each package
-//      put back: that lockfile is a human's;
+//      but only a side that has a lockfile and whose package.json files, patches/,
+//      pnpm-workspace.yaml, .npmrc and .pnpmfile.cjs/.mjs match the merged tree's, so its
+//      lockfile already answers them. The seeded result goes through steps 5 and 6 again,
+//      against both sides, so a seed that drops the other side's lockfile-only change stops
+//      too. If no seed passes, stop with exit 2 and name each package put back: that lockfile
+//      is a human's;
 //   8. commit it as a merge commit, so `main` is a parent and the promotion PR has nothing
 //      left to merge from `main`, and create <branch> at it in the checkout.
 //
@@ -63,6 +69,9 @@ import yaml from "js-yaml";
 import { flagValue, isMain } from "./lib/cli.mjs";
 
 export const LOCKFILE = "pnpm-lock.yaml";
+const CHECKED =
+  "Checked: no copy of a package is older than on either side, beyond downgrades the merged " +
+  "package.json ranges or overrides ask for.";
 const USAGE =
   "usage: node scripts/staging-bring-main.mjs --dir <site checkout> [--main <ref>] [--staging <ref>]\n" +
   '                                           [--branch <name>] [--no-fetch] [--pnpm "<command>"]\n' +
@@ -132,6 +141,7 @@ const MARKER = /^(<{7}|={7}|>{7})( |$)/m;
 // the lockfile: its own lockfile already answers the merged package.json.
 const RESOLUTION_INPUTS = [
   ":(glob)**/package.json",
+  ":(glob)patches/**",
   "pnpm-workspace.yaml",
   ".npmrc",
   ".pnpmfile.cjs",
@@ -265,12 +275,16 @@ export function satisfies(version, range) {
 
 const docs = (text) => yaml.loadAll(text).filter((d) => d && typeof d === "object");
 
-/** Every `name@version` in every `packages:` section of a lockfile (pnpm 12 writes two documents). */
+/**
+ * Every `name@version` in every `packages:` section of a lockfile (pnpm 12 writes two documents).
+ * pnpm 8's `/name@version` keys read the same, so a side on the older format is still compared.
+ */
 export function lockfilePackages(text) {
   const out = new Map();
   for (const d of docs(text))
     for (const key of Object.keys(d.packages ?? {})) {
-      const bare = key.includes("(") ? key.slice(0, key.indexOf("(")) : key;
+      let bare = key.includes("(") ? key.slice(0, key.indexOf("(")) : key;
+      if (bare.startsWith("/")) bare = bare.slice(1);
       const at = bare.lastIndexOf("@");
       if (at <= 0) continue;
       const name = bare.slice(0, at);
@@ -279,50 +293,116 @@ export function lockfilePackages(text) {
   return out;
 }
 
-/** name → every `specifier` the lockfile's importers give it (the package.json ranges). */
-function lockfileSpecifiers(text) {
+/** `foo@<0.7.0` → [`foo`, `<0.7.0`]; `a>@s/foo` → [`@s/foo`, undefined]: what an override key covers. */
+const overrideTarget = (key) => {
+  const last = key.split(">").pop() ?? "";
+  const at = last.indexOf("@", 1);
+  return at > 0 ? [last.slice(0, at), last.slice(at + 1)] : [last, undefined];
+};
+
+/**
+ * The ranges that make a downgrade deliberate, per name: each importer `specifier` (the merged
+ * package.json's range) with the version it resolved to, so a range only speaks for its own
+ * copy; and each top-level `overrides` value, which pins the copies its key's selector covers
+ * (`cookie@<0.7.0: ^0.7.2` speaks for no 2.x copy). An `npm:` alias's range names another
+ * package, so it is left out.
+ */
+function lockfileRanges(text) {
   const out = new Map();
-  for (const d of docs(text))
+  const add = (name, range, resolved, selector) =>
+    out.set(name, [...(out.get(name) ?? []), { range, resolved, selector }]);
+  for (const d of docs(text)) {
+    for (const [key, range] of Object.entries(d.overrides ?? {}))
+      if (typeof range === "string") {
+        const [name, selector] = overrideTarget(key);
+        add(name, range, undefined, selector);
+      }
     for (const imp of Object.values(d.importers ?? {}))
       for (const group of Object.values(imp ?? {}))
         if (group && typeof group === "object")
           for (const [name, e] of Object.entries(group))
-            if (typeof e?.specifier === "string")
-              out.set(name, [...(out.get(name) ?? []), e.specifier]);
+            if (typeof e?.specifier === "string" && !e.specifier.startsWith("npm:"))
+              add(name, e.specifier, String(e.version ?? "").split("(")[0]);
+  }
   return out;
 }
 
-const newest = (vs) =>
-  (vs ?? [])
-    .filter((v) => parseVersion(v))
-    .reduce((a, b) => (a && compareVersions(a, b) >= 0 ? a : b), undefined);
+/** A version's line: its major, or `0.minor` below 1.0.0, the versions `^` treats as one. */
+const lineOf = (v) => {
+  const p = parseVersion(v);
+  return p ? (p.t[0] > 0 ? `${p.t[0]}` : `0.${p.t[1]}`) : undefined;
+};
+
+const newest = (vs) => vs.reduce((a, b) => (a && compareVersions(a, b) >= 0 ? a : b), undefined);
+
+/** name → line → its semver versions */
+function byLine(pkgs) {
+  const out = new Map();
+  for (const [name, vs] of pkgs) {
+    const lines = new Map();
+    for (const v of vs) {
+      const l = lineOf(v);
+      if (l !== undefined) lines.set(l, [...(lines.get(l) ?? []), v]);
+    }
+    if (lines.size) out.set(name, lines);
+  }
+  return out;
+}
 
 /**
- * Where the merged lockfile went backwards: for each package name, the newest version in the
- * merged lockfile must be at least the newest each side had. Not a regression: a name the merged
- * lockfile no longer has at all (nothing depends on it now), a version the merged package.json
- * ranges for that name no longer admit (a downgrade on purpose), and versions that are not
- * semver (`file:`, `link:`, a tarball URL).
+ * Where the merged lockfile went backwards. Each package's versions are taken line by line
+ * (major, or `0.minor`), so every copy of a name is compared, not only its newest: for each line
+ * a side has, the newest version the merged lockfile has in that line must be at least the
+ * newest the side had there. Not a regression:
+ * - a line the merged lockfile no longer has, while no merged package.json range admits the
+ *   side's version (nothing depends on that copy now: `cssesc` once `postcss-selector-parser`
+ *   7.2.0 dropped it, or a copy upgraded to a newer major);
+ * - a version a deliberate range rejects: the merged package.json's range for the copy that
+ *   resolved in that line, or an `overrides` pin (P1-106 moved `@types/node` from 25 to 24);
+ * - versions that are not semver (`file:`, `link:`, a tarball URL).
  * @param {string} merged
  * @param {Record<string, string | undefined>} sides
  */
 export function lockfileRegressions(merged, sides) {
-  const now = lockfilePackages(merged);
-  const specs = lockfileSpecifiers(merged);
+  const now = byLine(lockfilePackages(merged));
+  const ranges = lockfileRanges(merged);
   const out = [];
   for (const [side, text] of Object.entries(sides)) {
     if (text === undefined) continue;
-    for (const [name, vs] of lockfilePackages(text)) {
-      const had = newest(vs);
-      const got = newest(now.get(name));
-      if (!had || !got || compareVersions(got, had) >= 0) continue;
-      const ranges = specs.get(name) ?? [];
-      if (ranges.length && ranges.every((r) => satisfies(had, r) === false)) continue;
-      out.push({ name, side, had, merged: got });
-    }
+    for (const [name, lines] of byLine(lockfilePackages(text)))
+      for (const [line, vs] of lines) {
+        const had = newest(vs);
+        const rs = ranges.get(name) ?? [];
+        const got = now.get(name)?.get(line);
+        if (!got) {
+          // the copy is gone: a regression only if a range still asks for it
+          if (rs.some((r) => r.resolved !== undefined && satisfies(had, r.range) === true)) {
+            const left = [...(now.get(name)?.values() ?? [])].flat();
+            out.push({ name, side, had, merged: left.length ? newest(left) : "(none)" });
+          }
+          continue;
+        }
+        const best = newest(got);
+        if (compareVersions(best, had) >= 0) continue;
+        const mine = rs.filter((r) =>
+          r.resolved === undefined
+            ? r.selector === undefined || satisfies(had, r.selector) === true
+            : lineOf(r.resolved) === line,
+        );
+        if (mine.some((r) => satisfies(had, r.range) === false)) continue;
+        out.push({ name, side, had, merged: best });
+      }
   }
   return out.sort((a, b) =>
-    a.name < b.name ? -1 : a.name > b.name ? 1 : a.side < b.side ? -1 : 1,
+    a.name < b.name
+      ? -1
+      : a.name > b.name
+        ? 1
+        : a.side !== b.side
+          ? a.side < b.side
+            ? -1
+            : 1
+          : compareVersions(a.had, b.had),
   );
 }
 
@@ -432,13 +512,24 @@ export function bringMain(o) {
         // Retry from a side's own lockfile, as both incidents did by hand, but only a side whose
         // resolution inputs the merged tree still has: its lockfile already answers them.
         const seeds = [];
+        const skipped = [];
         for (const [side, sha] of [
           ["staging", staging],
           ["main", main],
         ]) {
-          if (sides[side] === undefined) continue;
-          if (git(wt, ["diff", "--cached", "--quiet", sha, "--", ...RESOLUTION_INPUTS]).code !== 0)
+          if (sides[side] === undefined) {
+            skipped.push({ side, reason: `${side} has no ${LOCKFILE}` });
             continue;
+          }
+          if (
+            git(wt, ["diff", "--cached", "--quiet", sha, "--", ...RESOLUTION_INPUTS]).code !== 0
+          ) {
+            skipped.push({
+              side,
+              reason: `the merged package.json files (or patches/, pnpm-workspace.yaml, .npmrc, .pnpmfile) are not ${side}'s`,
+            });
+            continue;
+          }
           writeFileSync(join(wt, LOCKFILE), sides[side]);
           const rs = lockfileRegressions(regenerate(), sides);
           seeds.push({ side, regressions: rs });
@@ -449,7 +540,7 @@ export function bringMain(o) {
         }
         if (!seededFrom) {
           git(wt, ["merge", "--abort"]);
-          return { status: "regressed", regressions, seeds };
+          return { status: "regressed", regressions, seeds, skipped };
         }
       }
     }
@@ -458,13 +549,13 @@ export function bringMain(o) {
 
     const how = seededFrom
       ? `pnpm's merge of ${LOCKFILE} put back ${describeRegressions(regressions)}, so it was ` +
-        `seeded from ${seededFrom}'s ${LOCKFILE} instead and passed through \`pnpm install --lockfile-only\`; ` +
-        "no package is older than on either side."
+        `seeded from ${seededFrom}'s ${LOCKFILE} instead and passed through \`pnpm install --lockfile-only\`. ` +
+        CHECKED
       : conflicted.includes(LOCKFILE)
-        ? `${LOCKFILE} conflicted, and pnpm merged it (\`pnpm install --lockfile-only\`), not a hand edit; ` +
-          "no package is older than on either side."
-        : `${LOCKFILE} merged as text, then went through \`pnpm install --lockfile-only\`; ` +
-          "no package is older than on either side.";
+        ? `${LOCKFILE} conflicted, and pnpm merged it (\`pnpm install --lockfile-only\`), not a hand edit. ` +
+          CHECKED
+        : `${LOCKFILE} merged as text, then went through \`pnpm install --lockfile-only\`. ` +
+          CHECKED;
     mustGit(wt, [
       "commit",
       "-q",
@@ -516,15 +607,13 @@ if (isMain(import.meta.url)) {
       );
       code = 2;
     } else if (r.status === "regressed") {
-      const tried = r.seeds.length
-        ? r.seeds
-            .map(
-              (x) =>
-                `Seeded from ${x.side}'s lockfile instead, it put back ${describeRegressions(x.regressions, 8)}.`,
-            )
-            .join(" ")
-        : "Neither side's lockfile could seed a retry: main and staging have each changed package.json " +
-          "(or pnpm-workspace.yaml, .npmrc, .pnpmfile) since they parted.";
+      const tried = [
+        ...r.seeds.map(
+          (x) =>
+            `Seeded from ${x.side}'s lockfile instead, it put back ${describeRegressions(x.regressions, 8)}.`,
+        ),
+        ...r.skipped.map((x) => `Not seeded from ${x.side}'s lockfile: ${x.reason}.`),
+      ].join(" ");
       console.error(
         `stopped: pnpm's merge of ${LOCKFILE} put back versions a side already had: ` +
           `${describeRegressions(r.regressions, 8)}. ${tried} Nothing was made; this lockfile is a human's ` +

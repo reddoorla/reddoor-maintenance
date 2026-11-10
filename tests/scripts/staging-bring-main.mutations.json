@@ -170,12 +170,12 @@
   },
   {
     "id": "M14-gone-is-regression",
-    "why": "a name the merged lockfile no longer has counts as put back (cssesc)",
+    "why": "a copy the merged lockfile no longer has counts as put back (cssesc)",
     "edits": [
       {
         "file": "scripts/staging-bring-main.mjs",
-        "find": "      const got = newest(now.get(name));",
-        "replace": "      const got = newest(now.get(name)) ?? \"0.0.0\";"
+        "find": "          if (rs.some((r) => r.resolved !== undefined && satisfies(had, r.range) === true)) {",
+        "replace": "          if (true) {"
       }
     ],
     "test": "tests/scripts/staging-bring-main.test.ts",
@@ -187,7 +187,7 @@
     "edits": [
       {
         "file": "scripts/staging-bring-main.mjs",
-        "find": "      if (ranges.length && ranges.every((r) => satisfies(had, r) === false)) continue;",
+        "find": "        if (mine.some((r) => satisfies(had, r.range) === false)) continue;",
         "replace": ""
       }
     ],
@@ -226,8 +226,8 @@
     "edits": [
       {
         "file": "scripts/staging-bring-main.mjs",
-        "find": "          if (sides[side] === undefined) continue;",
-        "replace": "          continue;"
+        "find": "          if (sides[side] === undefined) {",
+        "replace": "          if (true) {"
       }
     ],
     "test": "tests/scripts/staging-bring-main.test.ts",
@@ -267,6 +267,97 @@
         "file": "scripts/staging-bring-main.mjs",
         "find": "        return r.status === 0 ? r.stdout : undefined;",
         "replace": "        return r.status === 0 ? r.stdout.trim() : undefined;"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M22-newest-only",
+    "why": "one line per name: only the newest copy is compared (review round 1's major)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "  return p ? (p.t[0] > 0 ? `${p.t[0]}` : `0.${p.t[1]}`) : undefined;",
+        "replace": "  return p ? \"all\" : undefined;"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M23-zero-major-one-line",
+    "why": "every 0.x version is one line, as if ^ read 0.2 and 0.3 alike",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "  return p ? (p.t[0] > 0 ? `${p.t[0]}` : `0.${p.t[1]}`) : undefined;",
+        "replace": "  return p ? (p.t[0] > 0 ? `${p.t[0]}` : \"0\") : undefined;"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M24-no-v6-keys",
+    "why": "pnpm 8's `/name@version` keys are read as the name `/name`",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "      if (bare.startsWith(\"/\")) bare = bare.slice(1);\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M25-alias-range-counts",
+    "why": "an npm: alias's range exempts the package it shadows",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "!e.specifier.startsWith(\"npm:\")",
+        "replace": "true"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M26-override-selector-ignored",
+    "why": "`cookie@<0.7.0: ^0.7.2` exempts every cookie copy (Alamo's cookie 2.0.2 passes)",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "r.selector === undefined || satisfies(had, r.selector) === true",
+        "replace": "true"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M27-range-for-any-copy",
+    "why": "a direct range for one copy exempts another copy of the same name",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": ": lineOf(r.resolved) === line,",
+        "replace": ": true,"
+      }
+    ],
+    "test": "tests/scripts/staging-bring-main.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M28-workspace-file-not-input",
+    "why": "a pnpm-workspace.yaml one side changed no longer stops the other side's lockfile seeding",
+    "edits": [
+      {
+        "file": "scripts/staging-bring-main.mjs",
+        "find": "  \"pnpm-workspace.yaml\",\n",
+        "replace": ""
       }
     ],
     "test": "tests/scripts/staging-bring-main.test.ts",

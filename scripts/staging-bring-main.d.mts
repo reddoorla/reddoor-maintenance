@@ -9,7 +9,7 @@ export interface Options {
   pnpm: string | undefined;
 }
 
-/** A package whose newest version in the merged lockfile is older than the newest on `side`. */
+/** A copy (one major line, or `0.minor`) of a package that the merged lockfile has older than `side` had it. */
 export interface Regression {
   name: string;
   side: string;
@@ -26,6 +26,8 @@ export type Result =
       regressions: Regression[];
       /** each side's lockfile tried as the seed, and what it put back */
       seeds: { side: "main" | "staging"; regressions: Regression[] }[];
+      /** each side not tried as the seed, and why */
+      skipped: { side: "main" | "staging"; reason: string }[];
     }
   | {
       status: "made";

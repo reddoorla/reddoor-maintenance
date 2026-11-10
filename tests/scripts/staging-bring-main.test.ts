@@ -361,6 +361,62 @@ describe("lockfile regressions", () => {
     expect(lockfileRegressions(merged, { main })).toEqual([]);
   });
 
+  it("compares each major line on its own: an older copy put back is caught", () => {
+    const staging = doc({}, ["foo@2.0.0", "foo@1.5.0"]);
+    expect(lockfileRegressions(doc({}, ["foo@2.0.0", "foo@1.0.0"]), { staging })).toEqual([
+      { name: "foo", side: "staging", had: "1.5.0", merged: "1.0.0" },
+    ]);
+    // 0.x lines are 0.minor, as `^` reads them
+    expect(
+      lockfileRegressions(doc({}, ["z@0.3.1", "z@0.2.0"]), {
+        staging: doc({}, ["z@0.3.1", "z@0.2.4"]),
+      }),
+    ).toEqual([{ name: "z", side: "staging", had: "0.2.4", merged: "0.2.0" }]);
+    // a line the merged lockfile no longer has, while a newer line stays, is an upgrade
+    expect(lockfileRegressions(doc({}, ["foo@2.0.0"]), { staging })).toEqual([]);
+  });
+
+  it("a direct range for one copy does not exempt another copy of the same name", () => {
+    const staging = doc({ cookie: ["^1.0.0", "1.0.2"] }, ["cookie@1.0.2", "cookie@2.0.2"]);
+    const merged = doc({ cookie: ["^1.0.0", "1.0.2"] }, ["cookie@1.0.2", "cookie@2.0.1"]);
+    expect(lockfileRegressions(merged, { staging })).toEqual([
+      { name: "cookie", side: "staging", had: "2.0.2", merged: "2.0.1" },
+    ]);
+  });
+
+  it("an npm: alias's range is not the range of the package it shadows", () => {
+    const staging = doc({ react: ["npm:@preact/compat@^17.0.0", "17.0.2"] }, ["react@18.3.1"]);
+    const merged = doc({ react: ["npm:@preact/compat@^17.0.0", "17.0.2"] }, ["react@18.3.0"]);
+    expect(lockfileRegressions(merged, { staging })).toEqual([
+      { name: "react", side: "staging", had: "18.3.1", merged: "18.3.0" },
+    ]);
+  });
+
+  it("an override that pins a package lower is a downgrade on purpose", () => {
+    const staging = doc({}, ["bar@1.2.0"]);
+    const merged = ["overrides:", "  bar: 1.0.0", "", doc({}, ["bar@1.0.0"])].join("\n");
+    expect(lockfileRegressions(merged, { staging })).toEqual([]);
+    const scoped = ["overrides:", "  'foo>@s/bar@^1': 1.0.0", "", doc({}, ["@s/bar@1.0.0"])].join(
+      "\n",
+    );
+    expect(lockfileRegressions(scoped, { staging: doc({}, ["@s/bar@1.2.0"]) })).toEqual([]);
+  });
+
+  it("reads pnpm 8's `/name@version` keys, so a side on the older format is still compared", () => {
+    const staging = [
+      "lockfileVersion: '6.0'",
+      "",
+      "packages:",
+      "",
+      "  /foo@1.0.1:",
+      "    resolution: {integrity: sha512-x}",
+      "",
+    ].join("\n");
+    expect(lockfileRegressions(doc({}, ["foo@1.0.0"]), { staging })).toEqual([
+      { name: "foo", side: "staging", had: "1.0.1", merged: "1.0.0" },
+    ]);
+  });
+
   it("compares the newest version of each name, and skips versions that are not semver", () => {
     const staging = doc({}, ["a@1.0.0", "a@2.1.0", "t@https://example.com/t.tgz"]);
     const merged = doc({}, ["a@2.1.0", "a@1.0.1", "t@file:vendor/t.tgz"]);
@@ -375,7 +431,7 @@ describe("lockfile regressions", () => {
  * A two-document pnpm 12 lockfile (pnpm's env, then the project) with the given versions. Each
  * version sits on its own line, so two branches that move the same package conflict in git.
  */
-function lock(v: Record<string, string>) {
+function lock(v: Record<string, string | string[]>) {
   const env = [
     "---",
     "lockfileVersion: '9.0'",
@@ -387,9 +443,10 @@ function lock(v: Record<string, string>) {
     "",
   ];
   const project = ["---", "lockfileVersion: '9.0'", "", "packages:", ""];
-  for (const [n, ver] of Object.entries(v))
+  for (const [n, vers] of Object.entries(v))
     if (n !== "pnpm")
-      project.push(`  ${n}@${ver}:`, `    resolution: {integrity: sha512-${n}}`, "");
+      for (const ver of [vers].flat())
+        project.push(`  ${n}@${ver}:`, `    resolution: {integrity: sha512-${n}${ver}}`, "");
   return [...env, ...project].join("\n");
 }
 
@@ -399,12 +456,14 @@ function lock(v: Record<string, string>) {
  * writes `bad` over it. On a lockfile with no markers it changes nothing.
  */
 function regressFixture(f: {
-  base: Record<string, string>;
-  main: Record<string, string>;
-  staging: Record<string, string>;
-  bad: Record<string, string>;
+  base: Record<string, string | string[]>;
+  main: Record<string, string | string[]>;
+  staging: Record<string, string | string[]>;
+  bad: Record<string, string | string[]>;
   mainPkg?: boolean;
   stagingPkg?: boolean;
+  /** a file main adds besides package.json, e.g. a pnpm-workspace.yaml */
+  mainFile?: [string, string];
 }) {
   const root = mkdtempSync(join(tmpdir(), "bring-main-regress-"));
   roots.push(root);
@@ -424,7 +483,7 @@ function regressFixture(f: {
       null,
       2,
     );
-  const commit = (msg: string, lockfile: Record<string, string>, p: string) => {
+  const commit = (msg: string, lockfile: Record<string, string | string[]>, p: string) => {
     writeFileSync(join(dir, "package.json"), p);
     writeFileSync(join(dir, "pnpm-lock.yaml"), lock(lockfile));
     git(dir, "add", "-A");
@@ -433,6 +492,7 @@ function regressFixture(f: {
   git(dir, "init", "-q", "-b", "main");
   commit("base", f.base, pkg({}));
   git(dir, "branch", "staging");
+  if (f.mainFile) writeFileSync(join(dir, f.mainFile[0]), f.mainFile[1]);
   commit("main", f.main, pkg({ description: f.mainPkg ? "main moved" : undefined }));
   git(dir, "checkout", "-q", "staging");
   commit("staging", f.staging, pkg({ extra: f.stagingPkg }));
@@ -496,6 +556,10 @@ describe("staging-bring-main: what pnpm chose", () => {
       status: "regressed",
       regressions: [{ name: "cookie", side: "staging", had: "2.0.2", merged: "2.0.1" }],
       seeds: [],
+      skipped: [
+        { side: "staging", reason: expect.stringMatching(/not staging's/) },
+        { side: "main", reason: expect.stringMatching(/not main's/) },
+      ],
     });
     expect(code(f.dir, "rev-parse", "--verify", "-q", "refs/heads/bring")).not.toBe(0);
     onlyCheckout(f.dir);
@@ -526,6 +590,84 @@ describe("staging-bring-main: what pnpm chose", () => {
     });
     expect(code(f.dir, "rev-parse", "--verify", "-q", "refs/heads/bring")).not.toBe(0);
     onlyCheckout(f.dir);
+  });
+
+  it("only main's package.json is the merged one: retried from main's lockfile", () => {
+    const f = regressFixture({
+      base: { cookie: "2.0.0" },
+      main: { cookie: "2.0.2" },
+      staging: { cookie: "2.0.1" },
+      bad: { cookie: "2.0.1" },
+      mainPkg: true,
+    });
+    const r = bringMain(opts(f.dir, { pnpm: f.pnpm }));
+    expect(r).toMatchObject({
+      status: "made",
+      seededFrom: "main",
+      regressions: [{ name: "cookie", side: "main", had: "2.0.2", merged: "2.0.1" }],
+    });
+    expect(code(f.dir, "diff", "--quiet", "main", "bring", "--", "pnpm-lock.yaml")).toBe(0);
+  });
+
+  it("a pnpm-workspace.yaml one side changed keeps the other side's lockfile from seeding", () => {
+    const f = regressFixture({
+      base: { cookie: "2.0.0" },
+      main: { cookie: "2.0.1" },
+      staging: { cookie: "2.0.2" },
+      bad: { cookie: "2.0.1" },
+      mainFile: ["pnpm-workspace.yaml", "overrides:\n  cookie: ^2.0.1\n"],
+    });
+    const r = bringMain(opts(f.dir, { pnpm: f.pnpm }));
+    // staging's lockfile was never written: only main's was tried, and it regressed cookie
+    expect(r).toMatchObject({
+      status: "regressed",
+      seeds: [{ side: "main", regressions: [{ name: "cookie", side: "staging" }] }],
+      skipped: [{ side: "staging", reason: expect.stringMatching(/pnpm-workspace.yaml/) }],
+    });
+  });
+
+  it("the CLI says when it seeded, and from which side", () => {
+    const f = regressFixture({
+      base: { cookie: "2.0.0" },
+      main: { cookie: "2.0.1" },
+      staging: { cookie: "2.0.2" },
+      bad: { cookie: "2.0.1" },
+    });
+    const r = spawnSync(
+      process.execPath,
+      [
+        join(__dirname, "..", "..", "scripts", "staging-bring-main.mjs"),
+        ...["--dir", f.dir, "--no-fetch", "--main", "main", "--staging", "staging"],
+        ...["--branch", "bring", "--pnpm", f.pnpm],
+      ],
+      { env: ENV, encoding: "utf8" },
+    );
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(
+      /seeded from staging's because pnpm's merge put back cookie 2\.0\.2 \(staging\) -> 2\.0\.1/,
+    );
+  });
+
+  it("a seed that would drop the other side's change to an older copy is refused, not committed", () => {
+    // main's lock-file maintenance moved foo's 1.x copy; staging's lockfile has the old one
+    const f = regressFixture({
+      base: { cookie: "2.0.0", foo: ["1.0.0", "2.0.0"] },
+      main: { cookie: "2.0.1", foo: ["1.0.5", "2.0.0"] },
+      staging: { cookie: "2.0.2", foo: ["1.0.0", "2.0.0"] },
+      bad: { cookie: "2.0.1", foo: ["1.0.5", "2.0.0"] },
+    });
+    const r = bringMain(opts(f.dir, { pnpm: f.pnpm }));
+    expect(r).toMatchObject({
+      status: "regressed",
+      seeds: [
+        {
+          side: "staging",
+          regressions: [{ name: "foo", side: "main", had: "1.0.5", merged: "1.0.0" }],
+        },
+        { side: "main", regressions: [{ name: "cookie", side: "staging" }] },
+      ],
+    });
+    expect(code(f.dir, "rev-parse", "--verify", "-q", "refs/heads/bring")).not.toBe(0);
   });
 
   it("the CLI exits 2 on a regression it could not repair, naming each package", () => {
