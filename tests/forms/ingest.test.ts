@@ -114,6 +114,146 @@ describe("ingestSubmission — spam handling is off for sites in development", (
   });
 });
 
+// A `launching` site is deployed and reachable, so bots can find it and the
+// autoresponder goes to whatever address they type: the classifier, Turnstile and
+// duplicate scans stay on. But its notifications already reach only the operator,
+// and the operator tests it from the same address used on other sites minutes or
+// days before, so the cross-site repeat-sender scan is off and the site may not
+// retro-bucket other sites' rows (the operator, 2026-11-10, workspace
+// decisions/2026-11-10-0008-launching-sites-spam-handling.md, option 2).
+describe("ingestSubmission — a `launching` site skips repeat-sender only", () => {
+  const launching = makeWebsiteRow({ id: "recHEDLOC", status: "launching" });
+  const live = makeWebsiteRow({ id: "recHEDLOC", status: "maintained" });
+  // The 2026-11-09 hedloc case: the same address had tested msot and roalson.
+  const priorOnTwoOtherSites = [
+    { id: "recMSOT", siteId: "recMSOTSITE", email: "tucker@reddoorla.com", status: "new" as const },
+    { id: "recROAL", siteId: "recROALSITE", email: "tucker@reddoorla.com", status: "new" as const },
+  ];
+  const testSubmission = {
+    name: "Reddoor (website setup)",
+    email: "tucker@reddoorla.com",
+    message: "TEST from Reddoor (website setup), please ignore: contact routing check.",
+  };
+  const echoCreate = () =>
+    vi
+      .fn()
+      .mockImplementation((i: { status: string; spamScore: number; spamReason: string | null }) =>
+        Promise.resolve(
+          makeSubmissionRow({
+            id: "recSUB",
+            status: i.status as never,
+            spamScore: i.spamScore,
+            spamReason: i.spamReason,
+          }),
+        ),
+      );
+  // The real classifier, so the test also proves the test message scores clean.
+  const realClassifier: IngestDeps["classifySpam"] = (n, turnstile) =>
+    classifySpam({
+      name: n.name,
+      email: n.email,
+      ...(n.message !== undefined ? { message: n.message } : {}),
+      formType: n.formType,
+      extraFields: n.extraFields,
+      turnstile,
+    });
+  const sameBodyElsewhere = {
+    exact: [{ id: "recCOPY", status: "new", siteId: "recOTHERSITE", email: "x@y.co" }],
+    similar: [],
+  };
+
+  it("stores the operator's test submission `new` and notifies it, retro-bucketing nothing", async () => {
+    const retroBucket = vi.fn().mockResolvedValue(undefined);
+    const d = deps({
+      getWebsiteBySlug: vi.fn().mockResolvedValue(launching),
+      createSubmission: echoCreate(),
+      classifySpam: realClassifier,
+      listRecentSubmissionsForEmail: vi.fn().mockResolvedValue(priorOnTwoOtherSites),
+      findRecentDuplicates: vi.fn().mockResolvedValue({ exact: [], similar: [] }),
+      retroBucket,
+    });
+    const r = await ingestSubmission(d, "hedloc", testSubmission);
+    expect(r).toEqual({ status: "accepted", submissionId: "recSUB", notifyStatus: "sent" });
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "new", spamReason: null }),
+    );
+    expect(d.notify).toHaveBeenCalledTimes(1);
+    expect(d.listRecentSubmissionsForEmail).not.toHaveBeenCalled();
+    expect(retroBucket).not.toHaveBeenCalled();
+  });
+
+  it("CONTROL: the same submission on a `maintained` site IS bucketed repeat-sender", async () => {
+    const retroBucket = vi.fn().mockResolvedValue(undefined);
+    const d = deps({
+      getWebsiteBySlug: vi.fn().mockResolvedValue(live),
+      createSubmission: echoCreate(),
+      classifySpam: realClassifier,
+      listRecentSubmissionsForEmail: vi.fn().mockResolvedValue(priorOnTwoOtherSites),
+      findRecentDuplicates: vi.fn().mockResolvedValue({ exact: [], similar: [] }),
+      retroBucket,
+    });
+    const r = await ingestSubmission(d, "hedloc", testSubmission);
+    expect(r).toMatchObject({ status: "accepted", notifyStatus: "skipped" });
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "spam_auto", spamReason: "repeat-sender" }),
+    );
+    expect(retroBucket).toHaveBeenCalledWith(["recMSOT", "recROAL"], "retro:repeat-sender");
+  });
+
+  it("still buckets a copy of another site's body, but retro-buckets nothing", async () => {
+    const retroBucket = vi.fn().mockResolvedValue(undefined);
+    const d = deps({
+      getWebsiteBySlug: vi.fn().mockResolvedValue(launching),
+      createSubmission: echoCreate(),
+      findRecentDuplicates: vi.fn().mockResolvedValue(sameBodyElsewhere),
+      retroBucket,
+    });
+    const r = await ingestSubmission(d, "hedloc", testSubmission);
+    expect(r).toMatchObject({ status: "accepted", notifyStatus: "skipped" });
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "spam_auto", spamReason: "duplicate-body" }),
+    );
+    expect(retroBucket).not.toHaveBeenCalled();
+  });
+
+  it("CONTROL: the same copy on a `maintained` site retro-buckets the other row", async () => {
+    const retroBucket = vi.fn().mockResolvedValue(undefined);
+    const d = deps({
+      getWebsiteBySlug: vi.fn().mockResolvedValue(live),
+      createSubmission: echoCreate(),
+      findRecentDuplicates: vi.fn().mockResolvedValue(sameBodyElsewhere),
+      retroBucket,
+    });
+    await ingestSubmission(d, "hedloc", testSubmission);
+    expect(retroBucket).toHaveBeenCalledWith(["recCOPY"], "retro:duplicate-body");
+  });
+
+  it("still buckets a submission the classifier calls spam", async () => {
+    const d = deps({
+      getWebsiteBySlug: vi.fn().mockResolvedValue(launching),
+      createSubmission: echoCreate(),
+      classifySpam: () => ({ score: 999, reasons: ["links:9"] }),
+    });
+    const r = await ingestSubmission(d, "hedloc", { email: "a@b.co", message: "buy now" });
+    expect(r).toMatchObject({ status: "accepted", notifyStatus: "skipped" });
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "spam_auto", spamReason: "links:9" }),
+    );
+  });
+
+  it("still escalates a required-Turnstile miss", async () => {
+    const d = deps({
+      getWebsiteBySlug: vi
+        .fn()
+        .mockResolvedValue(makeWebsiteRow({ status: "launching", requireTurnstile: true })),
+    });
+    await ingestSubmission(d, "hedloc", { email: "a@b.co", message: "hi" }, "absent");
+    expect(d.createSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "spam_auto", spamReason: "turnstile-required-absent" }),
+    );
+  });
+});
+
 describe("ingestSubmission", () => {
   it("rejects an invalid payload before touching the store", async () => {
     const d = deps();

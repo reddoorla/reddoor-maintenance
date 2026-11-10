@@ -5,6 +5,9 @@ import {
   readFormsHealth,
   formE2eHealthUnreadableSummary,
   findFormPath,
+  formDiscoveryPaths,
+  formE2eUndeclaredFormSummary,
+  FORM_DISCOVERY_ROUTE_CAP,
   isSameSitePost,
   actionFailureStatus,
   carriesProbeMarker,
@@ -16,6 +19,7 @@ import {
   projectRealSubmissionMs,
   type FormRunner,
   type FormProbePage,
+  lookForContactForm,
 } from "../../src/audits/form-e2e.js";
 import { INGEST_TIMEOUT_MS } from "../../src/forms/client.js";
 
@@ -358,6 +362,132 @@ describe("audits/form-e2e findFormPath", () => {
       "https://acme.example.com/",
     );
     expect(visited).toEqual(["/contact", "/"]);
+  });
+});
+
+describe("audits/form-e2e route discovery", () => {
+  it("lists the sitemap's routes minus the contact routes already tried", async () => {
+    const xml = ["/", "/contact", "/about-us", "/join-the-team"]
+      .map((p) => `<url><loc>https://acme.example.com${p}</loc></url>`)
+      .join("");
+    const fetched: string[] = [];
+    const paths = await formDiscoveryPaths("https://acme.example.com/", {
+      fetchText: async (url) => {
+        fetched.push(url);
+        return url.endsWith("/sitemap.xml") ? `<urlset>${xml}</urlset>` : null;
+      },
+    });
+    expect([...paths].sort()).toEqual([
+      "https://acme.example.com/about-us",
+      "https://acme.example.com/join-the-team",
+    ]);
+    expect(fetched).toEqual(["https://acme.example.com/sitemap.xml"]);
+  });
+
+  it("reaches a lone route family within the cap on a sitemap of forty project pages", async () => {
+    const xml = [...Array.from({ length: 40 }, (_, i) => `/projects/p${i}`), "/join-the-team"]
+      .map((p) => `<url><loc>https://acme.example.com${p}</loc></url>`)
+      .join("");
+    const paths = await formDiscoveryPaths("https://acme.example.com/", {
+      fetchText: async (url) => (url.endsWith("/sitemap.xml") ? xml : null),
+    });
+    expect(paths.length).toBeLessThanOrEqual(FORM_DISCOVERY_ROUTE_CAP);
+    expect(paths).toContain("https://acme.example.com/join-the-team");
+  });
+
+  it("reads forms.paths strictly: root-relative paths only, a malformed list ignored whole", async () => {
+    const read = async (paths: unknown) => {
+      vi.stubGlobal(
+        "fetch",
+        async () =>
+          new Response(
+            JSON.stringify({ ok: true, forms: { testMode: true, turnstile: false, paths } }),
+          ),
+      );
+      try {
+        return await readFormsHealth("https://acme.example.com");
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    };
+    expect((await read(["/join-the-team"])).paths).toEqual(["/join-the-team"]);
+    for (const bad of [
+      ["/join-the-team", "https://forms.example.com/x"],
+      ["/\\evil.example"],
+      ["/\t/evil.example"],
+      ["/a", "/b", "/c", "/d", "/e", "/f"],
+      ["//cdn.example.com/x"],
+      ["join-the-team"],
+      [],
+      "/join-the-team",
+      [1],
+    ])
+      expect(await read(bad)).toEqual({ testMode: true, turnstile: false });
+  });
+
+  it("findFormPath refuses a route whose page ended on another site, apex and www alike accepted", async () => {
+    const landed: Record<string, string> = {
+      "/careers": "https://jobs.ats.example/acme/apply",
+      "/join": "https://acme.example.com/join",
+    };
+    let current = "";
+    const probe: FormProbePage = {
+      goto: async (url) => {
+        current = new URL(url).pathname;
+        return { ok: () => true };
+      },
+      locator: () => ({ count: async () => 1 }),
+      url: () => landed[current] ?? "",
+    };
+    await expect(
+      findFormPath(probe, "https://www.acme.example.com", ["/careers", "/join"]),
+    ).resolves.toBe("https://www.acme.example.com/join");
+  });
+
+  it("skips a site whose form is off the declared routes, writes nothing, and is not n/a", async () => {
+    const r = await formE2eAudit({
+      site,
+      now: NOW,
+      formRunner: runner({ submit: async () => ({ undeclaredFormAt: "/join-the-team" }) }),
+    });
+    expect(r.status).toBe("skip");
+    expect(r.notApplicable).toBeUndefined();
+    expect(r.details).toEqual({ checkedAt: NOW.toISOString() });
+    expect(r.summary).toBe(formE2eUndeclaredFormSummary("/join-the-team"));
+  });
+
+  it("names a declared form's route in a pass summary", async () => {
+    const r = await formE2eAudit({
+      site,
+      now: NOW,
+      formRunner: runner({
+        submit: async () => ({ formPresent: true, success: true, formAt: "/join-the-team" }),
+      }),
+    });
+    expect(r.status).toBe("pass");
+    expect(r.summary).toBe(
+      "form-e2e: synthetic submission succeeded — form at /join-the-team, declared in /health forms.paths (none at /contact or /)",
+    );
+  });
+
+  it("says how many discovered routes an n/a looked at, and keeps the n/a verdict", async () => {
+    const r = await formE2eAudit({
+      site,
+      now: NOW,
+      formRunner: runner({ submit: async () => ({ formPresent: false, discoveredLooked: 8 }) }),
+    });
+    expect(r).toMatchObject({ status: "skip", notApplicable: true, details: { ok: null } });
+    expect(r.summary).toBe(
+      "no contact form (n/a) — none at /contact or /, nor on 8 discovered route(s)",
+    );
+    // Zero is said too: a sitemap index offers no page routes, and the line
+    // must not read as if the runner never looked.
+    const zero = await formE2eAudit({
+      site,
+      now: NOW,
+      formRunner: runner({ submit: async () => ({ formPresent: false, discoveredLooked: 0 }) }),
+    });
+    expect(zero.summary).toContain("nor on 0 discovered route(s)");
   });
 });
 
@@ -943,5 +1073,37 @@ describe("audits/form-e2e carriesProbeMarker", () => {
     expect(carriesProbeMarker("v=2&tid=G-XXXX&en=page_view")).toBe(false);
     expect(carriesProbeMarker('{"event":"submit_click"}')).toBe(false);
     expect(carriesProbeMarker("")).toBe(false);
+  });
+});
+
+describe("lookForContactForm — the check behind a forms.none declaration", () => {
+  // A look that could not run is never "no form": only a completed look admits n/a.
+  it("returns unverified, not null, when the browser will not launch", async () => {
+    const chromium = {
+      launch: async () => {
+        throw new Error("Executable doesn't exist\nsecond line");
+      },
+    };
+    expect(await lookForContactForm(chromium, "https://example.test/")).toEqual({
+      unverified: "Error: Executable doesn't exist",
+    });
+  });
+
+  it("returns unverified when the page cannot be opened, and still closes the browser", async () => {
+    let closed = false;
+    const chromium = {
+      launch: async () => ({
+        newPage: async () => {
+          throw new Error("context closed");
+        },
+        close: async () => {
+          closed = true;
+        },
+      }),
+    };
+    expect(await lookForContactForm(chromium, "https://example.test/")).toEqual({
+      unverified: "Error: context closed",
+    });
+    expect(closed).toBe(true);
   });
 });
