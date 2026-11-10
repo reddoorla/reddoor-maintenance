@@ -248,6 +248,9 @@ const timeout = (): Error =>
  *  a retry and it still counts as attempted. The message is the SDK's own. */
 const DEAD_PROBE = analyzeOutput.categoryQueries[1];
 
+/** accuracy.ts's own throw when the model call comes back empty. */
+const ACCURACY_ERROR = "accuracy: the model returned no parsed output";
+
 type Robots = "unmeasured" | "blocked";
 
 function adverseDeps(robots: Robots): PipelineDeps {
@@ -282,7 +285,7 @@ function adverseDeps(robots: Robots): PipelineDeps {
             ...deps.accuracy!,
             // accuracy.ts's own throw when the model call comes back empty.
             run: async () => {
-              throw new Error("accuracy: the model returned no parsed output");
+              throw new Error(ACCURACY_ERROR);
             },
           }
         : deps.accuracy!,
@@ -291,6 +294,53 @@ function adverseDeps(robots: Robots): PipelineDeps {
 
 /** The adverse files, and the ONLY stages each is allowed to fail. Anything
  *  else failing is the same loud error as in the five. */
+/** Read a nested path out of a result, or undefined at the first missing step. */
+const at = (root: unknown, path: string): unknown =>
+  path
+    .split(".")
+    .reduce<unknown>(
+      (node, key) => (node && typeof node === "object" ? (node as Json)[key] : undefined),
+      root,
+    );
+
+/** The branches every adverse file exists to reach. A producer change that
+ *  quietly routes one back to its usual branch (a skip instead of a failure,
+ *  a robots read that no longer blocks) is reported, not written. */
+function branchesMissed(r: Json, robots: Robots): string[] {
+  const missed: string[] = [];
+  const check = (ok: boolean, what: string): void => {
+    if (!ok) missed.push(what);
+  };
+  check(at(r, "crawl.data.sitemap.present") === true, "sitemap.present is not true");
+  const urlCount = at(r, "crawl.data.sitemap.urlCount");
+  const pages = (at(r, "crawl.data.pages") as unknown[] | undefined)?.length ?? 0;
+  check(
+    typeof urlCount === "number" && urlCount > pages,
+    `sitemap.urlCount (${String(urlCount)}) is not more than the ${pages} pages crawled`,
+  );
+  const attempted = at(r, "probes.data.categoryProbes.attempted");
+  const answered = at(r, "probes.data.categoryProbes.answered");
+  check(
+    typeof attempted === "number" && typeof answered === "number" && attempted > answered,
+    `categoryProbes attempted ${String(attempted)} is not more than answered ${String(answered)}`,
+  );
+  if (robots === "unmeasured") {
+    check(
+      at(r, "checks.data.crawlerAccessMeasured") === false,
+      "crawlerAccessMeasured is not false",
+    );
+    check(
+      at(r, "accuracy.error") === ACCURACY_ERROR,
+      `accuracy did not fail with the model's error (got ${JSON.stringify(at(r, "accuracy.error"))})`,
+    );
+  } else {
+    check(at(r, "checks.data.crawlerAccessMeasured") === true, "crawlerAccessMeasured is not true");
+    const blocked = at(r, "checks.data.crawlerAccess.blockedAi");
+    check(Array.isArray(blocked) && blocked.includes("GPTBot"), "blockedAi does not name GPTBot");
+  }
+  return missed;
+}
+
 const ADVERSE: Array<{ name: string; robots: Robots; expectFailed: string[] }> = [
   { name: "adverse-unmeasured", robots: "unmeasured", expectFailed: ["accuracy"] },
   { name: "adverse-blocked", robots: "blocked", expectFailed: [] },
@@ -390,7 +440,9 @@ function report(label: string, problems: string[]): void {
   // Loud and on stderr: a stage that failed here is a stage the fixture cannot
   // speak for, and a fixture nobody noticed was half-empty is the whole defect
   // this file exists to close.
-  console.error(`\n${label}: ${problems.length} stage(s) did not run as built offline:\n`);
+  console.error(
+    `\n${label}: ${problems.length} problem(s): the run did not come out as built offline:\n`,
+  );
   for (const p of problems) console.error(`  ${p}`);
   console.error("");
   process.exitCode = 1;
@@ -409,6 +461,6 @@ for (const shape of SHAPES) write(shape, reduceTo(result, shape));
 
 for (const { name, robots, expectFailed } of ADVERSE) {
   const adverse = await run(adverseDeps(robots));
-  report(name, unexpected(adverse, expectFailed));
+  report(name, [...unexpected(adverse, expectFailed), ...branchesMissed(adverse, robots)]);
   write(name, adverse);
 }
