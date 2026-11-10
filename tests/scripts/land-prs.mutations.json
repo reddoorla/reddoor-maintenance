@@ -212,8 +212,8 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "for (const c of shifts.commented) takeOne(addedLeft, matchKey(c));",
-        "replace": "void shifts;"
+        "find": "    for (const c of shifts.commented) takeOne(addedLeft, matchKey(c));",
+        "replace": "    for (const c of shifts.commented) void c;"
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
@@ -401,5 +401,135 @@
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
     "why": "#1617 r7 fix undone: a context line that starts with */ can be the wrapped line, so a glob added to a comment opened above the hunk flags the comment's closer (L2-1)."
+  },
+  {
+    "id": "P82-A-dead-backs-skip",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "    for (const d of shifts.dead) takeOne(liveLeft, matchKey(d));\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1941 item 1: a commented-out skip backs a new real skip again."
+  },
+  {
+    "id": "P82-B-template-is-code",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "(s.before === \"comment\" || s.before === \"template\")",
+        "replace": "s.before === \"comment\""
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1941 item 2: an assertion copied into a template literal counts as re-added again."
+  },
+  {
+    "id": "P82-C-no-moved-closer",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "  if (base === \"code\" && closerMovedDown(lines)) readings.push(shiftsFrom(lines, \"comment\"));\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1946 item 2: a */ moved down from a comment above the hunk is unseen again."
+  },
+  {
+    "id": "P82-D-closer-with-text",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "      isCloser(text) &&\n      states[k].before === \"code\" &&",
+        "replace": "      text.trim().endsWith(\"*/\") &&\n      states[k].before === \"code\" &&"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1946 item 2 over-broad: a // comment ending in dir/*/ reads as a closer, and the next line as wrapped."
+  },
+  {
+    "id": "P82-G-closer-taken-away-reads-as-moved",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "      states[k].before === \"code\" &&\n      lines.slice(k + 1).some((l) => l.kind === \"+\" && isCloser(l.text)),",
+        "replace": "      states[k].before === \"code\","
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1998 round 2 undone: a lone */ taken away (a long commented-out test put back into use) starts the hunk inside a comment, and the next line reads as wrapped."
+  },
+  {
+    "id": "P82-E-every-removed-line-dead",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "    } else if (wholly(oldStates[k])) {\n      dead.push(k);",
+        "replace": "    } else {\n      dead.push(k);"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1941 over-broad: a skip moved in code is flagged as added."
+  },
+  {
+    "id": "P82-A2-skip-backed-by-any-removed-line",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "      if (!takeOne(liveLeft, matchKey(t)) || !backed) {",
+        "replace": "      if (!backed) {"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1941 item 1 undone at the use: a skip is backed from the whole removed pool, dead text included."
+  },
+  {
+    "id": "P82-L-moved-text-pairing-revived",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "    for (const c of shifts.commented) takeOne(addedLeft, matchKey(c));\n",
+        "replace": "    const deadLeft = lineCounts(shifts.dead.map(matchKey));\n    for (const c of shifts.commented) if (!takeOne(deadLeft, matchKey(c))) takeOne(addedLeft, matchKey(c));\n"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1998 round 6: round 1's dead/commented pairing put back; the round-5 backtick case passes a commented-out assertion that main flags."
+  },
+  {
+    "id": "P82-N-moved-closer-replaces-main-reading",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "  const readings = [shiftsFrom(lines, base)];\n  if (base === \"code\" && closerMovedDown(lines)) readings.push(shiftsFrom(lines, \"comment\"));",
+        "replace": "  const readings = [shiftsFrom(lines, base === \"code\" && closerMovedDown(lines) ? \"comment\" : base)];"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1998 round 6: the moved-closer reading replaces main's instead of adding to it, so a wrap main flags (+/* above a moved */) is lost."
+  },
+  {
+    "id": "P82-O-skip-pool-split-from-main",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "      const backed = takeOne(removedLeft, matchKey(t));",
+        "replace": "      const backed = true;"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#1998 round 6 undone: a skip draws only on its own copy of the removed pool, so one removed line backs both an over-long added copy and an added skip, which main flags."
   }
 ]
