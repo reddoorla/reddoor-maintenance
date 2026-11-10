@@ -468,11 +468,15 @@ cli
 cli
   .command(
     "video <input>",
-    "Encode a background-video master into the fleet's web renditions, optionally uploading them to a site's Prismic media library.",
+    "Encode a video master into the fleet's web renditions, optionally uploading them to a site's Prismic media library.",
   )
   .option("--out <dir>", "Output directory (default: ./video-out)")
   .option("--name <slug>", "Basename for the outputs (default: the input's basename, slugified)")
   .option("--max-height <n>", "Cap the main renditions' height in pixels (default: 1080)")
+  .option(
+    "--profile <name>",
+    "background (muted loop, default) or player (keeps audio: 1080 + 720 mp4 and a poster)",
+  )
   .option(
     "--upload <prismic-repo>",
     "After encoding, upload each output to this Prismic repository's media library (needs PRISMIC_TOKEN_<REPO>)",
@@ -485,6 +489,7 @@ cli
         name?: string;
         maxHeight?: string | number;
         upload?: string;
+        profile?: string;
         cwd?: string;
         verbose?: boolean;
       },
@@ -493,6 +498,58 @@ cli
         async () => (await import("./commands/video.js")).runVideoCommand(input, opts),
         opts,
       ),
+  );
+
+// The R2 video pipeline: `encode` runs in the site's GitHub Action, `stuck` runs
+// on an hourly schedule. Both load lazily, like the `video` command.
+cli
+  .command(
+    "video-pipeline <action>",
+    "Operate the R2 video pipeline (encode | stuck). encode: one Prismic video URL → renditions on R2 + manifest.json. stuck: list videos sitting on Prismic past an hour, optionally open or update the tracking issue.",
+  )
+  .option("--url <url>", "encode: the https Prismic file URL of the video master")
+  .option("--class <class>", "encode: background (muted loop) or player (keeps audio)")
+  .option(
+    "--key <key>",
+    "encode: optional; the key the workflow dispatched (blank for a manual run). When given it must equal the key for --url and --site",
+  )
+  .option("--force", "encode: re-encode even when R2 already serves this class")
+  .option("--site <name>", "encode and stuck: the site's name, the first segment of each key")
+  .option("--repo <owner/name>", "stuck --open-issue: the GitHub repo that holds the issue")
+  .option("--prismic <repo>", "stuck: the Prismic repository to scan")
+  .option("--media-base <url>", "stuck: the public media host the manifests are read from")
+  .option("--rules <path>", "stuck: a JSON file of video rules (VideoRules)")
+  .option("--open-issue", "stuck: open or update the video-pipeline tracking issue")
+  .action(
+    async (
+      action: string,
+      opts: {
+        url?: string;
+        class?: string;
+        key?: string;
+        force?: boolean;
+        site?: string;
+        repo?: string;
+        prismic?: string;
+        mediaBase?: string;
+        rules?: string;
+        openIssue?: boolean;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) =>
+      runOrExit(async () => {
+        if (action === "encode") {
+          return (await import("./commands/video-pipeline.js")).runEncodeCommand(opts);
+        }
+        if (action === "stuck") {
+          return (await import("./commands/video-pipeline.js")).runStuckCommand(opts);
+        }
+        return {
+          output: `unknown video-pipeline action ${JSON.stringify(action)}; use encode or stuck`,
+          code: 2,
+        };
+      }, opts),
   );
 
 cli

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { mkdtemp } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { mkdtemp, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SpawnFn, SpawnOptions } from "../../src/audits/util/spawn.js";
@@ -641,3 +642,155 @@ describe("video: review round 2", () => {
     expect(calls.filter((c) => c.cmd === "ffmpeg")).toHaveLength(0);
   });
 });
+
+describe("video: player profile", () => {
+  const playerMp4 = (plan: { file: string; args: string[] }[]) =>
+    plan.filter((r) => r.file.endsWith(".mp4"));
+
+  it("1920x1080 player plan files are exactly 1080 mp4, 720 mp4, poster", () => {
+    const plan = planRenditions(
+      { width: 1920, height: 1080 },
+      { name: "hero", maxHeight: 1080, profile: "player" },
+    );
+    expect(files(plan)).toEqual(["hero-1080.mp4", "hero-720.mp4", "hero-poster.jpg"]);
+  });
+
+  it("every player mp4 encodes AAC and none carries -an", () => {
+    const plan = planRenditions(
+      { width: 1920, height: 1080 },
+      { name: "hero", maxHeight: 1080, profile: "player" },
+    );
+    const mp4s = playerMp4(plan);
+    expect(mp4s.length).toBe(2);
+    for (const r of mp4s) {
+      const i = r.args.indexOf("-c:a");
+      expect(i, r.file).toBeGreaterThan(-1);
+      expect(r.args[i + 1], r.file).toBe("aac");
+      expect(r.args, r.file).not.toContain("-an");
+    }
+  });
+
+  it("background plan keeps -an and no -c:a, both by default and with profile background", () => {
+    for (const opts of [
+      { name: "hero", maxHeight: 1080 },
+      { name: "hero", maxHeight: 1080, profile: "background" as const },
+    ]) {
+      const plan = planRenditions({ width: 1920, height: 1080 }, opts);
+      for (const r of plan.filter((x) => /\.(mp4|webm)$/.test(x.file))) {
+        expect(r.args, r.file).toContain("-an");
+        expect(r.args, r.file).not.toContain("-c:a");
+      }
+    }
+  });
+
+  it("1280x720 player plan: 720 mp4 and poster only", () => {
+    const plan = planRenditions(
+      { width: 1280, height: 720 },
+      { name: "hero", maxHeight: 1080, profile: "player" },
+    );
+    expect(files(plan)).toEqual(["hero-720.mp4", "hero-poster.jpg"]);
+  });
+
+  it("the player poster comes from the main mp4 with the thumbnail filter", () => {
+    const plan = planRenditions(
+      { width: 1920, height: 1080 },
+      { name: "hero", maxHeight: 1080, profile: "player" },
+    );
+    const poster = plan.find((r) => r.file === "hero-poster.jpg")!;
+    expect(poster.from).toBe("hero-1080.mp4");
+    expect(poster.args).toContain("thumbnail=60");
+  });
+
+  it("runVideoCommand with profile nope exits 2 and spawns nothing", async () => {
+    const calls: Call[] = [];
+    const res = await runVideoCommand(
+      "master.mp4",
+      { profile: "nope", out: "/nonexistent-out" },
+      { spawn: fakeSpawn(calls) },
+    );
+    expect(res.code).toBe(2);
+    expect(res.output).toContain('--profile must be "background" or "player"');
+    expect(calls).toHaveLength(0);
+  });
+
+  it("runVideoCommand with profile player encodes the three player files", async () => {
+    const calls: Call[] = [];
+    const out = await mkdtemp(join(tmpdir(), "video-player-"));
+    const res = await runVideoCommand(
+      "master.mp4",
+      { profile: "player", out, name: "hero", cwd: "/" },
+      { spawn: fakeSpawn(calls) },
+    );
+    expect(res.code).toBe(0);
+    const ffmpegCalls = calls.filter((c) => c.cmd === "ffmpeg");
+    const outputs = ffmpegCalls.map((c) => c.args[c.args.length - 1]!.split("/").pop());
+    expect(outputs).toEqual(["hero-1080.mp4", "hero-720.mp4", "hero-poster.jpg"]);
+    for (const c of ffmpegCalls.filter((c) => c.args.at(-1)!.endsWith(".mp4"))) {
+      expect(c.args).toContain("aac");
+    }
+  });
+
+  describe.skipIf(!ffmpegOnPath())("real ffmpeg", () => {
+    it("a player run keeps audio in t-720.mp4 and a background run leaves it silent", async () => {
+      const dir = await mkdtemp(join(tmpdir(), "video-real-"));
+      const master = join(dir, "master.mp4");
+      const gen = spawnSync("ffmpeg", [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=size=1280x720:rate=25:duration=2",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=440:duration=2",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-c:a",
+        "aac",
+        "-shortest",
+        master,
+      ]);
+      expect(gen.status, String(gen.stderr)).toBe(0);
+
+      const audioCodec = (file: string) =>
+        String(
+          spawnSync("ffprobe", [
+            "-v",
+            "error",
+            "-select_streams",
+            "a",
+            "-show_entries",
+            "stream=codec_name",
+            "-of",
+            "csv=p=0",
+            file,
+          ]).stdout,
+        ).trim();
+
+      const playerOut = join(dir, "player");
+      const player = await runVideoCommand(master, {
+        out: playerOut,
+        name: "t",
+        profile: "player",
+      });
+      expect(player.code, player.output).toBe(0);
+      expect(audioCodec(join(playerOut, "t-720.mp4"))).toBe("aac");
+      expect((await readdir(playerOut)).sort()).toEqual(["t-720.mp4", "t-poster.jpg"]);
+
+      const bgOut = join(dir, "background");
+      const bg = await runVideoCommand(master, { out: bgOut, name: "t" });
+      expect(bg.code, bg.output).toBe(0);
+      expect(audioCodec(join(bgOut, "t-720.mp4"))).toBe("");
+    }, 120_000);
+  });
+});
+
+function ffmpegOnPath(): boolean {
+  return spawnSync("ffmpeg", ["-version"]).status === 0;
+}

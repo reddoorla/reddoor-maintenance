@@ -122,6 +122,7 @@ const subpathEntries = {
   "configs/playwright-a11y.js": resolve(repoRoot, "dist/configs/playwright-a11y.js"),
   "configs/svelte.js": resolve(repoRoot, "dist/configs/svelte.js"),
   "smoke/index.js": resolve(repoRoot, "dist/smoke/index.js"),
+  "video-pipeline/index.js": resolve(repoRoot, "dist/video-pipeline/index.js"),
 };
 
 for (const [label, entry] of Object.entries(subpathEntries)) {

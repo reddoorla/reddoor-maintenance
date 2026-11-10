@@ -64,6 +64,10 @@
     "./smoke": {
       "types": "./dist/smoke/index.d.ts",
       "import": "./dist/smoke/index.js"
+    },
+    "./video-pipeline": {
+      "types": "./dist/video-pipeline/index.d.ts",
+      "import": "./dist/video-pipeline/index.js"
     }
   },
   "bin": {

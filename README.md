@@ -96,10 +96,10 @@ Standalone, outside the `[site]` loop above (it audits an external URL, not a fl
 
 ### Video renditions
 
-`reddoor-maint video <input>` turns one background-video master into the
-renditions the fleet's hero loops play, and can push them straight into a
-site's Prismic media library. Background loops are muted, so every rendition
-drops the audio track (`-an`). It needs `ffmpeg` and `ffprobe` on `PATH`
+`reddoor-maint video <input>` turns one video master into the renditions
+the fleet's hero loops and players play, and can push them straight into a
+site's Prismic media library. The background profile mutes its loops, so every
+background rendition drops the audio track (`-an`). It needs `ffmpeg` and `ffprobe` on `PATH`
 (`brew install ffmpeg` / `apt install ffmpeg`); without them it exits `2`.
 
 For a master of height `H` and `T = min(--max-height, H)`:
@@ -118,9 +118,21 @@ label for each rendition goes to stderr before its ffmpeg call, so a long
 encode shows which file the `-stats` line belongs to.
 
 Flags: `--out <dir>` (default `./video-out`), `--name <slug>` (default: the
-input's basename, slugified), `--max-height <n>` (default `1080`). After
-encoding it probes each output and prints a table of file, WxH, size in MB
-and kbps.
+input's basename, slugified), `--max-height <n>` (default `1080`),
+`--profile <name>` (`background` by default; see below). After encoding it
+probes each output and prints a table of file, WxH, size in MB and kbps.
+
+`--profile player` is for a video a visitor starts (a click to play) and
+keeps the audio. The outputs differ, and every mp4 carries AAC audio, stereo,
+with no `-an`:
+
+| Output              | When                     | Encode                                                                                                      |
+| ------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `<name>-<T>.mp4`    | always                   | H.264 high, `-preset slow -crf 23 -maxrate 5M -bufsize 10M`, AAC 128k stereo, `+faststart`                  |
+| `<name>-720.mp4`    | `H >= 720` and `T > 720` | H.264 main at 720p, `-preset slow -crf 24 -maxrate 2500k -bufsize 5000k`, AAC 96k stereo, `+faststart`      |
+| `<name>-poster.jpg` | always                   | the `thumbnail=60` filter on `<name>-<T>.mp4`, so the poster is a representative frame, not a black frame 0 |
+
+There is no webm in the player profile.
 
 `--upload <prismic-repo>` then POSTs each output to that repository's Asset
 API. The token is read from `PRISMIC_TOKEN_<REPO>` only (never the generic
@@ -140,6 +152,105 @@ input exits `2`. The upload path is tested against a fake fetch only and has
 not run live (Williamson's files went through that site's
 `prismic-media-upload` workflow; see the 2026-10-01 journal entry), so the
 first live run is to be read, not assumed.
+
+### Video pipeline (R2)
+
+`reddoor-maint video-pipeline encode` runs in a site's GitHub Action: it takes
+one Prismic video URL, encodes it, and writes the renditions and a manifest to
+R2. `reddoor-maint video-pipeline stuck` runs on an hourly schedule: it lists
+the videos on a Prismic repository that have sat past an hour without an R2
+manifest, and with `--open-issue` opens or updates the `video-pipeline`
+tracking issue.
+
+`encode` flags: `--url <https Prismic file URL>` (must be on a `*.prismic.io`
+host), `--class background|player`, `--site <name>` (the first segment of every
+key; a lowercase letter, then letters, digits or hyphens, or the run exits `2`
+before any fetch), and `--key <key>` (optional: the relay's dispatch passes the
+key it computed, and a manual run leaves it blank; a blank value, `0` or `"0"`
+means no key, and any other value must equal the key for `--url` and `--site`)),
+and `--force` (re-encode even when R2 already serves this class; a site workflow
+exposes it as an optional boolean `force` input). A background run never
+replaces a player manifest, `--force` or not.
+`stuck` flags: `--prismic <repo>`, `--site <name>`, `--media-base <url>`
+(the public host the manifests are read from), `--rules <path>` (a JSON file,
+below), `--open-issue`, `--repo owner/name` (the repo that holds the issue). Every
+`STUCK` line prints its `key=`; a video the relay cannot encode prints
+`cannot be encoded (<reason>)` instead.
+
+Environment: `encode` needs `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID` and
+`R2_SECRET_ACCESS_KEY`, and `CF_AI_TOKEN` for the player class (captions);
+`R2_BUCKET` (default `reddoor-video`), `R2_ENDPOINT` and `CF_ACCOUNT_ID` are
+optional. `stuck` reads `PRISMIC_ACCESS_TOKEN` when the repo is private and
+`GITHUB_TOKEN` for `--open-issue`.
+
+Exit codes: `0` success (`stuck`: nothing stuck); `1` an encode step failed,
+or `stuck` found a stuck video (deliberate: the hourly run going red is the
+alarm; a stuck video is never closed automatically); `2` an invalid argument,
+a missing variable, or a Prismic or rules error. A caption failure is a
+`WARN captions:` line and the video still ships without captions.
+
+Two runs over the same video can overlap. A background run re-reads the manifest
+just before it writes its own: if a player manifest has landed in the meantime, the
+run prints `SKIP <key>: a player manifest landed during this run (<dir>)`, exits `0`
+and writes no manifest (its renditions stay, unreferenced). A run that finds a player
+manifest before it starts also skips, before any download. A failed re-read is exit
+`1`, naming the manifest key. A site's workflow should therefore serialise its runs
+per video and class, with `concurrency: { group: video-encode-${{ inputs.url }}-${{ inputs.class }}, cancel-in-progress: false }`,
+so a second dispatch waits for the first rather than racing it. The class is in the group
+because GitHub keeps one pending run per group: a re-published background run would
+otherwise replace, and cancel, a pending player run.
+A run whose class the existing manifest already holds also skips, before any
+download (`SKIP <key>: already encoded as <class> …`), so a re-publish during an
+encode does not encode twice; `--force` re-encodes into a new version directory.
+
+Site code imports `@reddoorla/maintenance/video-pipeline` (node:crypto only):
+`handlePrismicWebhook(req, cfg)` is the relay (its `cfg.site` must match the same
+`[a-z][a-z0-9-]*` rule, or it answers `500`), and `resolveVideo(url, { site, mediaBase, fetch })`
+reads a video's manifest and falls back to the Prismic URL.
+
+A site's build logs stuck videos and never fails on them: only the hourly `stuck` run goes red, so a
+stuck video cannot block a deploy. Captions are transcribed with Whisper, called with `language: "en"`.
+
+Layout on R2: `<site>/<stem>-<hash>/manifest.json` (cached 60 s), and beside it
+`<class>-<YYYYMMDDTHHMMSSZ>-<mmm>/` (mmm: the milliseconds) holding the renditions (cached immutably). The
+manifest names its version directory in `dir`, so a re-encode writes a new
+directory and never overwrites a file. `<stem>-<hash>` is the file name's slug
+plus the first 10 hex of the sha256 of its path, so two files whose names
+slugify alike do not share a key. A background manifest is upgraded to a
+player when a document asks for a player.
+
+The rules file maps each slice type to the video fields it carries:
+
+```json
+{
+  "offer_hero": [{ "field": "video_mp4", "class": "player" }],
+  "screen_width_media": [
+    {
+      "field": "video_mp4",
+      "class": { "flag": "loopvideo", "whenTrue": "background", "whenFalse": "player" }
+    }
+  ],
+  "$document": [{ "field": "booked_video_mp4", "class": "player" }]
+}
+```
+
+Each value is an array of `{ field, class }`, where `class` is `background`,
+`player`, or a flag rule. The key `$document` applies its rules to the
+document's own fields rather than to a slice. A file that does not match this
+shape exits `2` with `--rules: <what is wrong>`.
+
+The relay calls the workflow-dispatch API for `video-encode.yml` on `main`, with
+the inputs `url`, `class` and `key`. It does not use `repository_dispatch`, so the
+dispatch token needs only Actions write: a fine-grained PAT on the site repo
+only, with **Actions: read and write** and no Contents permission, set in the
+Netlify env scoped to Functions. A token with Contents write could push to the
+public site repo, and this one cannot.
+
+The site's `video-encode.yml` must read the `url`, `class` and `key` inputs through
+the workflow's `env:` block and never interpolate them into a `run:` script, because
+the URL is carried in them. Set `timeout-minutes: 30` on the encode job, so a stalled
+run gives up before the workflow's default six hours. The relay refuses a URL with characters outside
+`A-Za-z0-9-._~:/?=&%+#@` and lists it under `refused`; `stuck` reports the same URL as `cannot be encoded`.
 
 ---
 
