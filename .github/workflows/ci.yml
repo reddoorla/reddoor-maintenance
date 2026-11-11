@@ -50,12 +50,17 @@ jobs:
       # present, would retire the one instrument standing between us and posting
       # a stranger's contact form. A test that guards a side effect has to run
       # where the merge is decided.
-      - name: Install the browser the Tier 4 abort harness drives
+      #
+      # Firefox and WebKit too (P1-108, #2018): `tests/audits/browser.test.ts`
+      # drives a thrown first navigation through the desktop retry on each real
+      # engine, because the 2026-11-10 false Broken was a throw in real Firefox,
+      # and Firefox resends a reset request itself where Chromium does not.
+      - name: Install the browsers the Tier 4 abort harness and the desktop retry tests drive
         timeout-minutes: 20
         run: |
           sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt || true
           for attempt in 1 2 3; do
-            timeout 300 pnpm exec playwright install --with-deps chromium && exit 0
+            timeout 300 pnpm exec playwright install --with-deps chromium firefox webkit && exit 0
             echo "::warning::playwright install attempt $attempt failed or passed 300s"
             sudo pkill -KILL -x apt-get || true
           done

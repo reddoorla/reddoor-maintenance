@@ -65,8 +65,10 @@ jobs:
       # "Executable doesn't exist" and the auto-filed issue (#775) described it as a
       # wall-clock failure. tests/ci-gate.test.ts now asserts every workflow that runs
       # `pnpm test` — as `- run:` or as a named step — installs the browser first.
-      - name: Install the browser the Tier 4 abort harness drives
-        run: pnpm exec playwright install --with-deps chromium
+      # Firefox and WebKit too, as in ci.yml: tests/audits/browser.test.ts launches both
+      # (P1-108), and ci-gate.test.ts checks all three engines are on this line.
+      - name: Install the browsers the Tier 4 abort harness and the desktop retry tests drive
+        run: pnpm exec playwright install --with-deps chromium firefox webkit
 
       # The cockpit tests load the tsconfig and types `svelte-kit sync` writes.
       # ci.yml and release.yml get them from `pnpm typecheck` (cockpit:check);

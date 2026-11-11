@@ -83,8 +83,8 @@
     "edits": [
       {
         "file": "src/audits/browser.ts",
-        "find": "  gotoTimeoutMs: number = PAGE_TIMEOUT_MS,",
-        "replace": "  gotoTimeoutMs: number = RETRY_PAGE_TIMEOUT_MS,"
+        "find": "  { device, descriptor }: MobileTarget,\n  gotoTimeoutMs: number = PAGE_TIMEOUT_MS,",
+        "replace": "  { device, descriptor }: MobileTarget,\n  gotoTimeoutMs: number = RETRY_PAGE_TIMEOUT_MS,"
       }
     ],
     "test": "tests/audits/browser.test.ts",
@@ -96,8 +96,8 @@
     "edits": [
       {
         "file": "src/audits/browser.ts",
-        "find": "  gotoTimeoutMs: number = PAGE_TIMEOUT_MS,",
-        "replace": "  gotoTimeoutMs: number = RETRY_PAGE_TIMEOUT_MS,"
+        "find": "  { device, descriptor }: MobileTarget,\n  gotoTimeoutMs: number = PAGE_TIMEOUT_MS,",
+        "replace": "  { device, descriptor }: MobileTarget,\n  gotoTimeoutMs: number = RETRY_PAGE_TIMEOUT_MS,"
       },
       {
         "file": "src/audits/browser.ts",

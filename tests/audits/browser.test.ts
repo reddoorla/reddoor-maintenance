@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { chromium, devices, type Browser } from "@playwright/test";
+import { chromium, devices, firefox, webkit, type Browser } from "@playwright/test";
 import {
   summarizeBrowser,
   sharedTitleSuffix,
@@ -1853,6 +1853,20 @@ describe("probeDesktop — one retry for a navigation that threw (P1-107)", () =
         req.socket.destroy();
         return;
       }
+      // /cut-once/*: the first response is cut mid-body, later ones load. Firefox resends a
+      // request whose connection was reset before any reply (measured 11-11: one drop read 200,
+      // two drops read 200 after 3 requests), so /drop-once never reaches Firefox's retry; a
+      // body cut short throws on Firefox (NS_ERROR_NET_PARTIAL_TRANSFER) and WebKit ("Connection
+      // terminated unexpectedly") after one request. Measured on Playwright 1.65.0 (firefox-1572,
+      // webkit-2388); if an engine bump changes this, the real-engine tests below fail loudly
+      // (one request or one context), never pass falsely.
+      if (path.startsWith("/cut-once/") && n === 1) {
+        req.socket.write(
+          "HTTP/1.1 200 OK\r\ncontent-type: text/html\r\ncontent-length: 5000\r\n\r\n<!doctype html><ma",
+        );
+        req.socket.destroy();
+        return;
+      }
       // /nomain-once: loads, but with no <main> the first time only, so a retry would hide it.
       res.writeHead(200, { "content-type": "text/html" });
       res.end(path === "/nomain-once" && n === 1 ? noMain : ok);
@@ -1867,11 +1881,11 @@ describe("probeDesktop — one retry for a navigation that threw (P1-107)", () =
     await new Promise((r) => server?.close(r));
   });
 
-  /** The real browser, recording each context it opens and each navigation's timeout. */
-  function watched() {
+  /** A real browser, recording each context it opens and each navigation's timeout. */
+  function watched(real: Browser = browser) {
     const contexts: import("@playwright/test").BrowserContext[] = [];
     const timeouts: (number | undefined)[] = [];
-    const spy = new Proxy(browser, {
+    const spy = new Proxy(real, {
       get(target, prop) {
         if (prop !== "newContext") return Reflect.get(target, prop, target);
         return async (...args: Parameters<Browser["newContext"]>) => {
@@ -1938,6 +1952,30 @@ describe("probeDesktop — one retry for a navigation that threw (P1-107)", () =
     await gone.close();
     await expect(probeDesktop(gone, `${base}/drop-once`, "firefox")).rejects.toThrow(/closed/);
   }, 60_000);
+
+  // #2018: the tests above drive Chromium under the label "firefox", but the 11-10 incident was
+  // a throw in real Firefox. These run the real engines, each through one thrown first load.
+  for (const [engine, type] of [
+    ["firefox", firefox],
+    ["webkit", webkit],
+  ] as const) {
+    it(`a first navigation that throws on real ${engine} reaches the retry and loads`, async () => {
+      const real = await type.launch();
+      try {
+        const path = `/cut-once/${engine}`;
+        served[path] = 0;
+        const w = watched(real);
+        const r = await probeDesktop(w.spy, `${base}${path}`, engine);
+        expect(r).toEqual({ ok: true, status: 200, threw: false });
+        // Exactly two requests: the cut one, then the retry. The engine did not resend it itself.
+        expect(served[path]).toBe(2);
+        expect(w.contexts).toHaveLength(2);
+        expect(w.timeouts).toEqual([30_000, 10_000]);
+      } finally {
+        await real.close();
+      }
+    }, 60_000);
+  }
 });
 
 // P1-107b: each retry costs up to 10 s, times 15 routes × (3 engines + 2 devices), so a site
@@ -2059,6 +2097,60 @@ describe("probeRoutes — one retry budget of 3 per site, shared by desktop and 
   it("chromium's page facts come from its retried load", async () => {
     const [r] = await probeRoutes([`${base}/alt/i`], site());
     expect(r).toMatchObject({ status: 200, title: "t", lang: "en" });
+  }, 60_000);
+});
+
+// #2017: probeRoutes copies chromium's page facts onto the route, and before this no test read
+// most of them: deleting the links, the meta description, the leaked tokens or the alternates
+// left every test green. One page carries all seven, each with a value no default can match.
+describe("probeRoutes — every desktop page fact reaches the route (#2017)", () => {
+  const facts =
+    '<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Facts page</title>' +
+    '<meta name="description" content="A described page">' +
+    '<link rel="alternate" hreflang="en" href="/en/facts"></head>' +
+    '<body><main><a href="/a">a</a><a href="/b">b</a><a href="https://elsewhere.example/c">c</a>' +
+    "<!-- %sveltekit.body% --></main></body></html>";
+  let server: Server;
+  let base = "";
+  let browser: Browser;
+
+  beforeAll(async () => {
+    server = createServer((req, res) => {
+      // 203, not 200: a status the mapping must copy, which no default or constant supplies.
+      res.writeHead(req.url === "/facts" ? 203 : 404, { "content-type": "text/html" });
+      res.end(req.url === "/facts" ? facts : "not found");
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    browser = await chromium.launch();
+  }, 60_000);
+
+  afterAll(async () => {
+    await browser?.close();
+    await new Promise((r) => server?.close(r));
+  });
+
+  it("copies status, title, meta description, links, leaked tokens, lang and alternates", async () => {
+    // The production engine order: chromium reads the facts, and the later engines, which read
+    // none, must not clear them.
+    const desktop = ["chromium", "firefox", "webkit"].map((engine) => ({ engine, browser }));
+    const [r] = await probeRoutes([`${base}/facts`], { desktop, mobile: [] });
+    expect(r).toEqual({
+      url: `${base}/facts`,
+      desktop: [
+        { engine: "chromium", ok: true, status: 203 },
+        { engine: "firefox", ok: true, status: 203 },
+        { engine: "webkit", ok: true, status: 203 },
+      ],
+      mobile: [],
+      status: 203,
+      title: "Facts page",
+      metaDescription: "A described page",
+      links: [`${base}/a`, `${base}/b`],
+      leakedTemplateTokens: ["%sveltekit.body%"],
+      lang: "fr",
+      alternates: [`${base}/en/facts`],
+    });
   }, 60_000);
 });
 
