@@ -1857,7 +1857,9 @@ describe("probeDesktop — one retry for a navigation that threw (P1-107)", () =
       // request whose connection was reset before any reply (measured 11-11: one drop read 200,
       // two drops read 200 after 3 requests), so /drop-once never reaches Firefox's retry; a
       // body cut short throws on Firefox (NS_ERROR_NET_PARTIAL_TRANSFER) and WebKit ("Connection
-      // terminated unexpectedly") after one request.
+      // terminated unexpectedly") after one request. Measured on Playwright 1.65.0 (firefox-1572,
+      // webkit-2388); if an engine bump changes this, the real-engine tests below fail loudly
+      // (one request or one context), never pass falsely.
       if (path.startsWith("/cut-once/") && n === 1) {
         req.socket.write(
           "HTTP/1.1 200 OK\r\ncontent-type: text/html\r\ncontent-length: 5000\r\n\r\n<!doctype html><ma",
