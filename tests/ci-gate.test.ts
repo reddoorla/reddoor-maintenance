@@ -91,6 +91,25 @@ describe("a workflow that runs the suite installs the browser it needs", () => {
       .map(({ f }) => f);
     expect(offenders).toEqual([]);
   });
+
+  // P1-108: tests/audits/browser.test.ts launches real Firefox and WebKit too, and the review
+  // found time-travel.yml still installing Chromium alone: the check above only asked for an
+  // install, so it stayed green while the weekly run would have failed on "Executable doesn't
+  // exist". Every engine the suite launches must be on a suite-running workflow's install line.
+  it("installs chromium, firefox and webkit wherever the suite runs", () => {
+    const dir = resolve(root, ".github/workflows");
+    const missing = readdirSync(dir)
+      .filter((f) => f.endsWith(".yml"))
+      .map((f) => ({ f, body: readFileSync(resolve(dir, f), "utf-8") }))
+      .filter(({ body }) => /^\s*(- )?run: pnpm (test|test:coverage)\b/m.test(body))
+      .flatMap(({ f, body }) => {
+        const installs = body.match(/playwright install\b[^\n&]*/g) ?? [];
+        return ["chromium", "firefox", "webkit"]
+          .filter((engine) => !installs.some((line) => new RegExp(`\\b${engine}\\b`).test(line)))
+          .map((engine) => `${f}: ${engine}`);
+      });
+    expect(missing).toEqual([]);
+  });
 });
 
 /**

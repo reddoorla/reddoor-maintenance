@@ -1,12 +1,12 @@
 [
   {
     "id": "e1-no-retry-on-firefox",
-    "why": "A thrown first navigation on firefox alone is not retried, as on 2026-11-10 when real Firefox threw on reddoorla.com/ (#2018)",
+    "why": "A thrown first navigation on the real firefox engine alone is not retried (the 2026-11-10 incident was a throw in real Firefox). It keys on the launched engine, not the label, so the Chromium tests labelled 'firefox' cannot kill it (#2018)",
     "edits": [
       {
         "file": "src/audits/browser.ts",
         "find": "  if (first.threw && !spendRetry(budget)) return first;",
-        "replace": "  if (first.threw && engine === \"firefox\") return first;\n  if (first.threw && !spendRetry(budget)) return first;"
+        "replace": "  if (first.threw && browser.browserType().name() === \"firefox\") return first;\n  if (first.threw && !spendRetry(budget)) return first;"
       }
     ],
     "test": "tests/audits/browser.test.ts",
@@ -14,15 +14,28 @@
   },
   {
     "id": "e2-no-retry-on-webkit",
-    "why": "A thrown first navigation on webkit alone is not retried, as on 2026-11-10 when real Firefox threw on reddoorla.com/ (#2018)",
+    "why": "A thrown first navigation on the real webkit engine alone is not retried (the 2026-11-10 incident was a throw in real Firefox). It keys on the launched engine, not the label, so the Chromium tests labelled 'firefox' cannot kill it (#2018)",
     "edits": [
       {
         "file": "src/audits/browser.ts",
         "find": "  if (first.threw && !spendRetry(budget)) return first;",
-        "replace": "  if (first.threw && engine === \"webkit\") return first;\n  if (first.threw && !spendRetry(budget)) return first;"
+        "replace": "  if (first.threw && browser.browserType().name() === \"webkit\") return first;\n  if (first.threw && !spendRetry(budget)) return first;"
       }
     ],
     "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "e3-ci-drops-webkit",
+    "why": "CI stops installing WebKit, so the real-WebKit test fails on 'Executable doesn't exist' only after the merge; the gate must catch it on the PR (P1-108 review round 1)",
+    "edits": [
+      {
+        "file": ".github/workflows/ci.yml",
+        "find": "playwright install --with-deps chromium firefox webkit &&",
+        "replace": "playwright install --with-deps chromium firefox &&"
+      }
+    ],
+    "test": "tests/ci-gate.test.ts",
     "expect": "red"
   }
 ]
