@@ -1,0 +1,93 @@
+[
+  {
+    "id": "f1-drop-status",
+    "why": "probeRoutes stops copying chromium's status onto the route, so the audit reads it as never measured (#2017)",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "        status = r.page.status;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "f2-drop-title",
+    "why": "probeRoutes stops copying chromium's title onto the route, so the audit reads it as never measured (#2017)",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "        title = r.page.title;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "f3-drop-meta-description",
+    "why": "probeRoutes stops copying chromium's meta-description onto the route, so the audit reads it as never measured (#2017)",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "        metaDescription = r.page.metaDescription;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "f4-drop-links",
+    "why": "probeRoutes stops copying chromium's links onto the route, so the audit reads it as never measured (#2017)",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "        for (const l of r.page.links) linkSet.add(l);\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "f5-drop-leaked-tokens",
+    "why": "probeRoutes stops copying chromium's leaked-tokens onto the route, so the audit reads it as never measured (#2017)",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "        leakedTemplateTokens = r.page.leakedTemplateTokens;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "f6-drop-lang",
+    "why": "probeRoutes stops copying chromium's lang onto the route, so the audit reads it as never measured (#2017)",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "        lang = r.page.lang;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "f7-drop-alternates",
+    "why": "probeRoutes stops copying chromium's alternates onto the route, so the audit reads it as never measured (#2017)",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "        alternates = r.page.alternates;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  }
+]

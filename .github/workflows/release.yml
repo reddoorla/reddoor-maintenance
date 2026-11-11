@@ -93,9 +93,10 @@ jobs:
       # package, and this job runs the same suite. ci.yml gained this step in
       # `ec4ec55` and release.yml did not, so the merge that added the spec went
       # green on the PR and red on main forty seconds later — the two lists were
-      # one gate in `pnpm verify` and two in setup.
-      - name: Install the browser the Tier 4 abort harness drives
-        run: pnpm exec playwright install --with-deps chromium
+      # one gate in `pnpm verify` and two in setup. Firefox and WebKit for the
+      # same reason: ci.yml installs them for the desktop retry tests (P1-108).
+      - name: Install the browsers the Tier 4 abort harness and the desktop retry tests drive
+        run: pnpm exec playwright install --with-deps chromium firefox webkit
 
       - run: pnpm typecheck
       - run: pnpm lint

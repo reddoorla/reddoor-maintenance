@@ -1,0 +1,28 @@
+[
+  {
+    "id": "e1-no-retry-on-firefox",
+    "why": "A thrown first navigation on firefox alone is not retried, as on 2026-11-10 when real Firefox threw on reddoorla.com/ (#2018)",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "  if (first.threw && !spendRetry(budget)) return first;",
+        "replace": "  if (first.threw && engine === \"firefox\") return first;\n  if (first.threw && !spendRetry(budget)) return first;"
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "e2-no-retry-on-webkit",
+    "why": "A thrown first navigation on webkit alone is not retried, as on 2026-11-10 when real Firefox threw on reddoorla.com/ (#2018)",
+    "edits": [
+      {
+        "file": "src/audits/browser.ts",
+        "find": "  if (first.threw && !spendRetry(budget)) return first;",
+        "replace": "  if (first.threw && engine === \"webkit\") return first;\n  if (first.threw && !spendRetry(budget)) return first;"
+      }
+    ],
+    "test": "tests/audits/browser.test.ts",
+    "expect": "red"
+  }
+]
