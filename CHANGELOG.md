@@ -1,5 +1,11 @@
 # @reddoorla/maintenance
 
+## 0.117.2
+
+### Patch Changes
+
+- cdf3c6c: land-prs: the checks wait now also waits for every check the base branch requires, from its rulesets' `required_status_checks` rule and its classic branch protection, until each has a passing, neutral or skipped run or status on the head. A required check with no run yet (an Actions run still queued) is no longer read as "checks passed": it is waited for under the checks timeout, and a timeout names it ("required check `ci / ci` has no run on 9329069 after 20 min"). A required check that never fires therefore costs the full timeout before that stop. A cancelled required check stops at once, unless a rerun of it is queued (then it is waited for). While the wait is held by a cancelled required check, or by a missing one with nothing else pending, it re-views the PR each poll and hands a PR whose head moved on, or that is no longer open, back to the gate: a moved head is re-gated, a merged PR skipped, a closed one stopped. A base whose rules read 403 or 404 requires nothing from them, as before, and the same holds for a 403 or 404 on the new branch-protection read (noted in the log). Any other failure reading `branches/<base>` stops the landing before any check is watched, as a failed rules read does; `--dry-run` does not make that read, so it does not show that failure (#2035).
+
 ## 0.117.1
 
 ### Patch Changes
