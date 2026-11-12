@@ -161,6 +161,22 @@ export function checksFromRest(
   checkRuns: Array<{ name: string; status: string; conclusion: string | null }>,
   statuses: Array<{ context: string; state: string }>,
 ): Array<{ name: string; bucket: CheckBucket }>;
+/** The contexts the base's `required_status_checks` rules name, in order, once each (#2035). */
+export function requiredChecksFrom(
+  rules:
+    | Array<{
+        type: string;
+        ruleset_id?: number;
+        parameters?: Record<string, unknown>;
+      } | null>
+    | null
+    | undefined,
+): string[];
+/** Each required context the head's checks do not yet satisfy. */
+export function unmetRequiredChecks(
+  required: string[],
+  checks: Array<{ name: string; bucket: CheckBucket }>,
+): Array<{ name: string; state: "missing" | "fail" | "pending" | "cancel" }>;
 
 /** A branch name as a REST path: only `%`, `#`, `?` and space are percent-encoded. */
 export function refPath(branch: string): string;
