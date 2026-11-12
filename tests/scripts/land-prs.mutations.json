@@ -531,5 +531,57 @@
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
     "why": "#1998 round 6 undone: a skip draws only on its own copy of the removed pool, so one removed line backs both an over-long added copy and an added skip, which main flags."
+  },
+  {
+    "id": "P109-1-required-list-ignored",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "  return { method: picked.method, required: requiredChecksFrom(rules) };",
+        "replace": "  return { method: picked.method, required: [] };"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#2035 undone: the base's required contexts are treated as empty, so #142's Netlify-only head reads 'checks passed' again."
+  },
+  {
+    "id": "P109-2-queued-required-accepted",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "    if (buckets.some((b) => b === \"pass\" || b === \"skipping\")) continue;",
+        "replace": "    if (buckets.some((b) => b === \"pass\" || b === \"skipping\" || b === \"pending\")) continue;"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "A required check that is only queued or running would count as met."
+  },
+  {
+    "id": "P109-3-failed-required-accepted",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "    if (buckets.some((b) => b === \"pass\" || b === \"skipping\")) continue;",
+        "replace": "    if (buckets.some((b) => b === \"pass\" || b === \"skipping\" || b === \"fail\")) continue;"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "A required check that concluded failure (or a status in error) would count as met."
+  },
+  {
+    "id": "P109-4-missing-name-dropped",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "    ? `required check ${list} has no run on ${short(sha)}`",
+        "replace": "    ? `a required check has no run on ${short(sha)}`"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "The timeout and stop lines would no longer name the missing required check."
   }
 ]

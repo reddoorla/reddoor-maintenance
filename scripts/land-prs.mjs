@@ -233,6 +233,48 @@ export function chooseMergeMethod(repo, rules) {
     : { error: `no merge method is allowed: ${said.join("; ")}` };
 }
 
+/** The contexts the rules in force on the base require to pass before a merge: every
+ *  `required_status_checks` rule's `parameters.required_status_checks[].context`, in order,
+ *  once each. #2035: GitHub holds a merge BLOCKED until each has passed on the head, and a
+ *  required check with no run yet is not in the check-runs list at all. */
+export function requiredChecksFrom(rules) {
+  const out = [];
+  for (const rule of Array.isArray(rules) ? rules : []) {
+    if (rule?.type !== "required_status_checks") continue;
+    const list = rule.parameters?.required_status_checks;
+    for (const c of Array.isArray(list) ? list : []) {
+      if (typeof c?.context === "string" && !out.includes(c.context)) out.push(c.context);
+    }
+  }
+  return out;
+}
+
+/** Each required context the head's checks do not yet satisfy, as `{ name, state }`:
+ *  `missing` (no check run or status by that name), `fail`, `pending` or `cancel`. A
+ *  context is satisfied by a run or status in the `pass` or `skipping` bucket, as GitHub
+ *  counts success, neutral and skipped as passing a required check. */
+export function unmetRequiredChecks(required, checks) {
+  const unmet = [];
+  for (const name of required) {
+    const buckets = checks.filter((c) => c.name === name).map((c) => c.bucket);
+    if (buckets.some((b) => b === "pass" || b === "skipping")) continue;
+    const state =
+      buckets.length === 0
+        ? "missing"
+        : (["fail", "pending", "cancel"].find((b) => buckets.includes(b)) ?? "pending");
+    unmet.push({ name, state });
+  }
+  return unmet;
+}
+
+/** "required check `ci / ci` has no run on 9329069", for one name or several. */
+function noRunText(names, sha) {
+  const list = names.map((m) => `\`${m}\``).join(", ");
+  return names.length === 1
+    ? `required check ${list} has no run on ${short(sha)}`
+    : `required checks ${list} have no run on ${short(sha)}`;
+}
+
 const short = (sha) => (typeof sha === "string" ? sha.slice(0, 7) : String(sha));
 const firstLine = (s) =>
   String(s ?? "")
@@ -493,10 +535,13 @@ async function rulesFor(ctx, n, branch) {
   throw new Stop(`gh api rules/branches/${branch} still had rules after ${MAX_RULES_PAGES} pages`);
 }
 
-async function mergeMethodFor(ctx, n, branch) {
-  const picked = chooseMergeMethod(await apiJson(ctx, ""), await rulesFor(ctx, n, branch));
+/** The merge method and the required checks, from one read of the base's rules. */
+async function baseRulesFor(ctx, n, branch) {
+  const repo = await apiJson(ctx, "");
+  const rules = await rulesFor(ctx, n, branch);
+  const picked = chooseMergeMethod(repo, rules);
   if (picked.error) throw new Stop(`${picked.error} (base ${branch})`);
-  return picked.method;
+  return { method: picked.method, required: requiredChecksFrom(rules) };
 }
 
 async function viewPr(ctx, n) {
@@ -580,13 +625,14 @@ async function noChecksBudget(ctx, n, sha) {
   return budget;
 }
 
-async function waitForChecks(ctx, n, sha) {
+async function waitForChecks(ctx, n, sha, required = []) {
   const deadline = ctx.now() + ctx.checksTimeoutMin * 60_000;
   ctx.log(`LAND #${n} checks watching ${short(sha)} (timeout ${ctx.checksTimeoutMin} min)`);
   // Resolved lazily, and only if "no checks reported" actually happens — it
   // costs one extra call and most runs never reach that branch.
   let budget = null;
   let empty = 0;
+  let saidMissing = "";
   for (;;) {
     const checks = await readChecks(ctx, sha);
     const named = (...buckets) =>
@@ -595,10 +641,20 @@ async function waitForChecks(ctx, n, sha) {
       throw new Stop(`checks failed on ${short(sha)}: ${named("fail", "cancel").join(", ")}`);
     }
     const pending = named("pending");
+    const unmet = unmetRequiredChecks(required, checks);
+    const cancelled = unmet.filter((u) => u.state === "cancel").map((u) => `\`${u.name}\``);
+    if (cancelled.length > 0) {
+      throw new Stop(
+        `required check${cancelled.length > 1 ? "s" : ""} ${cancelled.join(", ")} cancelled on ${short(sha)}`,
+      );
+    }
+    const missing = unmet.filter((u) => u.state === "missing").map((u) => u.name);
     // Right after a push the new head can have no check runs registered yet — or only
     // Netlify's neutral ones, which arrive about 2 s before Actions registers `build`.
     // Neither is a verdict: nothing has passed, so keep waiting under the same budget.
-    if (pending.length === 0 && named("pass").length === 0) {
+    // A required check with no run is waited for under the checks timeout instead: the
+    // base's rules say a run is coming.
+    if (pending.length === 0 && named("pass").length === 0 && missing.length === 0) {
       if (budget === null) budget = await noChecksBudget(ctx, n, sha);
       if (empty < budget) {
         empty++;
@@ -612,13 +668,21 @@ async function waitForChecks(ctx, n, sha) {
           : `no check passed on ${short(sha)} after ${waited}s, only ${checks.map((c) => `${c.name} (${c.bucket})`).join(", ")}`,
       );
     }
-    if (pending.length === 0) {
+    // #2035: every run that exists has concluded, but a required check may have no run yet
+    // (Actions queued behind a runner). That is not a pass: keep waiting for it.
+    if (pending.length === 0 && unmet.length === 0) {
       ctx.log(`LAND #${n} checks passed on ${short(sha)}`);
       return;
     }
+    if (missing.length > 0 && missing.join("\n") !== saidMissing) {
+      saidMissing = missing.join("\n");
+      ctx.log(`LAND #${n} waiting: ${noRunText(missing, sha)} yet`);
+    }
     if (ctx.now() >= deadline) {
       throw new Stop(
-        `checks still running after ${ctx.checksTimeoutMin} min on ${short(sha)}: ${pending.join(", ")}`,
+        pending.length > 0
+          ? `checks still running after ${ctx.checksTimeoutMin} min on ${short(sha)}: ${pending.join(", ")}${missing.length > 0 ? `; ${noRunText(missing, sha)}` : ""}`
+          : `${noRunText(missing, sha)} after ${ctx.checksTimeoutMin} min`,
       );
     }
     await ctx.sleep(ctx.t.checksPollIntervalMs);
@@ -1729,7 +1793,7 @@ async function landOne(ctx, n) {
   }
   const refused = refusal(pr, ctx.base);
   if (refused) throw new Stop(refused);
-  const method = await mergeMethodFor(ctx, n, pr.baseRefName);
+  const { method, required } = await baseRulesFor(ctx, n, pr.baseRefName);
   ctx.log(
     `LAND #${n} open head=${short(pr.headRefOid)} merge=${pr.mergeStateStatus} method=${method} "${pr.title}"`,
   );
@@ -1752,7 +1816,7 @@ async function landOne(ctx, n) {
 
   for (let round = 1; ; round++) {
     const began = pr.headRefOid;
-    await waitForChecks(ctx, n, began);
+    await waitForChecks(ctx, n, began, required);
     pr = await gateView(ctx, n, began);
     if (pr.state === "MERGED") {
       ctx.log(`LAND #${n} skipped reason=merged elsewhere during the checks wait`);
