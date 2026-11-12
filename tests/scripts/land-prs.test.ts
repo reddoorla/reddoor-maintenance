@@ -4216,7 +4216,7 @@ describe("land-prs: required checks (#2035)", () => {
     );
     expect(r.code).toBe(0);
     expect(r.lines).toContain(
-      "LAND #5 head moved during checks and came back to aaaaaaa; re-gating",
+      "LAND #5 checks on aaaaaaa did not pass before the wait handed back; re-gating",
     );
     const passedAt = r.lines.indexOf("LAND #5 checks passed on aaaaaaa");
     const mergedAt = r.lines.findIndex((l) => l.startsWith("LAND #5 merged "));

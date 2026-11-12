@@ -72,8 +72,9 @@
 // `GET repos/…` (the `allow_*_merge` flags) and `GET repos/…/rules/branches/<base>` (every
 // rule in force on the base, from every ruleset) and keeps squash, then merge, then rebase,
 // whichever is allowed by all of them. A `required_linear_history` rule rules out a merge
-// commit. Classic branch protection is not read (its endpoint needs admin); there the
-// 405 still stops the run, with GitHub's reason.
+// commit. Classic branch protection's merge settings are not read (its endpoint needs
+// admin); there the 405 still stops the run, with GitHub's reason. Its required checks
+// are read, from `GET branches/<base>`, for step 3 (#2035).
 //
 // The first stop ends the run (`LAND #N stopped reason=…`, exit 1); later PRs are not
 // touched. --dry-run only views, and prints what it would do.
@@ -1907,7 +1908,7 @@ async function landOne(ctx, n) {
       ctx.log(
         pr.headRefOid !== began
           ? `LAND #${n} head moved during checks ${short(began)} -> ${short(pr.headRefOid)}; re-gating`
-          : `LAND #${n} head moved during checks and came back to ${short(began)}; re-gating`,
+          : `LAND #${n} checks on ${short(began)} did not pass before the wait handed back; re-gating`,
       );
       continue;
     }
