@@ -20,10 +20,11 @@ import { workflowPath, workflowSteps, type WorkflowStep } from "./_helpers/workf
 const SEND_STEP = "Send approved reports";
 const DRAFT_STEP = "Draft due reports";
 
-/** A step that reaches Ubuntu's package mirrors: `--with-deps` runs apt-get. */
+/** A step that reaches Ubuntu's package mirrors: apt itself, Playwright's
+ *  `--with-deps` / `install-deps` (both run apt-get), or an apt repository add. */
 const reachesAptMirrors = (s: WorkflowStep): boolean =>
-  /playwright install[^\n]*--with-deps|apt-get/.test(s.source);
-const installsBrowser = (s: WorkflowStep): boolean => /playwright install/.test(s.source);
+  /\bapt(-get)?\b|install-deps|--with-deps|add-apt-repository/.test(s.source);
+const installsBrowser = (s: WorkflowStep): boolean => /playwright install(?!-deps)/.test(s.source);
 
 // ── A small model of the Actions expression language: enough for the `if:`s
 // this workflow puts ahead of its send. Anything it does not know throws.
