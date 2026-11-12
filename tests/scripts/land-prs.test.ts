@@ -3745,6 +3745,21 @@ describe("land-prs: required checks (#2035)", () => {
     pullRequestRule(["merge", "squash", "rebase"]),
     requiredRule(["ci / ci"]),
   );
+  // Classic protection requiring `ci / ci`, as the self-updating recipe sets it.
+  const CLASSIC_CI = ok(
+    JSON.stringify({
+      name: "main",
+      protected: true,
+      protection: {
+        enabled: true,
+        required_status_checks: {
+          enforcement_level: "non_admins",
+          contexts: ["ci / ci"],
+          checks: [{ context: "ci / ci", app_id: 15368 }],
+        },
+      },
+    }),
+  );
   // Netlify's three runs on #142's head. The old watcher printed "checks passed", so at least
   // one of them read as a pass; which one is not recorded, so one is a success here.
   const NETLIFY_ONLY = runs(
@@ -3958,7 +3973,7 @@ describe("land-prs: required checks (#2035)", () => {
       classicRequiredChecksFrom(
         branch({
           enforcement_level: "non_admins",
-          contexts: ["ci / ci"],
+          contexts: ["ci / ci", "lint"],
           checks: [
             { context: "ci / ci", app_id: 15368 },
             { context: "lint", app_id: null },
@@ -4132,6 +4147,58 @@ describe("land-prs: required checks (#2035)", () => {
       "LAND #5 waiting: required checks `ci / ci`, `prismic-models / check` have no run on aaaaaaa yet",
       "LAND #5 waiting: required check `ci / ci` has no run on aaaaaaa yet",
     ]);
+  });
+
+  it("a required run cancelled because the head moved re-gates on the new head instead of stopping", async () => {
+    // `concurrency: cancel-in-progress` cancels the old head's `ci / ci` when a push lands
+    // mid-wait; the old watcher ignored the cancel and re-gated, and so must this one.
+    const r = await land(
+      [5],
+      [
+        [
+          VIEW(5),
+          // first view; the view after the cancel; round 1's gate; round 2's gate; after merge
+          [
+            view(),
+            view({ headRefOid: B }),
+            view({ headRefOid: B }),
+            view({ headRefOid: B }),
+            merged(),
+          ],
+        ],
+        [RULES(), [requireCi]],
+        [RUNS(A), [WITH_CI("completed", "cancelled")]],
+        [STATUSES(A), [statuses()]],
+        [RUNS(B), [WITH_CI("completed", "success")]],
+        [STATUSES(B), [statuses()]],
+        ...landed(),
+      ],
+    );
+    expect(r.code).toBe(0);
+    expect(r.lines).toContain(
+      "LAND #5 required check `ci / ci` cancelled on aaaaaaa; the head moved to bbbbbbb",
+    );
+    expect(r.lines).toContain("LAND #5 checks passed on bbbbbbb");
+    expect(r.calls.filter((c) => MERGE_CMD(5).test(c))).toEqual([
+      `gh api ${P}/pulls/5/merge --method PUT -f merge_method=squash -f sha=${B}`,
+    ]);
+  });
+
+  it("a context both a ruleset and classic protection require is waited for and named once", async () => {
+    const r = await land(
+      [5],
+      [
+        [VIEW(5), [view()]],
+        [RULES(), [requireCi]],
+        [BRANCH(), [CLASSIC_CI]],
+        [RUNS(A), [NETLIFY_ONLY]],
+        [STATUSES(A), [statuses()]],
+      ],
+      { checksTimeoutMin: 1 },
+    );
+    expect(r.lines.at(-1)).toBe(
+      "LAND #5 stopped reason=required check `ci / ci` has no run on aaaaaaa after 1 min",
+    );
   });
 
   it("a base whose rules read 403 or 404 behaves as before: Netlify's runs pass", async () => {

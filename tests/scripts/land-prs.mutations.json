@@ -596,5 +596,31 @@
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
     "why": "Review round 1: a private fleet repo requires `ci / ci` only through classic protection, so its Netlify-only head would read 'checks passed' again."
+  },
+  {
+    "id": "P109-6-cancel-stops-on-moved-head",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "      if (now.headRefOid !== sha) {",
+        "replace": "      if (false) {"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "Review round 2: a required run cancelled by a push mid-wait (cancel-in-progress) would stop a landing that re-gates and lands today."
+  },
+  {
+    "id": "P109-7-required-dedupe-dropped",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "    if (!all.includes(c)) all.push(c);",
+        "replace": "    all.push(c);"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "Review round 2: a context both a ruleset and classic protection require would be named twice."
   }
 ]

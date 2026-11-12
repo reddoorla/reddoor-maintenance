@@ -33,11 +33,13 @@
 //      bucketed the way `gh pr checks` buckets them. The first failure stops the run,
 //      naming the failing checks. It passes only when nothing is pending or failed, at
 //      least one check passed, AND every check the base requires (its rulesets'
-//      `required_status_checks` rules and its classic branch protection, read in step 1)
+//      `required_status_checks` rules, read in step 1, and its classic branch protection,
+//      read after the dry-run returns)
 //      has a passing, neutral or skipped run or status (#2035). A required check with no
 //      run yet is logged once ("waiting: required check `ci / ci` has no run on …") and
 //      waited for under the checks timeout, which then names it; a cancelled one stops the
-//      run. No checks at all, or only neutral/skipped/cancelled ones and nothing required
+//      run, unless the head has moved (a push cancels the old head's run), when step 4
+//      re-gates. No checks at all, or only neutral/skipped/cancelled ones and nothing required
 //      missing, is "not reported yet" and waits under the no-checks budget. Netlify posts its neutral
 //      runs about 2 s before Actions registers `build` (#953's head: 05:48:56Z vs
 //      05:48:58Z), and a poll in that window used to pass a head nothing had built.
@@ -688,6 +690,15 @@ async function waitForChecks(ctx, n, sha, required = []) {
     const unmet = unmetRequiredChecks(required, checks);
     const cancelled = unmet.filter((u) => u.state === "cancel").map((u) => `\`${u.name}\``);
     if (cancelled.length > 0) {
+      // A push mid-wait cancels the old head's run under `cancel-in-progress`: that is a
+      // moved head, not a cancelled check. Hand it back to the gate, which re-gates.
+      const now = await viewPr(ctx, n);
+      if (now.headRefOid !== sha) {
+        ctx.log(
+          `LAND #${n} required check${cancelled.length > 1 ? "s" : ""} ${cancelled.join(", ")} cancelled on ${short(sha)}; the head moved to ${short(now.headRefOid)}`,
+        );
+        return;
+      }
       throw new Stop(
         `required check${cancelled.length > 1 ? "s" : ""} ${cancelled.join(", ")} cancelled on ${short(sha)}`,
       );
