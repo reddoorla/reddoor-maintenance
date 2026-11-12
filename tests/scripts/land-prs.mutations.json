@@ -537,13 +537,13 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "  return { method: picked.method, required: requiredChecksFrom(rules) };",
-        "replace": "  return { method: picked.method, required: [] };"
+        "find": "  const required = await withClassicRequired(ctx, n, pr.baseRefName, rulesetRequired);",
+        "replace": "  const required = [];"
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
-    "why": "#2035 undone: the base's required contexts are treated as empty, so #142's Netlify-only head reads 'checks passed' again."
+    "why": "#2035 undone: the base's required contexts (rulesets and classic protection) are treated as empty, so #142's Netlify-only head reads 'checks passed' again."
   },
   {
     "id": "P109-2-queued-required-accepted",
@@ -556,7 +556,7 @@
     ],
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
-    "why": "A required check that is only queued or running would count as met."
+    "why": "unmetRequiredChecks would count a queued or running required check as met. Caught by its unit test; through landPrs a queued run is also pending, so the wait holds either way."
   },
   {
     "id": "P109-3-failed-required-accepted",
@@ -569,7 +569,7 @@
     ],
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
-    "why": "A required check that concluded failure (or a status in error) would count as met."
+    "why": "unmetRequiredChecks would count a failed required check (or a status in error) as met. Caught by its unit test; through landPrs any failed check already stops the wait first."
   },
   {
     "id": "P109-4-missing-name-dropped",
@@ -583,5 +583,18 @@
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
     "why": "The timeout and stop lines would no longer name the missing required check."
+  },
+  {
+    "id": "P109-5-classic-protection-ignored",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "  return classicRequiredChecksFrom(jsonOf(ctx, path, r));",
+        "replace": "  return [];"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "Review round 1: a private fleet repo requires `ci / ci` only through classic protection, so its Netlify-only head would read 'checks passed' again."
   }
 ]

@@ -172,6 +172,8 @@ export function requiredChecksFrom(
     | null
     | undefined,
 ): string[];
+/** The contexts classic branch protection requires, from `GET branches/{b}` (#2035). */
+export function classicRequiredChecksFrom(branch: unknown): string[];
 /** Each required context the head's checks do not yet satisfy. */
 export function unmetRequiredChecks(
   required: string[],

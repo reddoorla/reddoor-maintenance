@@ -31,9 +31,14 @@
 //      viewed, sleep 25 s, poll until head.sha moves (≤ 3 min).
 //   3. poll the head's check runs and commit statuses every 10 s (≤ --checks-timeout-min),
 //      bucketed the way `gh pr checks` buckets them. The first failure stops the run,
-//      naming the failing checks. It passes only when nothing is pending or failed AND at
-//      least one check passed: no checks at all, or only neutral/skipped/cancelled ones, is
-//      "not reported yet" and waits under the no-checks budget. Netlify posts its neutral
+//      naming the failing checks. It passes only when nothing is pending or failed, at
+//      least one check passed, AND every check the base requires (its rulesets'
+//      `required_status_checks` rules and its classic branch protection, read in step 1)
+//      has a passing, neutral or skipped run or status (#2035). A required check with no
+//      run yet is logged once ("waiting: required check `ci / ci` has no run on …") and
+//      waited for under the checks timeout, which then names it; a cancelled one stops the
+//      run. No checks at all, or only neutral/skipped/cancelled ones and nothing required
+//      missing, is "not reported yet" and waits under the no-checks budget. Netlify posts its neutral
 //      runs about 2 s before Actions registers `build` (#953's head: 05:48:56Z vs
 //      05:48:58Z), and a poll in that window used to pass a head nothing had built.
 //   4. re-view. The head moved during the wait → back to 3. BEHIND (main moved during the
@@ -265,6 +270,21 @@ export function unmetRequiredChecks(required, checks) {
     unmet.push({ name, state });
   }
   return unmet;
+}
+
+/** The contexts classic branch protection requires on a branch, from `GET branches/{b}`
+ *  (whose `protection` the App can read; `branches/{b}/protection` answers 403). Private
+ *  fleet repos have no rulesets, so `ci / ci` is required there only this way (the
+ *  self-updating recipe). Protection that is off, or absent, requires nothing. */
+export function classicRequiredChecksFrom(branch) {
+  const rsc = branch?.protection?.required_status_checks;
+  if (!rsc || typeof rsc !== "object" || rsc.enforcement_level === "off") return [];
+  const out = [];
+  const checks = Array.isArray(rsc.checks) ? rsc.checks.map((c) => c?.context) : [];
+  for (const c of [...(Array.isArray(rsc.contexts) ? rsc.contexts : []), ...checks]) {
+    if (typeof c === "string" && !out.includes(c)) out.push(c);
+  }
+  return out;
 }
 
 /** "required check `ci / ci` has no run on 9329069", for one name or several. */
@@ -535,13 +555,37 @@ async function rulesFor(ctx, n, branch) {
   throw new Stop(`gh api rules/branches/${branch} still had rules after ${MAX_RULES_PAGES} pages`);
 }
 
-/** The merge method and the required checks, from one read of the base's rules. */
+/** Classic protection's required contexts on `branch`. A 403 or 404 is noted and read
+ *  as none, like the rules read: the CLEAN gate still holds the merge. */
+async function classicRequiredFor(ctx, n, branch) {
+  const path = `branches/${refPath(branch)}`;
+  const r = await api(ctx, path);
+  if (r.code !== 0 && [403, 404].includes(httpStatus(r))) {
+    ctx.log(
+      `LAND #${n} note: no branch protection read for ${branch}, so no classic required checks are waited for: ${ghFailureDetail(r)}`,
+    );
+    return [];
+  }
+  return classicRequiredChecksFrom(jsonOf(ctx, path, r));
+}
+
+/** The merge method, and the checks the base's rulesets require, from one read of its
+ *  rules. Classic protection's are added by `withClassicRequired`, past the dry-run. */
 async function baseRulesFor(ctx, n, branch) {
   const repo = await apiJson(ctx, "");
   const rules = await rulesFor(ctx, n, branch);
   const picked = chooseMergeMethod(repo, rules);
   if (picked.error) throw new Stop(`${picked.error} (base ${branch})`);
   return { method: picked.method, required: requiredChecksFrom(rules) };
+}
+
+/** `required` with classic protection's required contexts on `branch` added, once each. */
+async function withClassicRequired(ctx, n, branch, required) {
+  const all = [...required];
+  for (const c of await classicRequiredFor(ctx, n, branch)) {
+    if (!all.includes(c)) all.push(c);
+  }
+  return all;
 }
 
 async function viewPr(ctx, n) {
@@ -1793,7 +1837,7 @@ async function landOne(ctx, n) {
   }
   const refused = refusal(pr, ctx.base);
   if (refused) throw new Stop(refused);
-  const { method, required } = await baseRulesFor(ctx, n, pr.baseRefName);
+  const { method, required: rulesetRequired } = await baseRulesFor(ctx, n, pr.baseRefName);
   ctx.log(
     `LAND #${n} open head=${short(pr.headRefOid)} merge=${pr.mergeStateStatus} method=${method} "${pr.title}"`,
   );
@@ -1812,6 +1856,7 @@ async function landOne(ctx, n) {
     return { status: "dry-run" };
   }
 
+  const required = await withClassicRequired(ctx, n, pr.baseRefName, rulesetRequired);
   if (pr.mergeStateStatus === "BEHIND") pr = await updateBranch(ctx, n, pr);
 
   for (let round = 1; ; round++) {
