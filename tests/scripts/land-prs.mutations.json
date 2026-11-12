@@ -576,8 +576,8 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "    ? `required check ${list} has no run on ${short(sha)}`",
-        "replace": "    ? `a required check has no run on ${short(sha)}`"
+        "find": "    ? `required check ${list} has no run`",
+        "replace": "    ? `a required check has no run`"
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
@@ -602,13 +602,13 @@
     "edits": [
       {
         "file": "scripts/land-prs.mjs",
-        "find": "      if (now.headRefOid !== sha) {",
+        "find": "      if (now.state !== \"OPEN\" || now.headRefOid !== sha) {",
         "replace": "      if (false) {"
       }
     ],
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
-    "why": "Review round 2: a required run cancelled by a push mid-wait (cancel-in-progress) would stop a landing that re-gates and lands today."
+    "why": "Review rounds 2 and 3: a required run cancelled by a push mid-wait, or a required check whose run never started on a head that moved on, would stop on the stale head instead of re-gating onto the new one."
   },
   {
     "id": "P109-7-required-dedupe-dropped",
@@ -622,5 +622,31 @@
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
     "why": "Review round 2: a context both a ruleset and classic protection require would be named twice."
+  },
+  {
+    "id": "P109-8-unpassed-wait-not-regated",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "    if (pr.headRefOid !== began || !passed) {",
+        "replace": "    if (pr.headRefOid !== began) {"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "Review round 3: a head that moved away and came back would merge on a wait that never saw its checks pass."
+  },
+  {
+    "id": "P109-9-closed-pr-not-handed-back",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "      if (now.state !== \"OPEN\" || now.headRefOid !== sha) {",
+        "replace": "      if (now.headRefOid !== sha) {"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "Review round 3: a PR merged elsewhere while its required check is cancelled would stop as cancelled instead of being skipped."
   }
 ]

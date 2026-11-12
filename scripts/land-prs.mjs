@@ -32,15 +32,17 @@
 //   3. poll the head's check runs and commit statuses every 10 s (≤ --checks-timeout-min),
 //      bucketed the way `gh pr checks` buckets them. The first failure stops the run,
 //      naming the failing checks. It passes only when nothing is pending or failed, at
-//      least one check passed, AND every check the base requires (its rulesets'
-//      `required_status_checks` rules, read in step 1, and its classic branch protection,
-//      read after the dry-run returns)
-//      has a passing, neutral or skipped run or status (#2035). A required check with no
-//      run yet is logged once ("waiting: required check `ci / ci` has no run on …") and
-//      waited for under the checks timeout, which then names it; a cancelled one stops the
-//      run, unless the head has moved (a push cancels the old head's run), when step 4
-//      re-gates. No checks at all, or only neutral/skipped/cancelled ones and nothing required
-//      missing, is "not reported yet" and waits under the no-checks budget. Netlify posts its neutral
+//      least one check passed, AND every check the base requires has a passing, neutral or
+//      skipped run or status (#2035): its rulesets' `required_status_checks` rules, read in
+//      step 1, and its classic branch protection, read after the dry-run returns. A
+//      required check with no run yet is logged when the missing set changes ("waiting:
+//      required check `ci / ci` has no run on …") and waited for under the checks timeout,
+//      which then names it; a cancelled one stops the run. While the wait is held by
+//      required checks alone, each poll re-views the PR: one whose head moved on (a push
+//      cancels the old head's run under cancel-in-progress) or that closed goes back to
+//      step 4, which re-gates even if the head came back, since nothing passed. No checks
+//      at all, or only neutral/skipped/cancelled ones with nothing required missing, is
+//      "not reported yet" and waits under the no-checks budget. Netlify posts its neutral
 //      runs about 2 s before Actions registers `build` (#953's head: 05:48:56Z vs
 //      05:48:58Z), and a poll in that window used to pass a head nothing had built.
 //   4. re-view. The head moved during the wait → back to 3. BEHIND (main moved during the
@@ -289,13 +291,16 @@ export function classicRequiredChecksFrom(branch) {
   return out;
 }
 
-/** "required check `ci / ci` has no run on 9329069", for one name or several. */
-function noRunText(names, sha) {
+/** "required check `ci / ci` has no run", for one name or several. */
+function noRunWhat(names) {
   const list = names.map((m) => `\`${m}\``).join(", ");
   return names.length === 1
-    ? `required check ${list} has no run on ${short(sha)}`
-    : `required checks ${list} have no run on ${short(sha)}`;
+    ? `required check ${list} has no run`
+    : `required checks ${list} have no run`;
 }
+
+/** "required check `ci / ci` has no run on 9329069". */
+const noRunText = (names, sha) => `${noRunWhat(names)} on ${short(sha)}`;
 
 const short = (sha) => (typeof sha === "string" ? sha.slice(0, 7) : String(sha));
 const firstLine = (s) =>
@@ -689,21 +694,31 @@ async function waitForChecks(ctx, n, sha, required = []) {
     const pending = named("pending");
     const unmet = unmetRequiredChecks(required, checks);
     const cancelled = unmet.filter((u) => u.state === "cancel").map((u) => `\`${u.name}\``);
-    if (cancelled.length > 0) {
-      // A push mid-wait cancels the old head's run under `cancel-in-progress`: that is a
-      // moved head, not a cancelled check. Hand it back to the gate, which re-gates.
+    const missing = unmet.filter((u) => u.state === "missing").map((u) => u.name);
+    // Waiting on a required check alone (cancelled, or with no run yet) is where the old head
+    // can be left behind: a push mid-wait cancels its run under `cancel-in-progress`, or its
+    // queued run never starts. Look at the PR, and hand a PR that moved on back to the gate,
+    // which re-gates (and re-gates even if the head came back: nothing passed here).
+    if (cancelled.length > 0 || (missing.length > 0 && pending.length === 0)) {
       const now = await viewPr(ctx, n);
-      if (now.headRefOid !== sha) {
+      if (now.state !== "OPEN" || now.headRefOid !== sha) {
+        const what =
+          cancelled.length > 0
+            ? `required check${cancelled.length > 1 ? "s" : ""} ${cancelled.join(", ")} cancelled`
+            : noRunWhat(missing);
         ctx.log(
-          `LAND #${n} required check${cancelled.length > 1 ? "s" : ""} ${cancelled.join(", ")} cancelled on ${short(sha)}; the head moved to ${short(now.headRefOid)}`,
+          now.state !== "OPEN"
+            ? `LAND #${n} ${what} on ${short(sha)}; the PR is now ${now.state}`
+            : `LAND #${n} ${what} on ${short(sha)}; the head moved to ${short(now.headRefOid)}`,
         );
-        return;
+        return false;
       }
+    }
+    if (cancelled.length > 0) {
       throw new Stop(
         `required check${cancelled.length > 1 ? "s" : ""} ${cancelled.join(", ")} cancelled on ${short(sha)}`,
       );
     }
-    const missing = unmet.filter((u) => u.state === "missing").map((u) => u.name);
     // Right after a push the new head can have no check runs registered yet — or only
     // Netlify's neutral ones, which arrive about 2 s before Actions registers `build`.
     // Neither is a verdict: nothing has passed, so keep waiting under the same budget.
@@ -727,7 +742,7 @@ async function waitForChecks(ctx, n, sha, required = []) {
     // (Actions queued behind a runner). That is not a pass: keep waiting for it.
     if (pending.length === 0 && unmet.length === 0) {
       ctx.log(`LAND #${n} checks passed on ${short(sha)}`);
-      return;
+      return true;
     }
     if (missing.length > 0 && missing.join("\n") !== saidMissing) {
       saidMissing = missing.join("\n");
@@ -1872,7 +1887,7 @@ async function landOne(ctx, n) {
 
   for (let round = 1; ; round++) {
     const began = pr.headRefOid;
-    await waitForChecks(ctx, n, began, required);
+    const passed = await waitForChecks(ctx, n, began, required);
     pr = await gateView(ctx, n, began);
     if (pr.state === "MERGED") {
       ctx.log(`LAND #${n} skipped reason=merged elsewhere during the checks wait`);
@@ -1883,12 +1898,16 @@ async function landOne(ctx, n) {
     // the checks run, and this view — not the first one — is what the merge acts on.
     const refusedNow = refusal(pr, ctx.base);
     if (refusedNow) throw new Stop(`${refusedNow}; seen after the checks wait on ${short(began)}`);
-    if (pr.headRefOid !== began) {
+    // A wait that did not pass handed back a PR that moved on; if the head came back to
+    // `began`, its checks were still never seen to pass, so it re-gates all the same.
+    if (pr.headRefOid !== began || !passed) {
       if (round >= ctx.t.maxCheckRounds) {
         throw new Stop(`head kept moving: ${round} check rounds, now ${short(pr.headRefOid)}`);
       }
       ctx.log(
-        `LAND #${n} head moved during checks ${short(began)} -> ${short(pr.headRefOid)}; re-gating`,
+        pr.headRefOid !== began
+          ? `LAND #${n} head moved during checks ${short(began)} -> ${short(pr.headRefOid)}; re-gating`
+          : `LAND #${n} head moved during checks and came back to ${short(began)}; re-gating`,
       );
       continue;
     }

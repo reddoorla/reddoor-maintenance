@@ -3862,14 +3862,20 @@ describe("land-prs: required checks (#2035)", () => {
     // It waited the whole checks timeout, polling, and never reached the merge gate.
     expect(r.sleeps).toEqual(Array(6).fill(10_000));
     expect(r.calls.some((c) => MERGE_CMD(5).test(c))).toBe(false);
-    expect(r.calls.filter((c) => VIEW(5).test(c))).toHaveLength(1);
+    // The first view, then one per poll: waiting on a required check alone, it looks for a
+    // head that moved on.
+    expect(r.calls.filter((c) => VIEW(5).test(c))).toHaveLength(1 + 7);
   });
 
   it("keeps waiting while `ci / ci` registers and runs, and lands once it passes", async () => {
     const r = await land(
       [5],
       [
-        [VIEW(5), [view(), view(), merged()]],
+        [
+          VIEW(5),
+          // first view; a re-view on each of the two polls with `ci / ci` missing; gate; merged
+          [view(), view(), view(), view(), merged()],
+        ],
         [RULES(), [requireCi]],
         [
           RUNS(A),
@@ -4120,7 +4126,11 @@ describe("land-prs: required checks (#2035)", () => {
     const r = await land(
       [5],
       [
-        [VIEW(5), [view(), view(), merged()]],
+        [
+          VIEW(5),
+          // first view; a re-view on each of the three polls with a check missing; gate; merged
+          [view(), view(), view(), view(), view(), merged()],
+        ],
         [RULES(), [rules(requiredRule(["ci / ci", "prismic-models / check"]))]],
         [
           RUNS(A),
@@ -4178,10 +4188,93 @@ describe("land-prs: required checks (#2035)", () => {
     expect(r.lines).toContain(
       "LAND #5 required check `ci / ci` cancelled on aaaaaaa; the head moved to bbbbbbb",
     );
+    // Back through the gate, under its round cap, and B is watched once.
+    expect(r.lines).toContain("LAND #5 head moved during checks aaaaaaa -> bbbbbbb; re-gating");
+    expect(r.lines.filter((l) => l.startsWith("LAND #5 checks watching bbbbbbb"))).toHaveLength(1);
     expect(r.lines).toContain("LAND #5 checks passed on bbbbbbb");
     expect(r.calls.filter((c) => MERGE_CMD(5).test(c))).toEqual([
       `gh api ${P}/pulls/5/merge --method PUT -f merge_method=squash -f sha=${B}`,
     ]);
+  });
+
+  it("a head that moves away and back during the wait is re-gated, never merged on a wait that did not pass", async () => {
+    // Round 3: `ci / ci` cancelled on A, the re-view sees B, then A is force-pushed back.
+    // The gate sees `began` again, but nothing on A was ever seen to pass.
+    const r = await land(
+      [5],
+      [
+        [
+          VIEW(5),
+          // first view; the re-view after the cancel; round 1's gate; round 2's gate; merged
+          [view(), view({ headRefOid: B }), view(), view(), merged()],
+        ],
+        [RULES(), [requireCi]],
+        [RUNS(A), [WITH_CI("completed", "cancelled"), WITH_CI("completed", "success")]],
+        [STATUSES(A), [statuses()]],
+        ...landed(),
+      ],
+    );
+    expect(r.code).toBe(0);
+    expect(r.lines).toContain(
+      "LAND #5 head moved during checks and came back to aaaaaaa; re-gating",
+    );
+    const passedAt = r.lines.indexOf("LAND #5 checks passed on aaaaaaa");
+    const mergedAt = r.lines.findIndex((l) => l.startsWith("LAND #5 merged "));
+    expect(passedAt).toBeGreaterThan(-1);
+    expect(mergedAt).toBeGreaterThan(passedAt);
+  });
+
+  it("a required check with no run on a head that moved on re-gates onto the new head at once", async () => {
+    // Round 3: A's `ci` run was queued and then cancelled before it started, so A never gets
+    // a `ci / ci` run; B is pushed and goes green. Waiting out the timeout on A is wrong.
+    const r = await land(
+      [5],
+      [
+        [
+          VIEW(5),
+          // first view; the re-view on A's first poll; round 1's gate; round 2's gate; merged
+          [
+            view(),
+            view({ headRefOid: B }),
+            view({ headRefOid: B }),
+            view({ headRefOid: B }),
+            merged(),
+          ],
+        ],
+        [RULES(), [requireCi]],
+        [RUNS(A), [NETLIFY_ONLY]],
+        [STATUSES(A), [statuses()]],
+        [RUNS(B), [WITH_CI("completed", "success")]],
+        [STATUSES(B), [statuses()]],
+        ...landed(),
+      ],
+    );
+    expect(r.code).toBe(0);
+    expect(r.lines).toContain(
+      "LAND #5 required check `ci / ci` has no run on aaaaaaa; the head moved to bbbbbbb",
+    );
+    expect(r.sleeps).toEqual([]);
+    expect(r.calls.filter((c) => MERGE_CMD(5).test(c))).toEqual([
+      `gh api ${P}/pulls/5/merge --method PUT -f merge_method=squash -f sha=${B}`,
+    ]);
+  });
+
+  it("a PR merged elsewhere while its required check is cancelled is skipped, not stopped", async () => {
+    const r = await land(
+      [5],
+      [
+        [VIEW(5), [view(), merged()]],
+        [RULES(), [requireCi]],
+        [RUNS(A), [WITH_CI("completed", "cancelled")]],
+        [STATUSES(A), [statuses()]],
+      ],
+    );
+    expect(r.code).toBe(0);
+    expect(r.lines).toContain(
+      "LAND #5 required check `ci / ci` cancelled on aaaaaaa; the PR is now MERGED",
+    );
+    expect(r.lines).toContain("LAND #5 skipped reason=merged elsewhere during the checks wait");
+    expect(r.lines.some((l) => /stopped/.test(l))).toBe(false);
   });
 
   it("a context both a ruleset and classic protection require is waited for and named once", async () => {
