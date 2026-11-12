@@ -15,6 +15,9 @@ import {
   isReadOnlyApiCall,
   isTransientReadFailure,
   chooseMergeMethod,
+  requiredChecksFrom,
+  classicRequiredChecksFrom,
+  unmetRequiredChecks,
   isTestFile,
   testChangeFlags,
   testChangesSection,
@@ -186,9 +189,23 @@ const MAINTENANCE_MAIN_RULES = rules(
 );
 // The files a PR changed: none by default, so a test that is not about test changes never
 // trips the test-change gate. A test about them routes `FILES(n)` ahead of this one.
+// This repo's own `main` as GET branches/main answered on 2026-11-12: rulesets protect it,
+// so classic protection is off and requires nothing.
+const CLASSIC_OFF = ok(
+  JSON.stringify({
+    name: "main",
+    protected: true,
+    protection: {
+      enabled: false,
+      required_status_checks: { enforcement_level: "off", contexts: [], checks: [] },
+    },
+  }),
+);
+const BRANCH = (branch = "main") => new RegExp(`^gh api ${P}/branches/${branch}$`);
 const methodRoutes: Route[] = [
   [REPO_META, [repoMeta()]],
   [RULES(ANY_BRANCH), [MAINTENANCE_MAIN_RULES]],
+  [BRANCH(ANY_BRANCH), [CLASSIC_OFF]],
   [FILES(), [ok("[]")]],
 ];
 
@@ -3702,5 +3719,596 @@ describe("land-prs: test changes", () => {
       expect(r.code).toBe(1);
       expect(r.lines.at(-1)).not.toMatch(/is written/);
     });
+  });
+});
+
+/**
+ * #2035. On 2026-11-11, `land-prs 142 --repo reddoorla/vineyard-custom-homes --base staging`
+ * printed `checks passed on 9329069`, then stopped on `mergeStateStatus=BLOCKED`. The
+ * `staging` ruleset requires `ci / ci`, whose Actions run was still queued behind a runner,
+ * so it had no check run yet; only Netlify's three runs existed. The watcher read "every run
+ * that exists has concluded" as passed. It now also waits for every context the base's
+ * `required_status_checks` rule names.
+ */
+describe("land-prs: required checks (#2035)", () => {
+  // The shape GET rules/branches/{base} gives a required_status_checks rule (GitHub's REST
+  // docs); the contexts are what must pass.
+  const requiredRule = (contexts: string[], ruleset_id = 2035): Rule => ({
+    type: "required_status_checks",
+    ruleset_id,
+    parameters: {
+      strict_required_status_checks_policy: false,
+      required_status_checks: contexts.map((context) => ({ context })),
+    },
+  });
+  const requireCi = rules(
+    pullRequestRule(["merge", "squash", "rebase"]),
+    requiredRule(["ci / ci"]),
+  );
+  // Classic protection requiring `ci / ci`, as the self-updating recipe sets it.
+  const CLASSIC_CI = ok(
+    JSON.stringify({
+      name: "main",
+      protected: true,
+      protection: {
+        enabled: true,
+        required_status_checks: {
+          enforcement_level: "non_admins",
+          contexts: ["ci / ci"],
+          checks: [{ context: "ci / ci", app_id: 15368 }],
+        },
+      },
+    }),
+  );
+  // Netlify's three runs on #142's head. The old watcher printed "checks passed", so at least
+  // one of them read as a pass; which one is not recorded, so one is a success here.
+  const NETLIFY_ONLY = runs(
+    ["Redirect rules - vineyard-custom-homes", "completed", "neutral"],
+    ["Header rules - vineyard-custom-homes", "completed", "neutral"],
+    ["Pages changed - vineyard-custom-homes", "completed", "success"],
+  );
+  const WITH_CI = (status: string, conclusion: string | null): RunResult =>
+    runs(
+      ["Redirect rules - vineyard-custom-homes", "completed", "neutral"],
+      ["Header rules - vineyard-custom-homes", "completed", "neutral"],
+      ["Pages changed - vineyard-custom-homes", "completed", "success"],
+      ["ci / ci", status, conclusion],
+    );
+
+  it("reads the required contexts from every required_status_checks rule, once each", () => {
+    expect(
+      requiredChecksFrom([
+        { type: "deletion", ruleset_id: 1 },
+        requiredRule(["ci / ci", "build"], 1),
+        requiredRule(["build", "lint"], 2),
+        pullRequestRule(["merge"]),
+      ]),
+    ).toEqual(["ci / ci", "build", "lint"]);
+    // A rule with no list (reddoor-website's `main`, 2026-10-04), malformed entries, no rules.
+    expect(
+      requiredChecksFrom([
+        { type: "required_status_checks", ruleset_id: 3, parameters: {} },
+        {
+          type: "required_status_checks",
+          parameters: { required_status_checks: [{ integration_id: 15368 }, null] },
+        },
+      ]),
+    ).toEqual([]);
+    expect(requiredChecksFrom([])).toEqual([]);
+    expect(requiredChecksFrom(undefined)).toEqual([]);
+  });
+
+  it("a required context is met only by a passing, neutral or skipped run or status", () => {
+    const checks = checksFromRest(
+      [
+        { name: "passed", status: "completed", conclusion: "success" },
+        { name: "neutral", status: "completed", conclusion: "neutral" },
+        { name: "skipped", status: "completed", conclusion: "skipped" },
+        { name: "queued", status: "queued", conclusion: null },
+        { name: "running", status: "in_progress", conclusion: null },
+        { name: "failed", status: "completed", conclusion: "failure" },
+        { name: "cancelled", status: "completed", conclusion: "cancelled" },
+      ],
+      [
+        { context: "status-ok", state: "success" },
+        { context: "status-pending", state: "pending" },
+        { context: "status-error", state: "error" },
+      ],
+    );
+    const required = [
+      "passed",
+      "neutral",
+      "skipped",
+      "status-ok",
+      "queued",
+      "running",
+      "status-pending",
+      "failed",
+      "status-error",
+      "cancelled",
+      "ci / ci",
+    ];
+    expect(unmetRequiredChecks(required, checks)).toEqual([
+      { name: "queued", state: "pending" },
+      { name: "running", state: "pending" },
+      { name: "status-pending", state: "pending" },
+      { name: "failed", state: "fail" },
+      { name: "status-error", state: "fail" },
+      { name: "cancelled", state: "cancel" },
+      { name: "ci / ci", state: "missing" },
+    ]);
+    expect(unmetRequiredChecks([], checks)).toEqual([]);
+  });
+
+  it("#142's head: Netlify's runs alone are not 'checks passed' while `ci / ci` has no run", async () => {
+    const r = await land(
+      [5],
+      [
+        [VIEW(5), [view()]],
+        [RULES(), [requireCi]],
+        [RUNS(A), [NETLIFY_ONLY]],
+        [STATUSES(A), [statuses()]],
+      ],
+      { checksTimeoutMin: 1 },
+    );
+    expect(r.code).toBe(1);
+    expect(r.lines.some((l) => /checks passed/.test(l))).toBe(false);
+    expect(r.lines).toContain(
+      "LAND #5 waiting: required check `ci / ci` has no run on aaaaaaa yet",
+    );
+    expect(r.lines.at(-1)).toBe(
+      "LAND #5 stopped reason=required check `ci / ci` has no run on aaaaaaa after 1 min",
+    );
+    // It waited the whole checks timeout, polling, and never reached the merge gate.
+    expect(r.sleeps).toEqual(Array(6).fill(10_000));
+    expect(r.calls.some((c) => MERGE_CMD(5).test(c))).toBe(false);
+    // The first view, then one per poll: waiting on a required check alone, it looks for a
+    // head that moved on.
+    expect(r.calls.filter((c) => VIEW(5).test(c))).toHaveLength(1 + 7);
+  });
+
+  it("keeps waiting while `ci / ci` registers and runs, and lands once it passes", async () => {
+    const r = await land(
+      [5],
+      [
+        [
+          VIEW(5),
+          // first view; a re-view on each of the two polls with `ci / ci` missing; gate; merged
+          [view(), view(), view(), view(), merged()],
+        ],
+        [RULES(), [requireCi]],
+        [
+          RUNS(A),
+          [
+            NETLIFY_ONLY,
+            NETLIFY_ONLY,
+            WITH_CI("queued", null),
+            WITH_CI("in_progress", null),
+            WITH_CI("completed", "success"),
+          ],
+        ],
+        [STATUSES(A), [statuses()]],
+        ...landed(),
+      ],
+    );
+    expect(r.code).toBe(0);
+    expect(r.sleeps).toEqual(Array(4).fill(10_000));
+    // Said once, not on every poll.
+    expect(r.lines.filter((l) => /waiting: required check/.test(l))).toEqual([
+      "LAND #5 waiting: required check `ci / ci` has no run on aaaaaaa yet",
+    ]);
+    expect(r.lines).toContain("LAND #5 checks passed on aaaaaaa");
+    expect(kinds(r.calls)).toEqual([...Array(5).fill("checks"), "merge", "delete"]);
+  });
+
+  it("with only neutral runs, a missing required check waits the checks timeout, not the no-checks budget", async () => {
+    const r = await land(
+      [5],
+      [
+        [VIEW(5), [view()]],
+        [RULES(), [requireCi]],
+        [RUNS(A), [runs(...NETLIFY)]],
+        [STATUSES(A), [statuses()]],
+      ],
+      { checksTimeoutMin: 1 },
+    );
+    expect(r.code).toBe(1);
+    expect(r.lines.at(-1)).toBe(
+      "LAND #5 stopped reason=required check `ci / ci` has no run on aaaaaaa after 1 min",
+    );
+    expect(r.sleeps).toEqual(Array(6).fill(10_000));
+    expect(r.calls.some((c) => COMMIT(A).test(c))).toBe(false);
+  });
+
+  it("a timeout with checks still running also names the missing required ones", async () => {
+    const r = await land(
+      [5],
+      [
+        [VIEW(5), [view()]],
+        [RULES(), [rules(requiredRule(["ci / ci", "prismic-models / check"]))]],
+        [RUNS(A), [runs(["build", "completed", "success"], ["e2e", "in_progress", null])]],
+        [STATUSES(A), [statuses()]],
+      ],
+      { checksTimeoutMin: 1 },
+    );
+    expect(r.code).toBe(1);
+    expect(r.lines.at(-1)).toBe(
+      "LAND #5 stopped reason=checks still running after 1 min on aaaaaaa: e2e; required checks `ci / ci`, `prismic-models / check` have no run on aaaaaaa",
+    );
+  });
+
+  it("a cancelled required check stops at once, naming it", async () => {
+    const r = await land(
+      [5],
+      [
+        [VIEW(5), [view()]],
+        [RULES(), [requireCi]],
+        [RUNS(A), [WITH_CI("completed", "cancelled")]],
+        [STATUSES(A), [statuses()]],
+      ],
+    );
+    expect(r.code).toBe(1);
+    expect(r.lines.at(-1)).toBe(
+      "LAND #5 stopped reason=required check `ci / ci` cancelled on aaaaaaa",
+    );
+    expect(r.sleeps).toEqual([]);
+    expect(r.calls.some((c) => MERGE_CMD(5).test(c))).toBe(false);
+  });
+
+  it("a required check met by a commit status lands", async () => {
+    const r = await land(
+      [5],
+      [
+        [VIEW(5), [view(), view(), merged()]],
+        [RULES(), [rules(requiredRule(["netlify/vineyard/deploy-preview"]))]],
+        [RUNS(A), [NETLIFY_ONLY]],
+        [STATUSES(A), [statuses(["netlify/vineyard/deploy-preview", "success"])]],
+        ...landed(),
+      ],
+    );
+    expect(r.code).toBe(0);
+    expect(r.lines).toContain("LAND #5 checks passed on aaaaaaa");
+  });
+
+  it("reads classic protection's required contexts, unless it is off", () => {
+    const branch = (rsc: unknown) => ({
+      name: "main",
+      protection: { required_status_checks: rsc },
+    });
+    expect(
+      classicRequiredChecksFrom(
+        branch({
+          enforcement_level: "non_admins",
+          contexts: ["ci / ci", "lint"],
+          checks: [
+            { context: "ci / ci", app_id: 15368 },
+            { context: "lint", app_id: null },
+          ],
+        }),
+      ),
+    ).toEqual(["ci / ci", "lint"]);
+    expect(classicRequiredChecksFrom(JSON.parse(CLASSIC_OFF.stdout))).toEqual([]);
+    expect(
+      classicRequiredChecksFrom(branch({ enforcement_level: "off", contexts: ["ci / ci"] })),
+    ).toEqual([]);
+    expect(classicRequiredChecksFrom({ name: "main", protected: false })).toEqual([]);
+    expect(classicRequiredChecksFrom(null)).toEqual([]);
+  });
+
+  it("a private repo: no rulesets, classic protection requiring `ci / ci`, Netlify's runs alone do not pass", async () => {
+    // The self-updating recipe requires `ci / ci` on private fleet repos through classic
+    // protection only; their rules read 403 (no rulesets on that plan).
+    const r = await land(
+      [5],
+      [
+        [VIEW(5), [view()]],
+        [RULES(), [httpError(403, "Upgrade to GitHub Pro")]],
+        [
+          BRANCH(),
+          [
+            ok(
+              JSON.stringify({
+                name: "main",
+                protected: true,
+                protection: {
+                  enabled: true,
+                  required_status_checks: {
+                    enforcement_level: "non_admins",
+                    contexts: ["ci / ci"],
+                    checks: [{ context: "ci / ci", app_id: 15368 }],
+                  },
+                },
+              }),
+            ),
+          ],
+        ],
+        [RUNS(A), [NETLIFY_ONLY]],
+        [STATUSES(A), [statuses()]],
+      ],
+      { checksTimeoutMin: 1 },
+    );
+    expect(r.code).toBe(1);
+    expect(r.lines.some((l) => /checks passed/.test(l))).toBe(false);
+    expect(r.lines.at(-1)).toBe(
+      "LAND #5 stopped reason=required check `ci / ci` has no run on aaaaaaa after 1 min",
+    );
+    expect(r.calls.some((c) => MERGE_CMD(5).test(c))).toBe(false);
+  });
+
+  it("a branch read of 403 or 404 is noted and read as no classic requirements; any other failure stops", async () => {
+    for (const refused of [
+      httpError(403, "Resource not accessible"),
+      httpError(404, "Branch not found"),
+    ]) {
+      const r = await land(
+        [5],
+        [
+          [VIEW(5), [view(), view(), merged()]],
+          [BRANCH(), [refused]],
+          [RUNS(A), [NETLIFY_ONLY]],
+          [STATUSES(A), [statuses()]],
+          ...landed(),
+        ],
+      );
+      expect(r.code).toBe(0);
+      expect(r.lines).toContain(
+        `LAND #5 note: no branch protection read for main, so no classic required checks are waited for: ${firstLineOf(refused)}`,
+      );
+      expect(r.lines).toContain("LAND #5 checks passed on aaaaaaa");
+    }
+    const r = await land(
+      [5],
+      [
+        [VIEW(5), [view()]],
+        [BRANCH(), [httpError(500, "Server Error")]],
+      ],
+    );
+    expect(r.code).toBe(1);
+    expect(r.lines.at(-1)).toBe(
+      "LAND #5 stopped reason=gh api branches/main failed: gh: Server Error (HTTP 500)",
+    );
+    expect(pastTheRefusal(r.calls)).toEqual([]);
+  });
+
+  it("a head that moves mid-wait is held to the same required checks in the next round", async () => {
+    const r = await land(
+      [5],
+      [
+        [VIEW(5), [view(), view({ headRefOid: B })]],
+        [RULES(), [requireCi]],
+        [RUNS(A), [WITH_CI("completed", "success")]],
+        [STATUSES(A), [statuses()]],
+        [RUNS(B), [NETLIFY_ONLY]],
+        [STATUSES(B), [statuses()]],
+      ],
+      { checksTimeoutMin: 1 },
+    );
+    expect(r.code).toBe(1);
+    expect(r.lines).toContain("LAND #5 checks passed on aaaaaaa");
+    expect(r.lines.some((l) => /checks passed on bbbbbbb/.test(l))).toBe(false);
+    expect(r.lines.at(-1)).toBe(
+      "LAND #5 stopped reason=required check `ci / ci` has no run on bbbbbbb after 1 min",
+    );
+  });
+
+  it("a cancelled required run beside a queued rerun of it is waited for, not stopped", () => {
+    const checks = checksFromRest(
+      [
+        { name: "ci / ci", status: "completed", conclusion: "cancelled" },
+        { name: "ci / ci", status: "queued", conclusion: null },
+      ],
+      [],
+    );
+    expect(unmetRequiredChecks(["ci / ci"], checks)).toEqual([
+      { name: "ci / ci", state: "pending" },
+    ]);
+  });
+
+  it("several cancelled required checks are all named", async () => {
+    const r = await land(
+      [5],
+      [
+        [VIEW(5), [view()]],
+        [RULES(), [rules(requiredRule(["ci / ci", "lint"]))]],
+        [
+          RUNS(A),
+          [runs(["ci / ci", "completed", "cancelled"], ["lint", "completed", "cancelled"])],
+        ],
+        [STATUSES(A), [statuses()]],
+      ],
+    );
+    expect(r.lines.at(-1)).toBe(
+      "LAND #5 stopped reason=required checks `ci / ci`, `lint` cancelled on aaaaaaa",
+    );
+  });
+
+  it("the waiting line is said again when the set of missing required checks changes", async () => {
+    const r = await land(
+      [5],
+      [
+        [
+          VIEW(5),
+          // first view; a re-view on each of the three polls with a check missing; gate; merged
+          [view(), view(), view(), view(), view(), merged()],
+        ],
+        [RULES(), [rules(requiredRule(["ci / ci", "prismic-models / check"]))]],
+        [
+          RUNS(A),
+          [
+            NETLIFY_ONLY,
+            NETLIFY_ONLY,
+            runs(
+              ["Pages changed", "completed", "success"],
+              ["prismic-models / check", "completed", "success"],
+            ),
+            runs(
+              ["Pages changed", "completed", "success"],
+              ["prismic-models / check", "completed", "success"],
+              ["ci / ci", "completed", "success"],
+            ),
+          ],
+        ],
+        [STATUSES(A), [statuses()]],
+        ...landed(),
+      ],
+    );
+    expect(r.code).toBe(0);
+    expect(r.lines.filter((l) => /waiting: required check/.test(l))).toEqual([
+      "LAND #5 waiting: required checks `ci / ci`, `prismic-models / check` have no run on aaaaaaa yet",
+      "LAND #5 waiting: required check `ci / ci` has no run on aaaaaaa yet",
+    ]);
+  });
+
+  it("a required run cancelled because the head moved re-gates on the new head instead of stopping", async () => {
+    // `concurrency: cancel-in-progress` cancels the old head's `ci / ci` when a push lands
+    // mid-wait; the old watcher ignored the cancel and re-gated, and so must this one.
+    const r = await land(
+      [5],
+      [
+        [
+          VIEW(5),
+          // first view; the view after the cancel; round 1's gate; round 2's gate; after merge
+          [
+            view(),
+            view({ headRefOid: B }),
+            view({ headRefOid: B }),
+            view({ headRefOid: B }),
+            merged(),
+          ],
+        ],
+        [RULES(), [requireCi]],
+        [RUNS(A), [WITH_CI("completed", "cancelled")]],
+        [STATUSES(A), [statuses()]],
+        [RUNS(B), [WITH_CI("completed", "success")]],
+        [STATUSES(B), [statuses()]],
+        ...landed(),
+      ],
+    );
+    expect(r.code).toBe(0);
+    expect(r.lines).toContain(
+      "LAND #5 required check `ci / ci` cancelled on aaaaaaa; the head moved to bbbbbbb",
+    );
+    // Back through the gate, under its round cap, and B is watched once.
+    expect(r.lines).toContain("LAND #5 head moved during checks aaaaaaa -> bbbbbbb; re-gating");
+    expect(r.lines.filter((l) => l.startsWith("LAND #5 checks watching bbbbbbb"))).toHaveLength(1);
+    expect(r.lines).toContain("LAND #5 checks passed on bbbbbbb");
+    expect(r.calls.filter((c) => MERGE_CMD(5).test(c))).toEqual([
+      `gh api ${P}/pulls/5/merge --method PUT -f merge_method=squash -f sha=${B}`,
+    ]);
+  });
+
+  it("a head that moves away and back during the wait is re-gated, never merged on a wait that did not pass", async () => {
+    // Round 3: `ci / ci` cancelled on A, the re-view sees B, then A is force-pushed back.
+    // The gate sees `began` again, but nothing on A was ever seen to pass.
+    const r = await land(
+      [5],
+      [
+        [
+          VIEW(5),
+          // first view; the re-view after the cancel; round 1's gate; round 2's gate; merged
+          [view(), view({ headRefOid: B }), view(), view(), merged()],
+        ],
+        [RULES(), [requireCi]],
+        [RUNS(A), [WITH_CI("completed", "cancelled"), WITH_CI("completed", "success")]],
+        [STATUSES(A), [statuses()]],
+        ...landed(),
+      ],
+    );
+    expect(r.code).toBe(0);
+    expect(r.lines).toContain(
+      "LAND #5 checks on aaaaaaa did not pass before the wait handed back; re-gating",
+    );
+    const passedAt = r.lines.indexOf("LAND #5 checks passed on aaaaaaa");
+    const mergedAt = r.lines.findIndex((l) => l.startsWith("LAND #5 merged "));
+    expect(passedAt).toBeGreaterThan(-1);
+    expect(mergedAt).toBeGreaterThan(passedAt);
+  });
+
+  it("a required check with no run on a head that moved on re-gates onto the new head at once", async () => {
+    // Round 3: A's `ci` run was queued and then cancelled before it started, so A never gets
+    // a `ci / ci` run; B is pushed and goes green. Waiting out the timeout on A is wrong.
+    const r = await land(
+      [5],
+      [
+        [
+          VIEW(5),
+          // first view; the re-view on A's first poll; round 1's gate; round 2's gate; merged
+          [
+            view(),
+            view({ headRefOid: B }),
+            view({ headRefOid: B }),
+            view({ headRefOid: B }),
+            merged(),
+          ],
+        ],
+        [RULES(), [requireCi]],
+        [RUNS(A), [NETLIFY_ONLY]],
+        [STATUSES(A), [statuses()]],
+        [RUNS(B), [WITH_CI("completed", "success")]],
+        [STATUSES(B), [statuses()]],
+        ...landed(),
+      ],
+    );
+    expect(r.code).toBe(0);
+    expect(r.lines).toContain(
+      "LAND #5 required check `ci / ci` has no run on aaaaaaa; the head moved to bbbbbbb",
+    );
+    expect(r.sleeps).toEqual([]);
+    expect(r.calls.filter((c) => MERGE_CMD(5).test(c))).toEqual([
+      `gh api ${P}/pulls/5/merge --method PUT -f merge_method=squash -f sha=${B}`,
+    ]);
+  });
+
+  it("a PR merged elsewhere while its required check is cancelled is skipped, not stopped", async () => {
+    const r = await land(
+      [5],
+      [
+        [VIEW(5), [view(), merged()]],
+        [RULES(), [requireCi]],
+        [RUNS(A), [WITH_CI("completed", "cancelled")]],
+        [STATUSES(A), [statuses()]],
+      ],
+    );
+    expect(r.code).toBe(0);
+    expect(r.lines).toContain(
+      "LAND #5 required check `ci / ci` cancelled on aaaaaaa; the PR is now MERGED",
+    );
+    expect(r.lines).toContain("LAND #5 skipped reason=merged elsewhere during the checks wait");
+    expect(r.lines.some((l) => /stopped/.test(l))).toBe(false);
+  });
+
+  it("a context both a ruleset and classic protection require is waited for and named once", async () => {
+    const r = await land(
+      [5],
+      [
+        [VIEW(5), [view()]],
+        [RULES(), [requireCi]],
+        [BRANCH(), [CLASSIC_CI]],
+        [RUNS(A), [NETLIFY_ONLY]],
+        [STATUSES(A), [statuses()]],
+      ],
+      { checksTimeoutMin: 1 },
+    );
+    expect(r.lines.at(-1)).toBe(
+      "LAND #5 stopped reason=required check `ci / ci` has no run on aaaaaaa after 1 min",
+    );
+  });
+
+  it("a base whose rules read 403 or 404 behaves as before: Netlify's runs pass", async () => {
+    for (const refused of [httpError(403, "Upgrade to GitHub Pro"), httpError(404, "Not Found")]) {
+      const r = await land(
+        [5],
+        [
+          [VIEW(5), [view(), view(), merged()]],
+          [RULES(), [refused]],
+          [RUNS(A), [NETLIFY_ONLY]],
+          [STATUSES(A), [statuses()]],
+          ...landed(),
+        ],
+      );
+      expect(r.code).toBe(0);
+      expect(r.lines).toContain("LAND #5 checks passed on aaaaaaa");
+      expect(r.sleeps).toEqual([]);
+    }
   });
 });

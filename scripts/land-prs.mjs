@@ -31,8 +31,17 @@
 //      viewed, sleep 25 s, poll until head.sha moves (≤ 3 min).
 //   3. poll the head's check runs and commit statuses every 10 s (≤ --checks-timeout-min),
 //      bucketed the way `gh pr checks` buckets them. The first failure stops the run,
-//      naming the failing checks. It passes only when nothing is pending or failed AND at
-//      least one check passed: no checks at all, or only neutral/skipped/cancelled ones, is
+//      naming the failing checks. It passes only when nothing is pending or failed, at
+//      least one check passed, AND every check the base requires has a passing, neutral or
+//      skipped run or status (#2035): its rulesets' `required_status_checks` rules, read in
+//      step 1, and its classic branch protection, read after the dry-run returns. A
+//      required check with no run yet is logged when the missing set changes ("waiting:
+//      required check `ci / ci` has no run on …") and waited for under the checks timeout,
+//      which then names it; a cancelled one stops the run. While the wait is held by
+//      required checks alone, each poll re-views the PR: one whose head moved on (a push
+//      cancels the old head's run under cancel-in-progress) or that closed goes back to
+//      step 4, which re-gates even if the head came back, since nothing passed. No checks
+//      at all, or only neutral/skipped/cancelled ones with nothing required missing, is
 //      "not reported yet" and waits under the no-checks budget. Netlify posts its neutral
 //      runs about 2 s before Actions registers `build` (#953's head: 05:48:56Z vs
 //      05:48:58Z), and a poll in that window used to pass a head nothing had built.
@@ -63,8 +72,9 @@
 // `GET repos/…` (the `allow_*_merge` flags) and `GET repos/…/rules/branches/<base>` (every
 // rule in force on the base, from every ruleset) and keeps squash, then merge, then rebase,
 // whichever is allowed by all of them. A `required_linear_history` rule rules out a merge
-// commit. Classic branch protection is not read (its endpoint needs admin); there the
-// 405 still stops the run, with GitHub's reason.
+// commit. Classic branch protection's merge settings are not read (its endpoint needs
+// admin); there the 405 still stops the run, with GitHub's reason. Its required checks
+// are read, from `GET branches/<base>`, for step 3 (#2035).
 //
 // The first stop ends the run (`LAND #N stopped reason=…`, exit 1); later PRs are not
 // touched. --dry-run only views, and prints what it would do.
@@ -232,6 +242,66 @@ export function chooseMergeMethod(repo, rules) {
     ? { method: allowed[0] }
     : { error: `no merge method is allowed: ${said.join("; ")}` };
 }
+
+/** The contexts the rules in force on the base require to pass before a merge: every
+ *  `required_status_checks` rule's `parameters.required_status_checks[].context`, in order,
+ *  once each. #2035: GitHub holds a merge BLOCKED until each has passed on the head, and a
+ *  required check with no run yet is not in the check-runs list at all. */
+export function requiredChecksFrom(rules) {
+  const out = [];
+  for (const rule of Array.isArray(rules) ? rules : []) {
+    if (rule?.type !== "required_status_checks") continue;
+    const list = rule.parameters?.required_status_checks;
+    for (const c of Array.isArray(list) ? list : []) {
+      if (typeof c?.context === "string" && !out.includes(c.context)) out.push(c.context);
+    }
+  }
+  return out;
+}
+
+/** Each required context the head's checks do not yet satisfy, as `{ name, state }`:
+ *  `missing` (no check run or status by that name), `fail`, `pending` or `cancel`. A
+ *  context is satisfied by a run or status in the `pass` or `skipping` bucket, as GitHub
+ *  counts success, neutral and skipped as passing a required check. */
+export function unmetRequiredChecks(required, checks) {
+  const unmet = [];
+  for (const name of required) {
+    const buckets = checks.filter((c) => c.name === name).map((c) => c.bucket);
+    if (buckets.some((b) => b === "pass" || b === "skipping")) continue;
+    const state =
+      buckets.length === 0
+        ? "missing"
+        : (["fail", "pending", "cancel"].find((b) => buckets.includes(b)) ?? "pending");
+    unmet.push({ name, state });
+  }
+  return unmet;
+}
+
+/** The contexts classic branch protection requires on a branch, from `GET branches/{b}`
+ *  (whose `protection` the App can read; `branches/{b}/protection` answers 403). Private
+ *  fleet repos have no rulesets, so `ci / ci` is required there only this way (the
+ *  self-updating recipe). Protection that is off, or absent, requires nothing. */
+export function classicRequiredChecksFrom(branch) {
+  const rsc = branch?.protection?.required_status_checks;
+  if (!rsc || typeof rsc !== "object" || rsc.enforcement_level === "off") return [];
+  const out = [];
+  const checks = Array.isArray(rsc.checks) ? rsc.checks.map((c) => c?.context) : [];
+  for (const c of [...(Array.isArray(rsc.contexts) ? rsc.contexts : []), ...checks]) {
+    if (typeof c === "string" && !out.includes(c)) out.push(c);
+  }
+  return out;
+}
+
+/** "required check `ci / ci` has no run", for one name or several. */
+function noRunWhat(names) {
+  const list = names.map((m) => `\`${m}\``).join(", ");
+  return names.length === 1
+    ? `required check ${list} has no run`
+    : `required checks ${list} have no run`;
+}
+
+/** "required check `ci / ci` has no run on 9329069". */
+const noRunText = (names, sha) => `${noRunWhat(names)} on ${short(sha)}`;
 
 const short = (sha) => (typeof sha === "string" ? sha.slice(0, 7) : String(sha));
 const firstLine = (s) =>
@@ -493,10 +563,37 @@ async function rulesFor(ctx, n, branch) {
   throw new Stop(`gh api rules/branches/${branch} still had rules after ${MAX_RULES_PAGES} pages`);
 }
 
-async function mergeMethodFor(ctx, n, branch) {
-  const picked = chooseMergeMethod(await apiJson(ctx, ""), await rulesFor(ctx, n, branch));
+/** Classic protection's required contexts on `branch`. A 403 or 404 is noted and read
+ *  as none, like the rules read: the CLEAN gate still holds the merge. */
+async function classicRequiredFor(ctx, n, branch) {
+  const path = `branches/${refPath(branch)}`;
+  const r = await api(ctx, path);
+  if (r.code !== 0 && [403, 404].includes(httpStatus(r))) {
+    ctx.log(
+      `LAND #${n} note: no branch protection read for ${branch}, so no classic required checks are waited for: ${ghFailureDetail(r)}`,
+    );
+    return [];
+  }
+  return classicRequiredChecksFrom(jsonOf(ctx, path, r));
+}
+
+/** The merge method, and the checks the base's rulesets require, from one read of its
+ *  rules. Classic protection's are added by `withClassicRequired`, past the dry-run. */
+async function baseRulesFor(ctx, n, branch) {
+  const repo = await apiJson(ctx, "");
+  const rules = await rulesFor(ctx, n, branch);
+  const picked = chooseMergeMethod(repo, rules);
   if (picked.error) throw new Stop(`${picked.error} (base ${branch})`);
-  return picked.method;
+  return { method: picked.method, required: requiredChecksFrom(rules) };
+}
+
+/** `required` with classic protection's required contexts on `branch` added, once each. */
+async function withClassicRequired(ctx, n, branch, required) {
+  const all = [...required];
+  for (const c of await classicRequiredFor(ctx, n, branch)) {
+    if (!all.includes(c)) all.push(c);
+  }
+  return all;
 }
 
 async function viewPr(ctx, n) {
@@ -580,13 +677,14 @@ async function noChecksBudget(ctx, n, sha) {
   return budget;
 }
 
-async function waitForChecks(ctx, n, sha) {
+async function waitForChecks(ctx, n, sha, required = []) {
   const deadline = ctx.now() + ctx.checksTimeoutMin * 60_000;
   ctx.log(`LAND #${n} checks watching ${short(sha)} (timeout ${ctx.checksTimeoutMin} min)`);
   // Resolved lazily, and only if "no checks reported" actually happens — it
   // costs one extra call and most runs never reach that branch.
   let budget = null;
   let empty = 0;
+  let saidMissing = "";
   for (;;) {
     const checks = await readChecks(ctx, sha);
     const named = (...buckets) =>
@@ -595,10 +693,39 @@ async function waitForChecks(ctx, n, sha) {
       throw new Stop(`checks failed on ${short(sha)}: ${named("fail", "cancel").join(", ")}`);
     }
     const pending = named("pending");
+    const unmet = unmetRequiredChecks(required, checks);
+    const cancelled = unmet.filter((u) => u.state === "cancel").map((u) => `\`${u.name}\``);
+    const missing = unmet.filter((u) => u.state === "missing").map((u) => u.name);
+    // Waiting on a required check alone (cancelled, or with no run yet) is where the old head
+    // can be left behind: a push mid-wait cancels its run under `cancel-in-progress`, or its
+    // queued run never starts. Look at the PR, and hand a PR that moved on back to the gate,
+    // which re-gates (and re-gates even if the head came back: nothing passed here).
+    if (cancelled.length > 0 || (missing.length > 0 && pending.length === 0)) {
+      const now = await viewPr(ctx, n);
+      if (now.state !== "OPEN" || now.headRefOid !== sha) {
+        const what =
+          cancelled.length > 0
+            ? `required check${cancelled.length > 1 ? "s" : ""} ${cancelled.join(", ")} cancelled`
+            : noRunWhat(missing);
+        ctx.log(
+          now.state !== "OPEN"
+            ? `LAND #${n} ${what} on ${short(sha)}; the PR is now ${now.state}`
+            : `LAND #${n} ${what} on ${short(sha)}; the head moved to ${short(now.headRefOid)}`,
+        );
+        return false;
+      }
+    }
+    if (cancelled.length > 0) {
+      throw new Stop(
+        `required check${cancelled.length > 1 ? "s" : ""} ${cancelled.join(", ")} cancelled on ${short(sha)}`,
+      );
+    }
     // Right after a push the new head can have no check runs registered yet — or only
     // Netlify's neutral ones, which arrive about 2 s before Actions registers `build`.
     // Neither is a verdict: nothing has passed, so keep waiting under the same budget.
-    if (pending.length === 0 && named("pass").length === 0) {
+    // A required check with no run is waited for under the checks timeout instead: the
+    // base's rules say a run is coming.
+    if (pending.length === 0 && named("pass").length === 0 && missing.length === 0) {
       if (budget === null) budget = await noChecksBudget(ctx, n, sha);
       if (empty < budget) {
         empty++;
@@ -612,13 +739,21 @@ async function waitForChecks(ctx, n, sha) {
           : `no check passed on ${short(sha)} after ${waited}s, only ${checks.map((c) => `${c.name} (${c.bucket})`).join(", ")}`,
       );
     }
-    if (pending.length === 0) {
+    // #2035: every run that exists has concluded, but a required check may have no run yet
+    // (Actions queued behind a runner). That is not a pass: keep waiting for it.
+    if (pending.length === 0 && unmet.length === 0) {
       ctx.log(`LAND #${n} checks passed on ${short(sha)}`);
-      return;
+      return true;
+    }
+    if (missing.length > 0 && missing.join("\n") !== saidMissing) {
+      saidMissing = missing.join("\n");
+      ctx.log(`LAND #${n} waiting: ${noRunText(missing, sha)} yet`);
     }
     if (ctx.now() >= deadline) {
       throw new Stop(
-        `checks still running after ${ctx.checksTimeoutMin} min on ${short(sha)}: ${pending.join(", ")}`,
+        pending.length > 0
+          ? `checks still running after ${ctx.checksTimeoutMin} min on ${short(sha)}: ${pending.join(", ")}${missing.length > 0 ? `; ${noRunText(missing, sha)}` : ""}`
+          : `${noRunText(missing, sha)} after ${ctx.checksTimeoutMin} min`,
       );
     }
     await ctx.sleep(ctx.t.checksPollIntervalMs);
@@ -1729,7 +1864,7 @@ async function landOne(ctx, n) {
   }
   const refused = refusal(pr, ctx.base);
   if (refused) throw new Stop(refused);
-  const method = await mergeMethodFor(ctx, n, pr.baseRefName);
+  const { method, required: rulesetRequired } = await baseRulesFor(ctx, n, pr.baseRefName);
   ctx.log(
     `LAND #${n} open head=${short(pr.headRefOid)} merge=${pr.mergeStateStatus} method=${method} "${pr.title}"`,
   );
@@ -1748,11 +1883,12 @@ async function landOne(ctx, n) {
     return { status: "dry-run" };
   }
 
+  const required = await withClassicRequired(ctx, n, pr.baseRefName, rulesetRequired);
   if (pr.mergeStateStatus === "BEHIND") pr = await updateBranch(ctx, n, pr);
 
   for (let round = 1; ; round++) {
     const began = pr.headRefOid;
-    await waitForChecks(ctx, n, began);
+    const passed = await waitForChecks(ctx, n, began, required);
     pr = await gateView(ctx, n, began);
     if (pr.state === "MERGED") {
       ctx.log(`LAND #${n} skipped reason=merged elsewhere during the checks wait`);
@@ -1763,12 +1899,16 @@ async function landOne(ctx, n) {
     // the checks run, and this view — not the first one — is what the merge acts on.
     const refusedNow = refusal(pr, ctx.base);
     if (refusedNow) throw new Stop(`${refusedNow}; seen after the checks wait on ${short(began)}`);
-    if (pr.headRefOid !== began) {
+    // A wait that did not pass handed back a PR that moved on; if the head came back to
+    // `began`, its checks were still never seen to pass, so it re-gates all the same.
+    if (pr.headRefOid !== began || !passed) {
       if (round >= ctx.t.maxCheckRounds) {
         throw new Stop(`head kept moving: ${round} check rounds, now ${short(pr.headRefOid)}`);
       }
       ctx.log(
-        `LAND #${n} head moved during checks ${short(began)} -> ${short(pr.headRefOid)}; re-gating`,
+        pr.headRefOid !== began
+          ? `LAND #${n} head moved during checks ${short(began)} -> ${short(pr.headRefOid)}; re-gating`
+          : `LAND #${n} checks on ${short(began)} did not pass before the wait handed back; re-gating`,
       );
       continue;
     }

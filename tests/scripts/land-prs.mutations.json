@@ -531,5 +531,122 @@
     "test": "tests/scripts/land-prs.test.ts",
     "expect": "red",
     "why": "#1998 round 6 undone: a skip draws only on its own copy of the removed pool, so one removed line backs both an over-long added copy and an added skip, which main flags."
+  },
+  {
+    "id": "P109-1-required-list-ignored",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "  const required = await withClassicRequired(ctx, n, pr.baseRefName, rulesetRequired);",
+        "replace": "  const required = [];"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "#2035 undone: the base's required contexts (rulesets and classic protection) are treated as empty, so #142's Netlify-only head reads 'checks passed' again."
+  },
+  {
+    "id": "P109-2-queued-required-accepted",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "    if (buckets.some((b) => b === \"pass\" || b === \"skipping\")) continue;",
+        "replace": "    if (buckets.some((b) => b === \"pass\" || b === \"skipping\" || b === \"pending\")) continue;"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "unmetRequiredChecks would count a queued or running required check as met. Caught by its unit test; through landPrs a queued run is also pending, so the wait holds either way."
+  },
+  {
+    "id": "P109-3-failed-required-accepted",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "    if (buckets.some((b) => b === \"pass\" || b === \"skipping\")) continue;",
+        "replace": "    if (buckets.some((b) => b === \"pass\" || b === \"skipping\" || b === \"fail\")) continue;"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "unmetRequiredChecks would count a failed required check (or a status in error) as met. Caught by its unit test; through landPrs any failed check already stops the wait first."
+  },
+  {
+    "id": "P109-4-missing-name-dropped",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "    ? `required check ${list} has no run`",
+        "replace": "    ? `a required check has no run`"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "The timeout and stop lines would no longer name the missing required check."
+  },
+  {
+    "id": "P109-5-classic-protection-ignored",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "  return classicRequiredChecksFrom(jsonOf(ctx, path, r));",
+        "replace": "  return [];"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "Review round 1: a private fleet repo requires `ci / ci` only through classic protection, so its Netlify-only head would read 'checks passed' again."
+  },
+  {
+    "id": "P109-6-cancel-stops-on-moved-head",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "      if (now.state !== \"OPEN\" || now.headRefOid !== sha) {",
+        "replace": "      if (false) {"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "Review rounds 2 and 3: a required run cancelled by a push mid-wait, or a required check whose run never started on a head that moved on, would stop on the stale head instead of re-gating onto the new one."
+  },
+  {
+    "id": "P109-7-required-dedupe-dropped",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "    if (!all.includes(c)) all.push(c);",
+        "replace": "    all.push(c);"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "Review round 2: a context both a ruleset and classic protection require would be named twice."
+  },
+  {
+    "id": "P109-8-unpassed-wait-not-regated",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "    if (pr.headRefOid !== began || !passed) {",
+        "replace": "    if (pr.headRefOid !== began) {"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "Review round 3: a head that moved away and came back would merge on a wait that never saw its checks pass."
+  },
+  {
+    "id": "P109-9-closed-pr-not-handed-back",
+    "edits": [
+      {
+        "file": "scripts/land-prs.mjs",
+        "find": "      if (now.state !== \"OPEN\" || now.headRefOid !== sha) {",
+        "replace": "      if (now.headRefOid !== sha) {"
+      }
+    ],
+    "test": "tests/scripts/land-prs.test.ts",
+    "expect": "red",
+    "why": "Review round 3: a PR merged elsewhere while its required check is cancelled would stop as cancelled instead of being skipped."
   }
 ]
