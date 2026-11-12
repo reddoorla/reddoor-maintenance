@@ -75,10 +75,18 @@ jobs:
       - run: pnpm build
 
       # generateHeaderImage screenshots each site's homepage at draft time, so
-      # this job needs a browser. Without it chromium.launch() throws and the
+      # a drafting run needs a browser. Without it chromium.launch() throws and the
       # refresh — which is best-effort and swallows its errors — would fail
       # silently every night while the run stayed green.
+      #
+      # A send run (the 16:07Z clock's mode=send, and the cron fallback, which has
+      # no inputs) skips it: `report --send-ready` reads the stored header from
+      # Turso and only stamps a PNG headline on it with sharp, so it needs neither
+      # a browser nor the fonts below. `--with-deps` goes to Ubuntu's apt mirrors,
+      # and on 2026-11-11 a DNS failure there killed the send run before it sent
+      # (#2034). Pinned by tests/build/daily-reports-send-no-browser.
       - run: pnpm exec playwright install --with-deps chromium
+        if: ${{ inputs.preview_site || (inputs.mode || 'send') != 'send' }}
 
       # The header's domain line is drawn by sharp through librsvg + fontconfig,
       # so compose.ts's font stack resolves against INSTALLED system fonts. A
@@ -87,8 +95,9 @@ jobs:
       # match the hand-made reference or a locally-generated one. fonts-urw-base35
       # provides Nimbus Sans, metrically equivalent to Helvetica and already third
       # in that stack. Runs after `playwright install --with-deps`, which has
-      # already done the apt-get update.
+      # already done the apt-get update, and on the same condition.
       - run: sudo apt-get install -y --no-install-recommends fonts-urw-base35
+        if: ${{ inputs.preview_site || (inputs.mode || 'send') != 'send' }}
 
       # 1. DRAFT — scan all Websites, draft anything overdue. Idempotent: the
       # slice-1 Period guard skips a (site, reportType) already drafted this
