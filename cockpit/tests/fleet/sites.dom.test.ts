@@ -19,17 +19,20 @@ import { navigate } from "../_helpers/app-navigation.js";
 let target: HTMLElement;
 let app: ReturnType<typeof mount> | null = null;
 
-/** The four-card model the browse panel's filter test used. */
 /** The page's records are null-prototype (review round 4, so a site id of `__proto__`
- *  is an own key). Copy them to plain objects for the strict check below; every other
- *  strict-equal rule (undefined keys, class types, Dates) still applies. */
+ *  is an own key). Copy them, and only them (plain objects are walked to reach them), to plain
+ *  objects for the strict check below; a Map, Date or class instance is left as
+ *  is, so the check still refuses anything JSON would not carry. */
 const plain = (v: unknown): unknown =>
   Array.isArray(v)
     ? v.map(plain)
-    : v !== null && typeof v === "object"
+    : v !== null &&
+        typeof v === "object" &&
+        [null, Object.prototype].includes(Object.getPrototypeOf(v))
       ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, plain(x)]))
       : v;
 
+/** The four-card model the browse panel's filter test used. */
 function render(model = cases()[10]![1]) {
   const data = {
     model: buildFleetTableModel(
