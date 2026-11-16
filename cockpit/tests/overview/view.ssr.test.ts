@@ -1847,6 +1847,9 @@ describe("health and numbers (P1-87 PR 3)", () => {
           name: "Delta",
           securityVulnsHigh: 2,
           securityAdvisories: TRANSITIVE,
+          // An accessibility scan older than its 8-day window, with none found: unknown.
+          a11yViolations: 0,
+          a11yCheckedAt: "2026-10-10T06:30:00.000Z",
           smokeOk: "pass",
           lastSmokeAt: FIRST.stale,
         }),
@@ -1887,9 +1890,9 @@ describe("health and numbers (P1-87 PR 3)", () => {
   it("counts maintained sites only, and tiers them as the model does", () => {
     expect(HEALTH.sites).toBe(5);
     expect(HEALTH.tiers).toEqual({ ok: 1, watch: 2, attention: 1, broken: 1 });
-    expect(HEALTH.tiers.ok + HEALTH.tiers.watch + HEALTH.tiers.attention + HEALTH.tiers.broken).toBe(
-      HEALTH.sites,
-    );
+    expect(
+      HEALTH.tiers.ok + HEALTH.tiers.watch + HEALTH.tiers.attention + HEALTH.tiers.broken,
+    ).toBe(HEALTH.sites);
   });
 
   it("lists the seven checks in the sketch's order", () => {
@@ -2034,10 +2037,13 @@ function numbersFleet() {
   const nights = dates
     .map((d, i) =>
       night(d, {
-        leads: { value: i === 5 ? null : { notified: i } },
+        leads:
+          i === 5
+            ? { value: null, reason: "not read" }
+            : { value: { new: 0, read: 0, archived: 0, spamAuto: 0, spam: 0, notified: i } },
         coverage: {
           value: {
-            a: { value: i === 3 ? null : i },
+            a: i === 3 ? { value: null, reason: "not read" } : { value: i },
             b: { value: 2 },
           },
         },
@@ -2049,17 +2055,63 @@ function numbersFleet() {
   return snapshot({
     sites: [healthy({ id: "recA", name: "Acme" })],
     submissions: [
-      makeSubmissionRow({ id: "m1", siteId: "recA", status: "read", notifyStatus: "sent", submittedAt: "2026-10-10T12:00:00.000Z" }),
-      makeSubmissionRow({ id: "m2", siteId: "recA", status: "read", notifyStatus: "sent", submittedAt: "2026-10-12T12:00:00.000Z" }),
-      makeSubmissionRow({ id: "m3", siteId: "recA", status: "read", notifyStatus: "sent", submittedAt: "2026-10-20T12:00:00.000Z" }),
-      makeSubmissionRow({ id: "o1", siteId: "recA", status: "read", notifyStatus: "sent", submittedAt: "2026-07-02T12:00:00.000Z" }),
-      makeSubmissionRow({ id: "s1", siteId: "recA", status: "spam_auto", submittedAt: "2026-07-03T12:00:00.000Z" }),
-      makeSubmissionRow({ id: "s2", siteId: "recA", status: "spam_auto", submittedAt: "2026-07-04T12:00:00.000Z" }),
+      makeSubmissionRow({
+        id: "m1",
+        siteId: "recA",
+        status: "read",
+        notifyStatus: "sent",
+        submittedAt: "2026-10-10T12:00:00.000Z",
+      }),
+      makeSubmissionRow({
+        id: "m2",
+        siteId: "recA",
+        status: "read",
+        notifyStatus: "sent",
+        submittedAt: "2026-10-12T12:00:00.000Z",
+      }),
+      makeSubmissionRow({
+        id: "m3",
+        siteId: "recA",
+        status: "read",
+        notifyStatus: "sent",
+        submittedAt: "2026-10-20T12:00:00.000Z",
+      }),
+      makeSubmissionRow({
+        id: "o1",
+        siteId: "recA",
+        status: "read",
+        notifyStatus: "sent",
+        submittedAt: "2026-07-02T12:00:00.000Z",
+      }),
+      makeSubmissionRow({
+        id: "s1",
+        siteId: "recA",
+        status: "spam_auto",
+        submittedAt: "2026-07-03T12:00:00.000Z",
+      }),
+      makeSubmissionRow({
+        id: "s2",
+        siteId: "recA",
+        status: "spam_auto",
+        submittedAt: "2026-07-04T12:00:00.000Z",
+      }),
     ],
     reports: [
-      report({ id: "r1", sentAt: "2026-09-02T16:07:00.000Z", approvedAt: "2026-09-01T20:00:00.000Z" }),
-      report({ id: "r2", sentAt: "2026-09-03T16:07:00.000Z", approvedAt: "2026-09-04T20:00:00.000Z" }),
-      report({ id: "r3", sentAt: "2026-09-06T16:07:00.000Z", approvedAt: "2026-09-05T20:00:00.000Z" }),
+      report({
+        id: "r1",
+        sentAt: "2026-09-02T16:07:00.000Z",
+        approvedAt: "2026-09-01T20:00:00.000Z",
+      }),
+      report({
+        id: "r2",
+        sentAt: "2026-09-03T16:07:00.000Z",
+        approvedAt: "2026-09-04T20:00:00.000Z",
+      }),
+      report({
+        id: "r3",
+        sentAt: "2026-09-06T16:07:00.000Z",
+        approvedAt: "2026-09-05T20:00:00.000Z",
+      }),
       report({
         id: "r4",
         sentAt: "2026-09-07T16:07:00.000Z",

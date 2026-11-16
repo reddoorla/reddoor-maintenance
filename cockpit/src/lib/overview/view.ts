@@ -22,6 +22,7 @@ import {
 } from "../../../../src/alerts/waiting.js";
 import { daysFlagged, levelOf } from "../../../../src/alerts/ladder.js";
 import {
+  A11Y_STALE_DAYS,
   CERT_ATTENTION_DAYS,
   CERT_BROKEN_DAYS,
   certDaysNow,
@@ -1437,6 +1438,15 @@ const point = (r: Reading, earlier = false): TrendPoint => ({
   earlier,
 });
 
+/** Every check's sites on one night, summed over the checks; unread if any one check's
+ *  count is. Shared by the trends' "Checks run" chart and the first screen's tile. */
+export function checksRun(c: Counts): number | null {
+  const columns = keyed(c.coverage.value);
+  if (columns === null) return null;
+  const all = Object.values(columns).map((m) => finite(keyed(m)?.["value"]));
+  return all.some((v) => v === null) ? null : all.reduce<number>((a, v) => a + v!, 0);
+}
+
 /** Section 8 from the `fleet_daily` nights (newest first, as the reader returns them).
  *  Every night of the window is a slot: a night with no row, or a count that could
  *  not be read, is a gap with its reason, never 0. A running total's night is its
@@ -1498,13 +1508,7 @@ export function trendsFromDaily(nights: OverviewNight[] | null, now: Date): Tren
     });
 
   const tier = (t: Tier) => (c: Counts) => keyOf(keyed(c.sites.value)?.["tiers"], t);
-  // Every check's sites that night; unread if any one check's count is.
-  const checks = (c: Counts): number | null => {
-    const columns = keyed(c.coverage.value);
-    if (columns === null) return null;
-    const all = Object.values(columns).map((m) => finite(keyed(m)?.["value"]));
-    return all.some((v) => v === null) ? null : all.reduce<number>((a, v) => a + v!, 0);
-  };
+  const checks = checksRun;
   const sentOn = (c: Counts) => keyed(c.leads.value)?.["notified"];
   const cleared = (c: Counts) => keyOf(c.events.value, "vuln_cleared");
   const vulnOpen = (c: Counts) => keyOf(c.signals.value, "vuln");
@@ -1743,8 +1747,222 @@ export function trendGeometry(chart: TrendChart, width = 320, height = 132): Tre
 
 // ---- the page ----
 
+// ---- P1-87 PR 3: the first screen ----
+
+export type HealthCheck = {
+  name: string;
+  pass: number;
+  fail: number;
+  unknown: number;
+  total: number;
+};
+export type HealthView = {
+  /** Maintained sites: the only ones the first screen counts. */
+  sites: number;
+  tiers: { ok: number; watch: number; attention: number; broken: number };
+  /** In the sketch's order; each counts over the maintained sites. */
+  checks: HealthCheck[];
+};
+export type NumberTile = {
+  key: "leads" | "spam" | "checks" | "deps" | "reports" | "shipped";
+  /** Digits, or the model's NOT_YET / UNREADABLE words; never a 0 for a missing count. */
+  value: string;
+  measured: boolean;
+  label: string;
+  context: string | null;
+  /** One point per night, oldest first; null is a night with no value (a gap). */
+  spark: Array<number | null> | null;
+};
+
+/** A check's verdict for one site: pass, fail, or unknown (null, never a pass). */
+type Verdict = boolean | null;
+
+/** Maintained sites only (launching, pre-launch and archived sites never count). Live,
+ *  Certificate, Deploy and Contact form read the cells the Live columns showed; the
+ *  rest read the same fields and freshness rules their own alarms read. */
+export function healthView(model: CockpitModel, live: LiveRow[], now: Date): HealthView {
+  const maintained = model.cards.filter((c) => c.site.status === "maintained");
+  const tiers = { ok: 0, watch: 0, attention: 0, broken: 0 };
+  for (const c of maintained) {
+    if (c.tier === "healthy") tiers.ok++;
+    else if (c.tier === "watch") tiers.watch++;
+    else if (c.tier === "attention") tiers.attention++;
+    else if (c.tier === "broken") tiers.broken++;
+  }
+  const sites = maintained.map((c) => c.site);
+  const row = (s: WebsiteRow) => live.find((r) => r.siteId === s.id);
+  // Security: a fresh audit with a count; none of critical or high is a pass.
+  const security = (s: WebsiteRow): Verdict => {
+    const fresh =
+      freshWithin(s.lastSecurityAuditAt, PRODUCTION_STALE_DAYS, now) &&
+      (s.securityVulnsCritical !== null || s.securityVulnsHigh !== null);
+    if (!fresh) return null;
+    return (s.securityVulnsCritical ?? 0) + (s.securityVulnsHigh ?? 0) === 0;
+  };
+  // Accessibility: the cockpit's own freshness window for a scan (A11Y_STALE_DAYS).
+  const a11y = (s: WebsiteRow): Verdict =>
+    s.a11yViolations === null || !freshWithin(s.a11yCheckedAt, A11Y_STALE_DAYS, now)
+      ? null
+      : s.a11yViolations === 0;
+  // Build and tests: the nightly smoke run, read within the production window.
+  const build = (s: WebsiteRow): Verdict =>
+    s.smokeOk === null || !freshWithin(s.lastSmokeAt, PRODUCTION_STALE_DAYS, now)
+      ? null
+      : s.smokeOk === "pass";
+  const verdicts: Record<string, (s: WebsiteRow) => Verdict> = {
+    Live: (s) => row(s)?.live.ok ?? null,
+    Certificate: (s) => row(s)?.domain.ok ?? null,
+    Deploy: (s) => row(s)?.deploy.ok ?? null,
+    "Contact form": (s) => row(s)?.forms.ok ?? null,
+    Security: security,
+    Accessibility: a11y,
+    "Build + tests": build,
+  };
+  const checks = HEALTH_CHECK_NAMES.map((name) => {
+    const v = sites.map(verdicts[name]!);
+    return {
+      name,
+      total: v.length,
+      pass: v.filter((x) => x === true).length,
+      fail: v.filter((x) => x === false).length,
+      unknown: v.filter((x) => x === null).length,
+    };
+  });
+  return { sites: sites.length, tiers, checks };
+}
+
+/** The first screen's checks, in the sketch's order. */
+export const HEALTH_CHECK_NAMES = [
+  "Live",
+  "Certificate",
+  "Deploy",
+  "Contact form",
+  "Security",
+  "Accessibility",
+  "Build + tests",
+] as const;
+
+/** The six number tiles: this month's leads, the spam stopped, last night's checks, the
+ *  dependency updates merged, the client reports sent, and the changes shipped. Each
+ *  unmeasured tile reads its model words; a sparkline is a gap for a night with no value. */
+export function numbersView(
+  s: CockpitSnapshot,
+  leads: LeadsView,
+  reports: ReportsView,
+  trends: TrendsView,
+): NumberTile[] {
+  const sparkOf = (chart: number): Array<number | null> | null =>
+    trends.charts?.[chart]?.series[0]?.points.map((p) => p.value) ?? null;
+  const leadsTile: NumberTile = {
+    key: "leads",
+    label: "leads sent to clients this month",
+    measured: leads.thisMonth !== null,
+    value: leads.thisMonth === null ? UNREADABLE : String(leads.thisMonth.notified),
+    context:
+      leads.allTime === null
+        ? null
+        : leads.since === null
+          ? `${leads.allTime.notified} all time`
+          : `${leads.allTime.notified} since ${leads.since}`,
+    spark: sparkOf(2),
+  };
+  const stopped = leads.stoppedAllTime;
+  const spamValue =
+    leads.allTime === null
+      ? UNREADABLE
+      : /^\d+$/.test(stopped)
+        ? String(Number(stopped) + leads.allTime.screened)
+        : stopped;
+  const spamTile: NumberTile = {
+    key: "spam",
+    label: "spam submissions stopped",
+    measured: /^\d+$/.test(spamValue),
+    value: spamValue,
+    context:
+      leads.allTime !== null && /^\d+$/.test(stopped)
+        ? `${stopped} before storage, ${leads.allTime.screened} screened`
+        : null,
+    spark: null,
+  };
+  const checkNights = (s.nights ?? []).map((n) => checksRun(n.counts));
+  const newestCheck = checkNights.find((v): v is number => v !== null);
+  const checkSum = checkNights.filter((v): v is number => v !== null);
+  const checksTile: NumberTile = {
+    key: "checks",
+    label: "checks run last night",
+    measured: newestCheck !== undefined,
+    value:
+      s.nights === null ? UNREADABLE : newestCheck === undefined ? NOT_YET : String(newestCheck),
+    context:
+      checkSum.length === 0
+        ? null
+        : `${checkSum.reduce((a, b) => a + b, 0)} over the last ${count(checkSum.length, "night", "nights")}`,
+    spark: sparkOf(1),
+  };
+  const deps = windowed(s.nights, eventTotal("pr_automerged"));
+  const depsTile: NumberTile = {
+    key: "deps",
+    label: "dependency updates merged",
+    measured: deps !== null,
+    value: s.nights === null ? UNREADABLE : deps === null ? NOT_YET : String(deps.value),
+    context: deps === null ? null : `over the last ${count(deps.nights, "night", "nights")}`,
+    spark: null,
+  };
+  const reportsTile: NumberTile = {
+    key: "reports",
+    label: "client reports sent",
+    measured: reports.sent !== null,
+    value: reports.sent === null ? UNREADABLE : String(reports.sent.real),
+    context:
+      reports.sent === null ? null : `${reports.sent.approvedFirst} approved by one of us first`,
+    spark: null,
+  };
+  const shipped = windowed(s.nights, (c) => c.prsMerged.value);
+  const shippedTile: NumberTile = {
+    key: "shipped",
+    label: "changes shipped to the maintenance stack",
+    measured: shipped !== null,
+    value: s.nights === null ? UNREADABLE : shipped === null ? NOT_YET : String(shipped.value),
+    context: shipped === null ? null : `over the last ${count(shipped.nights, "night", "nights")}`,
+    spark: null,
+  };
+  return [leadsTile, spamTile, checksTile, depsTile, reportsTile, shippedTile];
+}
+
+/** A sparkline's marks, in its own viewBox units: one polyline per run of nights with a
+ *  value, a dot for a lone night, and nothing for a gap. Zero is the axis. */
+export function sparkGeometry(
+  spark: Array<number | null>,
+  width = 120,
+  height = 24,
+): { lines: string[]; dots: Array<{ x: number; y: number }> } {
+  const top = Math.max(1, ...spark.filter((v): v is number => v !== null));
+  const step = spark.length > 1 ? width / (spark.length - 1) : 0;
+  const lines: string[] = [];
+  const dots: Array<{ x: number; y: number }> = [];
+  let run: Array<{ x: number; y: number }> = [];
+  const flush = () => {
+    if (run.length === 1) dots.push(run[0]!);
+    else if (run.length > 1) lines.push(run.map((p) => `${p.x},${p.y}`).join(" "));
+    run = [];
+  };
+  spark.forEach((v, i) => {
+    if (v === null) return flush();
+    const p = {
+      x: Math.round(i * step * 10) / 10,
+      y: Math.round((height - (v / top) * height) * 10) / 10,
+    };
+    run.push(p);
+  });
+  flush();
+  return { lines, dots };
+}
+
 export type OverviewView = {
   status: StatusView;
+  /** P1-87 PR 3: the first screen's fleet health and number tiles. */
+  health: HealthView;
+  numbers: NumberTile[];
   live: LiveRow[];
   leads: LeadsView;
   reports: ReportsView;
@@ -1765,15 +1983,20 @@ export function overviewFromSnapshot(s: CockpitSnapshot, now: Date): OverviewVie
   const names = new Map((s.sites ?? []).map((x) => [x.id, x.name]));
   const status = (r: SubmissionRow) => storedStatus(s, r);
   const live = liveRows(model, s.submissions, status, now);
+  const leads = leadsView(s, (id) => names.get(id) ?? "A site no longer listed", status, now);
+  const reports = reportsView(model, s.reports, now);
+  const trends = trendsFromDaily(s.nights, now);
   return {
     status: statusView(model, live, s.reports !== null, now),
+    health: healthView(model, live, now),
+    numbers: numbersView(s, leads, reports, trends),
     live,
-    leads: leadsView(s, (id) => names.get(id) ?? "A site no longer listed", status, now),
-    reports: reportsView(model, s.reports, now),
+    leads,
+    reports,
     nightly: nightlyView(s, now),
     upkeep: upkeepView(model, s, now),
     prsMerged: overNights(s.nights, (c) => c.prsMerged.value, now),
-    trends: trendsFromDaily(s.nights, now),
+    trends,
     // The reader takes the newest OVERVIEW_NIGHTS rows, so a full read is a floor.
     nightsCollected:
       s.nights === null

@@ -121,19 +121,21 @@ describe("the overview page, rendered from a real view (T1)", () => {
     );
   });
 
-  it("never shows the two spam counters added together", () => {
-    // 248 stopped before storage (the night) and 3 screened: no element reads 251.
+  it("the spam tile is the two spam counters added, and the totals table keeps them apart", () => {
+    // 248 stopped before storage (the night) and 3 screened: the tile reads their sum,
+    // and the totals table still shows each counter in its own cell.
     const stopped = DOC.querySelectorAll(".ov-leads-totals tr").find((tr) =>
       text(tr).startsWith("Stopped before storage"),
     )!;
     expect(stopped.querySelectorAll("td").map(text)).toEqual(["0", "248, as of Oct 26"]);
     const sum = String(Number(VIEW.leads.stoppedAllTime) + VIEW.leads.allTime!.screened);
     expect(sum).toBe("251");
-    expect(DOC.querySelectorAll("*").filter((e) => text(e) === sum)).toEqual([]);
-    expect(pageText(DOC)).not.toMatch(new RegExp(`\\b${sum}\\b`));
+    const tile = DOC.querySelectorAll(".ov-tile").find((t) =>
+      text(t).includes("spam submissions stopped"),
+    )!;
+    expect(text(tile.querySelector(".ov-num")!)).toBe(sum);
+    expect(text(tile.querySelector(".ov-context")!)).toBe("248 before storage, 3 screened");
   });
-
-
 });
 
 /** The digit runs a visitor reads below the shell, one text node at a time, so two
@@ -338,7 +340,7 @@ describe("the sentinel render: each leaf in its labelled element (T1, T2; round 
       const on = v.startsWith("⟦") ? words.includes(v) : shown.has(v);
       expect.soft(on, `${path} (${v}) is on the page`).toBe(true);
     }
-    expect(checked).toBeGreaterThan(120);
+    expect(checked).toBeGreaterThan(100);
   });
 
   it("the status line and the Broken list read their own fields", () => {
@@ -351,7 +353,6 @@ describe("the sentinel render: each leaf in its labelled element (T1, T2; round 
       }),
     );
   });
-
 
   it("the leads headline reads each count from its own field", () => {
     const span = (term: string) =>
@@ -412,11 +413,15 @@ describe("the sentinel render: each leaf in its labelled element (T1, T2; round 
       `${sent("reports.sent.real")} reports sent to clients: ${sent("reports.sent.approvedFirst")} approved by one of us before sending, and ${sent("reports.sent.aroundGate")} without that yes.`,
     );
     const meds = SDOC.querySelectorAll(".ov-medians dt").map(text);
-    expect(meds).toEqual(SV.reports.lighthouse.map((_, i) => sent(`reports.lighthouse[${letters(i)}].label`)));
+    expect(meds).toEqual(
+      SV.reports.lighthouse.map((_, i) => sent(`reports.lighthouse[${letters(i)}].label`)),
+    );
     expect(SDOC.querySelectorAll(".ov-medians dd").map(text)).toEqual(
       SV.reports.lighthouse.map((_, i) => sent(`reports.lighthouse[${letters(i)}].median`)),
     );
-    expect(one(".ov-lighthouse-line")).toContain(`from audits as old as ${sent("reports.lighthouseAsOf")}.`);
+    expect(one(".ov-lighthouse-line")).toContain(
+      `from audits as old as ${sent("reports.lighthouseAsOf")}.`,
+    );
     const rows = SDOC.querySelectorAll(".ov-due tbody tr");
     expect(rows.length).toBe(SV.reports.perSite.length);
     rows.forEach((tr, i) => {
@@ -426,8 +431,6 @@ describe("the sentinel render: each leaf in its labelled element (T1, T2; round 
       expect(text(tr.querySelector('td[data-label="Waiting"]')!)).toBe(sent(`${p}.waiting`));
     });
   });
-
-
 });
 
 describe("review round 3: the page reads right for one, and for a form test not yet trusted", () => {
@@ -541,22 +544,12 @@ describe("every link from the overview lands on an anchor that exists (review ro
 });
 
 describe("review round 4: emphasis, the none-open sentence, and the shipping copy", () => {
-  it("a failed cell is bold, and the status band is the Broken one (T4)", () => {
-    const bravo = DOC.querySelectorAll(".ov-live tbody tr").find((tr) =>
-      text(tr).startsWith("Bravo"),
-    )!;
-    expect(bravo.querySelector('td[data-label="Live"]')!.getAttribute("class")).toBe("bad");
-    const acme = DOC.querySelectorAll(".ov-live tbody tr").find((tr) =>
-      text(tr).startsWith("Acme"),
-    )!;
-    expect(acme.querySelector('td[data-label="Live"]')!.getAttribute("class")).toBe("ok");
+  it("the status band is the Broken one when a site is broken, and the quiet one otherwise (T4)", () => {
     expect(DOC.querySelector("section.ov-status")!.classList.contains("broken")).toBe(true);
     // Control: a quiet page's band is not.
     const quiet = parse(pageHtml(overviewFromSnapshot(snapshot(), NOW)));
     expect(quiet.querySelector("section.ov-status")!.classList.contains("ok")).toBe(true);
   });
-
-
 });
 
 /** The digit runs a visitor reads outside How we count's definitions: every text node
@@ -604,12 +597,13 @@ describe("no count is typed into the page, over the sentinel render (review roun
 
   it("is an instrument that can fail: a number typed into an existing element is caught", () => {
     const html = pageHtml(SV);
-    expect(html).toContain("Runs completed: ");
-    expect(stray(html.replace("Runs completed: ", "Runs completed: 30 nights, "))).toEqual(["30"]);
+    const leads = '<h2 id="ov-leads">Leads</h2>';
+    expect(html).toContain(leads);
+    expect(stray(html.replace(leads, '<h2 id="ov-leads">Leads 30 nights</h2>'))).toEqual(["30"]);
     // The page's own fixed values typed elsewhere are caught too.
-    expect(
-      stray(html.replace("Runs completed: ", `Runs completed: ${n} steps, 100 runs, `)),
-    ).toEqual([String(n), "100"]);
+    expect(stray(html.replace(leads, `<h2 id="ov-leads">Leads ${n} steps, 100 runs</h2>`))).toEqual(
+      [String(n), "100"],
+    );
     // And in an attribute.
     expect(stray(html.replace("<h1", '<h1 title="30 nights a month"'))).toEqual(["30"]);
   });
@@ -807,7 +801,10 @@ describe("the first screen (P1-87 PR 3)", () => {
   const quietSites = ["Acme", "Rsvp Site"];
   const quiet = parse(pageHtml(overviewFromSnapshot(snapshot(), NOW)));
   const screen = (doc: HTMLElement) =>
-    doc.querySelectorAll(".ov-first").map((e) => e.toString()).join("");
+    doc
+      .querySelectorAll(".ov-first")
+      .map((e) => e.toString())
+      .join("");
 
   it("shows no site name in the panels on a quiet day", () => {
     const panels = parse(screen(quiet));
@@ -818,12 +815,24 @@ describe("the first screen (P1-87 PR 3)", () => {
   });
 
   it("the tier bar's counts read as text, in the order OK, watch, attention, broken", () => {
-    expect(one(".ov-tier-counts")).toBe("2 OK · 0 watch · 0 attention · 1 broken");
+    expect(text(DOC.querySelector(".ov-tier-counts")!)).toBe(
+      "2 OK · 0 watch · 0 attention · 1 broken",
+    );
   });
 
   it("the check rows come in the sketch's order, each with its counts", () => {
-    const rows = DOC.querySelectorAll(".ov-check").map((r) => text(r.querySelector(".ov-check-name")!));
-    expect(rows).toEqual(["Live", "Certificate", "Deploy", "Contact form", "Security", "Accessibility", "Build + tests"]);
+    const rows = DOC.querySelectorAll(".ov-check").map((r) =>
+      text(r.querySelector(".ov-check-name")!),
+    );
+    expect(rows).toEqual([
+      "Live",
+      "Certificate",
+      "Deploy",
+      "Contact form",
+      "Security",
+      "Accessibility",
+      "Build + tests",
+    ]);
     // Bravo's Live is failing: one failing, and the pass count first.
     const live = DOC.querySelectorAll(".ov-check")[0]!;
     expect(text(live.querySelector(".ov-check-count")!)).toBe("2 · 1 failing");
@@ -838,13 +847,28 @@ describe("the first screen (P1-87 PR 3)", () => {
   });
 
   it("the Lighthouse medians sit in the health panel, under a muted line", () => {
-    expect(one(".ov-lighthouse-line")).toContain("Google Lighthouse, the middle score across our sites");
-    expect(DOC.querySelectorAll(".ov-medians dt").map(text)).toEqual(["Performance", "Accessibility", "Best practices", "SEO"]);
+    expect(one(".ov-lighthouse-line")).toContain(
+      "Google Lighthouse, the middle score across our sites",
+    );
+    expect(DOC.querySelectorAll(".ov-medians dt").map(text)).toEqual([
+      "Performance",
+      "Accessibility",
+      "Best practices",
+      "SEO",
+    ]);
   });
 
   it("the removed sections are gone from the page", () => {
     const all = text(DOC.querySelector("body")!);
-    for (const gone of ["Is every site live?", "What runs every night", "Upkeep", "How changes ship", "How we count", "Open now", "The ladder"])
+    for (const gone of [
+      "Is every site live?",
+      "What runs every night",
+      "Upkeep",
+      "How changes ship",
+      "How we count",
+      "Open now",
+      "The ladder",
+    ])
       expect(all, gone).not.toContain(gone);
   });
 
@@ -857,7 +881,12 @@ describe("the first screen (P1-87 PR 3)", () => {
 
   it("an unmeasured tile reads its words, never 0", () => {
     const none = parse(
-      pageHtml(overviewFromSnapshot(snapshot({ sites: snapshot().sites, submissions: null, nights: null, reports: null }), NOW)),
+      pageHtml(
+        overviewFromSnapshot(
+          snapshot({ sites: snapshot().sites, submissions: null, nights: null, reports: null }),
+          NOW,
+        ),
+      ),
     );
     const nums = none.querySelectorAll(".ov-tile .ov-num").map(text);
     expect(nums.length).toBe(6);
@@ -878,9 +907,15 @@ describe("the first screen (P1-87 PR 3)", () => {
   it("a night with no value is a gap in the sparkline, never a drop to 0", () => {
     // Two-week fixture: the leads line breaks around its two empty nights.
     const fourteen = Array.from({ length: 14 }, (_, i) =>
-      night(new Date(Date.parse("2026-10-13T00:00:00Z") + i * 86_400_000).toISOString().slice(0, 10), {
-        leads: { value: i === 5 ? null : { notified: i } },
-      }),
+      night(
+        new Date(Date.parse("2026-10-13T00:00:00Z") + i * 86_400_000).toISOString().slice(0, 10),
+        {
+          leads:
+            i === 5
+              ? { value: null, reason: "not read" }
+              : { value: { new: 0, read: 0, archived: 0, spamAuto: 0, spam: 0, notified: i } },
+        },
+      ),
     ).reverse();
     const page = parse(pageHtml(overviewFromSnapshot(snapshot({ nights: fourteen }), NOW)));
     const leads = page.querySelectorAll(".ov-tile")[0]!;
