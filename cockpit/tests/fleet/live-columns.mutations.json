@@ -463,5 +463,31 @@
     ],
     "test": "cockpit/tests/fleet/fleet-table-css.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "36-bad-fact-weight-commented-out",
+    "why": "A failed check's bold is commented out, so the cell renders at text weight (review round 6)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/fleet-table.css",
+        "find": "  font-weight: var(--weight-bold);\n}\ntable.fleet td.fact.unknown",
+        "replace": "  /* font-weight: var(--weight-bold); */\n}\ntable.fleet td.fact.unknown"
+      }
+    ],
+    "test": "cockpit/tests/fleet/fleet-table-css.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "37-bad-fact-overridden-later",
+    "why": "A later rule with the same selector takes the bold away (review round 6)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/fleet-table.css",
+        "find": "table.fleet td.fact.unknown {",
+        "replace": "table.fleet td.fact.bad {\n  font-weight: normal;\n}\ntable.fleet td.fact.unknown {"
+      }
+    ],
+    "test": "cockpit/tests/fleet/fleet-table-css.ssr.test.ts",
+    "expect": "red"
   }
 ]
