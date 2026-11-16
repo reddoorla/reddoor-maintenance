@@ -309,6 +309,7 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     await page.waitForFunction(() => document.querySelector("a[href='/fleet']") !== null);
     await page.waitForLoadState("networkidle");
 
+    await follow(page, "/how", "How this works");
     await follow(page, "/fleet", "Sites");
     await follow(page, "/s/acme", "Acme");
     await follow(page, "/submissions", "Submissions");
@@ -339,6 +340,269 @@ describe("cockpit navigation, in a browser, against the built app", () => {
         `${NIGHTLIES.length * 2} of ${NIGHTLIES.length * 2} nightly steps ran to the end over the last 2 nights`,
       );
   });
+
+  // P1-87 PR 1, review round 2: on a small laptop (1000px) each flow stays one row,
+  // so no arrow starts a wrapped row and the last step stays in the chain.
+  it("How this works keeps each flow on one row at 1000px", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1000, height: 800 });
+    await page.goto(`${origin}/how`);
+    await expect.poll(() => page.locator("h1").first().textContent()).toContain("How this works");
+    const tops = await page.$$eval(".how-flow", (flows) =>
+      flows.map((f) => [...f.children].map((li) => Math.round(li.getBoundingClientRect().top))),
+    );
+    expect(tops.length).toBe(3);
+    for (const row of tops) expect(new Set(row).size).toBe(1);
+    // Each chapter's heading is regular weight, not the browser's bold.
+    const headings = await page.$$eval(".how-chapter h2", (hs) =>
+      hs.map((h) => getComputedStyle(h).fontWeight),
+    );
+    expect(headings).toHaveLength(5);
+    expect(new Set(headings)).toEqual(new Set(["400"]));
+    // Each box after the first has its arrow, pointing along the row: not the phone's.
+    const arrows = await page.$$eval(".how-flow > li + li", (els) =>
+      els.map((e) => [
+        getComputedStyle(e, "::before").content,
+        getComputedStyle(e, "::before").transform,
+      ]),
+    );
+    for (const [content] of arrows) expect(content).not.toBe("none");
+    expect(new Set(arrows.map(([, t]) => t)).size).toBe(1);
+    expect(arrows[0]![1]).not.toBe("none");
+    // On a phone the same arrow turns to point down the column.
+    await page.setViewportSize({ width: 390, height: 800 });
+    const phone = await page.$eval(
+      ".how-flow > li + li",
+      (e) => getComputedStyle(e, "::before").transform,
+    );
+    expect(phone).not.toBe("none");
+    expect(phone).not.toBe(arrows[0]![1]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      1000,
+    );
+  });
+
+  // P1-87 PR 1, review round 5: at 768px (under 60rem) the ladder is two columns, so
+  // its four boxes form a 2x2 grid and Broken is not alone in a row.
+  it("How this works lays the ladder out as a 2x2 grid at 768px", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 768, height: 800 });
+    await page.emulateMedia({ colorScheme: "light" });
+    await page.goto(`${origin}/how`);
+    await expect.poll(() => page.locator("h1").first().textContent()).toContain("How this works");
+    const tops = await page.$$eval(".how-ladder li", (els) =>
+      els.map((e) => Math.round(e.getBoundingClientRect().top)),
+    );
+    expect(tops).toHaveLength(4);
+    expect(tops[0]).toBe(tops[1]);
+    expect(tops[2]).toBe(tops[3]);
+    expect(tops[2]).toBeGreaterThan(tops[0]!);
+  });
+
+  // P1-87 PR 1, review round 6: the ladder is four columns at 1000px, and its bars
+  // and hairlines are the widths the page's notes promise.
+  // Review round 7: the bars and hairlines are checked in both themes, not only in light.
+  it.each(["light", "dark"] as const)(
+    "How this works sets the ladder's four levels on one row, with its bar widths, at 1000px in the %s theme",
+    async (scheme) => {
+      const page = await signedIn();
+      await page.setViewportSize({ width: 1000, height: 800 });
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.goto(`${origin}/how`);
+      await expect.poll(() => page.locator("h1").first().textContent()).toContain("How this works");
+      const ladder = await page.$$eval(".how-ladder li", (els) =>
+        els.map((e) => ({
+          cls: e.className,
+          top: Math.round(e.getBoundingClientRect().top),
+          bar: getComputedStyle(e).borderTopWidth,
+          textTop: Math.round(e.firstElementChild!.getBoundingClientRect().top),
+        })),
+      );
+      expect(ladder).toHaveLength(4);
+      expect(new Set(ladder.map((l) => l.top)).size).toBe(1);
+      // Broken's word sits level with the others' even with its thicker bar.
+      expect(new Set(ladder.map((l) => l.textTop)).size).toBe(1);
+      // Only Broken's bar is wider than 4px, and it is 8px.
+      expect(Object.fromEntries(ladder.map((l) => [l.cls, l.bar]))).toEqual({
+        ok: "4px",
+        watch: "4px",
+        attention: "4px",
+        broken: "8px",
+      });
+      // Every flow box but the filled end box has the 1px hairline.
+      const hairlines = await page.$$eval(".how-flow li:not(.how-end)", (els) =>
+        els.map((e) => getComputedStyle(e).borderTopWidth),
+      );
+      expect(hairlines.length).toBeGreaterThan(0);
+      expect(new Set(hairlines)).toEqual(new Set(["1px"]));
+      // Review round 7: each hairline is the --rule token's colour, resolved by a probe.
+      const rule = await page.evaluate(() => {
+        const probe = document.createElement("div");
+        probe.style.color = "var(--rule)";
+        document.body.append(probe);
+        const c = getComputedStyle(probe).color;
+        probe.remove();
+        return c;
+      });
+      const hairlineColors = await page.$$eval(".how-flow li:not(.how-end)", (els) =>
+        els.map((e) => getComputedStyle(e).borderTopColor),
+      );
+      expect(hairlineColors).toHaveLength(hairlines.length);
+      for (const c of hairlineColors) expect(c).toBe(rule);
+      // The filled end box's hairline is its own fill, so the rule does not cross it.
+      const ends = await page.$$eval(".how-flow li.how-end", (els) =>
+        els.map((e) => [getComputedStyle(e).borderTopColor, getComputedStyle(e).backgroundColor]),
+      );
+      expect(ends.length).toBe(3);
+      for (const [border, fill] of ends) expect(border).toBe(fill);
+      // Review round 7 (nit): the end box's hairline is 1px, like the rest of the flow.
+      const endWidths = await page.$$eval(".how-flow li.how-end", (els) =>
+        els.map((e) => getComputedStyle(e).borderTopWidth),
+      );
+      expect(endWidths).toHaveLength(3);
+      for (const w of endWidths) expect(w).toBe("1px");
+    },
+  );
+
+  // P1-87 PR 1, review round 6: at 390px the ladder is one column, four rows in order.
+  // Review round 7: also at 470px, which is under the 30rem (480px) rule's edge.
+  it.each([390, 470])(
+    "How this works stacks the ladder's four levels in one column at %spx",
+    async (width) => {
+      const page = await signedIn();
+      await page.setViewportSize({ width, height: 844 });
+      await page.emulateMedia({ colorScheme: "light" });
+      await page.goto(`${origin}/how`);
+      await expect.poll(() => page.locator("h1").first().textContent()).toContain("How this works");
+      const boxes = await page.$$eval(".how-ladder li", (els) =>
+        els.map((e) => {
+          const r = e.getBoundingClientRect();
+          return { top: Math.round(r.top), left: Math.round(r.left) };
+        }),
+      );
+      expect(boxes).toHaveLength(4);
+      expect(new Set(boxes.map((b) => b.left)).size).toBe(1);
+      for (let i = 1; i < boxes.length; i++)
+        expect(boxes[i]!.top).toBeGreaterThan(boxes[i - 1]!.top);
+    },
+  );
+
+  // P1-87 PR 1, review round 7: the four-column rule starts at 60rem (960px), so at
+  // 970px all four levels share one row too, not only at 1000px.
+  it("How this works sets the ladder's four levels on one row at 970px", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 970, height: 800 });
+    await page.emulateMedia({ colorScheme: "light" });
+    await page.goto(`${origin}/how`);
+    await expect.poll(() => page.locator("h1").first().textContent()).toContain("How this works");
+    const tops = await page.$$eval(".how-ladder li", (els) =>
+      els.map((e) => Math.round(e.getBoundingClientRect().top)),
+    );
+    expect(tops).toHaveLength(4);
+    expect(new Set(tops).size).toBe(1);
+  });
+
+  // P1-87 PR 1: How this works on a 390px-wide phone, in both themes, with nothing
+  // wider than its box: the flows stack, and How we count opens inside the screen.
+  it.each(["light", "dark"] as const)(
+    "How this works fits a 390px-wide screen in the %s theme",
+    async (scheme) => {
+      const page = await signedIn();
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.goto(`${origin}/how`);
+      await expect.poll(() => page.locator("h1").first().textContent()).toContain("How this works");
+      expect(await page.locator("section.how-chapter").count()).toBe(5);
+      await page.locator(".how-count summary").click();
+      const fit = await page.evaluate(() => ({
+        scroll: document.documentElement.scrollWidth,
+        width: window.innerWidth,
+        wide: [...document.body.querySelectorAll("*")]
+          .filter((e) => {
+            const d = getComputedStyle(e).display;
+            return d !== "inline" && d !== "contents" && e.clientWidth > 0;
+          })
+          .filter((e) => e.scrollWidth > e.clientWidth + 1)
+          .map(
+            (e) => `${e.tagName.toLowerCase()}.${e.className}: ${e.scrollWidth} > ${e.clientWidth}`,
+          ),
+        flowRight: Math.max(
+          ...[...document.querySelectorAll(".how-flow li, .how-steps li, .how-ladder li")].map(
+            (e) => e.getBoundingClientRect().right,
+          ),
+        ),
+      }));
+      expect(fit.wide).toEqual([]);
+      expect(fit.scroll).toBeLessThanOrEqual(fit.width);
+      expect(fit.flowRight).toBeLessThanOrEqual(fit.width);
+      // The flows stack: on a phone each box is on its own row, under the one before.
+      const flows = await page.$$eval(".how-flow", (fs) =>
+        fs.map((f) =>
+          [...f.children].map((li) => {
+            const r = li.getBoundingClientRect();
+            return { top: Math.round(r.top), left: Math.round(r.left) };
+          }),
+        ),
+      );
+      expect(flows).toHaveLength(3);
+      for (const boxes of flows) {
+        expect(new Set(boxes.map((b) => b.top)).size).toBe(boxes.length);
+        expect(new Set(boxes.map((b) => b.left)).size).toBe(1);
+      }
+      // The filled end box's words are readable, and no arrow leads into the first box.
+      const ends = await page.$$eval(".how-flow li.how-end", (els) =>
+        els.map((e) => [getComputedStyle(e).color, getComputedStyle(e).backgroundColor]),
+      );
+      expect(ends.length).toBe(3);
+      for (const [color, background] of ends) expect(color).not.toBe(background);
+      const firstArrows = await page.$$eval(".how-flow > li:first-child", (els) =>
+        els.map((e) => getComputedStyle(e, "::before").content),
+      );
+      expect(firstArrows).toEqual(["none", "none", "none"]);
+      // Every box after the first has its arrow, turned to point down the column.
+      const arrows = await page.$$eval(".how-flow > li + li", (els) =>
+        els.map((e) => [
+          getComputedStyle(e, "::before").content,
+          getComputedStyle(e, "::before").transform,
+        ]),
+      );
+      expect(arrows.length).toBeGreaterThan(8);
+      for (const [content] of arrows) expect(content).not.toBe("none");
+      expect(new Set(arrows.map(([, t]) => t)).size).toBe(1);
+      // The end box's words meet 4.5:1 on its fill.
+      const contrast = await page.$$eval(".how-flow li.how-end", (els) =>
+        els.map((e) => {
+          const lum = (c: string) => {
+            const [r, g, b] = c
+              .match(/\d+(\.\d+)?/g)!
+              .slice(0, 3)
+              .map(Number)
+              .map((v) => {
+                const x = v / 255;
+                return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+              });
+            return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+          };
+          const [a, b] = [lum(getComputedStyle(e).color), lum(getComputedStyle(e).backgroundColor)];
+          return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+        }),
+      );
+      for (const r of contrast) expect(r).toBeGreaterThanOrEqual(4.5);
+      // Broken's bar is the Broken red, and no other level's is.
+      const bars = await page.$$eval(".how-ladder li", (els) =>
+        els.map((e) => [e.className, getComputedStyle(e).borderTopColor]),
+      );
+      const red = await page.evaluate(() => {
+        const probe = document.createElement("div");
+        probe.style.color = "var(--broken-fill)";
+        document.body.append(probe);
+        const c = getComputedStyle(probe).color;
+        probe.remove();
+        return c;
+      });
+      expect(bars.filter(([, c]) => c === red).map(([k]) => k)).toEqual(["broken"]);
+    },
+  );
 
   // P1-78g's Done-when: the overview on a 390px-wide phone, in both themes, with
   // nothing scrolling sideways. Review round 1 (T5): the seed's long-named Broken

@@ -61,9 +61,11 @@ describe("the triage page lives at /triage; the overview at /", () => {
 });
 
 describe("the nav", () => {
-  it("reads Overview · Triage · Sites · Inbox · Audits, with Triage at /triage", () => {
+  it("reads Overview · How this works · Triage · Sites · Inbox · Audits, with Triage at /triage", () => {
     expect(NAV_ITEMS.map((n) => [n.label, n.href])).toEqual([
       ["Overview", "/"],
+      // P1-87: How this works sits beside the overview.
+      ["How this works", "/how"],
       ["Triage", "/triage"],
       ["Sites", "/fleet"],
       ["Inbox", "/submissions"],

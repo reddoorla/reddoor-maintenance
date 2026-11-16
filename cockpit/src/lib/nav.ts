@@ -6,6 +6,7 @@ export const NAV_ITEMS: ReadonlyArray<{
   match: (path: string) => boolean;
 }> = [
   { href: "/", label: "Overview", match: (p) => p === "/" },
+  { href: "/how", label: "How this works", match: (p) => p === "/how" },
   { href: "/triage", label: "Triage", match: (p) => p === "/triage" },
   { href: "/fleet", label: "Sites", match: (p) => p === "/fleet" || p.startsWith("/s/") },
   { href: "/submissions", label: "Inbox", match: (p) => p === "/submissions" },

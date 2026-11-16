@@ -1,0 +1,810 @@
+[
+  {
+    "id": "1-typed-number",
+    "why": "A chapter drops its real number and prints a typed one",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "<span>{v.leads.allTime.screened} set aside</span>",
+        "replace": "<span>293 set aside</span>"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2-how-we-count-short-a-term",
+    "why": "How we count is rendered without one of HOW_WE_COUNT's terms",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "{#each HOW_WE_COUNT as h (h.term)}",
+        "replace": "{#each HOW_WE_COUNT.slice(1) as h (h.term)}"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "3-no-nav-entry",
+    "why": "The nav entry is left out",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/nav.ts",
+        "find": "  { href: \"/how\", label: \"How this works\", match: (p) => p === \"/how\" },\n",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "4-ladder-out-of-order",
+    "why": "The ladder is shown worst first instead of mildest first",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "const LADDER_ORDER: readonly Tier[] = [\"ok\", \"watch\", \"attention\", \"broken\"];",
+        "replace": "const LADDER_ORDER: readonly Tier[] = [\"broken\", \"attention\", \"watch\", \"ok\"];"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "5-step-names-shifted",
+    "why": "Each step is given the wrong step's short name (off by one)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "short: NIGHTLY_STEPS[i]!.short",
+        "replace": "short: NIGHTLY_STEPS[(i + 1) % NIGHTLY_STEPS.length]!.short"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "6-flow-overflows-a-phone",
+    "why": "A flow's boxes keep a minimum width wider than a phone (a flex basis would not do: on a phone the flow is a column, where the basis is a height)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  min-width: 0;\n",
+        "replace": "  min-width: 30rem;\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "7-wrong-night",
+    "why": "Chapter 1 reads the night before the newest (review round 1, tests M13)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "  const o = overviewFromSnapshot(s, now);",
+        "replace": "  const o = overviewFromSnapshot(s, now);\n  const older = overviewFromSnapshot({ ...s, nights: s.nights?.slice(1) ?? null }, now);\n  o.nightly = older.nightly;"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "8-outcomes-reversed",
+    "why": "Each step shows another step's result (review round 1, tests M8)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "      steps: o.nightly.steps.map((step, i) => ({\n        ...step,\n",
+        "replace": "      steps: o.nightly.steps.map((step, i, a) => ({\n        ...step,\n        outcome: a[a.length - 1 - i]!.outcome,\n"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "9-lead-named",
+    "why": "A lead's name and email reach the page (review round 1, tests M7)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "    leads: o.leads,",
+        "replace": "    leads: { ...o.leads, since: `${s.submissions?.[0]?.name} <${s.submissions?.[0]?.email}>` },"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "10-upkeep-swapped",
+    "why": "The two upkeep counts are shown under each other's label (review round 1, tests M1b)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "Dependency updates merged: {v.upkeep.automerged}.",
+        "replace": "Dependency updates merged: {v.upkeep.vulnsCleared}."
+      },
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "vulnerability: {v.upkeep.vulnsCleared}.",
+        "replace": "vulnerability: {v.upkeep.automerged}."
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "11-checks-count-typed",
+    "why": "The count of checks is typed (review round 1, tests M18)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "carries up to {v.reports.checks.length} checks",
+        "replace": "carries up to 6 checks"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "12-failed-read-as-zero",
+    "why": "A failed submissions read shows as zero leads (review round 1, tests M10)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "<p class=\"muted\">The submissions could not be read just now. Reload to try again.</p>",
+        "replace": "<p class=\"muted\">0 leads so far.</p>"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "13-email-retry-claimed",
+    "why": "The page claims a failed email is retried (review round 1, correctness C1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "If an email to the client fails, the lead is still kept in our own inbox",
+        "replace": "If an email to the client fails, it is held and retried, never lost; the lead is still kept in our own inbox"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "14-ladder-by-index",
+    "why": "Each ladder box gets the line at its index, not its own level's (review round 2, tests A)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "const line = LADDER_LINES.find((l) => l.toLowerCase().startsWith(`${tier}:`));",
+        "replace": "const line = LADDER_LINES[LADDER_ORDER.indexOf(tier)];"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "15-step-count-typed-in-words",
+    "why": "The step count is typed in words beside the checks (review round 2, tests B)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "each proven by a step of the night",
+        "replace": "each proven by one of the eight steps of the night"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "16-number-typed-in-a-proof",
+    "why": "A number is typed into a check's proof (review round 2, tests F)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "<dd>{c.proof}</dd>",
+        "replace": "<dd>{c.proof}, on all 9 sites</dd>"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "17-proofs-shifted",
+    "why": "Each check shows the next check's proof (review round 2, tests C)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "{#each v.reports.checks as c (c.name)}",
+        "replace": "{#each v.reports.checks.map((x, i, a) => ({ ...x, proof: a[(i + 1) % a.length]!.proof })) as c (c.name)}"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "18-plural-inverted",
+    "why": "Submission and submissions swapped (review round 2, tests D)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "=== 1 ? \"submission\" : \"submissions\"",
+        "replace": "=== 1 ? \"submissions\" : \"submission\""
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "19-load-ignores-clock",
+    "why": "The load builds the view on this machine's clock, not the server's (review round 2, tests E)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.ts",
+        "find": "view: howFromSnapshot(snapshot, now)",
+        "replace": "view: howFromSnapshot(snapshot, new Date())"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "20-flow-wraps",
+    "why": "A flow wraps onto a second row on a small laptop (review round 2, a11y 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  flex-wrap: nowrap;\n",
+        "replace": "  flex-wrap: wrap;\n"
+      },
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  box-sizing: border-box;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "21-times-swapped",
+    "why": "The start and send times swap places (review round 3, tests 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "The run starts at {v.nightly.startsAt},",
+        "replace": "The run starts at {v.nightly.sendsAt},"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "22-phone-flow-unstacked",
+    "why": "On a phone the flows stay in a row (review round 3, tests 2)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "@media (max-width: 60rem) {",
+        "replace": "@media (max-width: 20rem) {"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "23-short-names-swapped",
+    "why": "Two steps' short names swapped in the data (review round 3, tests 3)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    short: \"CMS check\",",
+        "replace": "    short: \"CMS sync\","
+      },
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    short: \"CMS sync\",\n    label: \"Prismic (the CMS) sync",
+        "replace": "    short: \"CMS check\",\n    label: \"Prismic (the CMS) sync"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "24-end-box-unreadable",
+    "why": "The filled end box's text is the colour of its fill (review round 3, tests 4)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  background: var(--ink);\n  color: var(--on-ink);\n",
+        "replace": "  background: var(--ink);\n  color: var(--ink);\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "25-wrong-title",
+    "why": "The tab is titled as the overview (review round 3, tests 5)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "<title>Reddoor maintenance — how this works</title>",
+        "replace": "<title>Reddoor maintenance — overview</title>"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "26-end-box-moved",
+    "why": "The lead flow's first box is filled instead of its last (review round 3, tests 6)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "<li><strong>A visitor submits</strong>",
+        "replace": "<li class=\"how-end\"><strong>A visitor submits</strong>"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "27-labelledby-missing",
+    "why": "A chapter is labelled by an id that does not exist (review round 3, tests 6)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "<section class=\"how-chapter\" aria-labelledby=\"how-ship\">",
+        "replace": "<section class=\"how-chapter\" aria-labelledby=\"how-shipping\">"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "28-arrow-into-first-box",
+    "why": "An arrow leads into each flow's first box from nothing (review round 3, tests 6)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": ".how-flow li + li::before {\n  /*",
+        "replace": ".how-flow li::before {\n  /*"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "29-arrows-gone",
+    "why": "Every flow loses its arrows (review round 4, tests 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  content: \"\";\n",
+        "replace": "  content: none;\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "30-phone-arrows-sideways",
+    "why": "On a phone the arrows keep pointing sideways (review round 4, tests 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  .how-flow li + li::before {",
+        "replace": "  .how-flow li + li::after {"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "31-end-box-low-contrast",
+    "why": "The end box's words are barely readable on its fill (review round 4, tests 2)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  color: var(--on-ink);\n",
+        "replace": "  color: var(--ink-dark);\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "32-broken-not-red",
+    "why": "Broken's bar is ink, like Attention's (review round 4, tests 3)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": ".how-ladder li.broken {\n  border-top-color: var(--broken-fill);",
+        "replace": ".how-ladder li.broken {\n  border-top-color: var(--ink);"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "33-zero-around-gate",
+    "why": "\"0 went without that yes\" when every report was approved (review round 4, tests 4)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "aroundGate > 0}",
+        "replace": "aroundGate >= 0}"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "34-lighthouse-run-together",
+    "why": "The Lighthouse scores lose their separators (review round 4, tests 5)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "{#if i > 0}<span aria-hidden=\"true\">{\" ·\"}",
+        "replace": "{#if i > 0}<span aria-hidden=\"true\">{\"\"}"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "35-step-numbers-gone",
+    "why": "The step numbers the report's proofs cite are gone (review round 4, a11y 1, tests 5)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "><span class=\"how-step-n\">{s.n}</span><span aria-hidden=\"true\">{\" ·\"}</span>",
+        "replace": ">"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "36-every-report-six",
+    "why": "The page says every report carries all the checks (review round 4, correctness 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "Every maintenance report carries up to {v.reports.checks.length} checks",
+        "replace": "Every maintenance report carries {v.reports.checks.length} checks"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "37-view-upkeep-swapped",
+    "why": "The model swaps the two upkeep counts (review round 5, tests 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "upkeep: { automerged: o.upkeep.automerged, vulnsCleared: o.upkeep.vulnsCleared }",
+        "replace": "upkeep: { automerged: o.upkeep.vulnsCleared, vulnsCleared: o.upkeep.automerged }"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "38-view-times-swapped",
+    "why": "The model swaps the start and send times (review round 5, tests 2)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "      ...o.nightly,\n",
+        "replace": "      ...o.nightly,\n      startsAt: o.nightly.sendsAt,\n      sendsAt: o.nightly.startsAt,\n"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "39-view-scale-wrong",
+    "why": "The model fills scale from another field (review round 5, tests 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "      ...o.nightly,\n",
+        "replace": "      ...o.nightly,\n      scale: o.upkeep.automerged,\n"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "40-view-lighthouse-asof-dropped",
+    "why": "The model drops how old the Lighthouse audits are (review round 5, tests 5)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "lighthouseAsOf: o.reports.lighthouseAsOf,",
+        "replace": "lighthouseAsOf: null,"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "41-stopped-asof-unguarded",
+    "why": "The 'as of' shows with no date when the stopped count has none (review round 5, tests 6)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "{#if v.leads.stoppedAsOf}, as of {v.leads\n              .stoppedAsOf}{/if}",
+        "replace": ", as of {v.leads.stoppedAsOf}"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "42-failed-read-notice-always",
+    "why": "The 'could not be read' notice shows on a healthy read (review round 5, tests 7)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "{#if v.leads.allTime === null}",
+        "replace": "{#if true}"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "43-lighthouse-asof-unguarded",
+    "why": "', from audits as old as' shows with no date (review round 5, tests 6)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "{#if v.reports.lighthouseAsOf}<span class=\"muted\"\n        >, from audits as old as {v.reports.lighthouseAsOf}</span\n      >{/if}",
+        "replace": "<span class=\"muted\">, from audits as old as {v.reports.lighthouseAsOf}</span>"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "44-vuln-same-night-for-all",
+    "why": "Every vulnerability fix is said to open the same night, the direct and the deeper alike (review round 5, copy)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "in\n    a package the site uses directly does not wait for the week: it opens the same night. One deeper\n    in the tree waits for the weekly lock-file update.",
+        "replace": "does not wait for the week: it opens the same night."
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "45-chapter-heading-bold",
+    "why": "The chapter headings fall back to the browser's bold (review round 5, style 8)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  font-weight: 400;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "46-ladder-auto-fit",
+    "why": "The ladder is auto-fit, so at 768px Broken sits alone in a row (review round 5, style 9)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  grid-template-columns: repeat(2, 1fr);\n",
+        "replace": "  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "47-step-space-inside-hidden",
+    "why": "The step separator holds the space inside the hidden span again, the pre-fix form (review round 6, P1-87)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "<span aria-hidden=\"true\">{\" ·\"}</span>{\" \"}<span",
+        "replace": "<span aria-hidden=\"true\">{\" · \"}</span><span"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "48-lighthouse-space-inside-hidden",
+    "why": "The Lighthouse separator holds the space inside the hidden span again, the pre-fix form (review round 6, P1-87)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "{#if i > 0}<span aria-hidden=\"true\">{\" ·\"}</span\n        >{\" \"}{/if}",
+        "replace": "{#if i > 0}<span aria-hidden=\"true\">{\" · \"}</span\n        >{/if}"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "49-step-separator-not-hidden",
+    "why": "The step separator loses aria-hidden, so the dot is read aloud (review round 6, P1-87)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "<span aria-hidden=\"true\">{\" ·\"}</span>{\" \"}<span",
+        "replace": "<span>{\" ·\"}</span>{\" \"}<span"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "50-lighthouse-separator-not-hidden",
+    "why": "The Lighthouse separator loses aria-hidden, so the dot is read aloud (review round 6, P1-87)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "{#if i > 0}<span aria-hidden=\"true\">{\" ·\"}</span\n        >{\" \"}{/if}",
+        "replace": "{#if i > 0}<span>{\" ·\"}</span\n        >{\" \"}{/if}"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "51-ladder-no-four-columns",
+    "why": "The ladder's four-column rule at 60rem is deleted (review round 6, P1-87)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "    grid-template-columns: repeat(4, 1fr);\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "52-broken-bar-4px",
+    "why": "Broken's bar is 4px again, no thicker than the others (review round 6, P1-87)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  border-top-width: 8px;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "53-flow-no-hairline",
+    "why": "The flow boxes lose their 1px hairline (review round 6, P1-87)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  /* A panel, not a control: square, with no control border. */\n  background: var(--surface);\n  border-top: 1px solid var(--rule);\n",
+        "replace": "  /* A panel, not a control: square, with no control border. */\n  background: var(--surface);\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "54-end-box-hairline",
+    "why": "The filled end box's hairline is its rule colour again, so it crosses the fill (review round 6, P1-87)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  /* The filled box takes the hairline's colour too, so the rule does not cross it. */\n  border-top-color: var(--ink);\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "55-broken-word-low",
+    "why": "Broken loses its padding compensation, so its word sits lower (review round 6, P1-87)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  padding-top: calc(var(--space-3) - 4px);\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "56-ladder-two-columns-at-390",
+    "why": "The 30rem one-column rule is deleted, so the ladder is two 175px columns at 390px (review round 6, P1-87)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "@media (max-width: 30rem) {\n  .how-ladder {\n    grid-template-columns: 1fr;\n  }\n}\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "57-dark-broken-bar-thin",
+    "why": "Broken's bar is thin in dark mode only, so the light-only 1000px check missed it (review round 7, P1-87)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  border-top-width: 8px;\n  padding-top: calc(var(--space-3) - 4px);\n}\n",
+        "replace": "  border-top-width: 8px;\n  padding-top: calc(var(--space-3) - 4px);\n}\n:root[data-theme=\"dark\"] .how-ladder li.broken {\n  border-top-width: 4px;\n  padding-top: var(--space-3);\n}\n@media (prefers-color-scheme: dark) {\n  :root:not([data-theme=\"light\"]) .how-ladder li.broken {\n    border-top-width: 4px;\n    padding-top: var(--space-3);\n  }\n}\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "58-one-column-at-25rem",
+    "why": "The one-column ladder rule ends at 25rem, so at 470px the ladder is two columns (review round 7, P1-87)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "@media (max-width: 30rem) {",
+        "replace": "@media (max-width: 25rem) {"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "59-four-columns-at-62rem",
+    "why": "The four-column ladder starts at 62rem, so at 970px it is two columns (review round 7, P1-87)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "@media (min-width: 60rem) {\n  .how-ladder {",
+        "replace": "@media (min-width: 62rem) {\n  .how-ladder {"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "60-hairline-ink",
+    "why": "The flow's hairline is ink, not the --rule token, so it is not the hairline colour (review round 7, P1-87)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  border-top: 1px solid var(--rule);\n  padding: var(--space-3);\n  display: flex;\n  flex-direction: column;\n  gap: var(--space-1);\n}",
+        "replace": "  border-top: 1px solid var(--ink);\n  padding: var(--space-3);\n  display: flex;\n  flex-direction: column;\n  gap: var(--space-1);\n}"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "61-end-box-thick-bar",
+    "why": "The filled end box's hairline is 4px, a bar, not a 1px hairline (review round 7, P1-87)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  /* The filled box takes the hairline's colour too, so the rule does not cross it. */\n  border-top-color: var(--ink);\n}",
+        "replace": "  /* The filled box takes the hairline's colour too, so the rule does not cross it. */\n  border-top-color: var(--ink);\n  border-top-width: 4px;\n}"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  }
+]

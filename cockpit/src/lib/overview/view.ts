@@ -931,6 +931,8 @@ type StampField = keyof Pick<
  *  stamps no site says what it reaches in `reach` instead. */
 export const NIGHTLY_STEPS: ReadonlyArray<{
   file: string;
+  /** The step's name in two words, for a diagram (P1-87, How this works). */
+  short: string;
   label: string;
   coverage: readonly string[];
   stamps: readonly StampField[];
@@ -938,6 +940,7 @@ export const NIGHTLY_STEPS: ReadonlyArray<{
 }> = [
   {
     file: "fleet-db-backup.yml",
+    short: "Backup",
     label: "Backup, with a restore rehearsal (the copy is restored to prove it works)",
     coverage: [],
     stamps: [],
@@ -945,12 +948,14 @@ export const NIGHTLY_STEPS: ReadonlyArray<{
   },
   {
     file: "fleet-prismic-drift.yml",
+    short: "CMS check",
     label: "Prismic (the CMS, where content is edited) check: its content models match the code",
     coverage: ["prismic_models_checked_at"],
     stamps: ["prismicModelsCheckedAt"],
   },
   {
     file: "fleet-prismic-sync.yml",
+    short: "CMS sync",
     label: "Prismic (the CMS) sync: a change made there comes back to the site's code for review",
     coverage: [],
     stamps: [],
@@ -958,12 +963,14 @@ export const NIGHTLY_STEPS: ReadonlyArray<{
   },
   {
     file: "fleet-security.yml",
+    short: "Security",
     label: "Security (known vulnerabilities, and packages behind)",
     coverage: ["security_audit_at", "deps_behind_packages_at"],
     stamps: ["lastSecurityAuditAt"],
   },
   {
     file: "fleet-lighthouse.yml",
+    short: "Site checks",
     label:
       "Site checks: Lighthouse (Google's speed and quality audit), the domain and certificate, browsers (each site opened in a real browser), the deploy, server functions, and the URL probe (does the address answer)",
     coverage: [
@@ -985,18 +992,21 @@ export const NIGHTLY_STEPS: ReadonlyArray<{
   },
   {
     file: "fleet-smoke.yml",
+    short: "Build and tests",
     label: "Smoke (the site's own tests on a fresh build)",
     coverage: ["last_smoke_at"],
     stamps: ["lastSmokeAt"],
   },
   {
     file: "fleet-form-e2e.yml",
+    short: "Live forms",
     label: "The live form test",
     coverage: ["form_e2e_checked_at"],
     stamps: ["formE2eCheckedAt"],
   },
   {
     file: "daily-reports.yml",
+    short: "Report drafts",
     label: "Report drafts",
     coverage: [],
     stamps: [],
@@ -1749,11 +1759,11 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Broken, attention, watch",
-    text: "How many sites sit at each level of the ladder (explained in Upkeep below), by each site's worst open item; each count opens that group on the Triage page. These are the Triage page's counts, so they include any row it lists that is not among the sites in our care (a site whose plan status is misspelt, say). A Broken one is named with how long ago its oldest open Broken item was first flagged. Items not tied to one site are counted on their own, and open the Triage page's list of them.",
+    text: "How many sites sit at each level of the ladder (explained on How this works), by each site's worst open item; each count opens that group on the Triage page. These are the Triage page's counts, so they include any row it lists that is not among the sites in our care (a site whose plan status is misspelt, say). A Broken one is named with how long ago its oldest open Broken item was first flagged. Items not tied to one site are counted on their own, and open the Triage page's list of them.",
   },
   {
     term: "Waiting for your yes",
-    text: "Every report draft ready for your approval on a site in our care, however many one site has: the same drafts as the Waiting column in Client reports. The count opens the Triage page's approval group when there is one. A site that also has something worse shows its drafts under that level instead, so when every draft is on such a site the count opens the table in Client reports below.",
+    text: "Every report draft ready for your approval on a site in our care, however many one site has: the same drafts as the Waiting column in Client reports. The count opens the Triage page's approval group when there is one. A site that also has something worse shows its drafts under that level instead, so when every draft is on such a site the count opens the table in the overview's Client reports.",
   },
   {
     term: "Live",
@@ -1773,7 +1783,7 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Level",
-    text: "The site's place on the ladder, explained in Upkeep below.",
+    text: "The site's place on the ladder, explained on How this works.",
   },
   {
     term: "Submissions",
@@ -1781,7 +1791,7 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Biggest share",
-    text: "The site with the most submissions, and its part of the total. One site can hold far more than the rest (an RSVP form, say), so every site's own count sits in the table.",
+    text: "The site with the most submissions, and its part of the total. One site can hold far more than the rest (an RSVP form, say), so every site's own count sits in the overview's table.",
   },
   {
     term: "Accepted as real",
@@ -1792,7 +1802,7 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   { term: "Marked spam by hand", text: "Marked spam by one of us." },
   {
     term: "Stopped before storage",
-    text: "Submissions stopped by the hidden field and the timing check, never stored. All time is from the newest nightly count, dated beside it; it is never added to the spam counts above. This month is kept in whole days by UTC time, not Pacific, so it starts at 4 or 5pm Pacific on the last day of the month before.",
+    text: "Submissions stopped by the hidden field and the timing check, never stored. All time is from the newest nightly count, dated beside it; it is never added to the spam counts. This month is kept in whole days by UTC time, not Pacific, so it starts at 4 or 5pm Pacific on the last day of the month before.",
   },
   {
     term: "Per site",
@@ -1804,7 +1814,7 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Checks per report",
-    text: "The checks a Maintenance report lists, from the report's own wording, each with the nightly step that proves it.",
+    text: "The checks a Maintenance report lists, from the report's own wording, each with the nightly step that proves it. A check that does not apply to a site (the CMS check, on a site without one) is left out of that site's report.",
   },
   {
     term: "Lighthouse",
@@ -1820,7 +1830,7 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Steps",
-    text: "Each step's result on the night named, when it last finished, and how many sites it reached. A step that runs to the end can still find problems; what it found is in the tables above. Last finished is the last time it stamped a site; for a step that stamps none, the nightly run it last finished in, with its result. Reached is the most sites one of its checks stamped, dated by the night it was counted; the backup, the Prismic sync and the report drafts keep no count of sites, so they say what they reach instead.",
+    text: "Each step's result on the night named, when it last finished, and how many sites it reached. A step that runs to the end can still find problems; what it found is in the overview's tables. Last finished is the last time it stamped a site; for a step that stamps none, the nightly run it last finished in, with its result. Reached is the most sites one of its checks stamped, dated by the night it was counted; the backup, the Prismic sync and the report drafts keep no count of sites, so they say what they reach instead.",
   },
   {
     term: "Scale",
@@ -1828,7 +1838,7 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Runs completed",
-    text: `Of the nightly steps that finished on the nights we have counted within the last ${WINDOW_NIGHTS}, how many ran to the end. A step that runs to the end can still find problems; what it found is in the tables above. "The last K nights" counts calendar nights back from the newest, here and in every window below; a night with no count, or a row with no step result, is said as not recorded, and a night written while every step was still running is said as such. Last night's count is expected from 6am Pacific: when the newest count is older than that, this line counts the nights since as not recorded, and each window is dated by the night it ends on.`,
+    text: `Of the nightly steps that finished on the nights we have counted within the last ${WINDOW_NIGHTS}, how many ran to the end. A step that runs to the end can still find problems; what it found is in the overview's tables. "The last K nights" counts calendar nights back from the newest, here and in every window on these pages; a night with no count, or a row with no step result, is said as not recorded, and a night written while every step was still running is said as such. Last night's count is expected from 6am Pacific: when the newest count is older than that, this line counts the nights since as not recorded, and each window is dated by the night it ends on.`,
   },
   {
     term: "Dependency updates merged",

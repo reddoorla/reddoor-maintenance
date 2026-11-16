@@ -1410,7 +1410,7 @@ describe("review round 4", () => {
     );
     const line = (t: string) => HOW_WE_COUNT.find((h) => h.term === t)!.text;
     const caveat =
-      "A step that runs to the end can still find problems; what it found is in the tables above.";
+      "A step that runs to the end can still find problems; what it found is in the overview's tables.";
     expect(line("Steps")).toContain(caveat);
     expect(line("Runs completed")).toContain(caveat);
     expect(HOW_WE_COUNT.map((h) => h.term)).not.toContain("Runs green");
