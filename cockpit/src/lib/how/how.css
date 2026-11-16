@@ -1,0 +1,212 @@
+/* P1-87: "How this works". Theme tokens only (tokens.css); red is for Broken. */
+body {
+  max-width: 1100px;
+}
+.muted {
+  color: var(--ink-muted);
+}
+.how-lede {
+  font-size: 1.25rem;
+  max-width: 46rem;
+}
+.how-chapter {
+  margin: 0 0 var(--space-6);
+  overflow-wrap: break-word;
+}
+.how-chapter hgroup {
+  margin: 0;
+}
+.how-kicker {
+  margin: var(--space-6) 0 0;
+  font-size: 0.8rem;
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-dark);
+}
+.how-chapter h2 {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  line-height: 1.25;
+  margin: var(--space-1) 0 var(--space-4);
+}
+.how-chapter > p {
+  max-width: 46rem;
+}
+.how-figures {
+  color: var(--ink-dark);
+}
+
+/* Chapter 1: the night as a strip of numbered steps, in run order. */
+.how-steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr));
+  gap: var(--space-2);
+  padding: 0;
+  margin: 0 0 var(--space-4);
+  list-style: none;
+}
+.how-steps li {
+  background: var(--surface);
+  /* A true hairline: the ladder below uses 4px bars to mean levels. */
+  border-top: 1px solid var(--rule);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: 0.9rem;
+}
+.how-step-n {
+  color: var(--ink-muted);
+}
+.how-step-what {
+  color: var(--ink-dark);
+}
+.how-step-last {
+  color: var(--ink-muted);
+}
+
+/* Chapter 2: the ladder, mildest to worst. The bar on top darkens from OK to
+   Attention; Broken's is red and thicker, so it reads as the worst without its
+   colour (OK's bar is faint on purpose: the level is told by its word). */
+.how-ladder {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-2);
+  padding: 0;
+  margin: 0 0 var(--space-4);
+  list-style: none;
+}
+.how-ladder li {
+  background: var(--surface);
+  border-top: 4px solid var(--band);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.how-ladder li.watch {
+  border-top-color: var(--ink-muted);
+}
+.how-ladder li.attention {
+  border-top-color: var(--ink);
+}
+.how-ladder li.broken {
+  border-top-color: var(--broken-fill);
+  /* Twice the others' bar: a non-colour cue, which holds in dark mode too. The
+     padding gives back the extra 4px, so Broken's word sits level with its row-mates. */
+  border-top-width: 8px;
+  padding-top: calc(var(--space-3) - 4px);
+}
+@media (min-width: 60rem) {
+  .how-ladder {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+@media (max-width: 30rem) {
+  .how-ladder {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Chapters 3 to 5: a flow of boxes joined by arrows; the end of the flow is filled. */
+.how-flow {
+  display: flex;
+  /* A row never wraps, so no arrow starts a row; below 60rem the flow stacks. */
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: var(--space-5);
+  padding: 0;
+  margin: 0 0 var(--space-4);
+  list-style: none;
+}
+.how-flow li {
+  position: relative;
+  box-sizing: border-box;
+  flex: 1 1 10rem;
+  min-width: 0;
+  /* A panel, not a control: square, with no control border. */
+  background: var(--surface);
+  border-top: 1px solid var(--rule);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.how-flow li + li::before {
+  /* An arrowhead drawn with two borders, never a glyph (the cockpit's style rule). */
+  content: "";
+  position: absolute;
+  left: calc(-0.5 * var(--space-5) - 0.5rem);
+  top: 50%;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-top: 2px solid var(--ink-muted);
+  border-right: 2px solid var(--ink-muted);
+  transform: translateY(-50%) rotate(45deg);
+}
+.how-flow li.how-end {
+  background: var(--ink);
+  color: var(--on-ink);
+  /* The filled box takes the hairline's colour too, so the rule does not cross it. */
+  border-top-color: var(--ink);
+}
+.how-branch {
+  /* A hairline: 4px bars mean levels on the ladder. */
+  border-left: 1px solid var(--rule);
+  padding-left: var(--space-3);
+}
+
+.how-checks {
+  display: grid;
+  grid-template-columns: minmax(10rem, 14rem) 1fr;
+  gap: var(--space-2) var(--space-4);
+  max-width: 60rem;
+}
+.how-checks dt {
+  font-weight: var(--weight-bold);
+}
+.how-checks dd {
+  margin: 0;
+}
+.how-count {
+  margin: var(--space-6) 0;
+}
+.how-count dt {
+  font-weight: var(--weight-bold);
+  margin-top: var(--space-3);
+}
+.how-count dd {
+  margin: 0;
+  max-width: 46rem;
+}
+
+/* Below 60rem the boxes would be too narrow to read side by side: the flow stacks,
+   each box its content's height. */
+@media (max-width: 60rem) {
+  .how-flow {
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+  .how-flow li {
+    flex: 0 0 auto;
+  }
+  .how-flow li + li::before {
+    left: 50%;
+    top: calc(-0.5 * var(--space-4) - 0.55rem);
+    transform: translateX(-50%) rotate(135deg);
+  }
+  .how-checks {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Forced colours drop fills: each box keeps an outline, and the end box a heavier one. */
+@media (forced-colors: active) {
+  .how-flow li {
+    border: 1px solid; /* currentColor: the system text colour here */
+  }
+  .how-flow li.how-end {
+    border-width: 3px;
+  }
+}

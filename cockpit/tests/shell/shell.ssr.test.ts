@@ -27,6 +27,8 @@ describe("the shell", () => {
     expect(navs[0]!.querySelectorAll("a").map((a) => [a.text, a.getAttribute("href")])).toEqual([
       // P1-78g: the overview takes /; triage stays at /triage (P1-78f).
       ["Overview", "/"],
+      // P1-87: How this works sits beside the overview.
+      ["How this works", "/how"],
       ["Triage", "/triage"],
       ["Sites", "/fleet"],
       ["Inbox", "/submissions"],
@@ -38,6 +40,7 @@ describe("the shell", () => {
   it.each([
     // P1-78g: "/" is the overview, and lights only Overview.
     ["/", "Overview"],
+    ["/how", "How this works"],
     ["/triage", "Triage"],
     ["/fleet", "Sites"],
     ["/s/acme-co", "Sites"],
