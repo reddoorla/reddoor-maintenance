@@ -1,0 +1,93 @@
+[
+  {
+    "id": "1-forms-last-lead-dropped",
+    "why": "The Forms column drops its last-lead fact (the brief's floor)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": ">{f.forms.text}<span class=\"muted\">; {f.lastLead}</span></td",
+        "replace": ">{f.forms.text}</td"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2-level-alphabetical",
+    "why": "Level sorts alphabetically by its word instead of by severity (the brief's floor)",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-table.ts",
+        "find": "return t === undefined ? null : LEVEL_RANK[t];",
+        "replace": "return t === undefined ? null : t;"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "3-facts-from-one-site",
+    "why": "Every row shows the first site's checks",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "Object.hasOwn(data.facts, slug) ? data.facts[slug] : undefined;",
+        "replace": "Object.hasOwn(data.facts, slug) ? Object.values(data.facts)[0] : undefined;"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "4-load-without-levels",
+    "why": "The route's load passes no levels, so the Level sort is by name",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.ts",
+        "find": "new Map(cockpit.cards.map((c) => [c.site.id, c.tier])),",
+        "replace": "new Map(),"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "5-pill-still-in-health",
+    "why": "The level is shown again at the head of Health",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "                <!-- The card's own markup for what the table's columns do not",
+        "replace": "                <span class=\"pill {c.tier}\">{c.pill}</span>\n                <!-- The card's own markup for what the table's columns do not"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "6-verdicts-unstyled",
+    "why": "A failed check is styled as passed",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/view.ts",
+        "find": "ok === true ? \"ok\" : ok === false ? \"bad\" : \"unknown\";",
+        "replace": "ok === true ? \"ok\" : ok === false ? \"ok\" : \"unknown\";"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "7-no-level-ranks-first",
+    "why": "A site with no level sorts ahead of the Broken ones",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-table.ts",
+        "find": "return t === undefined ? null : LEVEL_RANK[t];",
+        "replace": "return t === undefined ? -1 : LEVEL_RANK[t];"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  }
+]

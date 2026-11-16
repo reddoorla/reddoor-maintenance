@@ -91,7 +91,7 @@ describe("renderCockpitHtml — card per site", () => {
     );
     const rows = html.match(/<tr class="fleet-row"/g) ?? [];
     expect(rows).toHaveLength(3);
-    expect(html.match(/<td class="health">\s*<span class="pill /g) ?? []).toHaveLength(3);
+    expect(html.match(/<td data-label="Level"><span class="pill /g) ?? []).toHaveLength(3);
     expect(html).toContain(">Acme Co<");
     expect(html).toContain(">Beta Inc<");
     expect(html).toContain(">Gamma LLC<");
@@ -1171,7 +1171,7 @@ describe("renderCockpitHtml — archived lane + status honesty", () => {
     expect(html).not.toContain('<span class="muted">archived</span>');
     expect(html).toContain('href="/s/old-legacy"');
     // The archived row is a roster entry, never a fleet card: one row with health.
-    expect(html.match(/<td class="health">\s*<span class="pill /g) ?? []).toHaveLength(1);
+    expect(html.match(/<td data-label="Level"><span class="pill /g) ?? []).toHaveLength(1);
   });
 
   it("labels each archived row from its OWN raw cell, not from the shared canonical one", () => {
@@ -1206,7 +1206,7 @@ describe("renderCockpitHtml — archived lane + status honesty", () => {
     );
     expect(html).toContain("Archived (2)");
     expect(html).toContain('<span class="muted">archived</span>');
-    expect(html.match(/<td class="health">\s*<span class="pill /g) ?? []).toHaveLength(1);
+    expect(html.match(/<td data-label="Level"><span class="pill /g) ?? []).toHaveLength(1);
   });
 
   it("a RETIRED cell is no longer archived — it surfaces instead of being absorbed", () => {

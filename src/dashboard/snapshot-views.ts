@@ -15,7 +15,7 @@ import type { ProspectAuditListItem } from "../db/prospect-audits.js";
 import { NOTIFY_BOUNCE_WINDOW_DAYS } from "../alerts/digest-collectors.js";
 import { screenOutsSince } from "../util/date.js";
 import { buildCockpitModel } from "./fleet-cockpit.js";
-import type { CockpitModel } from "./fleet-cockpit.js";
+import type { CockpitModel, Tier } from "./fleet-cockpit.js";
 import { parseFleetTableQuery, buildFleetTableModel } from "./fleet-table.js";
 import type { FleetTableModel } from "./fleet-table.js";
 import { parseSubmissionsQuery, buildSubmissionsPageModel, PAGE_SIZE } from "./submissions-page.js";
@@ -248,8 +248,10 @@ export function cockpitModelFromSnapshot(s: CockpitSnapshot, now: Date): Cockpit
 export function fleetTableModelFromSnapshot(
   s: CockpitSnapshot,
   params: URLSearchParams,
+  /** Each site's level by id, for the Level sort (P1-87, PR 2). */
+  tiers: ReadonlyMap<string, Tier> = new Map(),
 ): FleetTableModel {
-  return buildFleetTableModel(sitesOf(s), parseFleetTableQuery(params));
+  return buildFleetTableModel(sitesOf(s), parseFleetTableQuery(params), tiers);
 }
 
 /** `/s/:slug`. Null when no site has the slug, as `loadSiteDashboard`. */

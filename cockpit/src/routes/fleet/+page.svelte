@@ -3,8 +3,17 @@
   import type { FleetTableModel } from "../../../../src/dashboard/fleet-table.js";
   import { safeUrl } from "../../../../src/util/html.js";
   import type { SitesView } from "../../lib/cockpit/view.js";
+  import type { SiteFacts } from "../../lib/overview/view.js";
   import SetupChecklist from "../../lib/SetupChecklist.svelte";
-  import { COLUMNS, showHiddenHref, sortHref, sortArrow, statusOptions } from "./view.js";
+  import {
+    COLUMNS,
+    FACT_COLUMNS,
+    okClass,
+    showHiddenHref,
+    sortHref,
+    sortArrow,
+    statusOptions,
+  } from "./view.js";
   import PageStyles from "../../lib/PageStyles.svelte";
   import healthCss from "../../lib/cockpit/health.css?inline";
   import fleetTableCss from "./fleet-table.css?inline";
@@ -17,9 +26,16 @@
   // component across client navigations, so the chip is reset after each one:
   // the GET form and "Clear" start from "all", not from a chip the new rows
   // were never filtered by (#1589).
-  let { data }: { data: { model: FleetTableModel; sites: SitesView } } = $props();
+  let {
+    data,
+  }: {
+    data: { model: FleetTableModel; sites: SitesView; facts?: Record<string, SiteFacts> };
+  } = $props();
   const m = $derived(data.model);
   const s = $derived(data.sites);
+  // The live checks per site (P1-87, PR 2); a site with no card has none.
+  const factsOf = (slug: string) =>
+    data.facts !== undefined && Object.hasOwn(data.facts, slug) ? data.facts[slug] : undefined;
   const DASH = "—";
   let filter = $state("all");
   // An own-property read: a slug that names an Object.prototype key
@@ -95,6 +111,9 @@
       <thead>
         <tr>
           {#each COLUMNS as col (col.key)}
+            {#if col.key === "level"}
+              {#each FACT_COLUMNS as label (label)}<th>{label}</th>{/each}
+            {/if}
             <th class={col.numeric ? "num" : undefined}
               ><a href={sortHref(m, col.key)}>{col.label}</a>{sortArrow(m, col.key)}</th
             >
@@ -106,6 +125,7 @@
         {#each m.rows as r (r.slug)}
           {@const url = safeUrl(r.url)}
           {@const c = cardOf(r.slug)}
+          {@const f = factsOf(r.slug)}
           <tr
             class="fleet-row"
             data-signals={c?.signals ?? ""}
@@ -119,6 +139,25 @@
                 >{/if}
             </td>
             <td>{r.status === null ? DASH : r.status}</td>
+            {#if f}
+              <td class="fact {okClass(f.live.ok)}" data-label="Live"
+                >{f.live.text}{#if f.live.at}<span class="muted">, checked {f.live.at}</span
+                  >{/if}</td
+              >
+              <td class="fact {okClass(f.domain.ok)}" data-label="Certificate">{f.domain.text}</td>
+              <td class="fact {okClass(f.deploy.ok)}" data-label="Deploy">{f.deploy.text}</td>
+              <td class="fact {okClass(f.forms.ok)}" data-label="Forms"
+                >{f.forms.text}<span class="muted">; {f.lastLead}</span></td
+              >
+            {:else}
+              {#each FACT_COLUMNS as label (label)}<td class="muted" data-label={label}>{DASH}</td
+                >{/each}
+            {/if}
+            <td data-label="Level"
+              >{#if c}<span class="pill {c.tier}">{c.pill}</span>{:else}<span class="muted"
+                  >{DASH}</span
+                >{/if}</td
+            >
             <td class="num">{r.pScore === null ? DASH : r.pScore}</td>
             <td class="num">{r.rScore === null ? DASH : r.rScore}</td>
             <td class="num">{r.bpScore === null ? DASH : r.bpScore}</td>
@@ -128,7 +167,6 @@
             <td>{@render dateCell(r.lastLighthouseAuditAt)}</td>
             <td class="health">
               {#if c}
-                <span class="pill {c.tier}">{c.pill}</span>
                 <!-- The card's own markup for what the table's columns do not
                      already show (#672 step 3). -->
                 <span class="setup" title={c.setupTitle}

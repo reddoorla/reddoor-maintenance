@@ -508,12 +508,22 @@ export function formsCell(site: WebsiteRow, now: Date): Cell {
   return { ok: null, text: "No result (no form, or the test skipped it)" };
 }
 
-function liveRows(
-  model: CockpitModel,
+/** What the live checks last said about one site: the four cells "Is every site
+ *  live?" showed, and the newest real lead. Shared with `/fleet`, whose table carries
+ *  these columns (P1-87, PR 2). */
+export type SiteFacts = {
+  live: LiveCell;
+  domain: Cell;
+  deploy: Cell;
+  forms: Cell;
+  lastLead: string;
+};
+
+/** Each site's newest submission accepted as real. */
+function lastRealBySite(
   subs: SubmissionRow[] | null,
   status: (r: SubmissionRow) => string,
-  now: Date,
-): LiveRow[] {
+): Map<string, SubmissionRow> {
   const lastReal = new Map<string, SubmissionRow>();
   for (const r of subs ?? []) {
     if (!ACCEPTED.has(status(r)) || r.submittedAt === null) continue;
@@ -521,29 +531,61 @@ function liveRows(
     if (prev === undefined || Date.parse(r.submittedAt) > Date.parse(prev.submittedAt!))
       lastReal.set(r.siteId, r);
   }
+  return lastReal;
+}
+
+function siteFacts(
+  site: WebsiteRow,
+  last: SubmissionRow | undefined,
+  subsRead: boolean,
+  now: Date,
+): SiteFacts {
+  return {
+    live: liveCell(site, now),
+    domain: domainCell(site, now),
+    deploy: deployCell(site, now),
+    forms: formsCell(site, now),
+    lastLead: !subsRead
+      ? `last lead ${UNREADABLE}`
+      : last === undefined
+        ? "no real lead yet"
+        : // An RSVP or a signup is a real submission, not a lead.
+          `last real ${isLeadFormType(last.formType) ? "lead" : "submission"} ${agoInWords(last.submittedAt, now)}`,
+  };
+}
+
+/** `/fleet`'s fact columns: every carded site's facts, keyed by its slug. */
+export function siteFactsFromSnapshot(s: CockpitSnapshot, now: Date): Record<string, SiteFacts> {
+  const model = cockpitModelFromSnapshot(s, now);
+  const lastReal = lastRealBySite(s.submissions, (r) => storedStatus(s, r));
+  const out: Record<string, SiteFacts> = {};
+  for (const c of model.cards)
+    out[siteSlug(c.site.name)] = siteFacts(
+      c.site,
+      lastReal.get(c.site.id),
+      s.submissions !== null,
+      now,
+    );
+  return out;
+}
+
+function liveRows(
+  model: CockpitModel,
+  subs: SubmissionRow[] | null,
+  status: (r: SubmissionRow) => string,
+  now: Date,
+): LiveRow[] {
+  const lastReal = lastRealBySite(subs, status);
   return model.cards
     .filter((c) => c.site.status === "maintained")
     .sort((a, b) => a.site.name.localeCompare(b.site.name))
-    .map((c: SiteCard) => {
-      const last = lastReal.get(c.site.id);
-      return {
-        siteId: c.site.id,
-        siteName: c.site.name,
-        url: `/s/${siteSlug(c.site.name)}`,
-        live: liveCell(c.site, now),
-        domain: domainCell(c.site, now),
-        deploy: deployCell(c.site, now),
-        forms: formsCell(c.site, now),
-        lastLead:
-          subs === null
-            ? `last lead ${UNREADABLE}`
-            : last === undefined
-              ? "no real lead yet"
-              : // An RSVP or a signup is a real submission, not a lead.
-                `last real ${isLeadFormType(last.formType) ? "lead" : "submission"} ${agoInWords(last.submittedAt, now)}`,
-        level: { tier: c.tier, text: TIER_TEXT[c.tier] },
-      };
-    });
+    .map((c: SiteCard) => ({
+      siteId: c.site.id,
+      siteName: c.site.name,
+      url: `/s/${siteSlug(c.site.name)}`,
+      ...siteFacts(c.site, lastReal.get(c.site.id), subs !== null, now),
+      level: { tier: c.tier, text: TIER_TEXT[c.tier] },
+    }));
 }
 
 // ---- section 3: leads ----

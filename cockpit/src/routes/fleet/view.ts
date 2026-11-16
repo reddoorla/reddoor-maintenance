@@ -6,11 +6,21 @@ import {
 } from "../../../../src/dashboard/fleet-table.js";
 import type { FleetSortKey, FleetTableModel } from "../../../../src/dashboard/fleet-table.js";
 
+/** The checks the overview's "Is every site live?" table showed, moved here
+ *  (P1-87, PR 2). They sit just before Level, as they did there; they are not
+ *  sortable. */
+export const FACT_COLUMNS = ["Live", "Certificate", "Deploy", "Forms"] as const;
+
+/** A cell's verdict as the overview styled it. */
+export const okClass = (ok: boolean | null): "ok" | "bad" | "unknown" =>
+  ok === true ? "ok" : ok === false ? "bad" : "unknown";
+
 /** Columns in display order: header label + the sort key its header toggles. */
 export const COLUMNS: ReadonlyArray<{ key: FleetSortKey; label: string; numeric: boolean }> = [
   { key: "name", label: "Site", numeric: false },
   { key: "url", label: "URL", numeric: false },
   { key: "status", label: "Status", numeric: false },
+  { key: "level", label: "Level", numeric: false },
   { key: "perf", label: "Perf", numeric: true },
   { key: "a11y", label: "Access", numeric: true },
   { key: "bp", label: "BP", numeric: true },
