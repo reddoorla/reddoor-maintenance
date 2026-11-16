@@ -2446,6 +2446,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 Append to `docs/runbooks/prismic-model-delivery.md` after its last line (213, the end of §11):
 
+<!-- Prettier 3.9 and 3.10 format this block differently (reddoorla/reddoor-maintenance#2049). -->
+<!-- prettier-ignore -->
 ```markdown
 ---
 
