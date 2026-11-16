@@ -254,6 +254,28 @@
   </table>
 </section>
 
+<!-- Kept below the first screen on the operator's word (11-16, the workspace's
+     decisions/2026-11-16-2301-p1-87-pr3-upkeep-open-now.md): the two facts no other
+     page shows. The ladder and the counts on the first screen's tiles are not repeated. -->
+<section aria-labelledby="ov-upkeep">
+  <h2 id="ov-upkeep">Upkeep</h2>
+  <p data-term="Major-version upgrades waiting">
+    Major-version upgrades waiting: {v.upkeep.depsBehind}.
+  </p>
+  <h3 data-term="Open now">Open now</h3>
+  {#if v.upkeep.open.length > 0}
+    <ul data-term="Open now">
+      {#each v.upkeep.open as o (o.siteId)}
+        <li>{o.siteName} {o.text}.</li>
+      {/each}
+    </ul>
+  {:else}
+    <!-- Only when every site in our care has a fresh security check and none is open:
+         a stale or missing check is listed above (review round 4, C2). -->
+    <p>No critical or high vulnerability is open.</p>
+  {/if}
+</section>
+
 <section aria-labelledby="ov-trends" data-term="Trends">
   <h2 id="ov-trends">Trends</h2>
   <p>{v.trends.status}.</p>

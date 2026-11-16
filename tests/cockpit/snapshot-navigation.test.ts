@@ -342,6 +342,28 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     await expect.poll(() => shipped.textContent()).toContain("over the last night");
   });
 
+  // P1-87 PR 3, round 1: every check bar starts and ends in the same place, whatever
+  // its count says, and the two panels sit side by side with one top at 1280px.
+  it("the overview's check bars line up and its panels share a top at 1280px", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await expect.poll(() => page.locator(".ov-check-bar").count()).toBe(7);
+    const bars = await page.locator(".ov-check-bar").evaluateAll((els) =>
+      els.map((e) => {
+        const r = e.getBoundingClientRect();
+        return [Math.round(r.left), Math.round(r.width)];
+      }),
+    );
+    expect(new Set(bars.map((b) => b.join(","))).size).toBe(1);
+    expect(bars[0]![1]).toBeGreaterThan(100);
+    const tops = await page
+      .locator(".ov-health, .ov-happening")
+      .evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
+    expect(tops).toHaveLength(2);
+    expect(tops[0]).toBe(tops[1]);
+  });
+
   // P1-87 PR 1, review round 2: on a small laptop (1000px) each flow stays one row,
   // so no arrow starts a wrapped row and the last step stays in the chain.
   it("How this works keeps each flow on one row at 1000px", async () => {

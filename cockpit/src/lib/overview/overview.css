@@ -254,16 +254,21 @@ section {
   margin: 0.4rem 0 0;
   font-size: 0.9rem;
 }
+/* One row a check: name | bar | count, the count right of the bar. The list holds
+   the columns and each row is a subgrid, so every bar starts and ends at the same
+   place whatever its count says (round 1: a longer count shortened its own bar). */
 .ov-checks-list {
   list-style: none;
   margin: 0;
   padding: 0;
-}
-/* One row a check: name | bar | count, the count right of the bar. */
-.ov-check {
   display: grid;
-  grid-template-columns: 8.5rem minmax(0, 1fr) minmax(0, auto);
-  gap: 0.5rem;
+  grid-template-columns: 8.5rem minmax(0, 1fr) minmax(0, max-content);
+  column-gap: 0.5rem;
+}
+.ov-check {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
   align-items: center;
   padding: 0.25rem 0;
   font-size: 0.9rem;

@@ -83,8 +83,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "value: leads.thisMonth === null ? UNREADABLE : String(leads.thisMonth.notified),",
-        "replace": "value: leads.allTime === null ? UNREADABLE : String(leads.allTime.notified),"
+        "find": "value: leads.leadsSent.thisMonth === null ? UNREADABLE : String(leads.leadsSent.thisMonth),",
+        "replace": "value: leads.leadsSent.thisMonth === null ? UNREADABLE : String(leads.leadsSent.allTime),"
       }
     ],
     "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
@@ -96,8 +96,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "s.nights === null ? UNREADABLE : newestCheck === undefined ? NOT_YET : String(newestCheck),",
-        "replace": "s.nights === null ? \"0\" : newestCheck === undefined ? NOT_YET : String(newestCheck),"
+        "find": "      s.nights === null\n        ? UNREADABLE\n        : lastValue !== null",
+        "replace": "      s.nights === null\n        ? \"0\"\n        : lastValue !== null"
       }
     ],
     "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
@@ -122,8 +122,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "const newestCheck = checkNights.find((v): v is number => v !== null);",
-        "replace": "const newestCheck = checkNights.findLast((v): v is number => v !== null);"
+        "find": "const lastValue = counted.find((x) => x.night === lastNight)?.v ?? null;",
+        "replace": "const lastValue = [...counted].reverse().find((x) => x.v !== null)?.v ?? null;"
       }
     ],
     "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
@@ -187,8 +187,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "s.a11yViolations === null || !freshWithin(s.a11yCheckedAt, A11Y_STALE_DAYS, now)",
-        "replace": "s.a11yViolations === null"
+        "find": "    s.a11yRoutesScanned < s.a11yRoutesTotal ||\n    !freshWithin(s.a11yCheckedAt, A11Y_STALE_DAYS, now)",
+        "replace": "    s.a11yRoutesScanned < s.a11yRoutesTotal"
       }
     ],
     "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
@@ -452,6 +452,32 @@
       }
     ],
     "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "36-check-rows-own-grid",
+    "why": "Each check row sizes its own count column, so a longer count shortens its bar (round 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "  grid-template-columns: subgrid;\n",
+        "replace": "  grid-template-columns: 8.5rem minmax(0, 1fr) auto;\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "37-upkeep-dropped",
+    "why": "The Upkeep section the operator kept (Open now, major upgrades) is dropped again",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "<h3 data-term=\"Open now\">Open now</h3>",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
     "expect": "red"
   }
 ]

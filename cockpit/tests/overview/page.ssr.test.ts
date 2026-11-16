@@ -93,6 +93,7 @@ describe("the overview page, rendered from a real view (T1)", () => {
       "How much is happening",
       "Leads",
       "Client reports",
+      "Upkeep",
       "Trends",
     ]);
   });
@@ -346,7 +347,11 @@ describe("the sentinel render: each leaf in its labelled element (T1, T2; round 
     // links, classes, terms and raw stamps are attributes or keys.
     const unrendered = (p: string) =>
       // Fields the page no longer renders (P1-87 PR 3): the model keeps them.
-      /^(live|upkeep|nightly)(\.|\[)/.test(p) ||
+      /^(live|nightly)(\.|\[)/.test(p) ||
+      // The Upkeep section keeps only Open now and the major upgrades (the operator,
+      // 11-16): the two counts on /how and the tiles are not shown here.
+      p === "upkeep.automerged" ||
+      p === "upkeep.vulnsCleared" ||
       p === "prsMerged" ||
       p === "nightsCollected" ||
       p.startsWith("reports.checks") ||
@@ -436,6 +441,22 @@ describe("the sentinel render: each leaf in its labelled element (T1, T2; round 
       expect(cell("Screened")).toBe(sent(`${p}.screened`));
       expect(cell("By hand")).toBe(sent(`${p}.byHand`));
     });
+  });
+
+  it("the Upkeep section reads Open now and the major upgrades from their own fields (the operator, 11-16)", () => {
+    expect(
+      one('section[aria-labelledby="ov-upkeep"] p[data-term="Major-version upgrades waiting"]'),
+    ).toBe(`Major-version upgrades waiting: ${sent("upkeep.depsBehind")}.`);
+    expect(SDOC.querySelectorAll('ul[data-term="Open now"] li').map(text)).toEqual(
+      SV.upkeep.open.map(
+        (_, i) =>
+          `${sent(`upkeep.open[${letters(i)}].siteName`)} ${sent(`upkeep.open[${letters(i)}].text`)}.`,
+      ),
+    );
+    // The ladder stays on /how; it is not repeated here.
+    expect(text(SDOC.querySelector('section[aria-labelledby="ov-upkeep"]')!)).not.toContain(
+      "Broken:",
+    );
   });
 
   it("the reports section reads each field: sends, due and waiting; the medians sit in Fleet health", () => {
@@ -579,6 +600,28 @@ describe("every link from the overview lands on an anchor that exists (review ro
 });
 
 describe("review round 4: emphasis, the none-open sentence, and the shipping copy", () => {
+  it("says none is open only when every site has a fresh security check (C2)", () => {
+    const NONE = "No critical or high vulnerability is open.";
+    expect(pageText(parse(pageHtml(overviewFromSnapshot(snapshot(), NOW))))).toContain(NONE);
+    const never = snapshot({
+      sites: [
+        healthy({ id: "recA", name: "Acme" }),
+        healthy({
+          id: "recR",
+          name: "Rsvp Site",
+          lastSecurityAuditAt: null,
+          securityVulnsCritical: null,
+          securityVulnsHigh: null,
+        }),
+      ],
+    });
+    const words = pageText(parse(pageHtml(overviewFromSnapshot(never, NOW))));
+    expect(words).not.toContain(NONE);
+    expect(words).toContain(
+      "Rsvp Site has no security check on record, so we cannot say what is open now.",
+    );
+  });
+
   it("the status band is the Broken one when a site is broken, and the quiet one otherwise (T4)", () => {
     expect(DOC.querySelector("section.ov-status")!.classList.contains("broken")).toBe(true);
     // Control: a quiet page's band is not.
@@ -898,11 +941,10 @@ describe("the first screen (P1-87 PR 3)", () => {
     for (const gone of [
       "Is every site live?",
       "What runs every night",
-      "Upkeep",
       "How changes ship",
       "How we count",
-      "Open now",
       "The ladder",
+      "Dependency updates merged (opened by Renovate",
     ])
       expect(all, gone).not.toContain(gone);
   });
