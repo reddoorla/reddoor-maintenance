@@ -333,12 +333,13 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     await expect.poll(() => page.locator("h1").first().textContent()).toContain("Overview");
     expect(new URL(page.url()).pathname).toBe("/");
     expect(hops).toEqual([["/", 200]]);
-    // fleet_daily reached the page through the real loader (review round 5, R5-8).
-    await expect
-      .poll(() => page.locator("body").textContent())
-      .toContain(
-        `${NIGHTLIES.length * 2} of ${NIGHTLIES.length * 2} nightly steps ran to the end over the last 2 nights`,
-      );
+    // fleet_daily reached the page through the real loader (review round 5, R5-8): the
+    // changes-shipped tile is the newest seeded night's prsMerged (612) less the one
+    // before (600), over the one night between them (P1-87 PR 3 moved the nightly
+    // steps line to /how, so this reads a first-screen tile instead).
+    const shipped = page.locator(".ov-tile", { hasText: "changes shipped" });
+    await expect.poll(() => shipped.locator(".ov-num").textContent()).toBe("12");
+    await expect.poll(() => shipped.textContent()).toContain("over the last 1 night");
   });
 
   // P1-87 PR 1, review round 2: on a small laptop (1000px) each flow stays one row,
@@ -618,14 +619,15 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       await expect.poll(() => page.locator("h1").first().textContent()).toContain("Overview");
       // The content the check needs is on the page: the long name, in section 1 and both tables.
       expect(await page.locator(".ov-list.broken li", { hasText: LONG_NAME }).count()).toBe(1);
-      expect(await page.locator(".ov-live tbody th", { hasText: LONG_NAME }).count()).toBe(1);
+      // The first screen's health panel and its six number tiles (P1-87 PR 3).
+      expect(await page.locator(".ov-health").count()).toBe(1);
+      expect(await page.locator(".ov-tile").count()).toBe(6);
       expect(await page.locator(".ov-leads-sites tbody th", { hasText: LONG_NAME }).count()).toBe(
         1,
       );
       // P1-78h: section 8 draws its four charts, so they are laid out here too.
       expect(await page.locator("figure.ov-trend svg.ov-chart").count()).toBe(4);
       await page.locator(".ov-trend-table summary").first().click();
-      await page.locator(".ov-how summary").click();
       const fit = await page.evaluate(() => ({
         scroll: document.documentElement.scrollWidth,
         width: window.innerWidth,
