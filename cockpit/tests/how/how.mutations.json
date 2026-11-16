@@ -611,5 +611,135 @@
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "47-step-space-inside-hidden",
+    "why": "The step separator holds the space inside the hidden span again, the pre-fix form (review round 6, P1-87)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "<span aria-hidden=\"true\">{\" ·\"}</span>{\" \"}<span",
+        "replace": "<span aria-hidden=\"true\">{\" · \"}</span><span"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "48-lighthouse-space-inside-hidden",
+    "why": "The Lighthouse separator holds the space inside the hidden span again, the pre-fix form (review round 6, P1-87)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "{#if i > 0}<span aria-hidden=\"true\">{\" ·\"}</span\n        >{\" \"}{/if}",
+        "replace": "{#if i > 0}<span aria-hidden=\"true\">{\" · \"}</span\n        >{/if}"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "49-step-separator-not-hidden",
+    "why": "The step separator loses aria-hidden, so the dot is read aloud (review round 6, P1-87)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "<span aria-hidden=\"true\">{\" ·\"}</span>{\" \"}<span",
+        "replace": "<span>{\" ·\"}</span>{\" \"}<span"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "50-lighthouse-separator-not-hidden",
+    "why": "The Lighthouse separator loses aria-hidden, so the dot is read aloud (review round 6, P1-87)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "{#if i > 0}<span aria-hidden=\"true\">{\" ·\"}</span\n        >{\" \"}{/if}",
+        "replace": "{#if i > 0}<span>{\" ·\"}</span\n        >{\" \"}{/if}"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "51-ladder-no-four-columns",
+    "why": "The ladder's four-column rule at 60rem is deleted (review round 6, P1-87)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "    grid-template-columns: repeat(4, 1fr);\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "52-broken-bar-4px",
+    "why": "Broken's bar is 4px again, no thicker than the others (review round 6, P1-87)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  border-top-width: 8px;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "53-flow-no-hairline",
+    "why": "The flow boxes lose their 1px hairline (review round 6, P1-87)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  /* A panel, not a control: square, with no control border. */\n  background: var(--surface);\n  border-top: 1px solid var(--rule);\n",
+        "replace": "  /* A panel, not a control: square, with no control border. */\n  background: var(--surface);\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "54-end-box-hairline",
+    "why": "The filled end box's hairline is its rule colour again, so it crosses the fill (review round 6, P1-87)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  /* The filled box takes the hairline's colour too, so the rule does not cross it. */\n  border-top-color: var(--ink);\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "55-broken-word-low",
+    "why": "Broken loses its padding compensation, so its word sits lower (review round 6, P1-87)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  padding-top: calc(var(--space-3) - 4px);\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "56-ladder-two-columns-at-390",
+    "why": "The 30rem one-column rule is deleted, so the ladder is two 175px columns at 390px (review round 6, P1-87)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "@media (max-width: 30rem) {\n  .how-ladder {\n    grid-template-columns: 1fr;\n  }\n}\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
   }
 ]

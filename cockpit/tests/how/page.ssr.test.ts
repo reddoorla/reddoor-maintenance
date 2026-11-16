@@ -688,3 +688,37 @@ describe("the page's load and its singulars", () => {
     expect(one(doc, 'p[data-term="Submissions"]')).toMatch(/^1 submission in all since /);
   });
 });
+
+// P1-87 PR 1, review round 6: a screen reader drops the aria-hidden nodes, so the
+// real spaces must sit outside them, or "1 · Backup" is read as "1Backup".
+describe("the separators are hidden, and the words keep their spaces", () => {
+  const withoutHidden = (): HTMLElement => {
+    const doc = parse(HTML);
+    for (const n of doc.querySelectorAll('[aria-hidden="true"]')) n.remove();
+    return doc;
+  };
+
+  it("the first step reads 'Backup' after its number, with a space, once the hidden dot is gone", () => {
+    expect(text(withoutHidden().querySelectorAll(".how-steps li strong")[0]!)).toBe("1 Backup");
+  });
+
+  it("the Lighthouse line reads each label, a space, then its score, once the hidden dots are gone", () => {
+    expect(one(withoutHidden(), 'p[data-term="Lighthouse"]')).toContain(
+      "Performance 91 Accessibility 97 Best practices 88 SEO 99",
+    );
+  });
+
+  it("each step's separator is hidden and holds a dot, not an empty span", () => {
+    const hidden = DOC.querySelectorAll('.how-steps li strong [aria-hidden="true"]');
+    expect(hidden).toHaveLength(NIGHTLY_STEPS.length);
+    for (const h of hidden) expect(text(h)).toBe("·");
+  });
+
+  it("the Lighthouse separators are hidden: one fewer than the scores, none empty", () => {
+    const scores = VIEW.reports.lighthouse.length;
+    const hidden = DOC.querySelectorAll('p[data-term="Lighthouse"] [aria-hidden="true"]');
+    expect(scores).toBe(4);
+    expect(hidden).toHaveLength(scores - 1);
+    for (const h of hidden) expect(text(h)).toBe("·");
+  });
+});

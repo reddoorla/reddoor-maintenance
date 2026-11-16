@@ -93,11 +93,19 @@ body {
 }
 .how-ladder li.broken {
   border-top-color: var(--broken-fill);
-  border-top-width: 6px;
+  /* Twice the others' bar: a non-colour cue, which holds in dark mode too. The
+     padding gives back the extra 4px, so Broken's word sits level with its row-mates. */
+  border-top-width: 8px;
+  padding-top: calc(var(--space-3) - 4px);
 }
 @media (min-width: 60rem) {
   .how-ladder {
     grid-template-columns: repeat(4, 1fr);
+  }
+}
+@media (max-width: 30rem) {
+  .how-ladder {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -140,6 +148,8 @@ body {
 .how-flow li.how-end {
   background: var(--ink);
   color: var(--on-ink);
+  /* The filled box takes the hairline's colour too, so the rule does not cross it. */
+  border-top-color: var(--ink);
 }
 .how-branch {
   /* A hairline: 4px bars mean levels on the ladder. */

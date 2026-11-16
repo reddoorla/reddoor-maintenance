@@ -35,7 +35,7 @@
     {#each v.nightly.steps as s (s.label)}
       <li>
         <strong
-          ><span class="how-step-n">{s.n}</span><span aria-hidden="true">{" · "}</span><span
+          ><span class="how-step-n">{s.n}</span><span aria-hidden="true">{" ·"}</span>{" "}<span
             class="how-step-name">{s.short}</span
           ></strong
         >
@@ -168,9 +168,8 @@
   </dl>
   <p data-term="Lighthouse">
     Google's Lighthouse audit, the middle score across our sites:
-    {#each v.reports.lighthouse as l, i (l.label)}<span aria-hidden="true"
-        >{i > 0 ? " · " : ""}</span
-      >{l.label}
+    {#each v.reports.lighthouse as l, i (l.label)}{#if i > 0}<span aria-hidden="true">{" ·"}</span
+        >{" "}{/if}{l.label}
       {l.median}{/each}{#if v.reports.lighthouseAsOf}<span class="muted"
         >, from audits as old as {v.reports.lighthouseAsOf}</span
       >{/if}.
