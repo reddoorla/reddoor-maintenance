@@ -13,3 +13,7 @@ P1-112, `/fleet` density, is not cleared here. With sixteen columns, one-line ro
 Belief corrected: the brief's mutant "sort Level alphabetically" needed a fixture where the alphabetical order of the level words differs from severity. It does by default: attention sorts before broken.
 
 Usage: recorded in the session's closing workspace entry.
+
+## Review rounds 1 to 6 (added 11-16 about 2:15pm PT)
+
+Six 3-lens rounds; 1 to 5 dirty, 6 the narrow unasked round on the test-only round-5 fix, clean. The operator then said "land on CI green" (workspace `decisions/2026-11-16-2211-p1-87-pr2-six-rounds.md`). The real defects, each now pinned: facts keyed by a name-slug while the Level sort used the site id, so an archived "FOO" showed a maintained "Foo"'s checks and broken pill yet sorted last; a site id `__proto__` set the record's prototype instead of a key (records are now `Object.create(null)`); and two sites whose names give one slug crashed `/fleet` in the browser on load with Svelte's `each_key_duplicate`, which SSR tests cannot see. That last predates this PR, but SSR rendered the page fine, so only a real-browser probe found it; the rows are keyed by id now and a jsdom mount pins it. The other rounds were test gaps: most survivors came from fixtures where one value could not tell two code paths apart ("Foo" against "FOO" passes a key by name; a broken site whose label and tier are both "broken" passes a pill classed by its label). 37 mutants, all red at the head. Filed: reddoorla/reddoor-maintenance#2055 and #2059.
