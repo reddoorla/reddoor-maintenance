@@ -581,6 +581,8 @@ describe("no count is typed into the page (the sentinel render)", () => {
       /^ladder\[[a-z]\]\.tier$/.test(p) ||
       p.startsWith("leads.perSite") ||
       p.startsWith("leads.thisMonth") ||
+      // The overview's leads tile reads these (numbersView, round 1); the page never does.
+      p.startsWith("leads.leadsSent") ||
       p.startsWith("leads.biggest") ||
       p === "leads.stoppedThisMonth" ||
       p === "leads.allTime.byHand" ||

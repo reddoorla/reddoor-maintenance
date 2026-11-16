@@ -234,7 +234,6 @@ section {
 }
 .ov-seg.attention {
   background: var(--ink-dark);
-  color: var(--on-ink);
 }
 .ov-seg.broken {
   background: var(--broken-fill);
@@ -247,7 +246,6 @@ section {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--ground);
   font-size: 0.9rem;
   white-space: nowrap;
 }
@@ -292,6 +290,7 @@ section {
 .ov-check-fill {
   left: 0;
   background: var(--ink);
+  color: var(--on-ink);
 }
 .ov-check-unknown {
   background: var(--ink-muted);

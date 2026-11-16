@@ -494,6 +494,10 @@ describe("review round 3: the page reads right for one, and for a form test not 
     const row = doc.querySelectorAll(".ov-check").find((r) => text(r).startsWith("Contact form"))!;
     // The screen reader's " of 1" is part of the count (round 1, item 13).
     expect(text(row.querySelector(".ov-check-count")!)).toBe("0 of 1 · 1 not checked");
+    // The failed test changes no level: the site is counted in OK (round 1, restored).
+    expect(text(doc.querySelector(".ov-tier-counts")!)).toBe(
+      "1 OK · 0 watch · 0 attention · 0 broken",
+    );
   });
 });
 
