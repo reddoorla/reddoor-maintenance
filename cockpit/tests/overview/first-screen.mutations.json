@@ -22,10 +22,7 @@
         "replace": "\"Contact form\": (s) => row(s)?.forms.ok ?? true,"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts",
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -51,10 +48,7 @@
         "replace": "const maintained = model.cards.filter((c) => c.site.status === \"maintained\" || c.site.status === \"launching\");"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts",
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -67,10 +61,7 @@
         "replace": "true &&"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts",
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -83,10 +74,7 @@
         "replace": "    else if (c.tier === \"watch\") tiers.attention++;\n    else if (c.tier === \"attention\") tiers.watch++;"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts",
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -99,10 +87,7 @@
         "replace": "value: leads.allTime === null ? UNREADABLE : String(leads.allTime.notified),"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts",
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -115,10 +100,7 @@
         "replace": "s.nights === null ? \"0\" : newestCheck === undefined ? NOT_YET : String(newestCheck),"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts",
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -144,10 +126,7 @@
         "replace": "const newestCheck = checkNights.findLast((v): v is number => v !== null);"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts",
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -160,10 +139,7 @@
         "replace": "    if (v === null) {\n      run.push({ x: Math.round(i * step * 10) / 10, y: height });\n      return;\n    }"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts",
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -189,10 +165,7 @@
         "replace": "  const checks = [...HEALTH_CHECK_NAMES].sort().map((name) => {"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts",
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -205,10 +178,7 @@
         "replace": "value: reports.sent === null ? UNREADABLE : String(reports.sent.real + reports.sent.testSends),"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts",
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -221,10 +191,7 @@
         "replace": "s.a11yViolations === null"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts",
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   }
 ]
