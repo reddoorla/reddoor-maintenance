@@ -1,0 +1,230 @@
+[
+  {
+    "id": "1-per-site-element",
+    "why": "A site name is rendered in the health panel",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "<h3>Sites passing each check</h3>",
+        "replace": "<h3>Sites passing each check</h3><span>{v.live[0]?.siteName}</span>"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2-no-form-test-passes",
+    "why": "A site with no form test counts as a pass",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "\"Contact form\": (s) => row(s)?.forms.ok ?? null,",
+        "replace": "\"Contact form\": (s) => row(s)?.forms.ok ?? true,"
+      }
+    ],
+    "test": [
+      "cockpit/tests/overview/view.ssr.test.ts",
+      "cockpit/tests/overview/page.ssr.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "3-quiet-strip-while-broken",
+    "why": "The strip keeps the quiet class while a site is broken",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "<section class=\"ov-status {v.status.cls}\"",
+        "replace": "<section class=\"ov-status ok\""
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "4-launching-site-counted",
+    "why": "Launching sites are counted in the health panel",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "const maintained = model.cards.filter((c) => c.site.status === \"maintained\");",
+        "replace": "const maintained = model.cards.filter((c) => c.site.status === \"maintained\" || c.site.status === \"launching\");"
+      }
+    ],
+    "test": [
+      "cockpit/tests/overview/view.ssr.test.ts",
+      "cockpit/tests/overview/page.ssr.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "5-stale-security-passes",
+    "why": "A stale security audit with no count is a pass",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "freshWithin(s.lastSecurityAuditAt, PRODUCTION_STALE_DAYS, now) &&",
+        "replace": "true &&"
+      }
+    ],
+    "test": [
+      "cockpit/tests/overview/view.ssr.test.ts",
+      "cockpit/tests/overview/page.ssr.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "6-watch-attention-swapped",
+    "why": "Watch and attention counts are swapped",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    else if (c.tier === \"watch\") tiers.watch++;\n    else if (c.tier === \"attention\") tiers.attention++;",
+        "replace": "    else if (c.tier === \"watch\") tiers.attention++;\n    else if (c.tier === \"attention\") tiers.watch++;"
+      }
+    ],
+    "test": [
+      "cockpit/tests/overview/view.ssr.test.ts",
+      "cockpit/tests/overview/page.ssr.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "7-leads-all-time",
+    "why": "The leads tile shows all-time notified, not this month",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "value: leads.thisMonth === null ? UNREADABLE : String(leads.thisMonth.notified),",
+        "replace": "value: leads.allTime === null ? UNREADABLE : String(leads.allTime.notified),"
+      }
+    ],
+    "test": [
+      "cockpit/tests/overview/view.ssr.test.ts",
+      "cockpit/tests/overview/page.ssr.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "8-unmeasured-as-zero",
+    "why": "An unmeasured checks tile prints 0",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "s.nights === null ? UNREADABLE : newestCheck === undefined ? NOT_YET : String(newestCheck),",
+        "replace": "s.nights === null ? \"0\" : newestCheck === undefined ? NOT_YET : String(newestCheck),"
+      }
+    ],
+    "test": [
+      "cockpit/tests/overview/view.ssr.test.ts",
+      "cockpit/tests/overview/page.ssr.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "9-live-section-kept",
+    "why": "The Is every site live section is rendered again",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "<section class=\"ov-happening\" aria-labelledby=\"ov-happening-h\">",
+        "replace": "<section aria-labelledby=\"ov-live\"><h2 id=\"ov-live\">Is every site live?</h2></section>\n<section class=\"ov-happening\" aria-labelledby=\"ov-happening-h\">"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "10-checks-oldest-night",
+    "why": "The checks tile takes the oldest measured night",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "const newestCheck = checkNights.find((v): v is number => v !== null);",
+        "replace": "const newestCheck = checkNights.findLast((v): v is number => v !== null);"
+      }
+    ],
+    "test": [
+      "cockpit/tests/overview/view.ssr.test.ts",
+      "cockpit/tests/overview/page.ssr.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "11-spark-gap-as-zero",
+    "why": "A night with no value is drawn as 0 in the sparkline",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    if (v === null) return flush();",
+        "replace": "    if (v === null) {\n      run.push({ x: Math.round(i * step * 10) / 10, y: height });\n      return;\n    }"
+      }
+    ],
+    "test": [
+      "cockpit/tests/overview/view.ssr.test.ts",
+      "cockpit/tests/overview/page.ssr.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "12-lighthouse-dropped",
+    "why": "The health panel omits the Lighthouse medians",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "{#each v.reports.lighthouse as l (l.label)}",
+        "replace": "{#each [] as l (l.label)}"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "13-check-order",
+    "why": "The checks are sorted alphabetically",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  const checks = HEALTH_CHECK_NAMES.map((name) => {",
+        "replace": "  const checks = [...HEALTH_CHECK_NAMES].sort().map((name) => {"
+      }
+    ],
+    "test": [
+      "cockpit/tests/overview/view.ssr.test.ts",
+      "cockpit/tests/overview/page.ssr.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "14-reports-count-test-sends",
+    "why": "The reports tile counts test sends too",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "value: reports.sent === null ? UNREADABLE : String(reports.sent.real),",
+        "replace": "value: reports.sent === null ? UNREADABLE : String(reports.sent.real + reports.sent.testSends),"
+      }
+    ],
+    "test": [
+      "cockpit/tests/overview/view.ssr.test.ts",
+      "cockpit/tests/overview/page.ssr.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "15-stale-a11y-passes",
+    "why": "A stale accessibility scan with no violations is a pass",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "s.a11yViolations === null || !freshWithin(s.a11yCheckedAt, A11Y_STALE_DAYS, now)",
+        "replace": "s.a11yViolations === null"
+      }
+    ],
+    "test": [
+      "cockpit/tests/overview/view.ssr.test.ts",
+      "cockpit/tests/overview/page.ssr.test.ts"
+    ],
+    "expect": "red"
+  }
+]
