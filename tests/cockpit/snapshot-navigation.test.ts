@@ -401,61 +401,105 @@ describe("cockpit navigation, in a browser, against the built app", () => {
 
   // P1-87 PR 1, review round 6: the ladder is four columns at 1000px, and its bars
   // and hairlines are the widths the page's notes promise.
-  it("How this works sets the ladder's four levels on one row, with its bar widths, at 1000px", async () => {
-    const page = await signedIn();
-    await page.setViewportSize({ width: 1000, height: 800 });
-    await page.emulateMedia({ colorScheme: "light" });
-    await page.goto(`${origin}/how`);
-    await expect.poll(() => page.locator("h1").first().textContent()).toContain("How this works");
-    const ladder = await page.$$eval(".how-ladder li", (els) =>
-      els.map((e) => ({
-        cls: e.className,
-        top: Math.round(e.getBoundingClientRect().top),
-        bar: getComputedStyle(e).borderTopWidth,
-        textTop: Math.round(e.firstElementChild!.getBoundingClientRect().top),
-      })),
-    );
-    expect(ladder).toHaveLength(4);
-    expect(new Set(ladder.map((l) => l.top)).size).toBe(1);
-    // Broken's word sits level with the others' even with its thicker bar.
-    expect(new Set(ladder.map((l) => l.textTop)).size).toBe(1);
-    // Only Broken's bar is wider than 4px, and it is 8px.
-    expect(Object.fromEntries(ladder.map((l) => [l.cls, l.bar]))).toEqual({
-      ok: "4px",
-      watch: "4px",
-      attention: "4px",
-      broken: "8px",
-    });
-    // Every flow box but the filled end box has the 1px hairline.
-    const hairlines = await page.$$eval(".how-flow li:not(.how-end)", (els) =>
-      els.map((e) => getComputedStyle(e).borderTopWidth),
-    );
-    expect(hairlines.length).toBeGreaterThan(0);
-    expect(new Set(hairlines)).toEqual(new Set(["1px"]));
-    // The filled end box's hairline is its own fill, so the rule does not cross it.
-    const ends = await page.$$eval(".how-flow li.how-end", (els) =>
-      els.map((e) => [getComputedStyle(e).borderTopColor, getComputedStyle(e).backgroundColor]),
-    );
-    expect(ends.length).toBe(3);
-    for (const [border, fill] of ends) expect(border).toBe(fill);
-  });
+  // Review round 7: the bars and hairlines are checked in both themes, not only in light.
+  it.each(["light", "dark"] as const)(
+    "How this works sets the ladder's four levels on one row, with its bar widths, at 1000px in the %s theme",
+    async (scheme) => {
+      const page = await signedIn();
+      await page.setViewportSize({ width: 1000, height: 800 });
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.goto(`${origin}/how`);
+      await expect.poll(() => page.locator("h1").first().textContent()).toContain("How this works");
+      const ladder = await page.$$eval(".how-ladder li", (els) =>
+        els.map((e) => ({
+          cls: e.className,
+          top: Math.round(e.getBoundingClientRect().top),
+          bar: getComputedStyle(e).borderTopWidth,
+          textTop: Math.round(e.firstElementChild!.getBoundingClientRect().top),
+        })),
+      );
+      expect(ladder).toHaveLength(4);
+      expect(new Set(ladder.map((l) => l.top)).size).toBe(1);
+      // Broken's word sits level with the others' even with its thicker bar.
+      expect(new Set(ladder.map((l) => l.textTop)).size).toBe(1);
+      // Only Broken's bar is wider than 4px, and it is 8px.
+      expect(Object.fromEntries(ladder.map((l) => [l.cls, l.bar]))).toEqual({
+        ok: "4px",
+        watch: "4px",
+        attention: "4px",
+        broken: "8px",
+      });
+      // Every flow box but the filled end box has the 1px hairline.
+      const hairlines = await page.$$eval(".how-flow li:not(.how-end)", (els) =>
+        els.map((e) => getComputedStyle(e).borderTopWidth),
+      );
+      expect(hairlines.length).toBeGreaterThan(0);
+      expect(new Set(hairlines)).toEqual(new Set(["1px"]));
+      // Review round 7: each hairline is the --rule token's colour, resolved by a probe.
+      const rule = await page.evaluate(() => {
+        const probe = document.createElement("div");
+        probe.style.color = "var(--rule)";
+        document.body.append(probe);
+        const c = getComputedStyle(probe).color;
+        probe.remove();
+        return c;
+      });
+      const hairlineColors = await page.$$eval(".how-flow li:not(.how-end)", (els) =>
+        els.map((e) => getComputedStyle(e).borderTopColor),
+      );
+      expect(hairlineColors).toHaveLength(hairlines.length);
+      for (const c of hairlineColors) expect(c).toBe(rule);
+      // The filled end box's hairline is its own fill, so the rule does not cross it.
+      const ends = await page.$$eval(".how-flow li.how-end", (els) =>
+        els.map((e) => [getComputedStyle(e).borderTopColor, getComputedStyle(e).backgroundColor]),
+      );
+      expect(ends.length).toBe(3);
+      for (const [border, fill] of ends) expect(border).toBe(fill);
+      // Review round 7 (nit): the end box's hairline is 1px, like the rest of the flow.
+      const endWidths = await page.$$eval(".how-flow li.how-end", (els) =>
+        els.map((e) => getComputedStyle(e).borderTopWidth),
+      );
+      expect(endWidths).toHaveLength(3);
+      for (const w of endWidths) expect(w).toBe("1px");
+    },
+  );
 
   // P1-87 PR 1, review round 6: at 390px the ladder is one column, four rows in order.
-  it("How this works stacks the ladder's four levels in one column at 390px", async () => {
+  // Review round 7: also at 470px, which is under the 30rem (480px) rule's edge.
+  it.each([390, 470])(
+    "How this works stacks the ladder's four levels in one column at %spx",
+    async (width) => {
+      const page = await signedIn();
+      await page.setViewportSize({ width, height: 844 });
+      await page.emulateMedia({ colorScheme: "light" });
+      await page.goto(`${origin}/how`);
+      await expect.poll(() => page.locator("h1").first().textContent()).toContain("How this works");
+      const boxes = await page.$$eval(".how-ladder li", (els) =>
+        els.map((e) => {
+          const r = e.getBoundingClientRect();
+          return { top: Math.round(r.top), left: Math.round(r.left) };
+        }),
+      );
+      expect(boxes).toHaveLength(4);
+      expect(new Set(boxes.map((b) => b.left)).size).toBe(1);
+      for (let i = 1; i < boxes.length; i++)
+        expect(boxes[i]!.top).toBeGreaterThan(boxes[i - 1]!.top);
+    },
+  );
+
+  // P1-87 PR 1, review round 7: the four-column rule starts at 60rem (960px), so at
+  // 970px all four levels share one row too, not only at 1000px.
+  it("How this works sets the ladder's four levels on one row at 970px", async () => {
     const page = await signedIn();
-    await page.setViewportSize({ width: 390, height: 844 });
+    await page.setViewportSize({ width: 970, height: 800 });
     await page.emulateMedia({ colorScheme: "light" });
     await page.goto(`${origin}/how`);
     await expect.poll(() => page.locator("h1").first().textContent()).toContain("How this works");
-    const boxes = await page.$$eval(".how-ladder li", (els) =>
-      els.map((e) => {
-        const r = e.getBoundingClientRect();
-        return { top: Math.round(r.top), left: Math.round(r.left) };
-      }),
+    const tops = await page.$$eval(".how-ladder li", (els) =>
+      els.map((e) => Math.round(e.getBoundingClientRect().top)),
     );
-    expect(boxes).toHaveLength(4);
-    expect(new Set(boxes.map((b) => b.left)).size).toBe(1);
-    for (let i = 1; i < boxes.length; i++) expect(boxes[i]!.top).toBeGreaterThan(boxes[i - 1]!.top);
+    expect(tops).toHaveLength(4);
+    expect(new Set(tops).size).toBe(1);
   });
 
   // P1-87 PR 1: How this works on a 390px-wide phone, in both themes, with nothing

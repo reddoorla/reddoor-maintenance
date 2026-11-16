@@ -741,5 +741,70 @@
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "57-dark-broken-bar-thin",
+    "why": "Broken's bar is thin in dark mode only, so the light-only 1000px check missed it (review round 7, P1-87)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  border-top-width: 8px;\n  padding-top: calc(var(--space-3) - 4px);\n}\n",
+        "replace": "  border-top-width: 8px;\n  padding-top: calc(var(--space-3) - 4px);\n}\n:root[data-theme=\"dark\"] .how-ladder li.broken {\n  border-top-width: 4px;\n  padding-top: var(--space-3);\n}\n@media (prefers-color-scheme: dark) {\n  :root:not([data-theme=\"light\"]) .how-ladder li.broken {\n    border-top-width: 4px;\n    padding-top: var(--space-3);\n  }\n}\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "58-one-column-at-25rem",
+    "why": "The one-column ladder rule ends at 25rem, so at 470px the ladder is two columns (review round 7, P1-87)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "@media (max-width: 30rem) {",
+        "replace": "@media (max-width: 25rem) {"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "59-four-columns-at-62rem",
+    "why": "The four-column ladder starts at 62rem, so at 970px it is two columns (review round 7, P1-87)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "@media (min-width: 60rem) {\n  .how-ladder {",
+        "replace": "@media (min-width: 62rem) {\n  .how-ladder {"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "60-hairline-ink",
+    "why": "The flow's hairline is ink, not the --rule token, so it is not the hairline colour (review round 7, P1-87)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  border-top: 1px solid var(--rule);\n  padding: var(--space-3);\n  display: flex;\n  flex-direction: column;\n  gap: var(--space-1);\n}",
+        "replace": "  border-top: 1px solid var(--ink);\n  padding: var(--space-3);\n  display: flex;\n  flex-direction: column;\n  gap: var(--space-1);\n}"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "61-end-box-thick-bar",
+    "why": "The filled end box's hairline is 4px, a bar, not a 1px hairline (review round 7, P1-87)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  /* The filled box takes the hairline's colour too, so the rule does not cross it. */\n  border-top-color: var(--ink);\n}",
+        "replace": "  /* The filled box takes the hairline's colour too, so the rule does not cross it. */\n  border-top-color: var(--ink);\n  border-top-width: 4px;\n}"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
   }
 ]
