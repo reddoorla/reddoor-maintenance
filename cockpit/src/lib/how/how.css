@@ -26,6 +26,8 @@ body {
 }
 .how-chapter h2 {
   font-family: var(--font-serif);
+  font-weight: 400;
+  line-height: 1.25;
   margin: var(--space-1) 0 var(--space-4);
 }
 .how-chapter > p {
@@ -64,11 +66,12 @@ body {
   color: var(--ink-muted);
 }
 
-/* Chapter 2: the ladder, mildest to worst; the bar on top grows stronger with the
-   level (OK's bar is faint on purpose: the level is told by its word). */
+/* Chapter 2: the ladder, mildest to worst. The bar on top darkens from OK to
+   Attention; Broken's is red and thicker, so it reads as the worst without its
+   colour (OK's bar is faint on purpose: the level is told by its word). */
 .how-ladder {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  grid-template-columns: repeat(2, 1fr);
   gap: var(--space-2);
   padding: 0;
   margin: 0 0 var(--space-4);
@@ -90,6 +93,12 @@ body {
 }
 .how-ladder li.broken {
   border-top-color: var(--broken-fill);
+  border-top-width: 6px;
+}
+@media (min-width: 60rem) {
+  .how-ladder {
+    grid-template-columns: repeat(4, 1fr);
+  }
 }
 
 /* Chapters 3 to 5: a flow of boxes joined by arrows; the end of the flow is filled. */
@@ -110,6 +119,7 @@ body {
   min-width: 0;
   /* A panel, not a control: square, with no control border. */
   background: var(--surface);
+  border-top: 1px solid var(--rule);
   padding: var(--space-3);
   display: flex;
   flex-direction: column;

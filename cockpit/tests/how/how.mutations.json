@@ -332,8 +332,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/how/+page.svelte",
-        "find": "<title>Reddoor maintenance \u2014 how this works</title>",
-        "replace": "<title>Reddoor maintenance \u2014 overview</title>"
+        "find": "<title>Reddoor maintenance — how this works</title>",
+        "replace": "<title>Reddoor maintenance — overview</title>"
       }
     ],
     "test": "cockpit/tests/how/page.ssr.test.ts",
@@ -449,7 +449,7 @@
     "edits": [
       {
         "file": "cockpit/src/routes/how/+page.svelte",
-        "find": "{i > 0 ? \" \u00b7 \" : \"\"}",
+        "find": "{i > 0 ? \" · \" : \"\"}",
         "replace": "{i > 0 ? \" \" : \"\"}"
       }
     ],
@@ -462,7 +462,7 @@
     "edits": [
       {
         "file": "cockpit/src/routes/how/+page.svelte",
-        "find": "><span class=\"how-step-n\">{s.n}</span> \u00b7",
+        "find": "><span class=\"how-step-n\">{s.n}</span><span aria-hidden=\"true\">{\" · \"}</span>",
         "replace": ">"
       }
     ],
@@ -480,6 +480,136 @@
       }
     ],
     "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "37-view-upkeep-swapped",
+    "why": "The model swaps the two upkeep counts (review round 5, tests 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "upkeep: { automerged: o.upkeep.automerged, vulnsCleared: o.upkeep.vulnsCleared }",
+        "replace": "upkeep: { automerged: o.upkeep.vulnsCleared, vulnsCleared: o.upkeep.automerged }"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "38-view-times-swapped",
+    "why": "The model swaps the start and send times (review round 5, tests 2)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "      ...o.nightly,\n",
+        "replace": "      ...o.nightly,\n      startsAt: o.nightly.sendsAt,\n      sendsAt: o.nightly.startsAt,\n"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "39-view-scale-wrong",
+    "why": "The model fills scale from another field (review round 5, tests 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "      ...o.nightly,\n",
+        "replace": "      ...o.nightly,\n      scale: o.upkeep.automerged,\n"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "40-view-lighthouse-asof-dropped",
+    "why": "The model drops how old the Lighthouse audits are (review round 5, tests 5)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "lighthouseAsOf: o.reports.lighthouseAsOf,",
+        "replace": "lighthouseAsOf: null,"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "41-stopped-asof-unguarded",
+    "why": "The 'as of' shows with no date when the stopped count has none (review round 5, tests 6)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "{#if v.leads.stoppedAsOf}, as of {v.leads\n              .stoppedAsOf}{/if}",
+        "replace": ", as of {v.leads.stoppedAsOf}"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "42-failed-read-notice-always",
+    "why": "The 'could not be read' notice shows on a healthy read (review round 5, tests 7)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "{#if v.leads.allTime === null}",
+        "replace": "{#if true}"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "43-lighthouse-asof-unguarded",
+    "why": "', from audits as old as' shows with no date (review round 5, tests 6)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "{#if v.reports.lighthouseAsOf}<span class=\"muted\"\n        >, from audits as old as {v.reports.lighthouseAsOf}</span\n      >{/if}",
+        "replace": "<span class=\"muted\">, from audits as old as {v.reports.lighthouseAsOf}</span>"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "44-vuln-same-night-for-all",
+    "why": "Every vulnerability fix is said to open the same night, the direct and the deeper alike (review round 5, copy)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "in\n    a package the site uses directly does not wait for the week: it opens the same night. One deeper\n    in the tree waits for the weekly lock-file update.",
+        "replace": "does not wait for the week: it opens the same night."
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "45-chapter-heading-bold",
+    "why": "The chapter headings fall back to the browser's bold (review round 5, style 8)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  font-weight: 400;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "46-ladder-auto-fit",
+    "why": "The ladder is auto-fit, so at 768px Broken sits alone in a row (review round 5, style 9)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  grid-template-columns: repeat(2, 1fr);\n",
+        "replace": "  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
     "expect": "red"
   }
 ]

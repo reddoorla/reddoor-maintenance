@@ -353,6 +353,12 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     );
     expect(tops.length).toBe(3);
     for (const row of tops) expect(new Set(row).size).toBe(1);
+    // Each chapter's heading is regular weight, not the browser's bold.
+    const headings = await page.$$eval(".how-chapter h2", (hs) =>
+      hs.map((h) => getComputedStyle(h).fontWeight),
+    );
+    expect(headings).toHaveLength(5);
+    expect(new Set(headings)).toEqual(new Set(["400"]));
     // Each box after the first has its arrow, pointing along the row: not the phone's.
     const arrows = await page.$$eval(".how-flow > li + li", (els) =>
       els.map((e) => [
@@ -374,6 +380,23 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
       1000,
     );
+  });
+
+  // P1-87 PR 1, review round 5: at 768px (under 60rem) the ladder is two columns, so
+  // its four boxes form a 2x2 grid and Broken is not alone in a row.
+  it("How this works lays the ladder out as a 2x2 grid at 768px", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 768, height: 800 });
+    await page.emulateMedia({ colorScheme: "light" });
+    await page.goto(`${origin}/how`);
+    await expect.poll(() => page.locator("h1").first().textContent()).toContain("How this works");
+    const tops = await page.$$eval(".how-ladder li", (els) =>
+      els.map((e) => Math.round(e.getBoundingClientRect().top)),
+    );
+    expect(tops).toHaveLength(4);
+    expect(tops[0]).toBe(tops[1]);
+    expect(tops[2]).toBe(tops[3]);
+    expect(tops[2]).toBeGreaterThan(tops[0]!);
   });
 
   // P1-87 PR 1: How this works on a 390px-wide phone, in both themes, with nothing

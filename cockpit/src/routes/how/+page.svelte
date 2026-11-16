@@ -35,8 +35,9 @@
     {#each v.nightly.steps as s (s.label)}
       <li>
         <strong
-          ><span class="how-step-n">{s.n}</span> ·
-          <span class="how-step-name">{s.short}</span></strong
+          ><span class="how-step-n">{s.n}</span><span aria-hidden="true">{" · "}</span><span
+            class="how-step-name">{s.short}</span
+          ></strong
         >
         <span class="how-step-what">{s.label}</span>
         <span class="how-step-last">{v.nightly.nightOf}: {s.outcome}</span>
@@ -62,7 +63,7 @@
     <p class="how-kicker">When something is wrong</p>
     <h2 id="how-wrong">Problems are sorted by who they affect</h2>
   </hgroup>
-  <ol class="how-ladder" role="list" id="how-ladder">
+  <ol class="how-ladder" role="list">
     {#each v.ladder as l (l.tier)}
       <li class={l.tier}><strong>{l.name}</strong> <span>{l.text}</span></li>
     {/each}
@@ -70,8 +71,9 @@
   <p>
     Much of the fixing is done by the system itself: once a week an update bot opens changes for the
     packages a site uses that have new versions (after a short wait, minor ones grouped together),
-    and each change is tested before it merges. A fix for a known critical or high vulnerability
-    does not wait for the week: it opens the same night.
+    and each change is tested before it merges. A fix for a known critical or high vulnerability in
+    a package the site uses directly does not wait for the week: it opens the same night. One deeper
+    in the tree waits for the weekly lock-file update.
     <span data-term="Dependency updates merged"
       >Dependency updates merged: {v.upkeep.automerged}.</span
     >
@@ -149,7 +151,8 @@
       {/if}
     </li>
     <li class="how-end">
-      <strong>Sent to the client</strong> <span>with traffic and search results</span>
+      <strong>Sent to the client</strong>
+      <span>with traffic and search results where we have them</span>
     </li>
   </ol>
   <p data-term="Checks per report">
@@ -165,7 +168,9 @@
   </dl>
   <p data-term="Lighthouse">
     Google's Lighthouse audit, the middle score across our sites:
-    {#each v.reports.lighthouse as l, i (l.label)}{i > 0 ? " · " : ""}{l.label}
+    {#each v.reports.lighthouse as l, i (l.label)}<span aria-hidden="true"
+        >{i > 0 ? " · " : ""}</span
+      >{l.label}
       {l.median}{/each}{#if v.reports.lighthouseAsOf}<span class="muted"
         >, from audits as old as {v.reports.lighthouseAsOf}</span
       >{/if}.
@@ -189,7 +194,8 @@
     Each change lands as its own pull request (PR), small enough to undo on its own. That is the
     path on a client site with a staging copy. Small dependency updates skip staging, and go live
     once the site's tests pass. Changes to the maintenance stack itself go live when they merge,
-    once tested and reviewed; only its published package releases wait for a person.
+    once tested; the changes we write are also reviewed. Only its published package releases wait
+    for a person. The count includes the update bot's own merges.
     <span data-term="PRs merged"
       >PRs merged into the maintenance stack (the code that runs these checks and sends the
       reports): {v.prsMerged}.</span

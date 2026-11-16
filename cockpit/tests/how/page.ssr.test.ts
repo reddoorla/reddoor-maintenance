@@ -30,7 +30,15 @@ NEWEST.counts.steps = {
 
 const SNAP = snapshot({
   sites: [
-    healthy({ id: "recA", name: "Acme", pScore: 91, rScore: 97, bpScore: 88, seoScore: 99 }),
+    healthy({
+      id: "recA",
+      name: "Acme",
+      pScore: 91,
+      rScore: 97,
+      bpScore: 88,
+      seoScore: 99,
+      lastLighthouseAuditAt: "2026-10-20T06:30:00.000Z",
+    }),
     healthy({ id: "recB", name: "Bravo" }),
   ],
   submissions: [
@@ -54,7 +62,13 @@ const SNAP = snapshot({
     ),
   ],
   reports: [report({ id: "sent1" }), report({ id: "sent2", approvedAt: null })],
-  nights: [NEWEST, night("2026-10-25", { prsMerged: { value: 590 } })],
+  nights: [
+    NEWEST,
+    night("2026-10-25", {
+      prsMerged: { value: 590 },
+      events: { value: { pr_automerged: 90, vuln_cleared: 7 } },
+    }),
+  ],
 });
 
 function pageHtml(view: HowView, email: string | null = null): string {
@@ -282,11 +296,91 @@ describe("five chapters, each with its diagram", () => {
     expect(sentence.match(NUMBER_WORDS)).toBeNull();
   });
 
+  it("chapter 2 says which fixes wait for the weekly update, and which do not", () => {
+    const para = one(DOC, "section:has(#how-wrong) > p");
+    expect(para).toContain("in a package the site uses directly");
+    expect(para).toContain("waits for the weekly lock-file update");
+  });
+
+  it("chapter 4's last box says a sent report carries traffic and search results only where we have them", () => {
+    expect(one(DOC, "section:has(#how-report) .how-flow li.how-end")).toBe(
+      "Sent to the client with traffic and search results where we have them",
+    );
+  });
+
+  it("chapter 5 says the count includes the update bot's own merges", () => {
+    const para = one(DOC, "section:has(#how-ship) > p");
+    expect(para).toContain("once tested; the changes we write are also reviewed.");
+    expect(para).toContain("The count includes the update bot's own merges.");
+  });
+
   it("chapter 5 says how many PRs merged, from the nightly counts", () => {
     expect(one(DOC, 'section:has(#how-ship) [data-term="PRs merged"]')).toContain(
       `: ${VIEW.prsMerged}.`,
     );
     expect(VIEW.prsMerged).toMatch(/^10 over/);
+  });
+});
+
+describe("the fixture's values, pinned as literals", () => {
+  // Read once from this fixture's own run, then typed here: a view that swaps two
+  // fields, or drops one, no longer agrees with the literal it was checked against.
+  it("chapter 1's times and scale", () => {
+    expect(VIEW.nightly.startsAt).toBe("11:07pm PT");
+    expect(VIEW.nightly.sendsAt).toBe("9:07am PT");
+    expect(VIEW.nightly.scale).toBe(
+      "3 kinds of check ran on the night of Oct 26, reaching up to 2 sites",
+    );
+    expect(one(DOC, 'span[data-term="Times"]')).toBe(
+      "The run starts at 11:07pm PT, and reports a person has approved go out at 9:07am PT.",
+    );
+  });
+
+  it("chapter 2's two upkeep counts are distinct, each under its own label", () => {
+    expect(VIEW.upkeep.automerged).toBe("10 over the last night");
+    expect(VIEW.upkeep.vulnsCleared).toBe("3 over the last night");
+    expect(one(DOC, 'span[data-term="Dependency updates merged"]')).toBe(
+      "Dependency updates merged: 10 over the last night.",
+    );
+    expect(one(DOC, 'span[data-term="Sites cleared of vulnerabilities"]')).toBe(
+      "Sites cleared of every critical or high vulnerability: 3 over the last night.",
+    );
+  });
+
+  it("chapter 4's Lighthouse line, in full, with the date of its oldest audit", () => {
+    expect(VIEW.reports.lighthouseAsOf).toBe("Oct 19");
+    expect(one(DOC, 'p[data-term="Lighthouse"]')).toBe(
+      "Google's Lighthouse audit, the middle score across our sites: Performance 91 · Accessibility 97 · Best practices 88 · SEO 99, from audits as old as Oct 19.",
+    );
+  });
+});
+
+describe("a date that is absent takes its 'as of' with it", () => {
+  const doc = parse(
+    pageHtml({
+      ...VIEW,
+      leads: { ...VIEW.leads, stoppedAsOf: null },
+      reports: { ...VIEW.reports, lighthouseAsOf: null },
+    }),
+  );
+  const body = text(doc.querySelector("body")!);
+
+  it("the stopped count reads without a date", () => {
+    expect(one(doc, 'section:has(#how-lead) [data-term="Stopped before storage"]')).toBe(
+      "Bots stopped 248 never stored",
+    );
+  });
+
+  it("the Lighthouse line reads without an audit date", () => {
+    expect(one(doc, 'p[data-term="Lighthouse"]')).toBe(
+      "Google's Lighthouse audit, the middle score across our sites: Performance 91 · Accessibility 97 · Best practices 88 · SEO 99.",
+    );
+  });
+
+  it("no 'as of' or 'as old as' is left dangling on the page", () => {
+    expect(body).not.toMatch(/as of\s*[.,]/);
+    expect(body).not.toMatch(/as of\s*$/);
+    expect(body).not.toContain("as old as");
   });
 });
 
@@ -323,6 +417,12 @@ describe("when a read failed, no count is shown in its place", () => {
 });
 
 describe("the page's frame", () => {
+  it("a healthy read shows no 'could not be read' notice", () => {
+    const body = text(DOC.querySelector("body")!);
+    expect(body).not.toContain("The submissions could not be read just now");
+    expect(body).not.toContain("the reports could not be read just now");
+  });
+
   it("names itself in the tab", () => {
     expect(one(DOC, "title")).toBe("Reddoor maintenance — how this works");
   });
