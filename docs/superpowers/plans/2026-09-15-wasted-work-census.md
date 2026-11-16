@@ -425,55 +425,55 @@ export async function collectEvents(root, opts = {}) {
 Replace the prefilter `if (…) continue;` with:
 
 ```js
-      const interesting =
-        line.includes('"usage"') ||
-        line.includes("compact_boundary") ||
-        line.includes("hit your") ||
-        (full && line.includes('"type":"user"'));
-      if (!interesting) continue;
+const interesting =
+  line.includes('"usage"') ||
+  line.includes("compact_boundary") ||
+  line.includes("hit your") ||
+  (full && line.includes('"type":"user"'));
+if (!interesting) continue;
 ```
 
 After the `compact_boundary` branch and before `if (rec.type !== "assistant" …)`, add:
 
 ```js
-      if (full && rec.type === "user" && rec.message) {
-        const base = {
-          uuid: rec.uuid,
-          ts: rec.timestamp,
-          sessionId: rec.sessionId || "",
-          repo: repoOf(rec, projectDir),
-          lane: rec.isSidechain ? "subagent" : "main",
-        };
-        const tr = rec.toolUseResult;
-        if (tr && typeof tr === "object" && tr.agentId) {
-          const c = rec.message.content;
-          const toolUseId = Array.isArray(c) && c[0] && c[0].tool_use_id ? c[0].tool_use_id : "";
-          const rkey = toolUseId || tr.agentId;
-          if (!seenResults.has(rkey)) {
-            seenResults.add(rkey);
-            agentResults.push({
-              ...base,
-              toolUseId,
-              agentId: tr.agentId,
-              status: tr.status || "",
-              totalTokens: num(tr.totalTokens),
-            });
-          }
-          continue;
-        }
-        if (rec.isMeta) continue;
-        const text = promptText(rec.message);
-        if (text === null || !text.trim()) continue;
-        if (rec.uuid && seenMarkers.has(rec.uuid)) continue;
-        if (rec.uuid) seenMarkers.add(rec.uuid);
-        if (INTERRUPT_RE.test(text)) {
-          interrupts.push({ ...base, text: text.slice(0, 200) });
-          continue;
-        }
-        if (SYSTEM_SHAPED.test(text)) continue;
-        prompts.push({ ...base, text: text.slice(0, 500), command: text.includes("<command-name>") });
-        continue;
-      }
+if (full && rec.type === "user" && rec.message) {
+  const base = {
+    uuid: rec.uuid,
+    ts: rec.timestamp,
+    sessionId: rec.sessionId || "",
+    repo: repoOf(rec, projectDir),
+    lane: rec.isSidechain ? "subagent" : "main",
+  };
+  const tr = rec.toolUseResult;
+  if (tr && typeof tr === "object" && tr.agentId) {
+    const c = rec.message.content;
+    const toolUseId = Array.isArray(c) && c[0] && c[0].tool_use_id ? c[0].tool_use_id : "";
+    const rkey = toolUseId || tr.agentId;
+    if (!seenResults.has(rkey)) {
+      seenResults.add(rkey);
+      agentResults.push({
+        ...base,
+        toolUseId,
+        agentId: tr.agentId,
+        status: tr.status || "",
+        totalTokens: num(tr.totalTokens),
+      });
+    }
+    continue;
+  }
+  if (rec.isMeta) continue;
+  const text = promptText(rec.message);
+  if (text === null || !text.trim()) continue;
+  if (rec.uuid && seenMarkers.has(rec.uuid)) continue;
+  if (rec.uuid) seenMarkers.add(rec.uuid);
+  if (INTERRUPT_RE.test(text)) {
+    interrupts.push({ ...base, text: text.slice(0, 200) });
+    continue;
+  }
+  if (SYSTEM_SHAPED.test(text)) continue;
+  prompts.push({ ...base, text: text.slice(0, 500), command: text.includes("<command-name>") });
+  continue;
+}
 ```
 
 Inside the assistant branch, after `const text = firstText(rec.message);` and the block push, add (before `const u = rec.message.usage;`):

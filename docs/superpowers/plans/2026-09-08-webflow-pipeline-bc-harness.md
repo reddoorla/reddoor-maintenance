@@ -759,21 +759,16 @@ const schemaMismatch = new Set();
 (b) In the readdir loop, replace lines 61-69 with:
 
 ```js
-  const meta = report.meta ?? {};
-  // Missing schemaVersion means "written before the field existed" = 0. It is
-  // not an error on its own; it is only fatal when it would blank a page.
-  if ((meta.schemaVersion ?? 0) !== REPORT_SCHEMA) {
-    schemaMismatch.add(m[1]);
-    continue;
-  }
-  if (
-    (meta.mask?.length ?? 0) > 0 ||
-    meta.neutralizeMedia ||
-    meta.maskPhotos ||
-    meta.truncated
-  )
-    continue;
-  if (meta.threshold !== THRESHOLD) continue;
+const meta = report.meta ?? {};
+// Missing schemaVersion means "written before the field existed" = 0. It is
+// not an error on its own; it is only fatal when it would blank a page.
+if ((meta.schemaVersion ?? 0) !== REPORT_SCHEMA) {
+  schemaMismatch.add(m[1]);
+  continue;
+}
+if ((meta.mask?.length ?? 0) > 0 || meta.neutralizeMedia || meta.maskPhotos || meta.truncated)
+  continue;
+if (meta.threshold !== THRESHOLD) continue;
 ```
 
 and insert immediately after the loop closes (after line 72's `}`):
@@ -875,17 +870,17 @@ Then at line 79 (`const page = pageOf(run.meta.ref);`) make the fallback explici
 (c) In the corpus loop, replace line 56 (`if (!report.meta?.ref || !Array.isArray(report.regions)) continue;`) with:
 
 ```js
-  if (!report.meta?.ref || !Array.isArray(report.regions)) continue;
-  // A report from another schema is still usable for a STALL count as long as
-  // it carries the two fields this reads. Anything else is counted and named,
-  // never silently dropped — an under-counted history reads as "clear".
-  const usable = report.regions.every(
-    (r) => typeof r.mismatchFraction === "number" && typeof r.pass === "boolean",
-  );
-  if (!usable) {
-    unreadable.push(`${dir} (schema ${report.meta.schemaVersion ?? 0})`);
-    continue;
-  }
+if (!report.meta?.ref || !Array.isArray(report.regions)) continue;
+// A report from another schema is still usable for a STALL count as long as
+// it carries the two fields this reads. Anything else is counted and named,
+// never silently dropped — an under-counted history reads as "clear".
+const usable = report.regions.every(
+  (r) => typeof r.mismatchFraction === "number" && typeof r.pass === "boolean",
+);
+if (!usable) {
+  unreadable.push(`${dir} (schema ${report.meta.schemaVersion ?? 0})`);
+  continue;
+}
 ```
 
 Declare `const unreadable = [];` beside `const runs = [];` (line 48), and insert after the corpus loop closes (after line 63):
