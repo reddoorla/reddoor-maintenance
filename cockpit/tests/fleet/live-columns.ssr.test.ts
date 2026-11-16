@@ -367,6 +367,22 @@ describe("the live columns, review round 4 (P1-87, PR 2)", () => {
     expect(cell(proto, "Level").querySelector(".pill")!.classList.contains("broken")).toBe(true);
   });
 
+  it("keeps the facts' own-property guard when the record is a plain object", async () => {
+    // The route's record is null-prototype now, so a plain record (the browser's
+    // JSON round trip) is what the page's own guard must still handle: the
+    // archived ToString's id "constructor" must not read Object.prototype's function.
+    const url = new URL("/fleet?status=__all__", "https://dash.example");
+    const data = (await (load as unknown as (e: unknown) => Promise<Data>)({
+      url,
+      parent: async () => ({ snapshot: SNAP_R3, failure: null, clockOffsetMs: 0 }),
+    })) as Data;
+    const plain = { ...data, facts: JSON.parse(JSON.stringify(data.facts)) } as Data;
+    const doc = parse(render(Page, { props: { data: plain } }).body);
+    const ts = rowOf(doc, "ToString");
+    for (const label of ["Live", "Certificate", "Deploy", "Forms"])
+      expect(text(cell(ts, label))).toBe("—");
+  });
+
   it("gives Acme's Level pill its tier class, healthy, not its label", async () => {
     const pill = rowOf(await page("/fleet", SNAP_R4), "Acme").querySelector(".pill")!;
     expect(pill.classList.contains("healthy")).toBe(true);
