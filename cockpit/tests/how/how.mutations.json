@@ -449,8 +449,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/how/+page.svelte",
-        "find": "{i > 0 ? \" · \" : \"\"}",
-        "replace": "{i > 0 ? \" \" : \"\"}"
+        "find": "{#if i > 0}<span aria-hidden=\"true\">{\" ·\"}",
+        "replace": "{#if i > 0}<span aria-hidden=\"true\">{\"\"}"
       }
     ],
     "test": "cockpit/tests/how/page.ssr.test.ts",
@@ -462,7 +462,7 @@
     "edits": [
       {
         "file": "cockpit/src/routes/how/+page.svelte",
-        "find": "><span class=\"how-step-n\">{s.n}</span><span aria-hidden=\"true\">{\" · \"}</span>",
+        "find": "><span class=\"how-step-n\">{s.n}</span><span aria-hidden=\"true\">{\" ·\"}</span>",
         "replace": ">"
       }
     ],
