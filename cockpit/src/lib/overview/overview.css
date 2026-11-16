@@ -262,14 +262,13 @@ section {
 /* One row a check: name | bar | count, the count right of the bar. */
 .ov-check {
   display: grid;
-  grid-template-columns: 8.5rem minmax(0, 1fr) auto;
+  grid-template-columns: 8.5rem minmax(0, 1fr) minmax(0, auto);
   gap: 0.5rem;
   align-items: center;
   padding: 0.25rem 0;
   font-size: 0.9rem;
 }
 .ov-check-count {
-  white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 /* Pass is ink, not-checked grey, failing the empty track. */

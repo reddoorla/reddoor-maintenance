@@ -339,7 +339,7 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     // steps line to /how, so this reads a first-screen tile instead).
     const shipped = page.locator(".ov-tile", { hasText: "changes shipped" });
     await expect.poll(() => shipped.locator(".ov-num").textContent()).toBe("12");
-    await expect.poll(() => shipped.textContent()).toContain("over the last 1 night");
+    await expect.poll(() => shipped.textContent()).toContain("over the last night");
   });
 
   // P1-87 PR 1, review round 2: on a small laptop (1000px) each flow stays one row,
