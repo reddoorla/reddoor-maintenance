@@ -9,3 +9,7 @@ Round 6, on the round-5 fix alone, was dirty too, and it came back to the operat
 The fixes ran on Haiku from written briefs; both signed their commits with a Haiku trailer despite the brief's exact line, and the trailers were rewritten before the push. The three deferred minors from rounds 1 to 4 are filed as reddoorla/reddoor-maintenance#2056, #2057 and #2058.
 
 Mutants: 56 of 56 red at `fb62e9c1` (`node scripts/mutate.mjs cockpit/tests/how/how.mutations.json`).
+
+## Round 7 (added 11-16 about 2:15pm PT)
+
+The operator asked for a seventh round on the round-6 fix alone. Correctness and accessibility were clean; a real-browser probe in light, dark and forced colours found the screen reader now hears "1 Backup". The tests lens found gaps only (Broken's bar checked in light mode alone, each breakpoint at one width, the hairline's colour unchecked), pinned at `6468ab18` with mutants 57 to 61 (61 of 61 red) and no page change. He answered "land on CI green" (workspace `decisions/2026-11-16-2211-p1-87-pr1-round-7-dirty.md`).
