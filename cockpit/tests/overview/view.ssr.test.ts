@@ -29,6 +29,7 @@ import { PRODUCTION_STALE_DAYS } from "../../../src/alerts/production-signals.js
  */
 
 import { NOW, FRESH, STALE, healthy, report, night, snapshot } from "./fixtures.js";
+import type { CockpitSnapshot } from "../../../src/dashboard/snapshot-views.js";
 
 describe("section 1: the one-line status", () => {
   it("counts the sites in our care and says all are live", () => {
@@ -1810,13 +1811,16 @@ describe("health and numbers (P1-87 PR 3)", () => {
   const fleet = () =>
     snapshot({
       sites: [
-        // Acme: every check passes.
+        // Acme: every check passes but accessibility, whose scan reached 2 of its 10
+        // routes: a partial scan is unknown, however clean (round 1, fix 5).
         healthy({
           id: "recA",
           name: "Acme",
           smokeOk: "pass",
           lastSmokeAt: FRESH,
           a11yViolations: 0,
+          a11yRoutesScanned: 2,
+          a11yRoutesTotal: 10,
           a11yCheckedAt: FRESH,
         }),
         // Bravo: Broken (its pages do not answer), its build and tests fail, no accessibility scan.
@@ -1837,6 +1841,8 @@ describe("health and numbers (P1-87 PR 3)", () => {
           formE2eCheckedAt: null,
           lastSecurityAuditAt: FIRST.stale,
           a11yViolations: 3,
+          a11yRoutesScanned: 10,
+          a11yRoutesTotal: 10,
           a11yCheckedAt: FRESH,
           smokeOk: "pass",
           lastSmokeAt: FRESH,
@@ -1849,6 +1855,8 @@ describe("health and numbers (P1-87 PR 3)", () => {
           securityAdvisories: TRANSITIVE,
           // An accessibility scan older than its 8-day window, with none found: unknown.
           a11yViolations: 0,
+          a11yRoutesScanned: 10,
+          a11yRoutesTotal: 10,
           a11yCheckedAt: "2026-10-10T06:30:00.000Z",
           smokeOk: "pass",
           lastSmokeAt: FIRST.stale,
@@ -1859,6 +1867,8 @@ describe("health and numbers (P1-87 PR 3)", () => {
           securityVulnsHigh: 2,
           securityAdvisories: TRANSITIVE,
           a11yViolations: 0,
+          a11yRoutesScanned: 10,
+          a11yRoutesTotal: 10,
           a11yCheckedAt: FRESH,
           smokeOk: "pass",
           lastSmokeAt: FIRST.stale,
@@ -1889,10 +1899,44 @@ describe("health and numbers (P1-87 PR 3)", () => {
 
   it("counts maintained sites only, and tiers them as the model does", () => {
     expect(HEALTH.sites).toBe(5);
-    expect(HEALTH.tiers).toEqual({ ok: 1, watch: 2, attention: 1, broken: 1 });
+    // Acme's partial accessibility scan (2 of 10 routes) raises the alarm's coverage
+    // item, so Acme is Attention, not OK (round 1, fix 5).
+    expect(HEALTH.tiers).toEqual({ ok: 0, watch: 2, attention: 2, broken: 1 });
     expect(
       HEALTH.tiers.ok + HEALTH.tiers.watch + HEALTH.tiers.attention + HEALTH.tiers.broken,
     ).toBe(HEALTH.sites);
+  });
+
+  it("a launching site a real alarm pierces is said beside the bar, never counted in it", () => {
+    // Echo, launching, fails its checks and its form, so the alarm re-tiers it Broken:
+    // the status line counts it, the bar (maintained sites only) does not.
+    expect(HEALTH.launching).toEqual([{ level: "broken", count: 1 }]);
+    // Golf, launching, holds a critical vulnerability its auto-fix gave up on (99 tries):
+    // Attention on the status line as well.
+    const golf = overviewFromSnapshot(
+      snapshot({
+        ...fleet(),
+        sites: [
+          ...fleet().sites!,
+          healthy({
+            id: "recG",
+            name: "Golf",
+            status: "launching",
+            securityVulnsCritical: 1,
+            securityAutoFixAttempts: 99,
+            lastSecurityAuditAt: FRESH,
+            securityAdvisories: [],
+          }),
+        ],
+        digest: { ...fleet().digest, "vuln:recG": { metric: 1, firstFlaggedAt: "2026-10-25" } },
+      }),
+      NOW,
+    ).health;
+    expect(golf.launching).toEqual([
+      { level: "broken", count: 1 },
+      { level: "attention", count: 1 },
+    ]);
+    expect(golf.tiers).toEqual(HEALTH.tiers);
   });
 
   it("lists the seven checks in the sketch's order", () => {
@@ -1927,12 +1971,14 @@ describe("health and numbers (P1-87 PR 3)", () => {
     });
     // Charlie's security audit is stale: unknown. Delta and Foxtrot each hold a high one.
     expect(check("Security")).toEqual({ name: "Security", pass: 2, fail: 2, unknown: 1, total: 5 });
-    // Stale or absent scans are unknown; Charlie's three violations are a fresh fail.
+    // Stale, absent or partial scans are unknown (Acme, 2 of 10 routes; Bravo, none;
+    // Delta, stale); Charlie's three violations on a complete scan are a fail, and
+    // Foxtrot's complete clean scan is the one pass.
     expect(check("Accessibility")).toEqual({
       name: "Accessibility",
-      pass: 2,
+      pass: 1,
       fail: 1,
-      unknown: 2,
+      unknown: 3,
       total: 5,
     });
     expect(check("Build + tests")).toEqual({
@@ -1971,14 +2017,16 @@ describe("health and numbers (P1-87 PR 3)", () => {
     expect(tile("spam")).toMatchObject({
       value: "248",
       measured: true,
-      label: "spam submissions stopped before storage",
+      label: "spam submissions stopped before storage, all time",
       context: "as of Oct 26; 2 more screened after arriving",
       spark: null,
     });
     expect(tile("checks")).toMatchObject({
       value: "15",
       measured: true,
-      context: "114 over the last 13 nights",
+      // Calendar nights (round 1, fix 2): 14 nights from Oct 13 to Oct 26, the night
+      // with no count (Oct 16, index 3) is said, and the 13 counted nights sum to 114.
+      context: "114 over the last 14 nights; 1 with no count",
     });
     expect(tile("deps")).toMatchObject({
       value: "26",
@@ -2001,7 +2049,8 @@ describe("health and numbers (P1-87 PR 3)", () => {
   it("the sparklines: one point a night, oldest first, and a missing night is a gap", () => {
     const N = overviewFromSnapshot(numbersFleet(), NOW).numbers;
     const tile = (k: string) => N.find((t) => t.key === k)!;
-    expect(tile("leads").spark).toEqual([null, 1, 1, 1, 1, null, null, 1, 1, 1, 1, 1, 1, 1]);
+    // The leads tile has no sparkline (round 1, fix 6: the Client notified series counts RSVPs).
+    expect(tile("leads").spark).toBeNull();
     expect(tile("checks").spark).toEqual([2, 3, 4, null, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
     expect(tile("checks").spark!.filter((x) => x === 0)).toEqual([]);
   });
@@ -2123,3 +2172,106 @@ function numbersFleet() {
     nights,
   });
 }
+
+// P1-87 PR 3, review round 1: the first screen's checks and leads tiles and the
+// stale-nightly lag. Each fixture shows the bug the fix removes.
+describe("round 1 fixes (P1-87 PR 3)", () => {
+  const countedNight = (date: string, value: number) =>
+    night(date, { coverage: { value: { a: { value } } } });
+  const tileOf = (s: CockpitSnapshot, key: string) =>
+    overviewFromSnapshot(s, NOW).numbers.find((t) => t.key === key)!;
+
+  it("fix 1: checks run last night is never an older night's count", () => {
+    // Expected night is Oct 26; the newest count is Oct 21, five nights older.
+    const older = snapshot({
+      nights: [countedNight("2026-10-21", 15), countedNight("2026-10-20", 9)],
+    });
+    expect(tileOf(older, "checks")).toMatchObject({
+      value: "no count for last night",
+      measured: false,
+      context: "15 on the night of Oct 21",
+    });
+  });
+
+  it("fix 1: a last night whose count is unread says the same words, not the older night", () => {
+    const unread = snapshot({
+      nights: [
+        night("2026-10-26", { coverage: { value: { a: { value: null, reason: "not read" } } } }),
+        countedNight("2026-10-25", 12),
+      ],
+    });
+    expect(tileOf(unread, "checks")).toMatchObject({
+      value: "no count for last night",
+      measured: false,
+      context: "12 on the night of Oct 25",
+    });
+  });
+
+  it("fix 2: the checks context counts calendar nights and says the missing ones", () => {
+    // Counted: Oct 26, Oct 25 and Oct 22 (10 each); Oct 23 and Oct 24 have no count.
+    const gappy = snapshot({
+      nights: [
+        countedNight("2026-10-26", 10),
+        countedNight("2026-10-25", 10),
+        countedNight("2026-10-22", 10),
+      ],
+    });
+    expect(tileOf(gappy, "checks")).toMatchObject({
+      value: "10",
+      measured: true,
+      context: "30 over the last 5 nights; 2 with no count",
+    });
+  });
+
+  it("fix 2: one night reads 'over 1 night', never '1 nights'", () => {
+    const one = snapshot({ nights: [countedNight("2026-10-26", 10)] });
+    expect(tileOf(one, "checks").context).toBe("10 over 1 night");
+  });
+
+  it("fix 3: a dependency window dated by its newest night, with the nights since", () => {
+    // Newest count Oct 20, six nights before the expected Oct 26.
+    const stale = snapshot({
+      nights: Array.from({ length: 11 }, (_, i) => {
+        const d = new Date(Date.parse("2026-10-10T00:00:00Z") + i * 86_400_000)
+          .toISOString()
+          .slice(0, 10);
+        return night(d, { events: { value: { pr_automerged: i } } });
+      }).reverse(),
+    });
+    expect(tileOf(stale, "deps")).toMatchObject({
+      value: "10",
+      measured: true,
+      context: "over the 10 nights to the night of Oct 20; no count in the 6 nights since",
+    });
+  });
+
+  it("fix 6: the leads tile counts notified lead forms only, not RSVPs or signups", () => {
+    const leadRow = (
+      id: string,
+      formType: "contact" | "rsvp" | "newsletter",
+      submittedAt: string,
+    ) =>
+      makeSubmissionRow({
+        id,
+        siteId: "recA",
+        formType,
+        status: "read",
+        notifyStatus: "sent",
+        submittedAt,
+      });
+    const mixed = snapshot({
+      submissions: [
+        leadRow("a", "contact", "2026-10-20T12:00:00.000Z"),
+        leadRow("b", "rsvp", "2026-10-21T12:00:00.000Z"),
+        leadRow("c", "newsletter", "2026-10-22T12:00:00.000Z"),
+        leadRow("d", "contact", "2026-07-02T12:00:00.000Z"),
+      ],
+    });
+    expect(tileOf(mixed, "leads")).toMatchObject({
+      value: "1",
+      measured: true,
+      context: "2 since Jul 2, 2026",
+      spark: null,
+    });
+  });
+});

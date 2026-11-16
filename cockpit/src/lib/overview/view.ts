@@ -627,6 +627,9 @@ export type LeadsView = {
   stoppedThisMonth: string;
   /** Every site with a submission, biggest first: per-site counts beside the total. */
   perSite: Array<{ siteId: string; siteName: string } & LeadCounts>;
+  /** Notified leads only (a lead form, never an RSVP or a signup), this month and all
+   *  time: the first screen's "leads sent to clients" tile reads these. */
+  leadsSent: { thisMonth: number | null; allTime: number | null };
 };
 
 /** `status` is the stored value: one the code does not know is no kind of lead. */
@@ -710,7 +713,17 @@ function leadsView(
     const [kind] = [...kinds].sort((a, b) => b[1] - a[1])[0] ?? [];
     return kind === undefined ? "its forms" : (FORM_KIND[kind] ?? `its ${kind} form`);
   })();
+  const inMonth = (r: SubmissionRow) =>
+    r.submittedAt !== null && Date.parse(r.submittedAt) >= month.at;
+  const notifiedLeads = (rows: SubmissionRow[]) =>
+    rows.filter(
+      (r) => isLeadFormType(r.formType) && ACCEPTED.has(status(r)) && r.notifyStatus === "sent",
+    ).length;
   return {
+    leadsSent:
+      subs === null
+        ? { thisMonth: null, allTime: null }
+        : { thisMonth: notifiedLeads(subs.filter(inMonth)), allTime: notifiedLeads(subs) },
     allTime: subs === null ? null : tally(subs, status),
     thisMonth:
       subs === null
@@ -928,23 +941,48 @@ function overNights(
   pick: (c: Counts) => number | null | undefined,
   now: Date,
 ): string {
-  if (nights === null) return UNREADABLE;
+  const f = windowFigure(nights, pick, now);
+  if (f.context === null) return f.value;
+  return f.value === NOT_YET ? f.context : `${f.value} ${f.context}`;
+}
+
+/** A window's figure and its context, shared by the page's windows and the first
+ *  screen's tiles: the value is digits, or NOT_YET / UNREADABLE with the context (if
+ *  any) saying why. When the newest count is older than the night expected by now,
+ *  the context dates the window by its newest night and says the nights since. */
+function windowFigure(
+  nights: OverviewNight[] | null,
+  pick: (c: Counts) => number | null | undefined,
+  now: Date,
+): { value: string; context: string | null } {
+  if (nights === null) return { value: UNREADABLE, context: null };
   const measured = nights.filter((n) => typeof pick(n.counts) === "number");
   const newest = measured[0];
-  if (newest === undefined) return NOT_YET;
+  if (newest === undefined) return { value: NOT_YET, context: null };
   const lag = nightsSince(newest.night, now);
   const since = lag > 0 ? `; no count in the ${count(lag, "night", "nights")} since` : "";
   const w = windowed(nights, pick);
+  // One night has nothing to subtract: say when counting started (review round 3, O4).
   if (w === null)
-    // One night has nothing to subtract: say when counting started (review round 3, O4).
-    return measured.length === 1
-      ? `counting started on the night of ${nightLabel(newest.night)}; the first figure comes after a second night${since}`
-      : NOT_YET;
-  return lag > 0
-    ? w.nights === 1
-      ? `${w.value} over the night of ${nightLabel(newest.night)}${since}`
-      : `${w.value} over the ${w.nights} nights to the night of ${nightLabel(newest.night)}${since}`
-    : `${w.value} over the last ${w.nights === 1 ? "night" : `${w.nights} nights`}`;
+    return {
+      value: NOT_YET,
+      context:
+        measured.length === 1
+          ? `counting started on the night of ${nightLabel(newest.night)}; the first figure comes after a second night${since}`
+          : null,
+    };
+  if (lag > 0)
+    return {
+      value: String(w.value),
+      context:
+        w.nights === 1
+          ? `over the night of ${nightLabel(newest.night)}${since}`
+          : `over the ${w.nights} nights to the night of ${nightLabel(newest.night)}${since}`,
+    };
+  return {
+    value: String(w.value),
+    context: `over the last ${w.nights === 1 ? "night" : `${w.nights} nights`}`,
+  };
 }
 
 /** A running total of one event type. A type missing from a measured total did not
@@ -1762,6 +1800,9 @@ export type HealthView = {
   tiers: { ok: number; watch: number; attention: number; broken: number };
   /** In the sketch's order; each counts over the maintained sites. */
   checks: HealthCheck[];
+  /** Launching sites the status line counts at a level (a real alarm re-tiers them),
+   *  one entry per level that differs from the bar. Empty when the two agree. */
+  launching: Array<{ level: "broken" | "attention" | "watch"; count: number }>;
 };
 export type NumberTile = {
   key: "leads" | "spam" | "checks" | "deps" | "reports" | "shipped";
@@ -1780,7 +1821,12 @@ type Verdict = boolean | null;
 /** Maintained sites only (launching, pre-launch and archived sites never count). Live,
  *  Certificate, Deploy and Contact form read the cells the Live columns showed; the
  *  rest read the same fields and freshness rules their own alarms read. */
-export function healthView(model: CockpitModel, live: LiveRow[], now: Date): HealthView {
+export function healthView(
+  model: CockpitModel,
+  live: LiveRow[],
+  now: Date,
+  status?: StatusView,
+): HealthView {
   const maintained = model.cards.filter((c) => c.site.status === "maintained");
   const tiers = { ok: 0, watch: 0, attention: 0, broken: 0 };
   for (const c of maintained) {
@@ -1799,9 +1845,15 @@ export function healthView(model: CockpitModel, live: LiveRow[], now: Date): Hea
     if (!fresh) return null;
     return (s.securityVulnsCritical ?? 0) + (s.securityVulnsHigh ?? 0) === 0;
   };
-  // Accessibility: the cockpit's own freshness window for a scan (A11Y_STALE_DAYS).
+  // Accessibility: a pass needs a complete fresh scan (the alarm's rule, production-
+  // signals.ts): every route scanned, both counts read, and the scan inside A11Y_STALE_DAYS.
+  // A partial scan is unknown, whatever its count (the alarm raises coverage instead).
   const a11y = (s: WebsiteRow): Verdict =>
-    s.a11yViolations === null || !freshWithin(s.a11yCheckedAt, A11Y_STALE_DAYS, now)
+    s.a11yViolations === null ||
+    s.a11yRoutesScanned === null ||
+    s.a11yRoutesTotal === null ||
+    s.a11yRoutesScanned < s.a11yRoutesTotal ||
+    !freshWithin(s.a11yCheckedAt, A11Y_STALE_DAYS, now)
       ? null
       : s.a11yViolations === 0;
   // Build and tests: the nightly smoke run, read within the production window.
@@ -1828,7 +1880,26 @@ export function healthView(model: CockpitModel, live: LiveRow[], now: Date): Hea
       unknown: v.filter((x) => x === null).length,
     };
   });
-  return { sites: sites.length, tiers, checks };
+  const launchingAt = (level: "broken" | "attention" | "watch", bar: number, line: number) =>
+    line > bar ? [{ level, count: line - bar }] : [];
+  const launching = status
+    ? [
+        ...launchingAt("broken", tiers.broken, status.counts.broken),
+        ...launchingAt("attention", tiers.attention, status.counts.attention),
+        ...launchingAt("watch", tiers.watch, status.counts.watch),
+      ]
+    : [];
+  return { sites: sites.length, tiers, checks, launching };
+}
+
+/** The status line's launching sites the bar does not count, in words: "plus 1 launching
+ *  site at Attention"; null when the bar and the status line agree. */
+export function launchingNote(launching: HealthView["launching"]): string | null {
+  if (launching.length === 0) return null;
+  const LEVEL_NAME = { broken: "Broken", attention: "Attention", watch: "Watch" } as const;
+  return `plus ${launching
+    .map((l) => `${count(l.count, "launching site", "launching sites")} at ${LEVEL_NAME[l.level]}`)
+    .join(" and ")}`;
 }
 
 /** The first screen's checks, in the sketch's order. */
@@ -1845,26 +1916,49 @@ export const HEALTH_CHECK_NAMES = [
 /** The six number tiles: this month's leads, the spam stopped, last night's checks, the
  *  dependency updates merged, the client reports sent, and the changes shipped. Each
  *  unmeasured tile reads its model words; a sparkline is a gap for a night with no value. */
+/** The checks tile's words when last night has no count (its value is never an older night's). */
+const NO_LAST_NIGHT_COUNT = "no count for last night";
+
+/** The checks summed over the last `WINDOW_NIGHTS` calendar nights ending at `end`:
+ *  K is calendar nights from the oldest summed row to `end`, and a night inside that
+ *  span with no count is said, never counted as 0. */
+function checksOverWindow(
+  counted: Array<{ night: string; v: number | null }>,
+  end: string,
+): string {
+  const summed = counted.filter(
+    (x): x is { night: string; v: number } =>
+      x.v !== null && nightsBetween(x.night, end) < WINDOW_NIGHTS,
+  );
+  const total = summed.reduce((a, x) => a + x.v, 0);
+  const oldest = summed.reduce((a, x) => (x.night < a ? x.night : a), end);
+  const span = nightsBetween(oldest, end) + 1;
+  const missing = span - summed.length;
+  const window = span === 1 ? "over 1 night" : `over the last ${span} nights`;
+  return `${total} ${window}${missing > 0 ? `; ${missing} with no count` : ""}`;
+}
+
 export function numbersView(
   s: CockpitSnapshot,
   leads: LeadsView,
   reports: ReportsView,
   trends: TrendsView,
+  now: Date,
 ): NumberTile[] {
   const sparkOf = (chart: number): Array<number | null> | null =>
     trends.charts?.[chart]?.series[0]?.points.map((p) => p.value) ?? null;
   const leadsTile: NumberTile = {
     key: "leads",
     label: "leads sent to clients this month",
-    measured: leads.thisMonth !== null,
-    value: leads.thisMonth === null ? UNREADABLE : String(leads.thisMonth.notified),
+    measured: leads.leadsSent.thisMonth !== null,
+    value: leads.leadsSent.thisMonth === null ? UNREADABLE : String(leads.leadsSent.thisMonth),
     context:
-      leads.allTime === null
+      leads.leadsSent.allTime === null
         ? null
         : leads.since === null
-          ? `${leads.allTime.notified} all time`
-          : `${leads.allTime.notified} since ${leads.since}`,
-    spark: sparkOf(2),
+          ? `${leads.leadsSent.allTime} all time`
+          : `${leads.leadsSent.allTime} since ${leads.since}`,
+    spark: null,
   };
   // Never added to the screened count (How we count, "Stopped before storage"): the
   // stopped count is as of the newest night and the screened count is live, so a sum
@@ -1873,7 +1967,7 @@ export function numbersView(
   const stoppedMeasured = /^\d+$/.test(stopped);
   const spamTile: NumberTile = {
     key: "spam",
-    label: "spam submissions stopped before storage",
+    label: "spam submissions stopped before storage, all time",
     measured: stoppedMeasured,
     value: stopped,
     context:
@@ -1885,28 +1979,39 @@ export function numbersView(
       ].join("; ") || null,
     spark: null,
   };
-  const checkNights = (s.nights ?? []).map((n) => checksRun(n.counts));
-  const newestCheck = checkNights.find((v): v is number => v !== null);
-  const checkSum = checkNights.filter((v): v is number => v !== null);
+  // "Last night" is the expected night only: an older night's count never stands in
+  // for it (the newest counted night is said in the context instead).
+  const lastNight = expectedNight(now);
+  const counted = (s.nights ?? []).map((n) => ({ night: n.night, v: checksRun(n.counts) }));
+  const lastValue = counted.find((x) => x.night === lastNight)?.v ?? null;
+  const newestCounted = counted.find((x): x is { night: string; v: number } => x.v !== null);
   const checksTile: NumberTile = {
     key: "checks",
     label: "checks run last night",
-    measured: newestCheck !== undefined,
+    measured: lastValue !== null,
     value:
-      s.nights === null ? UNREADABLE : newestCheck === undefined ? NOT_YET : String(newestCheck),
+      s.nights === null
+        ? UNREADABLE
+        : lastValue !== null
+          ? String(lastValue)
+          : newestCounted === undefined
+            ? NOT_YET
+            : NO_LAST_NIGHT_COUNT,
     context:
-      checkSum.length === 0
-        ? null
-        : `${checkSum.reduce((a, b) => a + b, 0)} over the last ${count(checkSum.length, "night", "nights")}`,
+      lastValue !== null
+        ? checksOverWindow(counted, lastNight)
+        : newestCounted === undefined
+          ? null
+          : `${newestCounted.v} on the night of ${nightLabel(newestCounted.night)}`,
     spark: sparkOf(1),
   };
-  const deps = windowed(s.nights, eventTotal("pr_automerged"));
+  const deps = windowFigure(s.nights, eventTotal("pr_automerged"), now);
   const depsTile: NumberTile = {
     key: "deps",
     label: "dependency updates merged",
-    measured: deps !== null,
-    value: s.nights === null ? UNREADABLE : deps === null ? NOT_YET : String(deps.value),
-    context: deps === null ? null : `over the last ${count(deps.nights, "night", "nights")}`,
+    measured: deps.value !== NOT_YET && deps.value !== UNREADABLE,
+    value: deps.value,
+    context: deps.context,
     spark: null,
   };
   const reportsTile: NumberTile = {
@@ -1918,13 +2023,13 @@ export function numbersView(
       reports.sent === null ? null : `${reports.sent.approvedFirst} approved by one of us first`,
     spark: null,
   };
-  const shipped = windowed(s.nights, (c) => c.prsMerged.value);
+  const shipped = windowFigure(s.nights, (c) => c.prsMerged.value, now);
   const shippedTile: NumberTile = {
     key: "shipped",
     label: "changes shipped to the maintenance stack",
-    measured: shipped !== null,
-    value: s.nights === null ? UNREADABLE : shipped === null ? NOT_YET : String(shipped.value),
-    context: shipped === null ? null : `over the last ${count(shipped.nights, "night", "nights")}`,
+    measured: shipped.value !== NOT_YET && shipped.value !== UNREADABLE,
+    value: shipped.value,
+    context: shipped.context,
     spark: null,
   };
   return [leadsTile, spamTile, checksTile, depsTile, reportsTile, shippedTile];
@@ -1987,10 +2092,11 @@ export function overviewFromSnapshot(s: CockpitSnapshot, now: Date): OverviewVie
   const leads = leadsView(s, (id) => names.get(id) ?? "A site no longer listed", status, now);
   const reports = reportsView(model, s.reports, now);
   const trends = trendsFromDaily(s.nights, now);
+  const statusV = statusView(model, live, s.reports !== null, now);
   return {
-    status: statusView(model, live, s.reports !== null, now),
-    health: healthView(model, live, now),
-    numbers: numbersView(s, leads, reports, trends),
+    status: statusV,
+    health: healthView(model, live, now, statusV),
+    numbers: numbersView(s, leads, reports, trends, now),
     live,
     leads,
     reports,
