@@ -13,6 +13,9 @@ body {
   margin: 0 0 var(--space-6);
   overflow-wrap: break-word;
 }
+.how-chapter hgroup {
+  margin: 0;
+}
 .how-kicker {
   margin: var(--space-6) 0 0;
   font-size: 0.8rem;
@@ -45,7 +48,8 @@ body {
 .how-steps li {
   counter-increment: how-step;
   background: var(--surface);
-  border-top: 4px solid var(--ink);
+  /* A hairline, not the ink bar: below, the ink bar marks Attention. */
+  border-top: 4px solid var(--rule);
   padding: var(--space-3);
   display: flex;
   flex-direction: column;
@@ -63,7 +67,8 @@ body {
   color: var(--ink-muted);
 }
 
-/* Chapter 2: the ladder, mildest to worst; the bar on top darkens with the level. */
+/* Chapter 2: the ladder, mildest to worst; the bar on top grows stronger with the
+   level (OK's bar is faint on purpose: the level is told by its word). */
 .how-ladder {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
@@ -103,8 +108,7 @@ body {
 .how-flow li {
   position: relative;
   flex: 1 1 10rem;
-  border: 1px solid var(--control-border);
-  border-radius: var(--radius-control);
+  /* A panel, not a control: square, with no control border. */
   background: var(--surface);
   padding: var(--space-3);
   display: flex;
@@ -128,13 +132,9 @@ body {
   color: var(--on-ink);
   border-color: var(--ink);
 }
-.how-flow li.how-branch {
-  /* The side road, on its own line under the flow: no arrow leads into it. */
-  flex-basis: 100%;
-  border-style: dashed;
-}
-.how-flow li.how-branch::before {
-  display: none;
+.how-branch {
+  border-left: 4px solid var(--rule);
+  padding-left: var(--space-3);
 }
 
 .how-checks {
@@ -161,10 +161,15 @@ body {
   max-width: 46rem;
 }
 
-@media (max-width: 40rem) {
+/* Below about 60rem a flow would wrap, leaving an arrow at the start of a row: it
+   stacks instead, each box its content's height. */
+@media (max-width: 60rem) {
   .how-flow {
     flex-direction: column;
     gap: var(--space-4);
+  }
+  .how-flow li {
+    flex: 0 0 auto;
   }
   .how-flow li + li::before {
     left: 50%;

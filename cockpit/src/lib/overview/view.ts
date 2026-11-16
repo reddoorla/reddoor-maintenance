@@ -1830,7 +1830,7 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Steps",
-    text: "Each step's result on the night named, when it last finished, and how many sites it reached. A step that runs to the end can still find problems; what it found is in the tables above. Last finished is the last time it stamped a site; for a step that stamps none, the nightly run it last finished in, with its result. Reached is the most sites one of its checks stamped, dated by the night it was counted; the backup, the Prismic sync and the report drafts keep no count of sites, so they say what they reach instead.",
+    text: "Each step's result on the night named, when it last finished, and how many sites it reached. A step that runs to the end can still find problems; what it found is in the overview's tables. Last finished is the last time it stamped a site; for a step that stamps none, the nightly run it last finished in, with its result. Reached is the most sites one of its checks stamped, dated by the night it was counted; the backup, the Prismic sync and the report drafts keep no count of sites, so they say what they reach instead.",
   },
   {
     term: "Scale",
@@ -1838,7 +1838,7 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Runs completed",
-    text: `Of the nightly steps that finished on the nights we have counted within the last ${WINDOW_NIGHTS}, how many ran to the end. A step that runs to the end can still find problems; what it found is in the tables above. "The last K nights" counts calendar nights back from the newest, here and in every window below; a night with no count, or a row with no step result, is said as not recorded, and a night written while every step was still running is said as such. Last night's count is expected from 6am Pacific: when the newest count is older than that, this line counts the nights since as not recorded, and each window is dated by the night it ends on.`,
+    text: `Of the nightly steps that finished on the nights we have counted within the last ${WINDOW_NIGHTS}, how many ran to the end. A step that runs to the end can still find problems; what it found is in the overview's tables. "The last K nights" counts calendar nights back from the newest, here and in every window below; a night with no count, or a row with no step result, is said as not recorded, and a night written while every step was still running is said as such. Last night's count is expected from 6am Pacific: when the newest count is older than that, this line counts the nights since as not recorded, and each window is dated by the night it ends on.`,
   },
   {
     term: "Dependency updates merged",

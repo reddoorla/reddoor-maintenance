@@ -76,5 +76,101 @@
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "7-wrong-night",
+    "why": "Chapter 1 reads the night before the newest (review round 1, tests M13)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "  const o = overviewFromSnapshot(s, now);",
+        "replace": "  const o = overviewFromSnapshot(s, now);\n  const older = overviewFromSnapshot({ ...s, nights: s.nights?.slice(1) ?? null }, now);\n  o.nightly = older.nightly;"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "8-outcomes-reversed",
+    "why": "Each step shows another step's result (review round 1, tests M8)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "steps: o.nightly.steps.map((step, i) => ({ ...step, short: NIGHTLY_STEPS[i]!.short })),",
+        "replace": "steps: o.nightly.steps.map((step, i, a) => ({ ...step, outcome: a[a.length - 1 - i]!.outcome, short: NIGHTLY_STEPS[i]!.short })),"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "9-lead-named",
+    "why": "A lead's name and email reach the page (review round 1, tests M7)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "    leads: o.leads,",
+        "replace": "    leads: { ...o.leads, since: `${s.submissions?.[0]?.name} <${s.submissions?.[0]?.email}>` },"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "10-upkeep-swapped",
+    "why": "The two upkeep counts are shown under each other's label (review round 1, tests M1b)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "Dependency updates merged: {v.upkeep.automerged}.",
+        "replace": "Dependency updates merged: {v.upkeep.vulnsCleared}."
+      },
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "vulnerability: {v.upkeep.vulnsCleared}.",
+        "replace": "vulnerability: {v.upkeep.automerged}."
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "11-checks-count-typed",
+    "why": "The count of checks is typed (review round 1, tests M18)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "carries {v.reports.checks.length} checks",
+        "replace": "carries 6 checks"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "12-failed-read-as-zero",
+    "why": "A failed submissions read shows as zero leads (review round 1, tests M10)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "<p class=\"muted\">The submissions could not be read just now. Reload to try again.</p>",
+        "replace": "<p class=\"muted\">0 leads so far.</p>"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "13-email-retry-claimed",
+    "why": "The page claims a failed email is retried (review round 1, correctness C1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "If an email to the client fails, the lead is still kept in our own inbox",
+        "replace": "If an email to the client fails, it is held and retried, never lost; the lead is still kept in our own inbox"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
   }
 ]

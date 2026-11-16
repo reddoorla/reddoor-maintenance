@@ -16,8 +16,17 @@ import { NOW, FRESH, healthy, night, report, snapshot } from "../overview/fixtur
  * P1-87 PR 1: "How this works", rendered inside the real layout from a real view,
  * as a visitor receives it (workspace plans/2026-11-16-p1-87-overview-reorg/plan.md,
  * list item 5). The overview's model pins the numbers; these pin that this page
- * shows them in its five chapters, types none of its own, and defines each.
+ * shows them in its five chapters, each under its own label, types none of its
+ * own, and names no lead.
  */
+
+/** The newest night: every step ran to the end but the smoke step, which failed,
+ *  so a step paired with another step's result shows. */
+const NEWEST = night("2026-10-26");
+NEWEST.counts.steps = {
+  ...NEWEST.counts.steps,
+  "fleet-smoke.yml": { outcome: "completed", runId: 1, conclusion: "failure" },
+};
 
 const SNAP = snapshot({
   sites: [
@@ -45,7 +54,7 @@ const SNAP = snapshot({
     ),
   ],
   reports: [report({ id: "sent1" }), report({ id: "sent2", approvedAt: null })],
-  nights: [night("2026-10-26"), night("2026-10-25", { prsMerged: { value: 590 } })],
+  nights: [NEWEST, night("2026-10-25", { prsMerged: { value: 590 } })],
 });
 
 function pageHtml(view: HowView, email: string | null = null): string {
@@ -101,8 +110,8 @@ describe("the page sits beside the overview in the nav", () => {
 });
 
 describe("five chapters, each with its diagram", () => {
-  it("has the five chapters in the story's order", () => {
-    expect(DOC.querySelectorAll(".how-kicker").map(text)).toEqual([
+  it("has the five chapters in the story's order, each kicker inside its heading group", () => {
+    expect(DOC.querySelectorAll("hgroup > .how-kicker").map(text)).toEqual([
       "Every night",
       "When something is wrong",
       "A lead's journey",
@@ -114,14 +123,28 @@ describe("five chapters, each with its diagram", () => {
       expect(s.querySelector("ol, ul"), text(s.querySelector("h2")!)).not.toBeNull();
   });
 
-  it("chapter 1 draws every nightly step, in run order, with last night's outcome", () => {
+  it("chapter 1 draws every nightly step, in run order, with that step's own result from the newest night", () => {
+    expect(VIEW.nightly.nightOf).toBe("Night of Oct 26");
     const steps = DOC.querySelectorAll(".how-steps li");
     expect(steps.map((li) => text(li.querySelector("strong")!))).toEqual(
       NIGHTLY_STEPS.map((s) => s.short),
     );
-    for (const [i, li] of steps.entries())
-      expect(text(li)).toContain(`${VIEW.nightly.nightOf}: ${VIEW.nightly.steps[i]!.outcome}`);
-    expect(VIEW.nightly.steps[0]!.outcome).toBe("ran to the end");
+    expect(steps.map((li) => text(li.querySelector(".how-step-what")!))).toEqual(
+      NIGHTLY_STEPS.map((s) => s.label),
+    );
+    expect(steps.map((li) => text(li.querySelector(".how-step-last")!))).toEqual(
+      NIGHTLY_STEPS.map((s) =>
+        s.file === "fleet-smoke.yml"
+          ? "Night of Oct 26: failed"
+          : "Night of Oct 26: ran to the end",
+      ),
+    );
+  });
+
+  it("chapter 1 labels its scale and runs completed, so a missing value still says what it is", () => {
+    const figures = one(DOC, ".how-figures");
+    expect(figures).toContain(`Scale: ${VIEW.nightly.scale}.`);
+    expect(figures).toContain(`Runs completed: ${VIEW.nightly.reliability}.`);
   });
 
   it("chapter 2 shows the ladder's four levels, mildest first, in the overview's words", () => {
@@ -150,32 +173,88 @@ describe("five chapters, each with its diagram", () => {
     }
   });
 
-  it("chapter 3 follows a lead with the real counts, and names no lead", () => {
-    const flow = DOC.querySelectorAll(
-      "#how-lead ~ .how-flow li, section:has(#how-lead) .how-flow li",
-    );
-    const words = flow.map(text).join(" | ");
-    expect(words).toContain(`Spam screened ${VIEW.leads.allTime!.screened} set aside`);
-    expect(words).toContain(`Kept as real ${VIEW.leads.allTime!.accepted} leads`);
-    expect(words).toContain(`The client is emailed ${VIEW.leads.allTime!.notified} delivered`);
-    expect(words).toContain(`Bots stopped ${VIEW.leads.stoppedAllTime} never stored`);
-    expect(VIEW.leads.allTime).toMatchObject({ screened: 3, accepted: 5, notified: 4 });
-    expect(VIEW.leads.stoppedAllTime).toBe("248");
+  it("chapter 3 follows a lead with the real counts", () => {
+    const flow = DOC.querySelectorAll("section:has(#how-lead) .how-flow li").map(text);
+    expect(flow).toEqual([
+      "A visitor submits a form on a client's site",
+      "Bots stopped 248 never stored, as of Oct 26",
+      "Spam screened 3 set aside",
+      "Kept as real 5 leads, signups and RSVPs",
+      "The client is emailed 4 emailed",
+    ]);
+    // What happens when an email fails is said as it is: no retry is claimed.
+    expect(one(DOC, "section:has(#how-lead) .how-branch")).not.toMatch(/retr/i);
+  });
+
+  it("names no lead: no name, email or message from any submission is on the page", () => {
+    const leads = SNAP.submissions!;
+    expect(leads.length).toBeGreaterThan(0);
+    for (const r of leads)
+      for (const field of [r.name, r.email, r.message])
+        if (field) expect(HTML, field).not.toContain(field);
+    // The control: the fixture's rows do carry these details.
+    expect(leads[0]!.email).toBe("jane@example.com");
   });
 
   it("chapter 4 lists every check a report carries, with the step that proves it", () => {
     const names = DOC.querySelectorAll(".how-checks dt").map(text);
     expect(names).toEqual(VIEW.reports.checks.map((c) => c.name));
     expect(names.length).toBeGreaterThanOrEqual(6);
-    expect(one(DOC, "section:has(#how-report)")).toContain(
-      `${VIEW.reports.sent!.approvedFirst} of ${VIEW.reports.sent!.real} approved before sending`,
+    expect(one(DOC, 'p[data-term="Checks per report"]')).toContain(
+      `carries ${names.length} checks`,
     );
-    expect(VIEW.reports.sent).toMatchObject({ real: 2, approvedFirst: 1 });
+    expect(one(DOC, 'section:has(#how-report) [data-term="Reports sent"]')).toBe(
+      "Read by one of us 1 of 2 approved before sending",
+    );
+  });
+
+  it("chapter 4's count of checks follows the model, not a typed number", () => {
+    const three = {
+      ...VIEW,
+      reports: { ...VIEW.reports, checks: VIEW.reports.checks.slice(0, 3) },
+    };
+    const doc = parse(pageHtml(three));
+    expect(doc.querySelectorAll(".how-checks dt")).toHaveLength(3);
+    expect(one(doc, 'p[data-term="Checks per report"]')).toContain("carries 3 checks");
   });
 
   it("chapter 5 says how many PRs merged, from the nightly counts", () => {
-    expect(one(DOC, "section:has(#how-ship)")).toContain(`: ${VIEW.prsMerged}.`);
+    expect(one(DOC, 'section:has(#how-ship) [data-term="PRs merged"]')).toContain(
+      `: ${VIEW.prsMerged}.`,
+    );
     expect(VIEW.prsMerged).toMatch(/^10 over/);
+  });
+});
+
+describe("when a read failed, no count is shown in its place", () => {
+  const FAILED: HowView = {
+    ...VIEW,
+    leads: { ...VIEW.leads, allTime: null, stoppedAllTime: "not readable", stoppedAsOf: null },
+    reports: { ...VIEW.reports, sent: null },
+  };
+  const doc = parse(pageHtml(FAILED));
+
+  it("the lead's journey says it could not be read, and shows no number", () => {
+    const lead = one(doc, "section:has(#how-lead)");
+    expect(lead).toContain("The submissions could not be read just now.");
+    expect(lead).toContain("Bots stopped not readable");
+    expect(lead).not.toContain("never stored");
+    expect(lead).not.toMatch(/\d/);
+  });
+
+  it("the report's flow says it could not be read, and shows no number", () => {
+    const flow = one(doc, "section:has(#how-report) .how-flow");
+    expect(flow).toContain("the reports could not be read just now");
+    expect(flow).not.toMatch(/\d/);
+  });
+
+  it("a stopped count not yet collected reads as such, without 'never stored'", () => {
+    const d = parse(
+      pageHtml({ ...VIEW, leads: { ...VIEW.leads, stoppedAllTime: "not yet collected" } }),
+    );
+    expect(one(d, 'section:has(#how-lead) [data-term="Stopped before storage"]')).toBe(
+      "Bots stopped not yet collected",
+    );
   });
 });
 
@@ -195,10 +274,10 @@ describe("How we count", () => {
 });
 
 /**
- * No count typed into the page: every number in the view is replaced by its own
- * sentinel (80001 and up) and every string by a marked one, so a digit run on the
- * page that is not a sentinel was typed into the template, and a sentinel that is
- * missing was dropped.
+ * The sentinel render: every number in the view is replaced by its own sentinel
+ * (80001 and up) and every string by a marked one. A digit run on the page that is
+ * not a sentinel was typed into the template; a sentinel under the wrong label was
+ * bound to the wrong field.
  */
 function sentinelize(view: HowView): { view: HowView; at: Map<string, string> } {
   const at = new Map<string, string>();
@@ -225,39 +304,82 @@ function sentinelize(view: HowView): { view: HowView; at: Map<string, string> } 
   return { view: walk(view, "") as HowView, at };
 }
 
-/** Digit runs in text and attributes below the header, outside How we count's
- *  definitions, which are the explanation, not counts. */
+/** Everything below the shell's header, less How we count's definitions (the
+ *  explanation, not counts) and the one count the page derives itself (how many
+ *  checks, held by its own test above). */
+function shown(doc: HTMLElement): HTMLElement[] {
+  const out: HTMLElement[] = [];
+  const walk = (el: HTMLElement) => {
+    if (el.tagName === "HEADER" || el.tagName === "DD" || el.tagName === "STYLE") return;
+    if (el.getAttribute?.("data-term") === "Checks per report" && el.tagName === "P") return;
+    out.push(el);
+    for (const c of el.childNodes) if (!(c instanceof TextNode)) walk(c as HTMLElement);
+  };
+  walk(doc.querySelector("body")!);
+  return out;
+}
+
 function digits(doc: HTMLElement): string[] {
   const runs: string[] = [];
+  for (const el of shown(doc)) {
+    runs.push(...Object.values(el.attributes ?? {}));
+    for (const c of el.childNodes) if (c instanceof TextNode) runs.push(c.text);
+  }
+  // A Svelte scoped-style class ("svelte-w04uvf") is a build hash, not a count.
+  return runs.join(" | ").replace(/svelte-[a-z0-9]+/g, "").match(/\d+/g) ?? [];
+}
+
+const NUMBER_WORDS =
+  /\b(two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty|dozen|hundred|thousand)\b/gi;
+function numberWords(doc: HTMLElement): string[] {
+  return (
+    shown(doc)
+      .flatMap((el) => el.childNodes.filter((c) => c instanceof TextNode).map((c) => c.text))
+      .join(" ")
+      .match(NUMBER_WORDS) ?? []
+  );
+}
+
+/** The label a sentinel sits under: the nearest `data-term` above its text. */
+function termOf(doc: HTMLElement, sentinel: string): string | null {
+  let found: string | null | undefined;
   const walk = (n: Node) => {
-    if (n instanceof TextNode) runs.push(n.text);
-    else {
-      const el = n as HTMLElement;
-      if (el.classList?.contains("how-count")) return;
-      if (el.attributes) runs.push(...Object.values(el.attributes));
-      for (const c of n.childNodes) walk(c);
-    }
+    if (found !== undefined) return;
+    if (n instanceof TextNode) {
+      if (n.text.includes(sentinel))
+        found =
+          (n.parentNode as HTMLElement).closest("[data-term]")?.getAttribute("data-term") ?? null;
+    } else for (const c of n.childNodes) walk(c);
   };
-  for (const el of doc.querySelectorAll("h1, .how-lede, section, details")) walk(el);
-  return runs.join(" | ").match(/\d+/g) ?? [];
+  walk(doc.querySelector("body")!);
+  if (found === undefined) throw new Error(`${sentinel} is not on the page`);
+  return found;
 }
 
 const S = sentinelize(VIEW);
 const SHTML = pageHtml(S.view);
 const SDOC = parse(SHTML);
-const checksShown = String(S.view.reports.checks.length);
+const sent = (path: string): string => {
+  const v = S.at.get(path);
+  if (v === undefined) throw new Error(`no sentinel at ${path}`);
+  return v;
+};
 
 describe("no count is typed into the page (the sentinel render)", () => {
-  const allowed = new Set([...S.at.values(), checksShown]);
+  const allowed = new Set(S.at.values());
   const stray = (html: string) => digits(parse(html)).filter((d) => !allowed.has(d));
 
-  it("every digit run on the page is a sentinel", () => {
+  it("every digit run below the header is a sentinel", () => {
     expect(digits(SDOC).length).toBeGreaterThan(5);
     expect(stray(SHTML)).toEqual([]);
   });
 
+  it("no count is typed in words either", () => {
+    expect(numberWords(SDOC)).toEqual([]);
+  });
+
   it("every leaf the page is meant to show is on it", () => {
-    const words = SDOC.querySelectorAll("h1, .how-lede, section").map(text).join(" ");
+    const words = text(SDOC.querySelector("body")!);
     // The ladder's tier is its class; the leads' per-site rows, this month and the
     // biggest share belong to the overview; the steps' last-finished and reach are
     // the overview's table, not this diagram.
@@ -280,11 +402,51 @@ describe("no count is typed into the page (the sentinel render)", () => {
     expect(checked).toBeGreaterThan(40);
   });
 
-  it("is an instrument that can fail: a typed number is caught", () => {
-    expect(SHTML).toContain("Runs completed");
+  it("each count sits under its own How-we-count label", () => {
+    const expected: Array<[string, string]> = [
+      ["nightly.startsAt", "Times"],
+      ["nightly.sendsAt", "Times"],
+      ["nightly.scale", "Scale"],
+      ["nightly.reliability", "Runs completed"],
+      ["nightly.steps[a].outcome", "Steps"],
+      ["upkeep.automerged", "Dependency updates merged"],
+      ["upkeep.vulnsCleared", "Sites cleared of vulnerabilities"],
+      ["leads.stoppedAllTime", "Stopped before storage"],
+      ["leads.allTime.screened", "Screened as spam"],
+      ["leads.allTime.accepted", "Accepted as real"],
+      ["leads.allTime.notified", "Client notified"],
+      ["leads.allTime.submissions", "Submissions"],
+      ["reports.sent.approvedFirst", "Reports sent"],
+      ["reports.sent.real", "Reports sent"],
+      ["reports.lighthouse[a].median", "Lighthouse"],
+      ["prsMerged", "PRs merged"],
+    ];
+    expect(expected.map(([p]) => [p, termOf(SDOC, sent(p))])).toEqual(expected);
+  });
+
+  it("each Lighthouse score sits beside its own area's name", () => {
+    const line = one(SDOC, 'p[data-term="Lighthouse"]');
+    for (const [i] of VIEW.reports.lighthouse.entries()) {
+      const k = String.fromCharCode(97 + i);
+      expect(line).toContain(
+        `${sent(`reports.lighthouse[${k}].label`)} ${sent(`reports.lighthouse[${k}].median`)}`,
+      );
+    }
+  });
+
+  it("is an instrument that can fail: a typed number, in digits or words, is caught", () => {
     expect(stray(SHTML.replace("<h1>How this works", "<h1>How this works in 21 nights"))).toEqual([
       "21",
     ]);
+    expect(
+      stray(SHTML.replace("</details>", "</details><p>Trusted by 40 client sites.</p>")),
+    ).toEqual(["40"]);
+    expect(
+      stray(SHTML.replace("<summary>How we count", "<summary>How we count: 14 terms")),
+    ).toEqual(["14"]);
+    expect(numberWords(parse(SHTML.replace("before it lands", "over about three rounds")))).toEqual(
+      ["three"],
+    );
   });
 });
 
