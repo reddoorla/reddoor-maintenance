@@ -326,7 +326,12 @@ function digits(doc: HTMLElement): string[] {
     for (const c of el.childNodes) if (c instanceof TextNode) runs.push(c.text);
   }
   // A Svelte scoped-style class ("svelte-w04uvf") is a build hash, not a count.
-  return runs.join(" | ").replace(/svelte-[a-z0-9]+/g, "").match(/\d+/g) ?? [];
+  return (
+    runs
+      .join(" | ")
+      .replace(/svelte-[a-z0-9]+/g, "")
+      .match(/\d+/g) ?? []
+  );
 }
 
 const NUMBER_WORDS =
