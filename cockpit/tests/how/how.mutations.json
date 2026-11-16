@@ -70,8 +70,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/how/how.css",
-        "find": "  flex: 1 1 10rem;",
-        "replace": "  flex: 1 1 10rem;\n  min-width: 30rem;"
+        "find": "  min-width: 0;\n",
+        "replace": "  min-width: 30rem;\n"
       }
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
@@ -171,6 +171,102 @@
       }
     ],
     "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "14-ladder-by-index",
+    "why": "Each ladder box gets the line at its index, not its own level's (review round 2, tests A)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "const line = LADDER_LINES.find((l) => l.toLowerCase().startsWith(`${tier}:`));",
+        "replace": "const line = LADDER_LINES[LADDER_ORDER.indexOf(tier)];"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "15-step-count-typed-in-words",
+    "why": "The step count is typed in words beside the checks (review round 2, tests B)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "each proven by a step of the night",
+        "replace": "each proven by one of the eight steps of the night"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "16-number-typed-in-a-proof",
+    "why": "A number is typed into a check's proof (review round 2, tests F)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "<dd>{c.proof}</dd>",
+        "replace": "<dd>{c.proof}, on all 9 sites</dd>"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "17-proofs-shifted",
+    "why": "Each check shows the next check's proof (review round 2, tests C)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "{#each v.reports.checks as c (c.name)}",
+        "replace": "{#each v.reports.checks.map((x, i, a) => ({ ...x, proof: a[(i + 1) % a.length]!.proof })) as c (c.name)}"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "18-plural-inverted",
+    "why": "Submission and submissions swapped (review round 2, tests D)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "=== 1 ? \"submission\" : \"submissions\"",
+        "replace": "=== 1 ? \"submissions\" : \"submission\""
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "19-load-ignores-clock",
+    "why": "The load builds the view on this machine's clock, not the server's (review round 2, tests E)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.ts",
+        "find": "view: howFromSnapshot(snapshot, now)",
+        "replace": "view: howFromSnapshot(snapshot, new Date())"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "20-flow-wraps",
+    "why": "A flow wraps onto a second row on a small laptop (review round 2, a11y 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  flex-wrap: nowrap;\n",
+        "replace": "  flex-wrap: wrap;\n"
+      },
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  box-sizing: border-box;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
     "expect": "red"
   }
 ]

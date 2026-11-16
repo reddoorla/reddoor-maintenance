@@ -48,8 +48,8 @@ body {
 .how-steps li {
   counter-increment: how-step;
   background: var(--surface);
-  /* A hairline, not the ink bar: below, the ink bar marks Attention. */
-  border-top: 4px solid var(--rule);
+  /* A true hairline: the ladder below uses 4px bars to mean levels. */
+  border-top: 1px solid var(--rule);
   padding: var(--space-3);
   display: flex;
   flex-direction: column;
@@ -98,7 +98,8 @@ body {
 /* Chapters 3 to 5: a flow of boxes joined by arrows; the end of the flow is filled. */
 .how-flow {
   display: flex;
-  flex-wrap: wrap;
+  /* A row never wraps, so no arrow starts a row; below 60rem the flow stacks. */
+  flex-wrap: nowrap;
   align-items: stretch;
   gap: var(--space-5);
   padding: 0;
@@ -107,7 +108,9 @@ body {
 }
 .how-flow li {
   position: relative;
+  box-sizing: border-box;
   flex: 1 1 10rem;
+  min-width: 0;
   /* A panel, not a control: square, with no control border. */
   background: var(--surface);
   padding: var(--space-3);
@@ -130,7 +133,6 @@ body {
 .how-flow li.how-end {
   background: var(--ink);
   color: var(--on-ink);
-  border-color: var(--ink);
 }
 .how-branch {
   border-left: 4px solid var(--rule);
@@ -161,8 +163,8 @@ body {
   max-width: 46rem;
 }
 
-/* Below about 60rem a flow would wrap, leaving an arrow at the start of a row: it
-   stacks instead, each box its content's height. */
+/* Below 60rem the boxes would be too narrow to read side by side: the flow stacks,
+   each box its content's height. */
 @media (max-width: 60rem) {
   .how-flow {
     flex-direction: column;

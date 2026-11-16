@@ -44,8 +44,8 @@
       >The run starts at {v.nightly.startsAt}, and reports a person has approved go out at {v
         .nightly.sendsAt}.</span
     >
-    Each step writes down what it found. Nothing is assumed to have worked: a check that did not run reads
-    "not checked", never a pass.
+    Each step writes down what it found. Nothing is assumed to have worked: a check that did not run never
+    reads as a pass.
   </p>
   <p class="how-figures">
     <span data-term="Scale">Scale: {v.nightly.scale}.</span>
@@ -64,8 +64,9 @@
     {/each}
   </ul>
   <p>
-    Much of the fixing is done by the system itself: an update bot opens a change for each new
-    version of a package a site uses, and the change is tested before it merges.
+    Much of the fixing is done by the system itself: an update bot opens changes when packages a
+    site uses have new versions (minor ones grouped together), and each change is tested before it
+    merges.
     <span data-term="Dependency updates merged"
       >Dependency updates merged: {v.upkeep.automerged}.</span
     >
@@ -118,7 +119,8 @@
     <p data-term="Submissions">
       {v.leads.allTime.submissions}
       {v.leads.allTime.submissions === 1 ? "submission" : "submissions"} in all{#if v.leads.since}&nbsp;since
-        {v.leads.since}{/if}. A lead's name, email and message are never shown on these pages.
+        {v.leads.since}{/if}. A lead's name, email and message are never shown on this page or the
+      overview.
     </p>
   {/if}
 </section>
@@ -164,19 +166,20 @@
 <section class="how-chapter" aria-labelledby="how-ship">
   <hgroup>
     <p class="how-kicker">How changes ship</p>
-    <h2 id="how-ship">Nothing goes live untested</h2>
+    <h2 id="how-ship">Nothing we write goes live untested</h2>
   </hgroup>
   <ol class="how-flow" role="list">
-    <li><strong>A change is written</strong> <span>with its test first</span></li>
+    <li><strong>We write a change</strong> <span>with its test first</span></li>
     <li>
       <strong>Reviewed</strong> <span>by fresh AI agents, before it lands</span>
     </li>
-    <li><strong>Staging</strong> <span>on a client site, its own copy for checking</span></li>
+    <li><strong>Staging</strong> <span>on a site with its own copy for checking</span></li>
     <li class="how-end"><strong>Live</strong> <span>when one of us promotes it</span></li>
   </ol>
   <p>
     Each change lands as its own pull request (PR), small enough to undo on its own. A person merges
-    every published release.
+    every published release. Small dependency updates are the exception: they skip staging, and go
+    live on their own once the site's tests pass.
     <span data-term="PRs merged"
       >PRs merged into the maintenance stack (the code that runs these checks and sends the
       reports): {v.prsMerged}.</span

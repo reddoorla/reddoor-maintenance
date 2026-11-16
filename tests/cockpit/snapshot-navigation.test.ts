@@ -341,6 +341,23 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       );
   });
 
+  // P1-87 PR 1, review round 2: on a small laptop (1000px) each flow stays one row,
+  // so no arrow starts a wrapped row and the last step stays in the chain.
+  it("How this works keeps each flow on one row at 1000px", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1000, height: 800 });
+    await page.goto(`${origin}/how`);
+    await expect.poll(() => page.locator("h1").first().textContent()).toContain("How this works");
+    const tops = await page.$$eval(".how-flow", (flows) =>
+      flows.map((f) => [...f.children].map((li) => Math.round(li.getBoundingClientRect().top))),
+    );
+    expect(tops.length).toBe(3);
+    for (const row of tops) expect(new Set(row).size).toBe(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      1000,
+    );
+  });
+
   // P1-87 PR 1: How this works on a 390px-wide phone, in both themes, with nothing
   // wider than its box: the flows stack, and How we count opens inside the screen.
   it.each(["light", "dark"] as const)(

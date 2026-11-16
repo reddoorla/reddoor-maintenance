@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { createRawSnippet } from "svelte";
 import { render } from "svelte/server";
 import { parse, TextNode, type HTMLElement, type Node } from "node-html-parser";
@@ -143,8 +143,12 @@ describe("five chapters, each with its diagram", () => {
 
   it("chapter 1 labels its scale and runs completed, so a missing value still says what it is", () => {
     const figures = one(DOC, ".how-figures");
-    expect(figures).toContain(`Scale: ${VIEW.nightly.scale}.`);
-    expect(figures).toContain(`Runs completed: ${VIEW.nightly.reliability}.`);
+    expect(figures).toBe(
+      `Scale: ${VIEW.nightly.scale}. Runs completed: ${VIEW.nightly.reliability}.`,
+    );
+    expect(VIEW.nightly.reliability).toBe(
+      "15 of 16 nightly steps ran to the end over the last 2 nights",
+    );
   });
 
   it("chapter 2 shows the ladder's four levels, mildest first, in the overview's words", () => {
@@ -160,6 +164,8 @@ describe("five chapters, each with its diagram", () => {
       const line = `${text(l.querySelector("strong")!)}: ${text(l.querySelector("span")!)}`;
       expect(LADDER_LINES.map((x) => x.toLowerCase())).toContain(line.toLowerCase());
       expect(text(l.querySelector("span")!)).toMatch(/^[A-Z]/);
+      // The box's level (its colour) is the level it names.
+      expect(l.getAttribute("class")).toBe(text(l.querySelector("strong")!).toLowerCase());
     }
   });
 
@@ -182,6 +188,9 @@ describe("five chapters, each with its diagram", () => {
       "Kept as real 5 leads, signups and RSVPs",
       "The client is emailed 4 emailed",
     ]);
+    expect(one(DOC, 'section:has(#how-lead) p[data-term="Submissions"]')).toMatch(
+      /^8 submissions in all since /,
+    );
     // What happens when an email fails is said as it is: no retry is claimed.
     expect(one(DOC, "section:has(#how-lead) .how-branch")).not.toMatch(/retr/i);
   });
@@ -200,6 +209,17 @@ describe("five chapters, each with its diagram", () => {
     const names = DOC.querySelectorAll(".how-checks dt").map(text);
     expect(names).toEqual(VIEW.reports.checks.map((c) => c.name));
     expect(names.length).toBeGreaterThanOrEqual(6);
+    // Each check sits beside its own proof, read from the report's own step numbers.
+    const pairs = DOC.querySelectorAll(".how-checks dt").map((dt) => [
+      text(dt),
+      text(dt.nextElementSibling!),
+    ]);
+    expect(Object.fromEntries(pairs)).toMatchObject({
+      "Security Updates": expect.stringMatching(/^Step 4 lists known vulnerabilities/),
+      "Google Indexed": expect.stringMatching(/^Step 8 asks Google Search Console/),
+      "CMS Checked":
+        "Step 5 checks the CMS answers; step 2 checks its content models match the site's code.",
+    });
     expect(one(DOC, 'p[data-term="Checks per report"]')).toContain(
       `carries ${names.length} checks`,
     );
@@ -215,7 +235,11 @@ describe("five chapters, each with its diagram", () => {
     };
     const doc = parse(pageHtml(three));
     expect(doc.querySelectorAll(".how-checks dt")).toHaveLength(3);
-    expect(one(doc, 'p[data-term="Checks per report"]')).toContain("carries 3 checks");
+    const sentence = one(doc, 'p[data-term="Checks per report"]');
+    expect(sentence).toContain("carries 3 checks");
+    // Its only number is the count: no step count typed beside it, in digits or words.
+    expect(sentence.match(/\d+/g)).toEqual(["3"]);
+    expect(sentence.match(NUMBER_WORDS)).toBeNull();
   });
 
   it("chapter 5 says how many PRs merged, from the nightly counts", () => {
@@ -310,7 +334,8 @@ function sentinelize(view: HowView): { view: HowView; at: Map<string, string> } 
 function shown(doc: HTMLElement): HTMLElement[] {
   const out: HTMLElement[] = [];
   const walk = (el: HTMLElement) => {
-    if (el.tagName === "HEADER" || el.tagName === "DD" || el.tagName === "STYLE") return;
+    if (el.tagName === "HEADER" || el.tagName === "STYLE") return;
+    if (el.tagName === "DD" && el.closest(".how-count") !== null) return;
     if (el.getAttribute?.("data-term") === "Checks per report" && el.tagName === "P") return;
     out.push(el);
     for (const c of el.childNodes) if (!(c instanceof TextNode)) walk(c as HTMLElement);
@@ -462,5 +487,35 @@ describe("everyone signed in sees the same page", () => {
     const erik = pageHtml(VIEW, "erik@reddoor.example");
     expect(below(erik)).toBe(below(op));
     expect(op).not.toBe(erik);
+  });
+});
+
+describe("the page's load and its singulars", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("the load builds the view on the server's clock: the snapshot's offset applied", async () => {
+    // This machine's clock runs three days ahead of the server's.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(NOW.getTime() + 259_200_000));
+    const out = (await (howLoad as (e: unknown) => unknown)({
+      parent: async () => ({ snapshot: SNAP, failure: null, clockOffsetMs: -259_200_000 }),
+    })) as { view: HowView };
+    expect(out.view).toEqual(howFromSnapshot(SNAP, NOW));
+    // The control: on this machine's own clock the view differs.
+    expect(out.view).not.toEqual(howFromSnapshot(SNAP, new Date(NOW.getTime() + 259_200_000)));
+  });
+
+  it("one submission reads in the singular", () => {
+    const view = howFromSnapshot(
+      snapshot({
+        submissions: [
+          makeSubmissionRow({ id: "x", siteId: "recA", status: "new", submittedAt: FRESH }),
+        ],
+        nights: [NEWEST],
+      }),
+      NOW,
+    );
+    const doc = parse(pageHtml(view));
+    expect(one(doc, 'p[data-term="Submissions"]')).toMatch(/^1 submission in all since /);
   });
 });
