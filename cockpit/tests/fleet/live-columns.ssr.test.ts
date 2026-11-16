@@ -7,7 +7,7 @@ import { buildFleetTableModel, parseFleetTableQuery } from "../../../src/dashboa
 import type { Tier } from "../../../src/dashboard/fleet-cockpit.js";
 import { makeWebsiteRow } from "../../../tests/_helpers/website-row.js";
 import { makeSubmissionRow } from "../../../tests/_helpers/submission-row.js";
-import { NOW, healthy, snapshot } from "../overview/fixtures.js";
+import { NOW, STALE, healthy, snapshot } from "../overview/fixtures.js";
 
 /**
  * P1-87, PR 2: the overview's "Is every site live?" columns (Live, Certificate,
@@ -207,5 +207,65 @@ describe("the Level sort (P1-87, PR 2)", () => {
 
   it("offers Level as a sortable header", () => {
     expect(parseFleetTableQuery(new URLSearchParams("sort=level")).sort).toBe("level");
+  });
+});
+
+/** Review round 2 (P1-87, PR 2). A separate fixture, so SNAP and its assertions
+ *  stay as they were. Constructor is archived and named for an Object.prototype
+ *  key; Lantern is launching, so it has a card and its own checks; Stale's URL and
+ *  page checks are older than the window; Nodeploy has no deploy status; Echo has
+ *  two real leads, the older one last in the array. */
+const SNAP_R2 = snapshot({
+  sites: [
+    makeWebsiteRow({ id: "recK", name: "Constructor", status: "archived" }),
+    healthy({ id: "recL", name: "Lantern", status: "launching", reachableOk: "fail" }),
+    healthy({ id: "recS", name: "Stale", urlCheckedAt: STALE, browserCheckedAt: STALE }),
+    healthy({ id: "recN", name: "Nodeploy", deployStatus: null }),
+    healthy({ id: "recE", name: "Echo" }),
+  ],
+  submissions: [
+    makeSubmissionRow({
+      id: "e1",
+      siteId: "recE",
+      status: "read",
+      submittedAt: "2026-10-27T15:00:00.000Z",
+    }),
+    makeSubmissionRow({
+      id: "e0",
+      siteId: "recE",
+      status: "read",
+      submittedAt: "2026-10-27T09:00:00.000Z",
+    }),
+  ],
+});
+
+describe("the live columns, review round 2 (P1-87, PR 2)", () => {
+  it("gives an archived site named Constructor dashes, not an inherited key's facts", async () => {
+    const k = rowOf(await page("/fleet?status=__all__", SNAP_R2), "Constructor");
+    for (const label of ["Live", "Certificate", "Deploy", "Forms"])
+      expect(text(cell(k, label))).toBe("—");
+  });
+
+  it("shows a launching site's own checks, not the dash", async () => {
+    const lantern = rowOf(await page("/fleet?status=__all__", SNAP_R2), "Lantern");
+    expect(text(cell(lantern, "Live"))).toBe("A page not answering, checked Oct 26, 11:30pm PT");
+    expect(cell(lantern, "Live").classList.contains("bad")).toBe(true);
+  });
+
+  it("shows exactly 'Not checked lately' for a Live check past its window, with no stamp", async () => {
+    const stale = rowOf(await page("/fleet?status=__all__", SNAP_R2), "Stale");
+    expect(text(cell(stale, "Live"))).toBe("Not checked lately");
+  });
+
+  it("styles an unknown Deploy muted, never as ok", async () => {
+    const deploy = cell(rowOf(await page("/fleet?status=__all__", SNAP_R2), "Nodeploy"), "Deploy");
+    expect(text(deploy)).toBe("No deploy recorded");
+    expect(deploy.classList.contains("unknown")).toBe(true);
+    expect(deploy.classList.contains("ok")).toBe(false);
+  });
+
+  it("names the newer of two real leads, though the older one comes last", async () => {
+    const echo = rowOf(await page("/fleet?status=__all__", SNAP_R2), "Echo");
+    expect(text(cell(echo, "Forms"))).toBe("Test passed; last real lead 3 hours ago");
   });
 });

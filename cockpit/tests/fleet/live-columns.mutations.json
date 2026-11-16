@@ -172,5 +172,70 @@
     ],
     "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "14-facts-inherited-key",
+    "why": "An archived site named Constructor reads an inherited Object.prototype key as its facts (review round 2)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "data.facts !== undefined && Object.hasOwn(data.facts, slug) ? data.facts[slug] : undefined",
+        "replace": "data.facts?.[slug]"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "15-facts-maintained-only",
+    "why": "Facts are kept for maintained sites only, so a launching site shows the dash (review round 2)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "for (const c of model.cards)",
+        "replace": "for (const c of model.cards.filter((c) => c.site.status === \"maintained\"))"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "16-deploy-unknown-as-ok",
+    "why": "An unknown Deploy (ok null) is styled as ok (review round 2)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "okClass(f.deploy.ok)",
+        "replace": "okClass(f.deploy.ok ?? true)"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "17-live-at-always",
+    "why": "The Live cell's checked stamp shows even with no stamp, so Not checked lately gets a dangling comma (review round 2)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "{#if f.live.at}",
+        "replace": "{#if true}"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "18-oldest-lead-wins",
+    "why": "The Forms cell names the oldest real lead, not the newest (review round 2)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "Date.parse(r.submittedAt) > Date.parse(prev.submittedAt!)",
+        "replace": "Date.parse(r.submittedAt) < Date.parse(prev.submittedAt!)"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
   }
 ]
