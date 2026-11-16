@@ -404,3 +404,23 @@ describe("the live columns, review round 4 (P1-87, PR 2)", () => {
     expect(pill.classList.contains("pre-launch")).toBe(true);
   });
 });
+
+/** Review round 5 (P1-87, PR 2). Separate fixtures, so SNAP through SNAP_R4 and their
+ *  assertions stay as they were. The levels map is a record too: round-trip the
+ *  whole data (the browser's JSON copy), so the page's own-property guard on
+ *  levels must hold for a plain object. ToString's id "constructor" is an
+ *  Object.prototype key that no level belongs to. */
+describe("the Level guard, review round 5 (P1-87, PR 2)", () => {
+  it("gives the archived constructor-id site a dash and no pill, with the whole data round-tripped", async () => {
+    const url = new URL("/fleet?status=__all__", "https://dash.example");
+    const data = (await (load as unknown as (e: unknown) => Promise<Data>)({
+      url,
+      parent: async () => ({ snapshot: SNAP_R3, failure: null, clockOffsetMs: 0 }),
+    })) as Data;
+    const wire = JSON.parse(JSON.stringify(data)) as Data;
+    const doc = parse(render(Page, { props: { data: wire } }).body);
+    const ts = rowOf(doc, "ToString");
+    expect(text(cell(ts, "Level"))).toBe("—");
+    expect(ts.querySelectorAll(".pill")).toHaveLength(0);
+  });
+});

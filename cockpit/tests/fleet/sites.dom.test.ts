@@ -21,8 +21,9 @@ let app: ReturnType<typeof mount> | null = null;
 
 /** The page's records are null-prototype (review round 4, so a site id of `__proto__`
  *  is an own key). Copy them, and only them (plain objects are walked to reach them), to plain
- *  objects for the strict check below; a Map, Date or class instance is left as
- *  is, so the check still refuses anything JSON would not carry. */
+ *  objects for the strict check below. A Map, Date or class instance is left as is, and an
+ *  undefined field stays in place, so the check still fails on any of them, as it would on
+ *  anything JSON does not carry. Symbol keys pass: Object.entries drops them, as JSON does. */
 const plain = (v: unknown): unknown =>
   Array.isArray(v)
     ? v.map(plain)
@@ -250,5 +251,35 @@ describe("Sites — two sites that share a slug (review round 4)", () => {
     flushSync();
     expect(rowsShown()).toHaveLength(2);
     expect(rowsShown()).toEqual(expect.arrayContaining(["Foo", "FOO"]));
+  });
+});
+
+describe("Sites — two sites with the same name (review round 5)", () => {
+  // Two maintained-or-archived sites both named "Foo" (different ids). A row loop keyed by
+  // name throws each_key_duplicate on mount, so this must mount both rows, each shown.
+  it("mounts two rows both named Foo, one maintained and one archived", () => {
+    const model = cases()[10]![1];
+    const maintained = {
+      ...model.cards[0]!.site,
+      id: "recFoo1",
+      name: "Foo",
+      status: "maintained" as const,
+    };
+    const archived = {
+      ...model.cards[0]!.site,
+      id: "recFoo2",
+      name: "Foo",
+      status: "archived" as const,
+    };
+    const data = {
+      model: buildFleetTableModel(
+        [maintained, archived],
+        parseFleetTableQuery(new URLSearchParams({ status: ALL_STATUSES_FILTER })),
+      ),
+      sites: buildSitesView(model, NOW),
+    };
+    app = mount(Page, { target, props: { data: JSON.parse(JSON.stringify(data)) } });
+    flushSync();
+    expect(rowsShown()).toEqual(["Foo", "Foo"]);
   });
 });

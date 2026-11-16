@@ -411,5 +411,57 @@
     ],
     "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "32-rows-keyed-by-name",
+    "why": "The row loop is keyed by name, so two sites named Foo throw a duplicate key on mount (review round 5)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "{#each m.rows as r (r.id)}",
+        "replace": "{#each m.rows as r (r.name)}"
+      }
+    ],
+    "test": "cockpit/tests/fleet/sites.dom.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "33-levels-guard-dropped",
+    "why": "levelOf reads levels with no own-property check, so the constructor-id site finds Object.prototype's function (review round 5)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "Object.hasOwn(s.levels, id) ? s.levels[id] : undefined",
+        "replace": "s.levels[id]"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "34-bad-fact-not-bold",
+    "why": "A failed check's cell loses its bold, so it reads as passed (review round 5)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/fleet-table.css",
+        "find": "table.fleet td.fact.bad {\n  font-weight: var(--weight-bold);\n}",
+        "replace": "table.fleet td.fact.bad {\n}"
+      }
+    ],
+    "test": "cockpit/tests/fleet/fleet-table-css.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "35-unknown-fact-not-muted",
+    "why": "An unknown check's cell loses its muted colour, so it reads as a verdict (review round 5)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/fleet-table.css",
+        "find": "table.fleet td.fact.unknown {\n  color: var(--ink-muted);\n}",
+        "replace": "table.fleet td.fact.unknown {\n}"
+      }
+    ],
+    "test": "cockpit/tests/fleet/fleet-table-css.ssr.test.ts",
+    "expect": "red"
   }
 ]
