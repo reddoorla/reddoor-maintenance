@@ -193,5 +193,18 @@
     ],
     "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
+  },
+  {
+    "id": "16-spam-summed",
+    "why": "The spam tile adds the screened count to the stopped count, mixing two clocks",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    value: stopped,\n",
+        "replace": "    value: stoppedMeasured && leads.allTime !== null ? String(Number(stopped) + leads.allTime.screened) : stopped,\n"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
   }
 ]

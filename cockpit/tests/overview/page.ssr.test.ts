@@ -121,20 +121,26 @@ describe("the overview page, rendered from a real view (T1)", () => {
     );
   });
 
-  it("the spam tile is the two spam counters added, and the totals table keeps them apart", () => {
-    // 248 stopped before storage (the night) and 3 screened: the tile reads their sum,
-    // and the totals table still shows each counter in its own cell.
+  it("never shows the two spam counters added together", () => {
+    // 248 stopped before storage (the night) and 3 screened: no element reads 251.
     const stopped = DOC.querySelectorAll(".ov-leads-totals tr").find((tr) =>
       text(tr).startsWith("Stopped before storage"),
     )!;
     expect(stopped.querySelectorAll("td").map(text)).toEqual(["0", "248, as of Oct 26"]);
     const sum = String(Number(VIEW.leads.stoppedAllTime) + VIEW.leads.allTime!.screened);
     expect(sum).toBe("251");
+    expect(DOC.querySelectorAll("*").filter((e) => text(e) === sum)).toEqual([]);
+    expect(pageText(DOC)).not.toMatch(new RegExp(`\\b${sum}\\b`));
+  });
+
+  it("the spam tile is the stopped count, with the screened count beside it", () => {
     const tile = DOC.querySelectorAll(".ov-tile").find((t) =>
-      text(t).includes("spam submissions stopped"),
+      text(t).includes("spam submissions stopped before storage"),
     )!;
-    expect(text(tile.querySelector(".ov-num")!)).toBe(sum);
-    expect(text(tile.querySelector(".ov-context")!)).toBe("248 before storage, 3 screened");
+    expect(text(tile.querySelector(".ov-num")!)).toBe("248");
+    expect(text(tile.querySelector(".ov-context")!)).toBe(
+      "as of Oct 26; 3 more screened after arriving",
+    );
   });
 });
 

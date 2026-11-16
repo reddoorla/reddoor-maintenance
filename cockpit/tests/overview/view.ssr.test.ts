@@ -1969,9 +1969,10 @@ describe("health and numbers (P1-87 PR 3)", () => {
       context: "4 since Jul 2, 2026",
     });
     expect(tile("spam")).toMatchObject({
-      value: "250",
+      value: "248",
       measured: true,
-      context: "248 before storage, 2 screened",
+      label: "spam submissions stopped before storage",
+      context: "as of Oct 26; 2 more screened after arriving",
       spark: null,
     });
     expect(tile("checks")).toMatchObject({

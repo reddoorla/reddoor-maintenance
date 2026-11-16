@@ -1866,22 +1866,23 @@ export function numbersView(
           : `${leads.allTime.notified} since ${leads.since}`,
     spark: sparkOf(2),
   };
+  // Never added to the screened count (How we count, "Stopped before storage"): the
+  // stopped count is as of the newest night and the screened count is live, so a sum
+  // would mix two clocks. The tile is the stopped count; screened is said beside it.
   const stopped = leads.stoppedAllTime;
-  const spamValue =
-    leads.allTime === null
-      ? UNREADABLE
-      : /^\d+$/.test(stopped)
-        ? String(Number(stopped) + leads.allTime.screened)
-        : stopped;
+  const stoppedMeasured = /^\d+$/.test(stopped);
   const spamTile: NumberTile = {
     key: "spam",
-    label: "spam submissions stopped",
-    measured: /^\d+$/.test(spamValue),
-    value: spamValue,
+    label: "spam submissions stopped before storage",
+    measured: stoppedMeasured,
+    value: stopped,
     context:
-      leads.allTime !== null && /^\d+$/.test(stopped)
-        ? `${stopped} before storage, ${leads.allTime.screened} screened`
-        : null,
+      [
+        ...(stoppedMeasured && leads.stoppedAsOf !== null ? [`as of ${leads.stoppedAsOf}`] : []),
+        ...(leads.allTime === null
+          ? []
+          : [`${leads.allTime.screened} more screened after arriving`]),
+      ].join("; ") || null,
     spark: null,
   };
   const checkNights = (s.nights ?? []).map((n) => checksRun(n.counts));
