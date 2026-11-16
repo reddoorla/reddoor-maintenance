@@ -910,6 +910,8 @@ Expected: FAIL — the promise is spread into the payload, so `formType` is unde
 
 In `src/forms/endpoint.ts`, widen the option type:
 
+<!-- Prettier 3.9 and 3.10 format this block differently (reddoorla/reddoor-maintenance#2049). -->
+<!-- prettier-ignore -->
 ```ts
 /**
  * Map the parsed JSON body to a payload. Must set `formType` UNLESS the fixed
