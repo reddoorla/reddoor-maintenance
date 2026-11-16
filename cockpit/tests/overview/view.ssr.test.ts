@@ -2447,3 +2447,29 @@ describe("review round 2: the checks tile's window (group B)", () => {
     });
   });
 });
+
+describe("review round 2: the checks sparkline and its geometry (group C)", () => {
+  const countedNight = (date: string, value: number) =>
+    night(date, { coverage: { value: { a: { value } } } });
+
+  it("pins a flat sparkline at the middle, and the default width of 120", () => {
+    // A flat series reads as an underline at the top, so it sits at the middle (y = 12).
+    expect(sparkGeometry([0, 0, 0]).lines).toEqual(["0,12 60,12 120,12"]);
+    expect(sparkGeometry([3, 3]).lines).toEqual(["0,12 120,12"]);
+    // The default width is the page's viewBox width, 120.
+    expect(sparkGeometry([1, 2]).lines).toEqual(["0,12 120,0"]);
+  });
+
+  it("builds the checks sparkline from the nights, so one missing night is a gap, not no line", () => {
+    // Oct 13 to Oct 26 is 14 calendar nights; Oct 20 (index 7) has no row.
+    const days = Array.from({ length: 14 }, (_, i) => `2026-10-${String(13 + i).padStart(2, "0")}`);
+    const nights = days.filter((d) => d !== "2026-10-20").map((d) => countedNight(d, 5));
+    const tile = overviewFromSnapshot(snapshot({ nights }), NOW).numbers.find(
+      (t) => t.key === "checks",
+    )!;
+    expect(tile.spark).toHaveLength(14);
+    expect(tile.spark!.filter((v) => v === null)).toHaveLength(1);
+    expect(tile.spark![7]).toBeNull();
+    expect(sparkGeometry(tile.spark!).lines).toHaveLength(2);
+  });
+});

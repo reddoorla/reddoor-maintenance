@@ -1958,6 +1958,23 @@ export const HEALTH_CHECK_NAMES = [
 /** The checks tile's words when last night has no count (its value is never an older night's). */
 const NO_LAST_NIGHT_COUNT = "no count for last night";
 
+/** The checks tile's sparkline: the last 14 calendar nights ending at `end`, oldest first,
+ *  built from the nights themselves (not the trends charts, which wait for all 14), with
+ *  null for a night that has no row or no count (a gap, never 0). Null when no night in
+ *  the 14 has a count at all. */
+function nightSpark(
+  counted: Array<{ night: string; v: number | null }>,
+  end: string,
+): Array<number | null> | null {
+  const days = Array.from({ length: TREND_NIGHTS }, (_, i) => {
+    const d = new Date(`${end}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - (TREND_NIGHTS - 1 - i));
+    return d.toISOString().slice(0, 10);
+  });
+  const series = days.map((day) => counted.find((x) => x.night === day)?.v ?? null);
+  return series.some((v) => v !== null) ? series : null;
+}
+
 /** The checks summed over the last `WINDOW_NIGHTS` calendar nights ending at `end`:
  *  K is calendar nights from the oldest summed row to `end`, and a night inside that
  *  span with no count is said, never counted as 0. */
@@ -1987,11 +2004,8 @@ export function numbersView(
   s: CockpitSnapshot,
   leads: LeadsView,
   reports: ReportsView,
-  trends: TrendsView,
   now: Date,
 ): NumberTile[] {
-  const sparkOf = (chart: number): Array<number | null> | null =>
-    trends.charts?.[chart]?.series[0]?.points.map((p) => p.value) ?? null;
   const leadsTile: NumberTile = {
     key: "leads",
     label: "leads sent to clients this month",
@@ -2048,7 +2062,7 @@ export function numbersView(
         : newestCounted === undefined
           ? null
           : `${newestCounted.v} on the night of ${nightLabel(newestCounted.night)}`,
-    spark: sparkOf(1),
+    spark: nightSpark(counted, lastNight),
   };
   const deps = windowFigure(s.nights, eventTotal("pr_automerged"), now);
   const depsTile: NumberTile = {
@@ -2087,7 +2101,11 @@ export function sparkGeometry(
   width = 120,
   height = 24,
 ): { lines: string[]; dots: Array<{ x: number; y: number }> } {
-  const top = Math.max(1, ...spark.filter((v): v is number => v !== null));
+  const values = spark.filter((v): v is number => v !== null);
+  const top = Math.max(1, ...values);
+  // A flat series (every value equal, zero included) is drawn at the middle: at the top
+  // it reads as an underline on the text above it (review round 2, nit 9).
+  const flat = values.every((v) => v === values[0]);
   const step = spark.length > 1 ? width / (spark.length - 1) : 0;
   const lines: string[] = [];
   const dots: Array<{ x: number; y: number }> = [];
@@ -2101,7 +2119,7 @@ export function sparkGeometry(
     if (v === null) return flush();
     const p = {
       x: Math.round(i * step * 10) / 10,
-      y: Math.round((height - (v / top) * height) * 10) / 10,
+      y: flat ? height / 2 : Math.round((height - (v / top) * height) * 10) / 10,
     };
     run.push(p);
   });
@@ -2141,7 +2159,7 @@ export function overviewFromSnapshot(s: CockpitSnapshot, now: Date): OverviewVie
   return {
     status: statusV,
     health: healthView(model, live, now, statusV),
-    numbers: numbersView(s, leads, reports, trends, now),
+    numbers: numbersView(s, leads, reports, now),
     live,
     leads,
     reports,
