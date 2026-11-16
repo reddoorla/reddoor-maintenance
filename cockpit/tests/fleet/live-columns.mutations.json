@@ -31,8 +31,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/fleet/+page.svelte",
-        "find": "Object.hasOwn(data.facts, slug) ? data.facts[slug] : undefined;",
-        "replace": "Object.hasOwn(data.facts, slug) ? Object.values(data.facts)[0] : undefined;"
+        "find": "Object.hasOwn(data.facts, id) ? data.facts[id] : undefined;",
+        "replace": "Object.hasOwn(data.facts, id) ? Object.values(data.facts)[0] : undefined;"
       }
     ],
     "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
@@ -96,8 +96,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "      s.submissions !== null,\n",
-        "replace": "      true,\n"
+        "find": "s.submissions !== null, now);",
+        "replace": "true, now);"
       }
     ],
     "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
