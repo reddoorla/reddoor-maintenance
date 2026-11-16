@@ -309,6 +309,7 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     await page.waitForFunction(() => document.querySelector("a[href='/fleet']") !== null);
     await page.waitForLoadState("networkidle");
 
+    await follow(page, "/how", "How this works");
     await follow(page, "/fleet", "Sites");
     await follow(page, "/s/acme", "Acme");
     await follow(page, "/submissions", "Submissions");
@@ -339,6 +340,42 @@ describe("cockpit navigation, in a browser, against the built app", () => {
         `${NIGHTLIES.length * 2} of ${NIGHTLIES.length * 2} nightly steps ran to the end over the last 2 nights`,
       );
   });
+
+  // P1-87 PR 1: How this works on a 390px-wide phone, in both themes, with nothing
+  // wider than its box: the flows stack, and How we count opens inside the screen.
+  it.each(["light", "dark"] as const)(
+    "How this works fits a 390px-wide screen in the %s theme",
+    async (scheme) => {
+      const page = await signedIn();
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.goto(`${origin}/how`);
+      await expect.poll(() => page.locator("h1").first().textContent()).toContain("How this works");
+      expect(await page.locator("section.how-chapter").count()).toBe(5);
+      await page.locator(".how-count summary").click();
+      const fit = await page.evaluate(() => ({
+        scroll: document.documentElement.scrollWidth,
+        width: window.innerWidth,
+        wide: [...document.body.querySelectorAll("*")]
+          .filter((e) => {
+            const d = getComputedStyle(e).display;
+            return d !== "inline" && d !== "contents" && e.clientWidth > 0;
+          })
+          .filter((e) => e.scrollWidth > e.clientWidth + 1)
+          .map(
+            (e) => `${e.tagName.toLowerCase()}.${e.className}: ${e.scrollWidth} > ${e.clientWidth}`,
+          ),
+        flowRight: Math.max(
+          ...[...document.querySelectorAll(".how-flow li, .how-steps li, .how-ladder li")].map(
+            (e) => e.getBoundingClientRect().right,
+          ),
+        ),
+      }));
+      expect(fit.wide).toEqual([]);
+      expect(fit.scroll).toBeLessThanOrEqual(fit.width);
+      expect(fit.flowRight).toBeLessThanOrEqual(fit.width);
+    },
+  );
 
   // P1-78g's Done-when: the overview on a 390px-wide phone, in both themes, with
   // nothing scrolling sideways. Review round 1 (T5): the seed's long-named Broken

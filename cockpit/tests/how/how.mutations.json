@@ -1,0 +1,80 @@
+[
+  {
+    "id": "1-typed-number",
+    "why": "A chapter drops its real number and prints a typed one",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "<span>{v.leads.allTime.screened} set aside</span>",
+        "replace": "<span>293 set aside</span>"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2-how-we-count-short-a-term",
+    "why": "How we count is rendered without one of HOW_WE_COUNT's terms",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "{#each HOW_WE_COUNT as h (h.term)}",
+        "replace": "{#each HOW_WE_COUNT.slice(1) as h (h.term)}"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "3-no-nav-entry",
+    "why": "The nav entry is left out",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/nav.ts",
+        "find": "  { href: \"/how\", label: \"How this works\", match: (p) => p === \"/how\" },\n",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "4-ladder-out-of-order",
+    "why": "The ladder is shown worst first instead of mildest first",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "const LADDER_ORDER: readonly Tier[] = [\"ok\", \"watch\", \"attention\", \"broken\"];",
+        "replace": "const LADDER_ORDER: readonly Tier[] = [\"broken\", \"attention\", \"watch\", \"ok\"];"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "5-step-names-shifted",
+    "why": "Each step is given the wrong step's short name (off by one)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "short: NIGHTLY_STEPS[i]!.short",
+        "replace": "short: NIGHTLY_STEPS[(i + 1) % NIGHTLY_STEPS.length]!.short"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "6-flow-overflows-a-phone",
+    "why": "A flow's boxes keep a fixed width wider than a phone",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  flex: 1 1 10rem;",
+        "replace": "  flex: 0 0 30rem;"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  }
+]

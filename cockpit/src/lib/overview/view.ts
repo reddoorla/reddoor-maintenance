@@ -931,6 +931,8 @@ type StampField = keyof Pick<
  *  stamps no site says what it reaches in `reach` instead. */
 export const NIGHTLY_STEPS: ReadonlyArray<{
   file: string;
+  /** The step's name in two words, for a diagram (P1-87, How this works). */
+  short: string;
   label: string;
   coverage: readonly string[];
   stamps: readonly StampField[];
@@ -938,6 +940,7 @@ export const NIGHTLY_STEPS: ReadonlyArray<{
 }> = [
   {
     file: "fleet-db-backup.yml",
+    short: "Backup",
     label: "Backup, with a restore rehearsal (the copy is restored to prove it works)",
     coverage: [],
     stamps: [],
@@ -945,12 +948,14 @@ export const NIGHTLY_STEPS: ReadonlyArray<{
   },
   {
     file: "fleet-prismic-drift.yml",
+    short: "CMS check",
     label: "Prismic (the CMS, where content is edited) check: its content models match the code",
     coverage: ["prismic_models_checked_at"],
     stamps: ["prismicModelsCheckedAt"],
   },
   {
     file: "fleet-prismic-sync.yml",
+    short: "CMS sync",
     label: "Prismic (the CMS) sync: a change made there comes back to the site's code for review",
     coverage: [],
     stamps: [],
@@ -958,12 +963,14 @@ export const NIGHTLY_STEPS: ReadonlyArray<{
   },
   {
     file: "fleet-security.yml",
+    short: "Security",
     label: "Security (known vulnerabilities, and packages behind)",
     coverage: ["security_audit_at", "deps_behind_packages_at"],
     stamps: ["lastSecurityAuditAt"],
   },
   {
     file: "fleet-lighthouse.yml",
+    short: "Site checks",
     label:
       "Site checks: Lighthouse (Google's speed and quality audit), the domain and certificate, browsers (each site opened in a real browser), the deploy, server functions, and the URL probe (does the address answer)",
     coverage: [
@@ -985,18 +992,21 @@ export const NIGHTLY_STEPS: ReadonlyArray<{
   },
   {
     file: "fleet-smoke.yml",
+    short: "Build and tests",
     label: "Smoke (the site's own tests on a fresh build)",
     coverage: ["last_smoke_at"],
     stamps: ["lastSmokeAt"],
   },
   {
     file: "fleet-form-e2e.yml",
+    short: "Live forms",
     label: "The live form test",
     coverage: ["form_e2e_checked_at"],
     stamps: ["formE2eCheckedAt"],
   },
   {
     file: "daily-reports.yml",
+    short: "Report drafts",
     label: "Report drafts",
     coverage: [],
     stamps: [],
