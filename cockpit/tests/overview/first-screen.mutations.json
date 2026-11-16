@@ -206,5 +206,252 @@
     ],
     "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
+  },
+  {
+    "id": "17-checks-last-night-older",
+    "why": "The checks tile takes the newest counted night, not last night (round 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "const lastValue = counted.find((x) => x.night === lastNight)?.v ?? null;",
+        "replace": "const lastValue = counted.find((x) => x.v !== null)?.v ?? null;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "18-checks-gap-not-said",
+    "why": "The checks context leaves out the nights with no count (round 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "const missing = span - summed.length;",
+        "replace": "const missing = 0;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "19-checks-rows-not-calendar",
+    "why": "The checks context counts rows, not calendar nights (round 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "const span = nightsBetween(oldest, end) + 1;",
+        "replace": "const span = summed.length;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "20-deps-lag-dropped",
+    "why": "Deps and shipped drop the stale-nightly lag note (round 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "const since = lag > 0 ? `; no count in the ${count(lag, \"night\", \"nights\")} since` : \"\";",
+        "replace": "const since = \"\";"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "21-leads-counts-rsvps",
+    "why": "The leads tile counts RSVPs and signups as leads (round 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "isLeadFormType(r.formType) && ACCEPTED.has(status(r))",
+        "replace": "ACCEPTED.has(status(r))"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "22-a11y-partial-passes",
+    "why": "A partial accessibility scan with no violations passes (round 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "s.a11yRoutesScanned < s.a11yRoutesTotal ||",
+        "replace": "false ||"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "23-a11y-stale-as-production",
+    "why": "Accessibility uses the 3-day production window, not its own 8-day one (round 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "!freshWithin(s.a11yCheckedAt, A11Y_STALE_DAYS, now)",
+        "replace": "!freshWithin(s.a11yCheckedAt, PRODUCTION_STALE_DAYS, now)"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "24-security-critical-ignored",
+    "why": "Security reads only the high count (round 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "(s.securityVulnsCritical ?? 0) + (s.securityVulnsHigh ?? 0) === 0;",
+        "replace": "(s.securityVulnsHigh ?? 0) === 0;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "25-launching-note-dropped",
+    "why": "The launching sites the status line counts at Broken are not named (round 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "...launchingAt(\"broken\", tiers.broken, status.counts.broken),",
+        "replace": ""
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "26-tier-segments-swapped",
+    "why": "The watch and attention segments are sized by each other's count (round 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "style=\"flex-grow: {v.health.tiers.watch}\"",
+        "replace": "style=\"flex-grow: {v.health.tiers.attention}\""
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "27-check-fill-counts-unknown",
+    "why": "A check's pass fill includes its not-checked sites (round 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "style=\"width: {c.total === 0 ? 0 : (100 * c.pass) / c.total}%\"",
+        "replace": "style=\"width: {c.total === 0 ? 0 : (100 * (c.pass + c.unknown)) / c.total}%\""
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "28-panel-names-broken-site",
+    "why": "The broken site's name is rendered inside the health panel (round 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "<h3>Sites passing each check</h3>",
+        "replace": "<h3>Sites passing each check</h3>{#each v.status.broken as b (b.key)}<span>{b.siteName}</span>{/each}"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "29-unknown-class-dropped",
+    "why": "An unmeasured tile's number loses its unknown class (round 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "class=\"ov-num{n.measured ? '' : ' unknown'}\"",
+        "replace": "class=\"ov-num\""
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "30-all-ok-counts-not-inside",
+    "why": "The all-OK bar does not print its counts inside (round 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": ">{#if allOk}<span class=\"ov-tier-inside\"",
+        "replace": ">{#if false}<span class=\"ov-tier-inside\""
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "31-forced-colour-line-dropped",
+    "why": "The forced-colours block no longer keeps the token fills (round 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "    forced-color-adjust: none;",
+        "replace": "    /* dropped */"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "32-removed-rule-back",
+    "why": "A removed section's rule is back in the stylesheet (round 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-medians > div {",
+        "replace": ".ov-steps li {\n  margin-bottom: 0.4rem;\n}\n.ov-medians > div {"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "33-spark-x-reversed",
+    "why": "The sparkline runs newest on the left (round 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "x: Math.round(i * step * 10) / 10,",
+        "replace": "x: Math.round((spark.length - 1 - i) * step * 10) / 10,"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "34-spark-y-inverted",
+    "why": "The sparkline draws a larger value lower (round 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "y: Math.round((height - (v / top) * height) * 10) / 10,",
+        "replace": "y: Math.round(((v / top) * height) * 10) / 10,"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "35-check-of-total-dropped",
+    "why": "A check's screen-reader pass count loses its total (round 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "{\" \"}<span class=\"visually-hidden\">of {c.total}</span>",
+        "replace": ""
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
   }
 ]

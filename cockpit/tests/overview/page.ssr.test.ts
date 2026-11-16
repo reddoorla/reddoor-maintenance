@@ -241,6 +241,25 @@ describe("the overview's stylesheet (T5)", () => {
     expect(rule(".ov-earlier")).toMatch(/fill:\s*var\(--band\)/);
   });
 
+  it("keeps the tier and check fills under forced colours (round 1, item 8)", () => {
+    expect(css).toMatch(
+      /@media \(forced-colors: active\)\s*\{\s*\.ov-tierbar,\s*\.ov-check-bar\s*\{\s*forced-color-adjust:\s*none;/,
+    );
+  });
+
+  it("holds no rule for the sections removed from the page (round 1, item 14)", () => {
+    for (const gone of [
+      /\.ov-how\b/,
+      /\.ov-checks(?![\w-])/,
+      /\.ov-steps\b/,
+      /\.ov-step-name\b/,
+      /td\.bad\b/,
+    ])
+      expect(css).not.toMatch(gone);
+    // The unknown cell style stays: the tables still use it.
+    expect(css).toMatch(/\.ov-table td\.unknown/);
+  });
+
   it("paints red only on a .broken selector", () => {
     const rules = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)];
     const red = rules.filter(([, , body]) => /var\(--(broken|broken-fill)\)/.test(body!));
@@ -332,7 +351,9 @@ describe("the sentinel render: each leaf in its labelled element (T1, T2; round 
       p === "nightsCollected" ||
       p.startsWith("reports.checks") ||
       /\.spark(\[|$)/.test(p) ||
-      /\.total$/.test(p) ||
+      // Only the check bars' totals: the sites in each check, which the page reads as
+      // "of N" in a visually hidden span, not a sentinel-checked leaf (round 1, item 24).
+      /^health\.checks\.\d+\.total$/.test(p) ||
       p.startsWith("status.counts.") ||
       p === "status.line" ||
       p === "status.cls" ||
@@ -941,5 +962,132 @@ describe("the first screen (P1-87 PR 3)", () => {
     expect(runs.length).toBe(2);
     expect(runs[0]!.getAttribute("points")!.split(" ").length).toBe(5);
     expect(runs[1]!.getAttribute("points")!.split(" ").length).toBe(8);
+  });
+});
+
+// P1-87 PR 3, review round 1: the tier bar's sizes and counts, the check bars, the
+// launching line, and what the panels name. Each fixture gives every count its own value.
+const TRANSITIVE_HIGH = [
+  {
+    module: "x",
+    severity: "high" as const,
+    title: "t",
+    cves: [],
+    url: null,
+    relationship: "transitive" as const,
+  },
+];
+const TIERED = snapshot({
+  sites: [
+    healthy({ id: "tA", name: "Ok One" }),
+    healthy({ id: "tB", name: "Ok Two" }),
+    healthy({ id: "tC", name: "Ok Three" }),
+    healthy({
+      id: "tW",
+      name: "Watch Site",
+      securityVulnsHigh: 2,
+      securityAdvisories: TRANSITIVE_HIGH,
+      lastSecurityAuditAt: FRESH,
+    }),
+    healthy({ id: "tT1", name: "Cert One", certDaysRemaining: 18 }),
+    healthy({ id: "tT2", name: "Cert Two", certDaysRemaining: 18 }),
+  ],
+  digest: { "vuln:tW": { metric: 2, firstFlaggedAt: "2026-10-01" } },
+});
+
+describe("the first screen's bars and launching line (P1-87 PR 3, round 1)", () => {
+  const tiered = parse(pageHtml(overviewFromSnapshot(TIERED, NOW)));
+  const seg = (k: string) => tiered.querySelector(`.ov-seg.${k}`)!.getAttribute("style");
+
+  it("sizes each tier segment by its count: OK 3, watch 1, attention 2", () => {
+    expect(seg("ok")).toBe("flex-grow: 3");
+    expect(seg("watch")).toBe("flex-grow: 1");
+    expect(seg("attention")).toBe("flex-grow: 2");
+    expect(tiered.querySelector(".ov-seg.broken")).toBeNull();
+    expect(text(tiered.querySelector(".ov-tier-counts")!)).toBe(
+      "3 OK · 1 watch · 2 attention · 0 broken",
+    );
+  });
+
+  it("prints the counts inside the bar when every site is OK, and not under it", () => {
+    const allOk = parse(
+      pageHtml(overviewFromSnapshot(snapshot({ sites: [healthy({ id: "z", name: "Zed" })] }), NOW)),
+    );
+    expect(text(allOk.querySelector(".ov-tierbar .ov-tier-inside")!)).toBe(
+      "1 OK · 0 watch · 0 attention · 0 broken",
+    );
+    expect(allOk.querySelector(".ov-tier-counts")!.classList.contains("visually-hidden")).toBe(
+      true,
+    );
+    // Not all OK: the counts are under the bar, and nothing is printed inside it.
+    expect(tiered.querySelector(".ov-tier-inside")).toBeNull();
+    expect(tiered.querySelector(".ov-tier-counts")!.classList.contains("visually-hidden")).toBe(
+      false,
+    );
+  });
+
+  it("fills each check's bar to its pass count, the unknown part grey beside it", () => {
+    // SNAP's Accessibility: no scan on any of its three sites, so none passes and all three
+    // are not checked: the pass fill is empty and the grey part spans the whole track.
+    const acc = DOC.querySelectorAll(".ov-check")[5]!;
+    expect(acc.querySelector(".ov-check-fill")!.getAttribute("style")).toBe("width: 0%");
+    expect(acc.querySelector(".ov-check-unknown")!.getAttribute("style")).toBe(
+      "left: 0%; width: 100%",
+    );
+    expect(text(acc.querySelector(".ov-check-count")!)).toBe("0 of 3 · 3 not checked");
+  });
+
+  it("names a launching site the status line counts at a level the bar does not", () => {
+    const base = snapshot({ sites: [healthy({ id: "z", name: "Zed" })] });
+    const golf = parse(
+      pageHtml(
+        overviewFromSnapshot(
+          snapshot({
+            ...base,
+            sites: [
+              ...base.sites!,
+              healthy({
+                id: "recG",
+                name: "Golf",
+                status: "launching",
+                securityVulnsCritical: 1,
+                securityAutoFixAttempts: 99,
+                lastSecurityAuditAt: FRESH,
+                securityAdvisories: [],
+              }),
+            ],
+            digest: { "vuln:recG": { metric: 1, firstFlaggedAt: "2026-10-25" } },
+          }),
+          NOW,
+        ),
+      ),
+    );
+    const notes = golf.querySelectorAll(".ov-health .ov-tier-counts").map(text);
+    expect(notes).toContain("plus 1 launching site at Attention");
+  });
+
+  it("the broken fixture: the panels name no site, though the strip names the broken one", () => {
+    expect(text(DOC.querySelector("section.ov-status")!)).toContain("Bravo");
+    const panels = DOC.querySelectorAll(".ov-first")
+      .map((e) => e.toString())
+      .join("");
+    expect(panels).not.toContain("Bravo");
+  });
+
+  it("an unmeasured tile's number carries the unknown class, a measured one does not", () => {
+    const none = parse(
+      pageHtml(
+        overviewFromSnapshot(
+          snapshot({ sites: snapshot().sites, submissions: null, nights: null, reports: null }),
+          NOW,
+        ),
+      ),
+    );
+    expect(none.querySelectorAll(".ov-tile .ov-num.unknown").length).toBe(6);
+    // On the page fixture, exactly the numbers that are words (not digits) carry the class.
+    const nums = DOC.querySelectorAll(".ov-tile .ov-num");
+    const words = nums.filter((n) => !/^\d+$/.test(text(n)));
+    expect(words.length).toBeGreaterThan(0);
+    expect(nums.filter((n) => n.classList.contains("unknown")).length).toBe(words.length);
   });
 });

@@ -12,6 +12,7 @@ import {
   liveCell,
   outcomeText,
   pacificMonthStart,
+  sparkGeometry,
   stepNumber,
   urlStatusText,
   windowed,
@@ -2029,9 +2030,9 @@ describe("health and numbers (P1-87 PR 3)", () => {
       context: "114 over the last 14 nights; 1 with no count",
     });
     expect(tile("deps")).toMatchObject({
-      value: "26",
+      value: "22",
       measured: true,
-      context: "over the last 13 nights",
+      context: "over the last 11 nights",
       spark: null,
     });
     expect(tile("reports")).toMatchObject({
@@ -2097,7 +2098,12 @@ function numbersFleet() {
             b: { value: 2 },
           },
         },
-        events: { value: { pr_automerged: 100 + 2 * i, vuln_cleared: 10 } },
+        // The two oldest nights have no merge count, so deps' window is 11 nights and
+        // shipped's is 13 (round 1 test: a swapped window must show).
+        events:
+          i < 2
+            ? { value: null, reason: "not read" }
+            : { value: { pr_automerged: 100 + 2 * i, vuln_cleared: 10 } },
         prsMerged: { value: 600 + 3 * i },
       }),
     )
@@ -2273,5 +2279,64 @@ describe("round 1 fixes (P1-87 PR 3)", () => {
       context: "2 since Jul 2, 2026",
       spark: null,
     });
+  });
+});
+
+describe("round 1: the remaining model fixes (P1-87 PR 3)", () => {
+  it("fix 5: an accessibility scan 5 days old, complete and clean, passes (inside the 8-day window)", () => {
+    const fiveDays = new Date(NOW.getTime() - 5 * 86_400_000).toISOString();
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [
+          healthy({
+            id: "aged",
+            name: "Aged",
+            a11yViolations: 0,
+            a11yRoutesScanned: 10,
+            a11yRoutesTotal: 10,
+            a11yCheckedAt: fiveDays,
+          }),
+        ],
+      }),
+      NOW,
+    );
+    expect(v.health.checks.find((c) => c.name === "Accessibility")).toMatchObject({
+      pass: 1,
+      fail: 0,
+      unknown: 0,
+    });
+  });
+
+  it("fix 17: a fresh audit with only a critical vulnerability fails Security", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [
+          healthy({
+            id: "crit",
+            name: "Crit",
+            securityVulnsCritical: 1,
+            securityVulnsHigh: 0,
+            lastSecurityAuditAt: FRESH,
+          }),
+        ],
+      }),
+      NOW,
+    );
+    expect(v.health.checks.find((c) => c.name === "Security")).toMatchObject({
+      pass: 0,
+      fail: 1,
+      unknown: 0,
+    });
+  });
+
+  it("the sparkline's geometry: the oldest night on the left, a larger value higher", () => {
+    const g = sparkGeometry([1, null, 4], 120, 24);
+    // Two runs of one night each: two dots, the first at x 0 (oldest), the last at x 120.
+    expect(g.lines).toEqual([]);
+    expect(g.dots.map((d) => d.x)).toEqual([0, 120]);
+    // The value 4 is the top of the scale (y 0); 1 is a quarter of the way down.
+    expect(g.dots.map((d) => d.y)).toEqual([18, 0]);
+    const line = sparkGeometry([1, 2, 4], 120, 24);
+    expect(line.lines).toEqual(["0,18 60,12 120,0"]);
   });
 });
