@@ -21,8 +21,9 @@
 
 <h1>How this works</h1>
 <p class="how-lede">
-  Every client site in our care is checked, tested and kept up to date every night, and our records
-  for it backed up, by software we built. A person steps in only where judgment is needed.
+  Every client site in our care is checked and tested every night and kept up to date every week,
+  and our records for it are backed up nightly, by software we built. A person steps in only where
+  judgment is needed.
 </p>
 
 <section class="how-chapter" aria-labelledby="how-night">
@@ -58,15 +59,15 @@
     <p class="how-kicker">When something is wrong</p>
     <h2 id="how-wrong">Problems are sorted by who they affect</h2>
   </hgroup>
-  <ul class="how-ladder" role="list" id="how-ladder">
+  <ol class="how-ladder" role="list" id="how-ladder">
     {#each v.ladder as l (l.tier)}
       <li class={l.tier}><strong>{l.name}</strong> <span>{l.text}</span></li>
     {/each}
-  </ul>
+  </ol>
   <p>
-    Much of the fixing is done by the system itself: an update bot opens changes when packages a
-    site uses have new versions (minor ones grouped together), and each change is tested before it
-    merges.
+    Much of the fixing is done by the system itself: once a week an update bot opens changes for the
+    packages a site uses that have new versions (after a short wait, minor ones grouped together),
+    and each change is tested before it merges.
     <span data-term="Dependency updates merged"
       >Dependency updates merged: {v.upkeep.automerged}.</span
     >
@@ -133,11 +134,14 @@
   <ol class="how-flow" role="list">
     <li><strong>Drafted</strong> <span>from the nightly's own results</span></li>
     <li data-term="Reports sent">
-      <strong>Read by one of us</strong>
+      <strong>Approved by one of us</strong>
       {#if v.reports.sent === null}
         <span class="muted">the reports could not be read just now</span>
       {:else}
-        <span>{v.reports.sent.approvedFirst} of {v.reports.sent.real} approved before sending</span>
+        <span
+          >{v.reports.sent.approvedFirst} of {v.reports.sent.real} approved before sending{#if v.reports.sent.aroundGate > 0};
+            {v.reports.sent.aroundGate} went without that yes{/if}</span
+        >
       {/if}
     </li>
     <li class="how-end">
@@ -173,13 +177,14 @@
     <li>
       <strong>Reviewed</strong> <span>by fresh AI agents, before it lands</span>
     </li>
-    <li><strong>Staging</strong> <span>on a site with its own copy for checking</span></li>
+    <li><strong>Staging</strong> <span>on a client site with its own copy for checking</span></li>
     <li class="how-end"><strong>Live</strong> <span>when one of us promotes it</span></li>
   </ol>
   <p>
-    Each change lands as its own pull request (PR), small enough to undo on its own. A person merges
-    every published release. Small dependency updates are the exception: they skip staging, and go
-    live on their own once the site's tests pass.
+    Each change lands as its own pull request (PR), small enough to undo on its own. That is the
+    path on a client site with a staging copy. Small dependency updates skip staging, and go live
+    once the site's tests pass. Changes to the maintenance stack itself go live when they merge,
+    once tested and reviewed; only its published package releases wait for a person.
     <span data-term="PRs merged"
       >PRs merged into the maintenance stack (the code that runs these checks and sends the
       reports): {v.prsMerged}.</span

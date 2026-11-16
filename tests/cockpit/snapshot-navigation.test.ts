@@ -391,6 +391,30 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       expect(fit.wide).toEqual([]);
       expect(fit.scroll).toBeLessThanOrEqual(fit.width);
       expect(fit.flowRight).toBeLessThanOrEqual(fit.width);
+      // The flows stack: on a phone each box is on its own row, under the one before.
+      const flows = await page.$$eval(".how-flow", (fs) =>
+        fs.map((f) =>
+          [...f.children].map((li) => {
+            const r = li.getBoundingClientRect();
+            return { top: Math.round(r.top), left: Math.round(r.left) };
+          }),
+        ),
+      );
+      expect(flows).toHaveLength(3);
+      for (const boxes of flows) {
+        expect(new Set(boxes.map((b) => b.top)).size).toBe(boxes.length);
+        expect(new Set(boxes.map((b) => b.left)).size).toBe(1);
+      }
+      // The filled end box's words are readable, and no arrow leads into the first box.
+      const ends = await page.$$eval(".how-flow li.how-end", (els) =>
+        els.map((e) => [getComputedStyle(e).color, getComputedStyle(e).backgroundColor]),
+      );
+      expect(ends.length).toBe(3);
+      for (const [color, background] of ends) expect(color).not.toBe(background);
+      const firstArrows = await page.$$eval(".how-flow > li:first-child", (els) =>
+        els.map((e) => getComputedStyle(e, "::before").content),
+      );
+      expect(firstArrows).toEqual(["none", "none", "none"]);
     },
   );
 

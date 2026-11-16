@@ -126,9 +126,21 @@ describe("five chapters, each with its diagram", () => {
   it("chapter 1 draws every nightly step, in run order, with that step's own result from the newest night", () => {
     expect(VIEW.nightly.nightOf).toBe("Night of Oct 26");
     const steps = DOC.querySelectorAll(".how-steps li");
-    expect(steps.map((li) => text(li.querySelector("strong")!))).toEqual(
-      NIGHTLY_STEPS.map((s) => s.short),
-    );
+    // The names as written, each with its own step's file: a swap or a typo shows.
+    expect(
+      Object.fromEntries(
+        NIGHTLY_STEPS.map((s, i) => [s.file, text(steps[i]!.querySelector("strong")!)]),
+      ),
+    ).toEqual({
+      "fleet-db-backup.yml": "Backup",
+      "fleet-prismic-drift.yml": "CMS check",
+      "fleet-prismic-sync.yml": "CMS sync",
+      "fleet-security.yml": "Security",
+      "fleet-lighthouse.yml": "Site checks",
+      "fleet-smoke.yml": "Build and tests",
+      "fleet-form-e2e.yml": "Live forms",
+      "daily-reports.yml": "Report drafts",
+    });
     expect(steps.map((li) => text(li.querySelector(".how-step-what")!))).toEqual(
       NIGHTLY_STEPS.map((s) => s.label),
     );
@@ -224,7 +236,7 @@ describe("five chapters, each with its diagram", () => {
       `carries ${names.length} checks`,
     );
     expect(one(DOC, 'section:has(#how-report) [data-term="Reports sent"]')).toBe(
-      "Read by one of us 1 of 2 approved before sending",
+      "Approved by one of us 1 of 2 approved before sending; 1 went without that yes",
     );
   });
 
@@ -279,6 +291,30 @@ describe("when a read failed, no count is shown in its place", () => {
     expect(one(d, 'section:has(#how-lead) [data-term="Stopped before storage"]')).toBe(
       "Bots stopped not yet collected",
     );
+  });
+});
+
+describe("the page's frame", () => {
+  it("names itself in the tab", () => {
+    expect(one(DOC, "title")).toBe("Reddoor maintenance — how this works");
+  });
+
+  it("each chapter is labelled by its own heading", () => {
+    for (const s of DOC.querySelectorAll("section.how-chapter")) {
+      const id = s.getAttribute("aria-labelledby")!;
+      expect(s.querySelector(`h2#${id}`), id).not.toBeNull();
+    }
+  });
+
+  it("each flow ends in its filled box, and only there", () => {
+    const flows = DOC.querySelectorAll(".how-flow");
+    expect(flows).toHaveLength(3);
+    for (const f of flows) {
+      const items = f.querySelectorAll(":scope > li");
+      expect(items.map((li) => li.classList.contains("how-end"))).toEqual(
+        items.map((_, i) => i === items.length - 1),
+      );
+    }
   });
 });
 
@@ -421,7 +457,6 @@ describe("no count is typed into the page (the sentinel render)", () => {
       p === "leads.stoppedThisMonth" ||
       p === "leads.allTime.byHand" ||
       /^nightly\.steps\[[a-z]\]\.(lastFinished|sites)$/.test(p) ||
-      p === "reports.sent.aroundGate" ||
       p === "reports.sent.testSends";
     let checked = 0;
     for (const [path, v] of S.at) {
@@ -452,6 +487,12 @@ describe("no count is typed into the page (the sentinel render)", () => {
       ["prsMerged", "PRs merged"],
     ];
     expect(expected.map(([p]) => [p, termOf(SDOC, sent(p))])).toEqual(expected);
+  });
+
+  it("the run's start and send times are each in their own place", () => {
+    expect(one(SDOC, '[data-term="Times"]')).toBe(
+      `The run starts at ${sent("nightly.startsAt")}, and reports a person has approved go out at ${sent("nightly.sendsAt")}.`,
+    );
   });
 
   it("each Lighthouse score sits beside its own area's name", () => {

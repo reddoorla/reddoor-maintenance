@@ -57,7 +57,8 @@ body {
   font-size: 0.9rem;
 }
 .how-steps li strong::before {
-  content: counter(how-step) " · ";
+  /* Seen, not read aloud: the list already gives each step its place. */
+  content: counter(how-step) " · " / "";
   color: var(--ink-muted);
 }
 .how-step-what {
@@ -122,7 +123,7 @@ body {
   /* An arrowhead drawn with two borders, never a glyph (the cockpit's style rule). */
   content: "";
   position: absolute;
-  left: calc(-0.5 * var(--space-5) - 0.35rem);
+  left: calc(-0.5 * var(--space-5) - 0.5rem);
   top: 50%;
   width: 0.5rem;
   height: 0.5rem;
@@ -135,7 +136,8 @@ body {
   color: var(--on-ink);
 }
 .how-branch {
-  border-left: 4px solid var(--rule);
+  /* A hairline: 4px bars mean levels on the ladder. */
+  border-left: 1px solid var(--rule);
   padding-left: var(--space-3);
 }
 
@@ -175,7 +177,7 @@ body {
   }
   .how-flow li + li::before {
     left: 50%;
-    top: calc(-0.5 * var(--space-4) - 0.4rem);
+    top: calc(-0.5 * var(--space-4) - 0.55rem);
     transform: translateX(-50%) rotate(135deg);
   }
   .how-checks {

@@ -268,5 +268,114 @@
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "21-times-swapped",
+    "why": "The start and send times swap places (review round 3, tests 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "The run starts at {v.nightly.startsAt},",
+        "replace": "The run starts at {v.nightly.sendsAt},"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "22-phone-flow-unstacked",
+    "why": "On a phone the flows stay in a row (review round 3, tests 2)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "@media (max-width: 60rem) {",
+        "replace": "@media (max-width: 20rem) {"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "23-short-names-swapped",
+    "why": "Two steps' short names swapped in the data (review round 3, tests 3)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    short: \"CMS check\",",
+        "replace": "    short: \"CMS sync\","
+      },
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    short: \"CMS sync\",\n    label: \"Prismic (the CMS) sync",
+        "replace": "    short: \"CMS check\",\n    label: \"Prismic (the CMS) sync"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "24-end-box-unreadable",
+    "why": "The filled end box's text is the colour of its fill (review round 3, tests 4)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  background: var(--ink);\n  color: var(--on-ink);\n",
+        "replace": "  background: var(--ink);\n  color: var(--ink);\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "25-wrong-title",
+    "why": "The tab is titled as the overview (review round 3, tests 5)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "<title>Reddoor maintenance \u2014 how this works</title>",
+        "replace": "<title>Reddoor maintenance \u2014 overview</title>"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "26-end-box-moved",
+    "why": "The lead flow's first box is filled instead of its last (review round 3, tests 6)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "<li><strong>A visitor submits</strong>",
+        "replace": "<li class=\"how-end\"><strong>A visitor submits</strong>"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "27-labelledby-missing",
+    "why": "A chapter is labelled by an id that does not exist (review round 3, tests 6)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "<section class=\"how-chapter\" aria-labelledby=\"how-ship\">",
+        "replace": "<section class=\"how-chapter\" aria-labelledby=\"how-shipping\">"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "28-arrow-into-first-box",
+    "why": "An arrow leads into each flow's first box from nothing (review round 3, tests 6)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": ".how-flow li + li::before {\n  /*",
+        "replace": ".how-flow li::before {\n  /*"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
   }
 ]
