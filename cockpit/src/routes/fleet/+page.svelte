@@ -135,7 +135,7 @@
         </tr>
       </thead>
       <tbody>
-        {#each m.rows as r (r.slug)}
+        {#each m.rows as r (r.id)}
           {@const url = safeUrl(r.url)}
           {@const c = cardOf(r.slug)}
           {@const f = factsOf(r.id)}

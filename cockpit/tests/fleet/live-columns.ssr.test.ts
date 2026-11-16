@@ -342,3 +342,49 @@ describe("the live columns, review round 3 (P1-87, PR 2)", () => {
       expect(cell(rowOf(doc, "Charlie"), label).classList.contains("muted")).toBe(true);
   });
 });
+
+/** Review round 4 (P1-87, PR 2). Separate fixtures, so SNAP, SNAP_R2, SNAP_R3 and
+ *  their assertions stay as they were. Acme passes every check (its tier is
+ *  healthy); Delta's certificate is 9 days from its end (attention); Lantern is
+ *  launching (pre-launch). A site whose id is `__proto__` is maintained and its
+ *  page does not answer, so its facts and Level must come from its own id, not
+ *  from the prototype of a plain record. */
+const SNAP_R4 = snapshot({
+  sites: [
+    healthy({ id: "recA", name: "Acme" }),
+    healthy({ id: "recD", name: "Delta", certDaysRemaining: 9 }),
+    healthy({ id: "recL", name: "Lantern", status: "launching", reachableOk: "fail" }),
+    healthy({ id: "__proto__", name: "Proto", reachableOk: "fail" }),
+  ],
+});
+
+describe("the live columns, review round 4 (P1-87, PR 2)", () => {
+  it("shows a site whose id is __proto__ its own checks and Level, not dashes", async () => {
+    const proto = rowOf(await page("/fleet?status=__all__", SNAP_R4), "Proto");
+    expect(text(cell(proto, "Live"))).toBe("A page not answering, checked Oct 26, 11:30pm PT");
+    expect(cell(proto, "Live").classList.contains("bad")).toBe(true);
+    expect(text(cell(proto, "Level"))).toBe("broken");
+    expect(cell(proto, "Level").querySelector(".pill")!.classList.contains("broken")).toBe(true);
+  });
+
+  it("gives Acme's Level pill its tier class, healthy, not its label", async () => {
+    const pill = rowOf(await page("/fleet", SNAP_R4), "Acme").querySelector(".pill")!;
+    expect(pill.classList.contains("healthy")).toBe(true);
+    expect(pill.classList.contains("ok")).toBe(false);
+    expect(text(pill)).toBe("ok");
+  });
+
+  it("gives Delta's Level pill its tier class, attention, and its word", async () => {
+    const pill = rowOf(await page("/fleet", SNAP_R4), "Delta").querySelector(".pill")!;
+    expect(pill.classList.contains("attention")).toBe(true);
+    expect(text(pill)).toBe("attention");
+  });
+
+  it("gives Lantern's pre-launch pill its literal word, not ok", async () => {
+    const pill = rowOf(await page("/fleet?status=__all__", SNAP_R4), "Lantern").querySelector(
+      ".pill",
+    )!;
+    expect(text(pill)).toBe("pre-launch");
+    expect(pill.classList.contains("pre-launch")).toBe(true);
+  });
+});

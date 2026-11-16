@@ -333,5 +333,83 @@
     ],
     "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "26-facts-plain-object",
+    "why": "The facts record is a plain object, so a site id of __proto__ sets its prototype and shows dashes (review round 4)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "const out = Object.create(null) as Record<string, SiteFacts>;",
+        "replace": "const out: Record<string, SiteFacts> = {};"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "27-levels-plain-object",
+    "why": "The levels record is a plain object, so a site id of __proto__ sets its prototype and loses its Level (review round 4)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/view.ts",
+        "find": "const levels = Object.create(null) as Record<string, { tier: Tier; pill: string }>;",
+        "replace": "const levels: Record<string, { tier: Tier; pill: string }> = {};"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "28-rows-keyed-by-slug",
+    "why": "The row loop is keyed by slug, so a maintained Foo and an archived FOO throw each_key_duplicate on mount (review round 4)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "{#each m.rows as r (r.id)}",
+        "replace": "{#each m.rows as r (r.slug)}"
+      }
+    ],
+    "test": "cockpit/tests/fleet/sites.dom.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "29-pill-class-from-label",
+    "why": "The Level pill takes its class from its label, not its tier, so Acme's pill is ok, not healthy (review round 4)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "class=\"pill {lv.tier}\"",
+        "replace": "class=\"pill {lv.pill}\""
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "30-pill-text-ok-for-watch",
+    "why": "Every tier but broken reads the ok label, so Delta's attention level says ok (review round 4)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/view.ts",
+        "find": "levels[c.site.id] = { tier: c.tier, pill: PILL_LABEL[c.tier] };",
+        "replace": "levels[c.site.id] = { tier: c.tier, pill: PILL_LABEL[c.tier === \"broken\" ? c.tier : \"healthy\"] };"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "31-pill-pre-launch-says-ok",
+    "why": "Only the pre-launch level reads the ok label, so Lantern's launching level says ok (review round 4)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/view.ts",
+        "find": "levels[c.site.id] = { tier: c.tier, pill: PILL_LABEL[c.tier] };",
+        "replace": "levels[c.site.id] = { tier: c.tier, pill: PILL_LABEL[c.tier === \"pre-launch\" ? \"healthy\" : c.tier] };"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
   }
 ]

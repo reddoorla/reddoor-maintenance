@@ -20,6 +20,16 @@ let target: HTMLElement;
 let app: ReturnType<typeof mount> | null = null;
 
 /** The four-card model the browse panel's filter test used. */
+/** The page's records are null-prototype (review round 4, so a site id of `__proto__`
+ *  is an own key). Copy them to plain objects for the strict check below; every other
+ *  strict-equal rule (undefined keys, class types, Dates) still applies. */
+const plain = (v: unknown): unknown =>
+  Array.isArray(v)
+    ? v.map(plain)
+    : v !== null && typeof v === "object"
+      ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, plain(x)]))
+      : v;
+
 function render(model = cases()[10]![1]) {
   const data = {
     model: buildFleetTableModel(
@@ -29,7 +39,7 @@ function render(model = cases()[10]![1]) {
     sites: buildSitesView(model, NOW),
   };
   const wire = JSON.parse(JSON.stringify(data));
-  expect(wire).toStrictEqual(data);
+  expect(wire).toStrictEqual(plain(data));
   app = mount(Page, { target, props: { data: wire } });
   flushSync();
 }
@@ -206,5 +216,36 @@ describe("Sites — when the default view hides every site (#1619)", () => {
   it("keeps the filter message when a filter the operator chose matches nothing", () => {
     mountWith(["archived", "external"], "q=zzz");
     expect(empty()).toEqual(["No sites match these filters."]);
+  });
+});
+
+describe("Sites — two sites that share a slug (review round 4)", () => {
+  // A maintained Foo and an archived FOO both slug to "foo". Keying the row loop by
+  // slug throws Svelte's each_key_duplicate on mount, so this must mount both rows.
+  it("mounts a maintained Foo beside an archived FOO, and shows both rows", () => {
+    const model = cases()[10]![1];
+    const foo = {
+      ...model.cards[0]!.site,
+      id: "recFoo",
+      name: "Foo",
+      status: "maintained" as const,
+    };
+    const upper = {
+      ...model.cards[0]!.site,
+      id: "recFOO",
+      name: "FOO",
+      status: "archived" as const,
+    };
+    const data = {
+      model: buildFleetTableModel(
+        [foo, upper],
+        parseFleetTableQuery(new URLSearchParams({ status: ALL_STATUSES_FILTER })),
+      ),
+      sites: buildSitesView(model, NOW),
+    };
+    app = mount(Page, { target, props: { data: JSON.parse(JSON.stringify(data)) } });
+    flushSync();
+    expect(rowsShown()).toHaveLength(2);
+    expect(rowsShown()).toEqual(expect.arrayContaining(["Foo", "FOO"]));
   });
 });

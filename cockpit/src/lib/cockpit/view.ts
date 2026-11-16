@@ -554,7 +554,8 @@ export type SitesView = {
 
 export function buildSitesView(model: CockpitModel, now: Date): SitesView {
   const cards: Record<string, CardView> = {};
-  const levels: Record<string, { tier: Tier; pill: string }> = {};
+  // Null-prototype: a site id of `__proto__` would otherwise set the prototype (review round 4).
+  const levels = Object.create(null) as Record<string, { tier: Tier; pill: string }>;
   for (const c of model.cards) {
     cards[siteSlug(c.site.name)] = cardView(c, now);
     levels[c.site.id] = { tier: c.tier, pill: PILL_LABEL[c.tier] };

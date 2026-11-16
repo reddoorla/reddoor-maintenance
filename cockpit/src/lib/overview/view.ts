@@ -564,7 +564,8 @@ export function siteFactsFromSnapshot(
   now: Date,
 ): Record<string, SiteFacts> {
   const lastReal = lastRealBySite(s.submissions, (r) => storedStatus(s, r));
-  const out: Record<string, SiteFacts> = {};
+  // Null-prototype: a site id of `__proto__` would otherwise set the prototype (review round 4).
+  const out = Object.create(null) as Record<string, SiteFacts>;
   for (const c of model.cards)
     out[c.site.id] = siteFacts(c.site, lastReal.get(c.site.id), s.submissions !== null, now);
   return out;
