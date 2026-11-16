@@ -18,7 +18,7 @@ const CSS = readFileSync(
  *  the test rather than hiding behind the first match (review round 6). */
 function ruleBody(selector: string): string | null {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const all = [...CSS.matchAll(new RegExp(`(?:^|\\})\\s*${escaped}\\s*\\{([^}]*)\\}`, "g"))];
+  const all = [...CSS.matchAll(new RegExp(`(?<=^|\\})\\s*${escaped}\\s*\\{([^}]*)\\}`, "g"))];
   expect(all, `exactly one rule for ${selector}`).toHaveLength(1);
   return all[0]![1]!;
 }
