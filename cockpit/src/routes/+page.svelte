@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { OverviewView } from "../lib/overview/view.js";
-  import { sparkGeometry, trendGeometry } from "../lib/overview/view.js";
+  import { launchingNote, sparkGeometry, trendGeometry } from "../lib/overview/view.js";
   import PageStyles from "../lib/PageStyles.svelte";
   import healthCss from "../lib/cockpit/health.css?inline";
   import overviewCss from "../lib/overview/overview.css?inline";
@@ -10,6 +10,10 @@
   // trends follow. Every string and number comes decided from lib/overview/view.ts.
   let { data }: { data: { view: OverviewView } } = $props();
   const v = $derived(data.view);
+  const allOk = $derived(
+    v.health.tiers.watch + v.health.tiers.attention + v.health.tiers.broken === 0,
+  );
+  const launching = $derived(launchingNote(v.health.launching));
 </script>
 
 <svelte:head>
@@ -44,15 +48,30 @@
       {v.health.sites === 1 ? "site" : "sites"}
     </h2>
     <div class="ov-tierbar" aria-hidden="true">
-      <span class="ov-seg ok" style="flex-grow: {v.health.tiers.ok}"></span>
-      <span class="ov-seg watch" style="flex-grow: {v.health.tiers.watch}"></span>
-      <span class="ov-seg attention" style="flex-grow: {v.health.tiers.attention}"></span>
-      <span class="ov-seg broken" style="flex-grow: {v.health.tiers.broken}"></span>
+      {#if v.health.tiers.ok > 0}<span class="ov-seg ok" style="flex-grow: {v.health.tiers.ok}"
+          >{#if allOk}<span class="ov-tier-inside"
+              >{v.health.tiers.ok} OK · {v.health.tiers.watch} watch · {v.health.tiers.attention} attention
+              · {v.health.tiers.broken} broken</span
+            >{/if}</span
+        >{/if}
+      {#if v.health.tiers.watch > 0}<span
+          class="ov-seg watch"
+          style="flex-grow: {v.health.tiers.watch}"
+        ></span>{/if}
+      {#if v.health.tiers.attention > 0}<span
+          class="ov-seg attention"
+          style="flex-grow: {v.health.tiers.attention}"
+        ></span>{/if}
+      {#if v.health.tiers.broken > 0}<span
+          class="ov-seg broken"
+          style="flex-grow: {v.health.tiers.broken}"
+        ></span>{/if}
     </div>
-    <p class="ov-tier-counts">
+    <p class="ov-tier-counts" class:visually-hidden={allOk}>
       {v.health.tiers.ok} OK · {v.health.tiers.watch} watch · {v.health.tiers.attention} attention · {v
         .health.tiers.broken} broken
     </p>
+    {#if launching}<p class="ov-tier-counts">{launching}</p>{/if}
     <h3>Sites passing each check</h3>
     <ul class="ov-checks-list">
       {#each v.health.checks as c (c.name)}
@@ -62,33 +81,40 @@
             ><span
               class="ov-check-fill"
               style="width: {c.total === 0 ? 0 : (100 * c.pass) / c.total}%"
+            ></span><span
+              class="ov-check-unknown"
+              style="left: {c.total === 0 ? 0 : (100 * c.pass) / c.total}%; width: {c.total === 0
+                ? 0
+                : (100 * c.unknown) / c.total}%"
             ></span></span
           >
           <span class="ov-check-count"
-            >{c.pass}{c.fail > 0 ? ` · ${c.fail} failing` : ""}{c.unknown > 0
-              ? ` · ${c.unknown} not checked`
-              : ""}</span
+            >{c.pass}{" "}<span class="visually-hidden">of {c.total}</span>{c.fail > 0
+              ? ` · ${c.fail} failing`
+              : ""}{c.unknown > 0 ? ` · ${c.unknown} not checked` : ""}</span
           >
         </li>
       {/each}
     </ul>
+    <dl class="ov-medians">
+      {#each v.reports.lighthouse as l (l.label)}
+        <div>
+          <dt>{l.label}</dt>
+          <dd>{l.median}</dd>
+        </div>
+      {/each}
+    </dl>
     <p class="muted ov-lighthouse-line">
       Google Lighthouse, the middle score across our sites{#if v.reports.lighthouseAsOf}, from
         audits as old as {v.reports.lighthouseAsOf}{/if}.
     </p>
-    <dl class="ov-medians">
-      {#each v.reports.lighthouse as l (l.label)}
-        <dt>{l.label}</dt>
-        <dd>{l.median}</dd>
-      {/each}
-    </dl>
   </section>
 
   <section class="ov-happening" aria-labelledby="ov-happening-h">
     <h2 id="ov-happening-h">How much is happening</h2>
     <div class="ov-tiles">
       {#each v.numbers as n (n.key)}
-        <figure class="ov-tile">
+        <div class="ov-tile">
           <p class="ov-num{n.measured ? '' : ' unknown'}">{n.value}</p>
           <p class="ov-label">{n.label}</p>
           {#if n.context}<p class="muted ov-context">{n.context}</p>{/if}
@@ -104,7 +130,7 @@
                 />{/each}</svg
             >
           {/if}
-        </figure>
+        </div>
       {/each}
     </div>
   </section>

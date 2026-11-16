@@ -337,6 +337,9 @@ describe("the sentinel render: each leaf in its labelled element (T1, T2; round 
       p === "status.line" ||
       p === "status.cls" ||
       p === "leads.thisMonth.submissions" ||
+      // Feeds the leads tile's number and context, which numbersView computes before the
+      // page renders them as numbers[0] (round 1, fix 6); the page never reads the leaf.
+      p.startsWith("leads.leadsSent.") ||
       p === "reports.sent.testSends" ||
       /\.(siteId|key|url|href|term|tier|atIso)$/.test(p);
     let checked = 0;
@@ -468,7 +471,8 @@ describe("review round 3: the page reads right for one, and for a form test not 
       ),
     );
     const row = doc.querySelectorAll(".ov-check").find((r) => text(r).startsWith("Contact form"))!;
-    expect(text(row.querySelector(".ov-check-count")!)).toBe("0 · 1 not checked");
+    // The screen reader's " of 1" is part of the count (round 1, item 13).
+    expect(text(row.querySelector(".ov-check-count")!)).toBe("0 of 1 · 1 not checked");
   });
 });
 
@@ -841,7 +845,7 @@ describe("the first screen (P1-87 PR 3)", () => {
     ]);
     // Bravo's Live is failing: one failing, and the pass count first.
     const live = DOC.querySelectorAll(".ov-check")[0]!;
-    expect(text(live.querySelector(".ov-check-count")!)).toBe("2 · 1 failing");
+    expect(text(live.querySelector(".ov-check-count")!)).toBe("2 of 3 · 1 failing");
   });
 
   it("the broken fixture: the strip is red, names the site, and drops the quiet-day sentence", () => {
@@ -920,12 +924,22 @@ describe("the first screen (P1-87 PR 3)", () => {
             i === 5
               ? { value: null, reason: "not read" }
               : { value: { new: 0, read: 0, archived: 0, spamAuto: 0, spam: 0, notified: i } },
+          // The checks tile reads these: night 5 has no count (round 1, fix 6 test).
+          coverage: {
+            value: {
+              a: i === 5 ? { value: null, reason: "not read" } : { value: i + 1 },
+            },
+          },
         },
       ),
     ).reverse();
     const page = parse(pageHtml(overviewFromSnapshot(snapshot({ nights: fourteen }), NOW)));
-    const leads = page.querySelectorAll(".ov-tile")[0]!;
-    expect(leads.querySelectorAll("polyline").length).toBe(2);
-    expect(leads.querySelector("polyline")!.getAttribute("points")!.split(" ").length).toBe(4);
+    // The checks tile is the third (round 1, fix 6 removed the leads sparkline): its
+    // sixth night has no count, so the line breaks there: a run of 5, then a run of 8.
+    const checks = page.querySelectorAll(".ov-tile")[2]!;
+    const runs = [...checks.querySelectorAll("polyline")];
+    expect(runs.length).toBe(2);
+    expect(runs[0]!.getAttribute("points")!.split(" ").length).toBe(5);
+    expect(runs[1]!.getAttribute("points")!.split(" ").length).toBe(8);
   });
 });
