@@ -66,12 +66,12 @@
   },
   {
     "id": "6-flow-overflows-a-phone",
-    "why": "A flow's boxes keep a fixed width wider than a phone",
+    "why": "A flow's boxes keep a minimum width wider than a phone (a flex basis would not do: on a phone the flow is a column, where the basis is a height)",
     "edits": [
       {
         "file": "cockpit/src/lib/how/how.css",
         "find": "  flex: 1 1 10rem;",
-        "replace": "  flex: 0 0 30rem;"
+        "replace": "  flex: 1 1 10rem;\n  min-width: 30rem;"
       }
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
