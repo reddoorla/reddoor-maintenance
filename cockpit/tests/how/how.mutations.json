@@ -96,8 +96,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/how/view.ts",
-        "find": "steps: o.nightly.steps.map((step, i) => ({ ...step, short: NIGHTLY_STEPS[i]!.short })),",
-        "replace": "steps: o.nightly.steps.map((step, i, a) => ({ ...step, outcome: a[a.length - 1 - i]!.outcome, short: NIGHTLY_STEPS[i]!.short })),"
+        "find": "      steps: o.nightly.steps.map((step, i) => ({\n        ...step,\n",
+        "replace": "      steps: o.nightly.steps.map((step, i, a) => ({\n        ...step,\n        outcome: a[a.length - 1 - i]!.outcome,\n"
       }
     ],
     "test": "cockpit/tests/how/page.ssr.test.ts",
@@ -140,8 +140,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/how/+page.svelte",
-        "find": "carries {v.reports.checks.length} checks",
-        "replace": "carries 6 checks"
+        "find": "carries up to {v.reports.checks.length} checks",
+        "replace": "carries up to 6 checks"
       }
     ],
     "test": "cockpit/tests/how/page.ssr.test.ts",
