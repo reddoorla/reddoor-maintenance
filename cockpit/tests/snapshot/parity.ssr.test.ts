@@ -377,7 +377,8 @@ for (const [label, now] of [
       it(`/fleet?${q}`, async () => {
         const s = await snapshotAt(now);
         const params = new URLSearchParams(q);
-        expect(fleetTableModelFromSnapshot(s, params)).toEqual(
+        // No levels: the legacy loader has none, and no query here sorts by Level.
+        expect(fleetTableModelFromSnapshot(s, params, new Map())).toEqual(
           await loadFleetTableModel(db, params),
         );
         expect(buildSitesView(cockpitModelFromSnapshot(s, now), now)).toEqual(

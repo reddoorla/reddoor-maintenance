@@ -7,6 +7,7 @@ import {
   ALL_STATUSES_FILTER,
 } from "../../src/dashboard/fleet-table.js";
 import type { FleetSortKey } from "../../src/dashboard/fleet-table.js";
+import type { Tier } from "../../src/dashboard/fleet-cockpit.js";
 import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
@@ -480,12 +481,21 @@ describe("buildFleetTableModel — every advertised sort key actually sorts", ()
     nextMaintenance: ["Delta", "Alpha", "Charlie", "Bravo"],
     nextTesting: ["Bravo", "Delta", "Alpha", "Charlie"],
     lastAudit: ["Alpha", "Charlie", "Bravo", "Delta"],
+    // P1-87, PR 2: worst level first, from the levels below.
+    level: ["Delta", "Bravo", "Alpha", "Charlie"],
   };
+  /** Each site's level, a permutation unlike the ten above. */
+  const TIERS = new Map<string, Tier>([
+    ["r1", "watch"],
+    ["r2", "attention"],
+    ["r3", "healthy"],
+    ["r4", "broken"],
+  ]);
   for (const key of FLEET_SORT_KEYS) {
     it(`sorts on the ${key} column in both directions`, () => {
-      const asc = buildFleetTableModel(sites, { ...ALL_QUERY, sort: key });
+      const asc = buildFleetTableModel(sites, { ...ALL_QUERY, sort: key }, TIERS);
       expect(asc.rows.map((r) => r.name)).toEqual(EXPECTED_ASC[key]);
-      const desc = buildFleetTableModel(sites, { ...ALL_QUERY, sort: key, dir: "desc" });
+      const desc = buildFleetTableModel(sites, { ...ALL_QUERY, sort: key, dir: "desc" }, TIERS);
       // No nulls and no ties in this fixture, so desc is the exact reverse.
       expect(desc.rows.map((r) => r.name)).toEqual([...EXPECTED_ASC[key]].reverse());
     });

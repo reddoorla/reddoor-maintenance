@@ -19,6 +19,20 @@ import { navigate } from "../_helpers/app-navigation.js";
 let target: HTMLElement;
 let app: ReturnType<typeof mount> | null = null;
 
+/** The page's records are null-prototype (review round 4, so a site id of `__proto__`
+ *  is an own key). Copy them, and only them (plain objects are walked to reach them), to plain
+ *  objects for the strict check below. A Map, Date or class instance is left as is, and an
+ *  undefined field stays in place, so the check still fails on any of them, as it would on
+ *  anything JSON does not carry. Symbol keys pass: Object.entries drops them, as JSON does. */
+const plain = (v: unknown): unknown =>
+  Array.isArray(v)
+    ? v.map(plain)
+    : v !== null &&
+        typeof v === "object" &&
+        [null, Object.prototype].includes(Object.getPrototypeOf(v))
+      ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, plain(x)]))
+      : v;
+
 /** The four-card model the browse panel's filter test used. */
 function render(model = cases()[10]![1]) {
   const data = {
@@ -29,7 +43,7 @@ function render(model = cases()[10]![1]) {
     sites: buildSitesView(model, NOW),
   };
   const wire = JSON.parse(JSON.stringify(data));
-  expect(wire).toStrictEqual(data);
+  expect(wire).toStrictEqual(plain(data));
   app = mount(Page, { target, props: { data: wire } });
   flushSync();
 }
@@ -206,5 +220,66 @@ describe("Sites — when the default view hides every site (#1619)", () => {
   it("keeps the filter message when a filter the operator chose matches nothing", () => {
     mountWith(["archived", "external"], "q=zzz");
     expect(empty()).toEqual(["No sites match these filters."]);
+  });
+});
+
+describe("Sites — two sites that share a slug (review round 4)", () => {
+  // A maintained Foo and an archived FOO both slug to "foo". Keying the row loop by
+  // slug throws Svelte's each_key_duplicate on mount, so this must mount both rows.
+  it("mounts a maintained Foo beside an archived FOO, and shows both rows", () => {
+    const model = cases()[10]![1];
+    const foo = {
+      ...model.cards[0]!.site,
+      id: "recFoo",
+      name: "Foo",
+      status: "maintained" as const,
+    };
+    const upper = {
+      ...model.cards[0]!.site,
+      id: "recFOO",
+      name: "FOO",
+      status: "archived" as const,
+    };
+    const data = {
+      model: buildFleetTableModel(
+        [foo, upper],
+        parseFleetTableQuery(new URLSearchParams({ status: ALL_STATUSES_FILTER })),
+      ),
+      sites: buildSitesView(model, NOW),
+    };
+    app = mount(Page, { target, props: { data: JSON.parse(JSON.stringify(data)) } });
+    flushSync();
+    expect(rowsShown()).toHaveLength(2);
+    expect(rowsShown()).toEqual(expect.arrayContaining(["Foo", "FOO"]));
+  });
+});
+
+describe("Sites — two sites with the same name (review round 5)", () => {
+  // Two maintained-or-archived sites both named "Foo" (different ids). A row loop keyed by
+  // name throws each_key_duplicate on mount, so this must mount both rows, each shown.
+  it("mounts two rows both named Foo, one maintained and one archived", () => {
+    const model = cases()[10]![1];
+    const maintained = {
+      ...model.cards[0]!.site,
+      id: "recFoo1",
+      name: "Foo",
+      status: "maintained" as const,
+    };
+    const archived = {
+      ...model.cards[0]!.site,
+      id: "recFoo2",
+      name: "Foo",
+      status: "archived" as const,
+    };
+    const data = {
+      model: buildFleetTableModel(
+        [maintained, archived],
+        parseFleetTableQuery(new URLSearchParams({ status: ALL_STATUSES_FILTER })),
+      ),
+      sites: buildSitesView(model, NOW),
+    };
+    app = mount(Page, { target, props: { data: JSON.parse(JSON.stringify(data)) } });
+    flushSync();
+    expect(rowsShown()).toEqual(["Foo", "Foo"]);
   });
 });

@@ -1,0 +1,493 @@
+[
+  {
+    "id": "1-forms-last-lead-dropped",
+    "why": "The Forms column drops its last-lead fact (the brief's floor)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": ">{f.forms.text}<span class=\"muted\">; {f.lastLead}</span></td",
+        "replace": ">{f.forms.text}</td"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2-level-alphabetical",
+    "why": "Level sorts alphabetically by its word instead of by severity (the brief's floor)",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-table.ts",
+        "find": "return t === undefined ? null : LEVEL_RANK[t];",
+        "replace": "return t === undefined ? null : t;"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "3-facts-from-one-site",
+    "why": "Every row shows the first site's checks",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "Object.hasOwn(data.facts, id) ? data.facts[id] : undefined;",
+        "replace": "Object.hasOwn(data.facts, id) ? Object.values(data.facts)[0] : undefined;"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "4-load-without-levels",
+    "why": "The route's load passes no levels, so the Level sort is by name",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.ts",
+        "find": "new Map(cockpit.cards.map((c) => [c.site.id, c.tier])),",
+        "replace": "new Map(),"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "5-pill-still-in-health",
+    "why": "The level is shown again at the head of Health",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "                <!-- The card's own markup for what the table's columns do not",
+        "replace": "                <span class=\"pill {c.tier}\">{c.pill}</span>\n                <!-- The card's own markup for what the table's columns do not"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "6-verdicts-unstyled",
+    "why": "A failed check is styled as passed",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/view.ts",
+        "find": "ok === true ? \"ok\" : ok === false ? \"bad\" : \"unknown\";",
+        "replace": "ok === true ? \"ok\" : ok === false ? \"ok\" : \"unknown\";"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "7-no-level-ranks-first",
+    "why": "A site with no level sorts ahead of the Broken ones",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-table.ts",
+        "find": "return t === undefined ? null : LEVEL_RANK[t];",
+        "replace": "return t === undefined ? -1 : LEVEL_RANK[t];"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "8-failed-read-as-no-lead",
+    "why": "A failed submissions read says \"no real lead yet\" on /fleet (round 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "s.submissions !== null, now);",
+        "replace": "true, now);"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "9-deploy-before-live",
+    "why": "The Deploy cell moves ahead of Live, under the wrong header (round 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "              <td class=\"fact {okClass(f.deploy.ok)}\" data-label=\"Deploy\">{f.deploy.text}</td>\n",
+        "replace": ""
+      },
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "              <td class=\"fact {okClass(f.live.ok)}\" data-label=\"Live\"",
+        "replace": "              <td class=\"fact {okClass(f.deploy.ok)}\" data-label=\"Deploy\">{f.deploy.text}</td>\n              <td class=\"fact {okClass(f.live.ok)}\" data-label=\"Live\""
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "10-deploy-always-ok",
+    "why": "A failed deploy is styled as passed (round 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "okClass(f.deploy.ok)",
+        "replace": "okClass(true)"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "11-live-styled-by-certificate",
+    "why": "Live takes the certificate's verdict for its style (round 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "okClass(f.live.ok)",
+        "replace": "okClass(f.domain.ok)"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "12-spam-as-last-lead",
+    "why": "Spam counts as the last real lead on /fleet (round 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "lastRealBySite(s.submissions, (r) => storedStatus(s, r))",
+        "replace": "lastRealBySite(s.submissions, () => \"read\")"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "13-scroll-unreachable",
+    "why": "The table's sideways scroll is not reachable by keyboard (round 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "    tabindex=\"0\"\n",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "14-facts-inherited-key",
+    "why": "An archived site named Constructor reads an inherited Object.prototype key as its facts (review round 2)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "data.facts !== undefined && Object.hasOwn(data.facts, id) ? data.facts[id] : undefined",
+        "replace": "data.facts?.[id]"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "15-facts-maintained-only",
+    "why": "Facts are kept for maintained sites only, so a launching site shows the dash (review round 2)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "for (const c of model.cards)",
+        "replace": "for (const c of model.cards.filter((c) => c.site.status === \"maintained\"))"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "16-deploy-unknown-as-ok",
+    "why": "An unknown Deploy (ok null) is styled as ok (review round 2)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "okClass(f.deploy.ok)",
+        "replace": "okClass(f.deploy.ok ?? true)"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "17-live-at-always",
+    "why": "The Live cell's checked stamp shows even with no stamp, so Not checked lately gets a dangling comma (review round 2)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "{#if f.live.at}",
+        "replace": "{#if true}"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "18-oldest-lead-wins",
+    "why": "The Forms cell names the oldest real lead, not the newest (review round 2)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "Date.parse(r.submittedAt) > Date.parse(prev.submittedAt!)",
+        "replace": "Date.parse(r.submittedAt) < Date.parse(prev.submittedAt!)"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "19-facts-keyed-by-slug",
+    "why": "Facts are keyed by the site's slug again, so namesakes share one set of checks (review round 3 (P1-87, PR 2))",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "out[c.site.id] = siteFacts(",
+        "replace": "out[siteSlug(c.site.name)] = siteFacts("
+      },
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "{@const f = factsOf(r.id)}",
+        "replace": "{@const f = factsOf(r.slug)}"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "20-level-pill-from-slug-card",
+    "why": "The Level pill is taken from the slug's card, not the facts by id, so an archived namesake shows the maintained site's pill (review round 3 (P1-87, PR 2))",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "{#if lv}<span class=\"pill {lv.tier}\">{lv.pill}</span>",
+        "replace": "{#if c}<span class=\"pill {c.tier}\">{c.pill}</span>"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "21-facts-key-lowercase-name",
+    "why": "Facts are keyed by the lowercased name, not the site id (review round 3 (P1-87, PR 2))",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "out[c.site.id] = siteFacts(",
+        "replace": "out[c.site.name.toLowerCase()] = siteFacts("
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "22-levels-maintained-only",
+    "why": "The sort's levels cover maintained sites only, so a launching site has no level (review round 3 (P1-87, PR 2))",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.ts",
+        "find": "new Map(cockpit.cards.map((c) => [c.site.id, c.tier]))",
+        "replace": "new Map(cockpit.cards.filter((c) => c.site.status === \"maintained\").map((c) => [c.site.id, c.tier]))"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "23-undated-real-lead-counted",
+    "why": "An accepted submission with no submittedAt counts as the last real lead (review round 3 (P1-87, PR 2))",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "if (!ACCEPTED.has(status(r)) || r.submittedAt === null) continue;",
+        "replace": "if (!ACCEPTED.has(status(r))) continue;"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "24-level-pill-no-tier-class",
+    "why": "The Level pill loses its tier class (review round 3 (P1-87, PR 2))",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "<span class=\"pill {lv.tier}\">{lv.pill}</span>",
+        "replace": "<span class=\"pill\">{lv.pill}</span>"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "25-dash-cells-not-muted",
+    "why": "The dash cells of a site with no card lose their muted class (review round 3 (P1-87, PR 2))",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "<td class=\"muted\" data-label={label}>{DASH}</td",
+        "replace": "<td data-label={label}>{DASH}</td"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "26-facts-plain-object",
+    "why": "The facts record is a plain object, so a site id of __proto__ sets its prototype and shows dashes (review round 4)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "const out = Object.create(null) as Record<string, SiteFacts>;",
+        "replace": "const out: Record<string, SiteFacts> = {};"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "27-levels-plain-object",
+    "why": "The levels record is a plain object, so a site id of __proto__ sets its prototype and loses its Level (review round 4)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/view.ts",
+        "find": "const levels = Object.create(null) as Record<string, { tier: Tier; pill: string }>;",
+        "replace": "const levels: Record<string, { tier: Tier; pill: string }> = {};"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "28-rows-keyed-by-slug",
+    "why": "The row loop is keyed by slug, so a maintained Foo and an archived FOO throw each_key_duplicate on mount (review round 4)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "{#each m.rows as r (r.id)}",
+        "replace": "{#each m.rows as r (r.slug)}"
+      }
+    ],
+    "test": "cockpit/tests/fleet/sites.dom.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "29-pill-class-from-label",
+    "why": "The Level pill takes its class from its label, not its tier, so Acme's pill is ok, not healthy (review round 4)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "class=\"pill {lv.tier}\"",
+        "replace": "class=\"pill {lv.pill}\""
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "30-pill-text-ok-for-watch",
+    "why": "Every tier but broken reads the ok label, so Delta's attention level says ok (review round 4)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/view.ts",
+        "find": "levels[c.site.id] = { tier: c.tier, pill: PILL_LABEL[c.tier] };",
+        "replace": "levels[c.site.id] = { tier: c.tier, pill: PILL_LABEL[c.tier === \"broken\" ? c.tier : \"healthy\"] };"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "31-pill-pre-launch-says-ok",
+    "why": "Only the pre-launch level reads the ok label, so Lantern's launching level says ok (review round 4)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/view.ts",
+        "find": "levels[c.site.id] = { tier: c.tier, pill: PILL_LABEL[c.tier] };",
+        "replace": "levels[c.site.id] = { tier: c.tier, pill: PILL_LABEL[c.tier === \"pre-launch\" ? \"healthy\" : c.tier] };"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "32-rows-keyed-by-name",
+    "why": "The row loop is keyed by name, so two sites named Foo throw a duplicate key on mount (review round 5)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "{#each m.rows as r (r.id)}",
+        "replace": "{#each m.rows as r (r.name)}"
+      }
+    ],
+    "test": "cockpit/tests/fleet/sites.dom.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "33-levels-guard-dropped",
+    "why": "levelOf reads levels with no own-property check, so the constructor-id site finds Object.prototype's function (review round 5)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "Object.hasOwn(s.levels, id) ? s.levels[id] : undefined",
+        "replace": "s.levels[id]"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "34-bad-fact-not-bold",
+    "why": "A failed check's cell loses its bold, so it reads as passed (review round 5)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/fleet-table.css",
+        "find": "table.fleet td.fact.bad {\n  font-weight: var(--weight-bold);\n}",
+        "replace": "table.fleet td.fact.bad {\n}"
+      }
+    ],
+    "test": "cockpit/tests/fleet/fleet-table-css.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "35-unknown-fact-not-muted",
+    "why": "An unknown check's cell loses its muted colour, so it reads as a verdict (review round 5)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/fleet-table.css",
+        "find": "table.fleet td.fact.unknown {\n  color: var(--ink-muted);\n}",
+        "replace": "table.fleet td.fact.unknown {\n}"
+      }
+    ],
+    "test": "cockpit/tests/fleet/fleet-table-css.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "36-bad-fact-weight-commented-out",
+    "why": "A failed check's bold is commented out, so the cell renders at text weight (review round 6)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/fleet-table.css",
+        "find": "  font-weight: var(--weight-bold);\n}\ntable.fleet td.fact.unknown",
+        "replace": "  /* font-weight: var(--weight-bold); */\n}\ntable.fleet td.fact.unknown"
+      }
+    ],
+    "test": "cockpit/tests/fleet/fleet-table-css.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "37-bad-fact-overridden-later",
+    "why": "A later rule with the same selector takes the bold away (review round 6)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/fleet-table.css",
+        "find": "table.fleet td.fact.unknown {",
+        "replace": "table.fleet td.fact.bad {\n  font-weight: normal;\n}\ntable.fleet td.fact.unknown {"
+      }
+    ],
+    "test": "cockpit/tests/fleet/fleet-table-css.ssr.test.ts",
+    "expect": "red"
+  }
+]

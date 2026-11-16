@@ -91,3 +91,17 @@ table.fleet td.health .metric-label {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+/* The live checks moved from the overview (P1-87, PR 2). Their verdicts are
+   sentences, so they wrap within a narrow column rather than widen the table;
+   a failed cell is bold ink and an unknown one muted, as on the overview. */
+table.fleet td.fact {
+  white-space: normal;
+  min-width: 7rem;
+  max-width: 11rem;
+}
+table.fleet td.fact.bad {
+  font-weight: var(--weight-bold);
+}
+table.fleet td.fact.unknown {
+  color: var(--ink-muted);
+}

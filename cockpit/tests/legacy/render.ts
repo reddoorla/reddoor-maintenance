@@ -73,7 +73,13 @@ export function renderCockpitHtml(
   return documentOf(HomePage, { view: buildCockpitView(model, new Date()) }, "/", operatorEmail);
 }
 
-const NO_SITES_VIEW: SitesView = { filters: [], cards: {}, recently: [], archived: [] };
+const NO_SITES_VIEW: SitesView = {
+  filters: [],
+  cards: {},
+  levels: {},
+  recently: [],
+  archived: [],
+};
 
 export function renderFleetTableHtml(
   m: FleetTableModel,

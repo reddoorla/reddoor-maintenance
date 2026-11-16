@@ -23,6 +23,18 @@
 import type { WebsiteRow } from "../fleet/site-row.js";
 import { siteSlug } from "../fleet/site-row.js";
 import type { Status } from "../fleet/site-status.js";
+import type { Tier } from "./fleet-cockpit.js";
+
+/** The Level column's order, worst first (P1-87, PR 2): an ascending sort puts
+ *  the sites that need someone at the top. A site with no level (no card: an
+ *  archived or external one) has no rank and sorts last, as any null does. */
+export const LEVEL_RANK: Readonly<Record<Tier, number>> = {
+  broken: 0,
+  attention: 1,
+  watch: 2,
+  healthy: 3,
+  "pre-launch": 4,
+};
 
 /** Statuses the default view leaves out (the operator, 2026-10-21: "they should
  *  only come up if I'm actively looking for them"). Matched on `status`, which
@@ -35,6 +47,7 @@ export const FLEET_SORT_KEYS = [
   "name",
   "url",
   "status",
+  "level",
   "perf",
   "a11y",
   "bp",
@@ -83,6 +96,8 @@ export type FleetTableQuery = {
 
 /** The render-ready row: exactly the WebsiteRow fields the table shows. */
 export type FleetTableRow = {
+  /** The site's id: the key the Level sort and the live columns both read by. */
+  id: string;
   slug: string;
   name: string;
   url: string;
@@ -140,8 +155,16 @@ function rawStatus(site: WebsiteRow): string | null {
 
 /** Per-key sort value. Strings compare lowercased; dates are ISO strings, which
  *  compare lexicographically. null = "no value" → always sorts last. */
-function sortValue(site: WebsiteRow, key: FleetSortKey): string | number | null {
+function sortValue(
+  site: WebsiteRow,
+  key: FleetSortKey,
+  tiers: ReadonlyMap<string, Tier>,
+): string | number | null {
   switch (key) {
+    case "level": {
+      const t = tiers.get(site.id);
+      return t === undefined ? null : LEVEL_RANK[t];
+    }
     case "name":
       return site.name.toLowerCase();
     case "url":
@@ -167,6 +190,7 @@ function sortValue(site: WebsiteRow, key: FleetSortKey): string | number | null 
 
 function toRow(site: WebsiteRow): FleetTableRow {
   return {
+    id: site.id,
     slug: siteSlug(site.name),
     name: site.name,
     url: site.url,
@@ -187,7 +211,12 @@ function toRow(site: WebsiteRow): FleetTableRow {
  *  directions (an unaudited site never tops a score sort), and ties break on
  *  name-asc then id — stable and identical under asc/desc, so flipping a
  *  column keeps equal-valued sites in one predictable order. */
-export function buildFleetTableModel(sites: WebsiteRow[], query: FleetTableQuery): FleetTableModel {
+export function buildFleetTableModel(
+  sites: WebsiteRow[],
+  query: FleetTableQuery,
+  /** Each site's level by id, for the Level sort; a site absent has none. */
+  tiers: ReadonlyMap<string, Tier> = new Map(),
+): FleetTableModel {
   // Codepoint order on the lowercased value — the SAME collation the rows use,
   // which is in turn what `listSites`' SQL ORDER BY gives under SQLite's BINARY
   // default. `localeCompare` here would fold accents (listing "élan" before
@@ -228,8 +257,8 @@ export function buildFleetTableModel(sites: WebsiteRow[], query: FleetTableQuery
 
   const flip = query.dir === "desc" ? -1 : 1;
   const sorted = [...filtered].sort((a, b) => {
-    const av = sortValue(a, query.sort);
-    const bv = sortValue(b, query.sort);
+    const av = sortValue(a, query.sort, tiers);
+    const bv = sortValue(b, query.sort, tiers);
     if (av !== bv) {
       // Nulls last regardless of direction — "no value" is not a rank.
       if (av === null) return 1;
