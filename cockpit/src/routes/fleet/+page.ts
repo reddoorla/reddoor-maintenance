@@ -24,6 +24,6 @@ export const load: PageLoad = ({ parent, url }) =>
       ),
       sites: buildSitesView(cockpit, now),
       // The overview's "Is every site live?" columns, moved here (P1-87, PR 2).
-      facts: siteFactsFromSnapshot(snapshot, now),
+      facts: siteFactsFromSnapshot(snapshot, cockpit, now),
     };
   });

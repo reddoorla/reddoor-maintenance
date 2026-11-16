@@ -23,12 +23,15 @@ afterAll(() => {
   vi.useRealTimers();
 });
 
-/** Acme passes every check and had a lead 5 hours ago; Bravo's page does not
- *  answer (Broken), its certificate is near its end and its form test gave no
- *  verdict; Charlie is archived, so it has no card and no level. */
+/** Acme passes every check and had a lead 5 hours ago (a newer spam entry is
+ *  not a lead); Bravo's page does not answer (Broken), its certificate is near
+ *  its end, its deploy failed and its form test gave no verdict; Delta is live
+ *  with a certificate near its end, so Live and Certificate disagree; Charlie
+ *  is archived, so it has no card and no level. */
 const SNAP = snapshot({
   sites: [
     healthy({ id: "recA", name: "Acme" }),
+    healthy({ id: "recD", name: "Delta", certDaysRemaining: 9 }),
     healthy({
       id: "recB",
       name: "Bravo",
@@ -41,6 +44,12 @@ const SNAP = snapshot({
   ],
   submissions: [
     makeSubmissionRow({
+      id: "s0",
+      siteId: "recA",
+      status: "spam_auto",
+      submittedAt: "2026-10-27T17:00:00.000Z",
+    }),
+    makeSubmissionRow({
       id: "s1",
       siteId: "recA",
       status: "read",
@@ -51,11 +60,11 @@ const SNAP = snapshot({
 
 type Data = Parameters<typeof Page>[1]["data"];
 
-async function page(href: string): Promise<HTMLElement> {
+async function page(href: string, snap = SNAP): Promise<HTMLElement> {
   const url = new URL(href, "https://dash.example");
   const data = (await (load as unknown as (e: unknown) => Promise<Data>)({
     url,
-    parent: async () => ({ snapshot: SNAP, failure: null, clockOffsetMs: 0 }),
+    parent: async () => ({ snapshot: snap, failure: null, clockOffsetMs: 0 }),
   })) as Data;
   return parse(render(Page, { props: { data } }).body);
 }
@@ -116,7 +125,33 @@ describe("Sites carries the overview's live columns (P1-87, PR 2)", () => {
     expect(cell(bravo, "Live").classList.contains("bad")).toBe(true);
     expect(cell(bravo, "Certificate").classList.contains("bad")).toBe(true);
     expect(cell(bravo, "Forms").classList.contains("unknown")).toBe(true);
+    expect(cell(bravo, "Deploy").classList.contains("bad")).toBe(true);
     expect(cell(rowOf(doc, "Acme"), "Live").classList.contains("ok")).toBe(true);
+    // Live and Certificate disagree on Delta, so neither takes the other's class.
+    const delta = rowOf(doc, "Delta");
+    expect(cell(delta, "Live").classList.contains("ok")).toBe(true);
+    expect(cell(delta, "Certificate").classList.contains("bad")).toBe(true);
+    expect(text(cell(delta, "Certificate"))).toBe("9 days left");
+  });
+
+  it("lines each row's cells up under their headers", async () => {
+    const doc = await page("/fleet?status=__all__");
+    for (const tr of doc.querySelectorAll("tr.fleet-row"))
+      expect(
+        tr.querySelectorAll("td[data-label]").map((td) => td.getAttribute("data-label")),
+      ).toEqual(["Live", "Certificate", "Deploy", "Forms", "Level"]);
+  });
+
+  it("says the last lead is not readable when the submissions read failed", async () => {
+    const acme = rowOf(await page("/fleet", { ...SNAP, submissions: null }), "Acme");
+    expect(text(cell(acme, "Forms"))).toBe("Test passed; last lead not readable");
+  });
+
+  it("lets a keyboard reach the table's sideways scroll", async () => {
+    const wrap = (await page("/fleet")).querySelector(".fleet-table-wrap")!;
+    expect(wrap.getAttribute("tabindex")).toBe("0");
+    expect(wrap.getAttribute("role")).toBe("region");
+    expect(wrap.getAttribute("aria-label")).toBe("Sites table");
   });
 
   it("gives a site with no card a dash in each, and no level", async () => {
@@ -134,7 +169,7 @@ describe("Sites carries the overview's live columns (P1-87, PR 2)", () => {
   it("sorts by Level through the route's load, worst first", async () => {
     const doc = await page("/fleet?sort=level&dir=asc&status=__all__");
     expect(doc.querySelectorAll("tr.fleet-row").map((tr) => text(tr.querySelector("td")!))).toEqual(
-      ["Bravo", "Acme", "Charlie"],
+      ["Bravo", "Delta", "Acme", "Charlie"],
     );
   });
 });

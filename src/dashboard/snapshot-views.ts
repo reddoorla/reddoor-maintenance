@@ -248,8 +248,9 @@ export function cockpitModelFromSnapshot(s: CockpitSnapshot, now: Date): Cockpit
 export function fleetTableModelFromSnapshot(
   s: CockpitSnapshot,
   params: URLSearchParams,
-  /** Each site's level by id, for the Level sort (P1-87, PR 2). */
-  tiers: ReadonlyMap<string, Tier> = new Map(),
+  /** Each site's level by id, for the Level sort (P1-87, PR 2). Required: without
+   *  it a `?sort=level` would come back in name order under a "Level" arrow. */
+  tiers: ReadonlyMap<string, Tier>,
 ): FleetTableModel {
   return buildFleetTableModel(sitesOf(s), parseFleetTableQuery(params), tiers);
 }

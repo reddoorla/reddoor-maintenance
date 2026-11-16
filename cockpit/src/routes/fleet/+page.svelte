@@ -106,7 +106,17 @@
   {#if filter !== "all" && shownCount === 0}
     <div class="empty" role="status">No sites carry this signal.</div>
   {/if}
-  <div class="fleet-table-wrap" style:display={shownCount === 0 ? "none" : undefined}>
+  <!-- The table scrolls sideways, and a scrolling region must take keyboard
+       focus or a keyboard cannot reach its far columns (axe's
+       scrollable-region-focusable; P1-87 PR 2 review). -->
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+  <div
+    class="fleet-table-wrap"
+    role="region"
+    aria-label="Sites table"
+    tabindex="0"
+    style:display={shownCount === 0 ? "none" : undefined}
+  >
     <table class="fleet">
       <thead>
         <tr>

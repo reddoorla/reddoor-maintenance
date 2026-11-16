@@ -554,9 +554,13 @@ function siteFacts(
   };
 }
 
-/** `/fleet`'s fact columns: every carded site's facts, keyed by its slug. */
-export function siteFactsFromSnapshot(s: CockpitSnapshot, now: Date): Record<string, SiteFacts> {
-  const model = cockpitModelFromSnapshot(s, now);
+/** `/fleet`'s fact columns: every carded site's facts, keyed by its slug. `model`
+ *  is the cockpit model the route already built from this snapshot. */
+export function siteFactsFromSnapshot(
+  s: CockpitSnapshot,
+  model: CockpitModel,
+  now: Date,
+): Record<string, SiteFacts> {
   const lastReal = lastRealBySite(s.submissions, (r) => storedStatus(s, r));
   const out: Record<string, SiteFacts> = {};
   for (const c of model.cards)
