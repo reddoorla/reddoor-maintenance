@@ -453,6 +453,9 @@ describe("the sentinel render: each leaf in its labelled element (T1, T2; round 
           `${sent(`upkeep.open[${letters(i)}].siteName`)} ${sent(`upkeep.open[${letters(i)}].text`)}.`,
       ),
     );
+    expect(SDOC.querySelectorAll('section[aria-labelledby="ov-upkeep"] h3').map(text)).toEqual([
+      "Open now",
+    ]);
     // The ladder stays on /how; it is not repeated here.
     expect(text(SDOC.querySelector('section[aria-labelledby="ov-upkeep"]')!)).not.toContain(
       "Broken:",
