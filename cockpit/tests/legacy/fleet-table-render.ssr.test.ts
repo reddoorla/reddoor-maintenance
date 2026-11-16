@@ -292,6 +292,7 @@ describe("renderFleetTableHtml — escaping", () => {
     // but the renderer's contract is with any FleetTableModel it is handed, and
     // a future slug source must not be able to break out of the attribute.
     const row: FleetTableRow = {
+      id: "recX",
       slug: '" onmouseover="alert(1)',
       name: "Acme Co",
       url: "https://acme.example.com",

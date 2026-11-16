@@ -545,16 +545,24 @@ export function buildCockpitView(model: CockpitModel, now: Date): CockpitView {
 export type SitesView = {
   filters: readonly string[];
   cards: Record<string, CardView>;
+  /** Each carded site's level and pill, by site id (review round 3): a slug is
+   *  shared by namesakes, an id is not, so the Level cell reads this by id. */
+  levels: Record<string, { tier: Tier; pill: string }>;
   recently: RecentRowView[];
   archived: Array<{ name: string; status: string; slug: string }>;
 };
 
 export function buildSitesView(model: CockpitModel, now: Date): SitesView {
   const cards: Record<string, CardView> = {};
-  for (const c of model.cards) cards[siteSlug(c.site.name)] = cardView(c, now);
+  const levels: Record<string, { tier: Tier; pill: string }> = {};
+  for (const c of model.cards) {
+    cards[siteSlug(c.site.name)] = cardView(c, now);
+    levels[c.site.id] = { tier: c.tier, pill: PILL_LABEL[c.tier] };
+  }
   return {
     filters: FLEET_FILTERS,
     cards,
+    levels,
     recently: recently(model, now),
     archived: (model.archived ?? []).map((s) => ({ name: s.name, status: s.status, slug: s.slug })),
   };

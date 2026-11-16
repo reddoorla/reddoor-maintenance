@@ -179,8 +179,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/fleet/+page.svelte",
-        "find": "data.facts !== undefined && Object.hasOwn(data.facts, slug) ? data.facts[slug] : undefined",
-        "replace": "data.facts?.[slug]"
+        "find": "data.facts !== undefined && Object.hasOwn(data.facts, id) ? data.facts[id] : undefined",
+        "replace": "data.facts?.[id]"
       }
     ],
     "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
@@ -233,6 +233,102 @@
         "file": "cockpit/src/lib/overview/view.ts",
         "find": "Date.parse(r.submittedAt) > Date.parse(prev.submittedAt!)",
         "replace": "Date.parse(r.submittedAt) < Date.parse(prev.submittedAt!)"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "19-facts-keyed-by-slug",
+    "why": "Facts are keyed by the site's slug again, so namesakes share one set of checks (review round 3 (P1-87, PR 2))",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "out[c.site.id] = siteFacts(",
+        "replace": "out[siteSlug(c.site.name)] = siteFacts("
+      },
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "{@const f = factsOf(r.id)}",
+        "replace": "{@const f = factsOf(r.slug)}"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "20-level-pill-from-slug-card",
+    "why": "The Level pill is taken from the slug's card, not the facts by id, so an archived namesake shows the maintained site's pill (review round 3 (P1-87, PR 2))",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "{#if lv}<span class=\"pill {lv.tier}\">{lv.pill}</span>",
+        "replace": "{#if c}<span class=\"pill {c.tier}\">{c.pill}</span>"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "21-facts-key-lowercase-name",
+    "why": "Facts are keyed by the lowercased name, not the site id (review round 3 (P1-87, PR 2))",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "out[c.site.id] = siteFacts(",
+        "replace": "out[c.site.name.toLowerCase()] = siteFacts("
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "22-levels-maintained-only",
+    "why": "The sort's levels cover maintained sites only, so a launching site has no level (review round 3 (P1-87, PR 2))",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.ts",
+        "find": "new Map(cockpit.cards.map((c) => [c.site.id, c.tier]))",
+        "replace": "new Map(cockpit.cards.filter((c) => c.site.status === \"maintained\").map((c) => [c.site.id, c.tier]))"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "23-undated-real-lead-counted",
+    "why": "An accepted submission with no submittedAt counts as the last real lead (review round 3 (P1-87, PR 2))",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "if (!ACCEPTED.has(status(r)) || r.submittedAt === null) continue;",
+        "replace": "if (!ACCEPTED.has(status(r))) continue;"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "24-level-pill-no-tier-class",
+    "why": "The Level pill loses its tier class (review round 3 (P1-87, PR 2))",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "<span class=\"pill {lv.tier}\">{lv.pill}</span>",
+        "replace": "<span class=\"pill\">{lv.pill}</span>"
+      }
+    ],
+    "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "25-dash-cells-not-muted",
+    "why": "The dash cells of a site with no card lose their muted class (review round 3 (P1-87, PR 2))",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "<td class=\"muted\" data-label={label}>{DASH}</td",
+        "replace": "<td data-label={label}>{DASH}</td"
       }
     ],
     "test": "cockpit/tests/fleet/live-columns.ssr.test.ts",

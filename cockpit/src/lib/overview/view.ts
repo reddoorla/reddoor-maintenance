@@ -554,8 +554,10 @@ function siteFacts(
   };
 }
 
-/** `/fleet`'s fact columns: every carded site's facts, keyed by its slug. `model`
- *  is the cockpit model the route already built from this snapshot. */
+/** `/fleet`'s fact columns: every carded site's facts, keyed by its site id, never
+ *  its slug (review round 3: an archived "FOO" and a maintained "Foo" share a slug,
+ *  and the slug would give one the other's checks). `model` is the cockpit model
+ *  the route already built from this snapshot. */
 export function siteFactsFromSnapshot(
   s: CockpitSnapshot,
   model: CockpitModel,
@@ -564,12 +566,7 @@ export function siteFactsFromSnapshot(
   const lastReal = lastRealBySite(s.submissions, (r) => storedStatus(s, r));
   const out: Record<string, SiteFacts> = {};
   for (const c of model.cards)
-    out[siteSlug(c.site.name)] = siteFacts(
-      c.site,
-      lastReal.get(c.site.id),
-      s.submissions !== null,
-      now,
-    );
+    out[c.site.id] = siteFacts(c.site, lastReal.get(c.site.id), s.submissions !== null, now);
   return out;
 }
 

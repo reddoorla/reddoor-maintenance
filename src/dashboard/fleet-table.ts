@@ -96,6 +96,8 @@ export type FleetTableQuery = {
 
 /** The render-ready row: exactly the WebsiteRow fields the table shows. */
 export type FleetTableRow = {
+  /** The site's id: the key the Level sort and the live columns both read by. */
+  id: string;
   slug: string;
   name: string;
   url: string;
@@ -188,6 +190,7 @@ function sortValue(
 
 function toRow(site: WebsiteRow): FleetTableRow {
   return {
+    id: site.id,
     slug: siteSlug(site.name),
     name: site.name,
     url: site.url,

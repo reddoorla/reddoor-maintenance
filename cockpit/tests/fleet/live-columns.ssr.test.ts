@@ -269,3 +269,67 @@ describe("the live columns, review round 2 (P1-87, PR 2)", () => {
     expect(text(cell(echo, "Forms"))).toBe("Test passed; last real lead 3 hours ago");
   });
 });
+
+/** Review round 3 (P1-87, PR 2). A separate fixture, so SNAP, SNAP_R2 and their
+ *  assertions stay as they were. Foo (maintained, its page not answering) and FOO
+ *  (archived) share the slug "foo", so a row must take its checks by site id.
+ *  Acme Corp is a two-word name whose slug is "acme-corp". Hotel's one submission
+ *  is accepted but has no submittedAt, so it is no real lead. */
+const SNAP_R3 = snapshot({
+  sites: [
+    healthy({ id: "recV", name: "Foo", reachableOk: "fail" }),
+    makeWebsiteRow({ id: "recX", name: "FOO", status: "archived" }),
+    healthy({ id: "recM", name: "Acme Corp" }),
+    healthy({ id: "recH", name: "Hotel" }),
+  ],
+  submissions: [
+    makeSubmissionRow({
+      id: "u0",
+      siteId: "recH",
+      status: "read",
+      submittedAt: null,
+    }),
+  ],
+});
+
+describe("the live columns, review round 3 (P1-87, PR 2)", () => {
+  it("gives an archived FOO no checks and no level beside a maintained namesake Foo", async () => {
+    const doc = await page("/fleet?sort=level&dir=asc&status=__all__", SNAP_R3);
+    const foo = rowOf(doc, "FOO");
+    for (const label of ["Live", "Certificate", "Deploy", "Forms", "Level"])
+      expect(text(cell(foo, label))).toBe("—");
+    expect(foo.querySelectorAll(".pill")).toHaveLength(0);
+    expect(text(cell(rowOf(doc, "Foo"), "Live"))).toBe(
+      "A page not answering, checked Oct 26, 11:30pm PT",
+    );
+    expect(rowOf(doc, "Foo").querySelectorAll(".pill")).toHaveLength(1);
+  });
+
+  it("finds a two-word site's checks by its id (slug 'acme-corp')", async () => {
+    const acme = rowOf(await page("/fleet?status=__all__", SNAP_R3), "Acme Corp");
+    expect(text(cell(acme, "Live"))).toBe("Live, checked Oct 26, 11:30pm PT");
+  });
+
+  it("sorts a launching site by its level: pre-launch after OK, before the no-level site", async () => {
+    // Lantern's failing page is muted to pre-launch (a launching site's calm
+    // state), so it ranks after the OK sites and before Constructor, which has
+    // no level.
+    const doc = await page("/fleet?sort=level&dir=asc&status=__all__", SNAP_R2);
+    expect(doc.querySelectorAll("tr.fleet-row").map((tr) => text(tr.querySelector("td")!))).toEqual(
+      ["Echo", "Nodeploy", "Stale", "Lantern", "Constructor"],
+    );
+  });
+
+  it("says no real lead yet for an accepted submission with no submittedAt", async () => {
+    const hotel = rowOf(await page("/fleet?status=__all__", SNAP_R3), "Hotel");
+    expect(text(cell(hotel, "Forms"))).toBe("Test passed; no real lead yet");
+  });
+
+  it("styles Bravo's Level pill as broken, and Charlie's fact cells as muted", async () => {
+    const doc = await page("/fleet?status=__all__");
+    const pill = rowOf(doc, "Bravo").querySelector(".pill")!;
+    expect(pill.classList.contains("broken")).toBe(true);
+    for (const label of ["Live", "Certificate", "Deploy", "Forms"])
+      expect(cell(rowOf(doc, "Charlie"), label).classList.contains("muted")).toBe(true);
+  });
+});

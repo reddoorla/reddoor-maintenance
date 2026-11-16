@@ -33,9 +33,12 @@
   } = $props();
   const m = $derived(data.model);
   const s = $derived(data.sites);
-  // The live checks per site (P1-87, PR 2); a site with no card has none.
-  const factsOf = (slug: string) =>
-    data.facts !== undefined && Object.hasOwn(data.facts, slug) ? data.facts[slug] : undefined;
+  // The live checks and the level, both keyed by site id (review round 3): a
+  // slug is shared by namesakes ("Foo" and "FOO"), an id is not. A site with no
+  // card has neither.
+  const factsOf = (id: string) =>
+    data.facts !== undefined && Object.hasOwn(data.facts, id) ? data.facts[id] : undefined;
+  const levelOf = (id: string) => (Object.hasOwn(s.levels, id) ? s.levels[id] : undefined);
   const DASH = "—";
   let filter = $state("all");
   // An own-property read: a slug that names an Object.prototype key
@@ -135,7 +138,8 @@
         {#each m.rows as r (r.slug)}
           {@const url = safeUrl(r.url)}
           {@const c = cardOf(r.slug)}
-          {@const f = factsOf(r.slug)}
+          {@const f = factsOf(r.id)}
+          {@const lv = levelOf(r.id)}
           <tr
             class="fleet-row"
             data-signals={c?.signals ?? ""}
@@ -164,7 +168,7 @@
                 >{/each}
             {/if}
             <td data-label="Level"
-              >{#if c}<span class="pill {c.tier}">{c.pill}</span>{:else}<span class="muted"
+              >{#if lv}<span class="pill {lv.tier}">{lv.pill}</span>{:else}<span class="muted"
                   >{DASH}</span
                 >{/if}</td
             >
