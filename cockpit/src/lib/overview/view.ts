@@ -1964,15 +1964,21 @@ const NO_LAST_NIGHT_COUNT = "no count for last night";
 function checksOverWindow(
   counted: Array<{ night: string; v: number | null }>,
   end: string,
-): string {
+): string | null {
+  // A night newer than `end` (a row written before 6am Pacific, while `end` is still
+  // yesterday) is outside the window, so it is neither summed nor counted in the span.
   const summed = counted.filter(
     (x): x is { night: string; v: number } =>
-      x.v !== null && nightsBetween(x.night, end) < WINDOW_NIGHTS,
+      x.v !== null &&
+      nightsBetween(x.night, end) >= 0 &&
+      nightsBetween(x.night, end) < WINDOW_NIGHTS,
   );
   const total = summed.reduce((a, x) => a + x.v, 0);
   const oldest = summed.reduce((a, x) => (x.night < a ? x.night : a), end);
   const span = nightsBetween(oldest, end) + 1;
   const missing = span - summed.length;
+  // One night with no gap is the value itself: a context that repeats it says nothing.
+  if (span === 1 && missing === 0) return null;
   const window = span === 1 ? "over 1 night" : `over the last ${span} nights`;
   return `${total} ${window}${missing > 0 ? `; ${missing} with no count` : ""}`;
 }

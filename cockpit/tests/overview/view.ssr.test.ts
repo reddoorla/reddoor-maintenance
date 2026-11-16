@@ -2290,9 +2290,19 @@ describe("round 1 fixes (P1-87 PR 3)", () => {
     });
   });
 
-  it("fix 2: one night reads 'over 1 night', never '1 nights'", () => {
+  it("fix 2: one night with no gap has no context: it would only repeat the value (review round 2, n1)", () => {
     const one = snapshot({ nights: [countedNight("2026-10-26", 10)] });
-    expect(tileOf(one, "checks").context).toBe("10 over 1 night");
+    expect(tileOf(one, "checks")).toMatchObject({ value: "10", context: null });
+  });
+
+  it("fix 2: one night with a gap still says its window, never '1 nights'", () => {
+    const gap = snapshot({
+      nights: [countedNight("2026-10-26", 10), countedNight("2026-10-24", 10)],
+    });
+    expect(tileOf(gap, "checks")).toMatchObject({
+      value: "10",
+      context: "20 over the last 3 nights; 1 with no count",
+    });
   });
 
   it("fix 3: a dependency window dated by its newest night, with the nights since", () => {
@@ -2399,5 +2409,41 @@ describe("round 1: the remaining model fixes (P1-87 PR 3)", () => {
     expect(g.dots.map((d) => d.y)).toEqual([18, 0]);
     const line = sparkGeometry([1, 2, 4], 120, 24);
     expect(line.lines).toEqual(["0,18 60,12 120,0"]);
+  });
+});
+
+describe("review round 2: the checks tile's window (group B)", () => {
+  const countedNight = (date: string, value: number) =>
+    night(date, { coverage: { value: { a: { value } } } });
+  const tileOf = (s: CockpitSnapshot, key: string, now: Date = NOW) =>
+    overviewFromSnapshot(s, now).numbers.find((t) => t.key === key)!;
+  // Before 6am Pacific on Oct 27 the nightly has written Oct 27's row, but last night is Oct 25.
+  const BEFORE_6AM = new Date("2026-10-27T12:00:00Z");
+
+  it("before 6am Pacific a night newer than last night is not summed into the window", () => {
+    const s = snapshot({
+      nights: [
+        countedNight("2026-10-26", 7),
+        countedNight("2026-10-25", 10),
+        countedNight("2026-10-24", 10),
+      ],
+    });
+    expect(tileOf(s, "checks", BEFORE_6AM)).toMatchObject({
+      value: "10",
+      measured: true,
+      context: "20 over the last 2 nights",
+    });
+  });
+
+  it("the window is 30 calendar nights: a 31st night back is left out", () => {
+    // 31 contiguous nights of 1, ending at the expected night (Oct 26): Sep 26 is the 31st.
+    const nights = Array.from({ length: 31 }, (_, i) => {
+      const d = new Date(Date.UTC(2026, 9, 26 - i));
+      return countedNight(d.toISOString().slice(0, 10), 1);
+    });
+    expect(tileOf(snapshot({ nights }), "checks")).toMatchObject({
+      value: "1",
+      context: "30 over the last 30 nights",
+    });
   });
 });
