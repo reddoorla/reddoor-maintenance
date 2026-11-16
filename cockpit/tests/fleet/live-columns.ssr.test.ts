@@ -274,13 +274,16 @@ describe("the live columns, review round 2 (P1-87, PR 2)", () => {
  *  assertions stay as they were. Foo (maintained, its page not answering) and FOO
  *  (archived) share the slug "foo", so a row must take its checks by site id.
  *  Acme Corp is a two-word name whose slug is "acme-corp". Hotel's one submission
- *  is accepted but has no submittedAt, so it is no real lead. */
+ *  is accepted but has no submittedAt, so it is no real lead. The archived
+ *  ToString has the id "constructor", an Object.prototype key, so a facts read
+ *  without its own-property guard would find an inherited function. */
 const SNAP_R3 = snapshot({
   sites: [
     healthy({ id: "recV", name: "Foo", reachableOk: "fail" }),
     makeWebsiteRow({ id: "recX", name: "FOO", status: "archived" }),
     healthy({ id: "recM", name: "Acme Corp" }),
     healthy({ id: "recH", name: "Hotel" }),
+    makeWebsiteRow({ id: "constructor", name: "ToString", status: "archived" }),
   ],
   submissions: [
     makeSubmissionRow({
@@ -303,6 +306,12 @@ describe("the live columns, review round 3 (P1-87, PR 2)", () => {
       "A page not answering, checked Oct 26, 11:30pm PT",
     );
     expect(rowOf(doc, "Foo").querySelectorAll(".pill")).toHaveLength(1);
+  });
+
+  it("gives an archived site whose id is an Object.prototype key dashes, not an inherited value", async () => {
+    const ts = rowOf(await page("/fleet?status=__all__", SNAP_R3), "ToString");
+    for (const label of ["Live", "Certificate", "Deploy", "Forms", "Level"])
+      expect(text(cell(ts, label))).toBe("—");
   });
 
   it("finds a two-word site's checks by its id (slug 'acme-corp')", async () => {
