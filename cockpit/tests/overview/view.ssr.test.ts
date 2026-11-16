@@ -1787,3 +1787,286 @@ describe("review round 7 (on the round-6 fix)", () => {
     expect(v.status.broken[0]!.reasons).toBe("the latest deploy failed");
   });
 });
+
+/**
+ * P1-87 PR 3: the first screen's model. Every fixture value is chosen so that a
+ * mutant swapping one count for another gives a different number (3, 2, 1 and 4, 2,
+ * 1, never equal), and the sites a mutant could wrongly count are present: a launching
+ * site that would fail every check, a maintained site with no form test, one with a
+ * stale security audit and one with a stale accessibility scan, and a broken site.
+ */
+describe("health and numbers (P1-87 PR 3)", () => {
+  const TRANSITIVE = [
+    {
+      module: "x",
+      severity: "high" as const,
+      title: "t",
+      cves: [],
+      url: null,
+      relationship: "transitive" as const,
+    },
+  ];
+  const FIRST = { healthy: FRESH, stale: STALE };
+  const fleet = () =>
+    snapshot({
+      sites: [
+        // Acme: every check passes.
+        healthy({
+          id: "recA",
+          name: "Acme",
+          smokeOk: "pass",
+          lastSmokeAt: FRESH,
+          a11yViolations: 0,
+          a11yCheckedAt: FRESH,
+        }),
+        // Bravo: Broken (its pages do not answer), its build and tests fail, no accessibility scan.
+        healthy({
+          id: "recB",
+          name: "Bravo",
+          reachableOk: "fail",
+          smokeOk: "fail",
+          lastSmokeAt: FRESH,
+        }),
+        // Charlie: Attention (certificate 18 days), no form test, a stale security audit,
+        // three accessibility violations freshly scanned.
+        healthy({
+          id: "recC",
+          name: "Charlie",
+          certDaysRemaining: 18,
+          formE2eOk: null,
+          formE2eCheckedAt: null,
+          lastSecurityAuditAt: FIRST.stale,
+          a11yViolations: 3,
+          a11yCheckedAt: FRESH,
+          smokeOk: "pass",
+          lastSmokeAt: FRESH,
+        }),
+        // Delta and Foxtrot: Watch (a transitive high vulnerability, past its window).
+        healthy({
+          id: "recD",
+          name: "Delta",
+          securityVulnsHigh: 2,
+          securityAdvisories: TRANSITIVE,
+          smokeOk: "pass",
+          lastSmokeAt: FIRST.stale,
+        }),
+        healthy({
+          id: "recF",
+          name: "Foxtrot",
+          securityVulnsHigh: 2,
+          securityAdvisories: TRANSITIVE,
+          a11yViolations: 0,
+          a11yCheckedAt: FRESH,
+          smokeOk: "pass",
+          lastSmokeAt: FIRST.stale,
+        }),
+        // Echo is launching: it would fail every check, and none of it may count.
+        healthy({
+          id: "recE",
+          name: "Echo",
+          status: "launching",
+          urlResolves: "fail",
+          urlCheckedAt: FRESH,
+          deployStatus: "error",
+          deployCheckedAt: FRESH,
+          formE2eOk: "fail",
+          smokeOk: "fail",
+          lastSmokeAt: FRESH,
+          lastSecurityAuditAt: STALE,
+        }),
+      ],
+      digest: {
+        "uptime:recB": { metric: 1, firstFlaggedAt: "2026-10-25" },
+        "vuln:recD": { metric: 2, firstFlaggedAt: "2026-10-01" },
+        "vuln:recF": { metric: 2, firstFlaggedAt: "2026-10-01" },
+      },
+    });
+  const HEALTH = overviewFromSnapshot(fleet(), NOW).health;
+  const check = (name: string) => HEALTH.checks.find((c) => c.name === name)!;
+
+  it("counts maintained sites only, and tiers them as the model does", () => {
+    expect(HEALTH.sites).toBe(5);
+    expect(HEALTH.tiers).toEqual({ ok: 1, watch: 2, attention: 1, broken: 1 });
+    expect(HEALTH.tiers.ok + HEALTH.tiers.watch + HEALTH.tiers.attention + HEALTH.tiers.broken).toBe(
+      HEALTH.sites,
+    );
+  });
+
+  it("lists the seven checks in the sketch's order", () => {
+    expect(HEALTH.checks.map((c) => c.name)).toEqual([
+      "Live",
+      "Certificate",
+      "Deploy",
+      "Contact form",
+      "Security",
+      "Accessibility",
+      "Build + tests",
+    ]);
+  });
+
+  it("gives each check its pass, fail and unknown counts, a site's unknown never a pass", () => {
+    expect(check("Live")).toEqual({ name: "Live", pass: 4, fail: 1, unknown: 0, total: 5 });
+    expect(check("Certificate")).toEqual({
+      name: "Certificate",
+      pass: 4,
+      fail: 1,
+      unknown: 0,
+      total: 5,
+    });
+    expect(check("Deploy")).toEqual({ name: "Deploy", pass: 5, fail: 0, unknown: 0, total: 5 });
+    // Charlie has no form test: unknown, and not a pass.
+    expect(check("Contact form")).toEqual({
+      name: "Contact form",
+      pass: 4,
+      fail: 0,
+      unknown: 1,
+      total: 5,
+    });
+    // Charlie's security audit is stale: unknown. Delta and Foxtrot each hold a high one.
+    expect(check("Security")).toEqual({ name: "Security", pass: 2, fail: 2, unknown: 1, total: 5 });
+    // Stale or absent scans are unknown; Charlie's three violations are a fresh fail.
+    expect(check("Accessibility")).toEqual({
+      name: "Accessibility",
+      pass: 2,
+      fail: 1,
+      unknown: 2,
+      total: 5,
+    });
+    expect(check("Build + tests")).toEqual({
+      name: "Build + tests",
+      pass: 2,
+      fail: 1,
+      unknown: 2,
+      total: 5,
+    });
+  });
+
+  it("is an instrument that can fail: a stale security audit is not a pass", () => {
+    // Control: with a fresh audit Charlie passes Security, so the stale one changed the count.
+    const fresh = overviewFromSnapshot(
+      snapshot({
+        sites: fleet().sites!.map((x) =>
+          x.id === "recC" ? { ...x, lastSecurityAuditAt: FIRST.healthy } : x,
+        ),
+        digest: fleet().digest,
+      }),
+      NOW,
+    ).health;
+    expect(fresh.checks.find((c) => c.name === "Security")!.pass).toBe(3);
+  });
+
+  it("the tile numbers for the nightly-driven and lead counts, from their own fields", () => {
+    const N = overviewFromSnapshot(numbersFleet(), NOW).numbers;
+    expect(N.map((t) => t.key)).toEqual(["leads", "spam", "checks", "deps", "reports", "shipped"]);
+    const tile = (k: string) => N.find((t) => t.key === k)!;
+    expect(tile("leads")).toMatchObject({
+      value: "3",
+      measured: true,
+      label: "leads sent to clients this month",
+      context: "4 since Jul 2, 2026",
+    });
+    expect(tile("spam")).toMatchObject({
+      value: "250",
+      measured: true,
+      context: "248 before storage, 2 screened",
+      spark: null,
+    });
+    expect(tile("checks")).toMatchObject({
+      value: "15",
+      measured: true,
+      context: "114 over the last 13 nights",
+    });
+    expect(tile("deps")).toMatchObject({
+      value: "26",
+      measured: true,
+      context: "over the last 13 nights",
+      spark: null,
+    });
+    expect(tile("reports")).toMatchObject({
+      value: "3",
+      measured: true,
+      context: "2 approved by one of us first",
+    });
+    expect(tile("shipped")).toMatchObject({
+      value: "39",
+      measured: true,
+      context: "over the last 13 nights",
+    });
+  });
+
+  it("the sparklines: one point a night, oldest first, and a missing night is a gap", () => {
+    const N = overviewFromSnapshot(numbersFleet(), NOW).numbers;
+    const tile = (k: string) => N.find((t) => t.key === k)!;
+    expect(tile("leads").spark).toEqual([null, 1, 1, 1, 1, null, null, 1, 1, 1, 1, 1, 1, 1]);
+    expect(tile("checks").spark).toEqual([2, 3, 4, null, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
+    expect(tile("checks").spark!.filter((x) => x === 0)).toEqual([]);
+  });
+
+  it("an unmeasured tile reads the model's words, never 0", () => {
+    const nothing = overviewFromSnapshot(
+      snapshot({ sites: fleet().sites, submissions: null, nights: null, reports: null }),
+      NOW,
+    ).numbers;
+    for (const t of nothing) {
+      expect(t.measured, t.key).toBe(false);
+      expect(t.value, t.key).not.toBe("0");
+    }
+    expect(nothing.find((t) => t.key === "leads")!.value).toBe(UNREADABLE);
+    expect(nothing.find((t) => t.key === "checks")!.value).toBe(UNREADABLE);
+    const empty = overviewFromSnapshot(
+      snapshot({ sites: fleet().sites, submissions: [], nights: [], reports: [] }),
+      NOW,
+    ).numbers;
+    expect(empty.find((t) => t.key === "checks")!.value).toBe(NOT_YET);
+    expect(empty.find((t) => t.key === "shipped")!.value).toBe(NOT_YET);
+    expect(empty.find((t) => t.key === "deps")!.value).toBe(NOT_YET);
+    expect(empty.find((t) => t.key === "spam")!.value).toBe(NOT_YET);
+  });
+});
+
+/** The numbers fixture: a 14-night window (one night with no leads count, one with no
+ *  coverage, cumulative totals that climb), this month's and older submissions, and a
+ *  test send beside three real reports, two of them approved first. */
+function numbersFleet() {
+  const dates = Array.from({ length: 14 }, (_, i) =>
+    new Date(Date.parse("2026-10-13T00:00:00Z") + i * 86_400_000).toISOString().slice(0, 10),
+  );
+  const nights = dates
+    .map((d, i) =>
+      night(d, {
+        leads: { value: i === 5 ? null : { notified: i } },
+        coverage: {
+          value: {
+            a: { value: i === 3 ? null : i },
+            b: { value: 2 },
+          },
+        },
+        events: { value: { pr_automerged: 100 + 2 * i, vuln_cleared: 10 } },
+        prsMerged: { value: 600 + 3 * i },
+      }),
+    )
+    .reverse();
+  return snapshot({
+    sites: [healthy({ id: "recA", name: "Acme" })],
+    submissions: [
+      makeSubmissionRow({ id: "m1", siteId: "recA", status: "read", notifyStatus: "sent", submittedAt: "2026-10-10T12:00:00.000Z" }),
+      makeSubmissionRow({ id: "m2", siteId: "recA", status: "read", notifyStatus: "sent", submittedAt: "2026-10-12T12:00:00.000Z" }),
+      makeSubmissionRow({ id: "m3", siteId: "recA", status: "read", notifyStatus: "sent", submittedAt: "2026-10-20T12:00:00.000Z" }),
+      makeSubmissionRow({ id: "o1", siteId: "recA", status: "read", notifyStatus: "sent", submittedAt: "2026-07-02T12:00:00.000Z" }),
+      makeSubmissionRow({ id: "s1", siteId: "recA", status: "spam_auto", submittedAt: "2026-07-03T12:00:00.000Z" }),
+      makeSubmissionRow({ id: "s2", siteId: "recA", status: "spam_auto", submittedAt: "2026-07-04T12:00:00.000Z" }),
+    ],
+    reports: [
+      report({ id: "r1", sentAt: "2026-09-02T16:07:00.000Z", approvedAt: "2026-09-01T20:00:00.000Z" }),
+      report({ id: "r2", sentAt: "2026-09-03T16:07:00.000Z", approvedAt: "2026-09-04T20:00:00.000Z" }),
+      report({ id: "r3", sentAt: "2026-09-06T16:07:00.000Z", approvedAt: "2026-09-05T20:00:00.000Z" }),
+      report({
+        id: "r4",
+        sentAt: "2026-09-07T16:07:00.000Z",
+        approvedAt: "2026-09-06T20:00:00.000Z",
+        approvedBy: "test send via Claude",
+      }),
+    ],
+    nights,
+  });
+}

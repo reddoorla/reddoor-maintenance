@@ -86,15 +86,13 @@ const pageText = (doc: HTMLElement) =>
     .join(" ");
 
 describe("the overview page, rendered from a real view (T1)", () => {
-  it("has the eight sections, each under its h2", () => {
+  it("has the first screen's two panels, then the kept sections, each under its h2", () => {
     expect(DOC.querySelectorAll("h2").map(text)).toEqual([
       "Status",
-      "Is every site live?",
+      "Fleet health · 3 sites",
+      "How much is happening",
       "Leads",
       "Client reports",
-      "What runs every night",
-      "Upkeep",
-      "How changes ship",
       "Trends",
     ]);
   });
@@ -135,25 +133,7 @@ describe("the overview page, rendered from a real view (T1)", () => {
     expect(pageText(DOC)).not.toMatch(new RegExp(`\\b${sum}\\b`));
   });
 
-  it("says how many checks a report carries from the model, not a typed word", () => {
-    expect(pageText(DOC)).toContain(
-      `Every maintenance report carries ${VIEW.reports.checks.length} checks.`,
-    );
-    const fewer = pageHtml({
-      ...VIEW,
-      reports: { ...VIEW.reports, checks: VIEW.reports.checks.slice(0, 5) },
-    });
-    expect(pageText(parse(fewer))).toContain("Every maintenance report carries 5 checks.");
-  });
 
-  it("shows the Live cell's check time", () => {
-    const acme = DOC.querySelectorAll(".ov-live tbody tr").find((tr) =>
-      text(tr).startsWith("Acme"),
-    )!;
-    expect(text(acme.querySelector('td[data-label="Live"]')!)).toBe(
-      "Live, checked Oct 26, 11:30pm PT",
-    );
-  });
 });
 
 /** The digit runs a visitor reads below the shell, one text node at a time, so two
@@ -189,26 +169,6 @@ describe("no count is typed into the page (T2)", () => {
   });
 });
 
-describe("How we count (T6)", () => {
-  it("has one line for every label the page marks as a count, and no other", () => {
-    // From the rendered labels, not a typed list: each number's label carries data-term.
-    const marked = [
-      ...new Set(DOC.querySelectorAll("[data-term]").map((e) => e.getAttribute("data-term")!)),
-    ];
-    const terms = DOC.querySelectorAll(".ov-how dt").map(text);
-    expect(marked.length).toBeGreaterThan(20);
-    expect([...marked].sort()).toEqual([...terms].sort());
-    expect(terms).toEqual(HOW_WE_COUNT.map((h) => h.term));
-  });
-
-  it("covers the counts of a page with no Broken site and no biggest share too", () => {
-    const quiet = parse(pageHtml(overviewFromSnapshot(snapshot(), NOW)));
-    const terms = new Set(quiet.querySelectorAll(".ov-how dt").map(text));
-    for (const e of quiet.querySelectorAll("[data-term]"))
-      expect(terms).toContain(e.getAttribute("data-term"));
-  });
-});
-
 describe("everyone signed in sees the same page (T7)", () => {
   it("the operator, Erik and Tim get the same overview; only the header names them", () => {
     const below = (html: string) => html.slice(html.indexOf("</header>"));
@@ -219,7 +179,7 @@ describe("everyone signed in sees the same page (T7)", () => {
     expect(below(tim)).toBe(below(op));
     // Control: the header does differ, so the slice is not comparing nothing.
     expect(op).not.toBe(erik);
-    expect(below(op)).toContain("Is every site live?");
+    expect(below(op)).toContain("How much is happening");
   });
 });
 
@@ -358,6 +318,13 @@ describe("the sentinel render: each leaf in its labelled element (T1, T2; round 
     // month's submissions and the test sends are worked out but not shown, and ids,
     // links, classes, terms and raw stamps are attributes or keys.
     const unrendered = (p: string) =>
+      // Fields the page no longer renders (P1-87 PR 3): the model keeps them.
+      /^(live|upkeep|nightly)(\.|\[)/.test(p) ||
+      p === "prsMerged" ||
+      p === "nightsCollected" ||
+      p.startsWith("reports.checks") ||
+      /\.spark(\[|$)/.test(p) ||
+      /\.total$/.test(p) ||
       p.startsWith("status.counts.") ||
       p === "status.line" ||
       p === "status.cls" ||
@@ -385,20 +352,6 @@ describe("the sentinel render: each leaf in its labelled element (T1, T2; round 
     );
   });
 
-  it("each Live-table cell reads its own field", () => {
-    const rows = SDOC.querySelectorAll(".ov-live tbody tr");
-    expect(rows.length).toBe(SV.live.length);
-    rows.forEach((tr, i) => {
-      const p = `live[${letters(i)}]`;
-      const cell = (label: string) => text(tr.querySelector(`td[data-label="${label}"]`)!);
-      expect(text(tr.querySelector("th")!)).toBe(sent(`${p}.siteName`));
-      expect(cell("Live")).toBe(`${sent(`${p}.live.text`)}, checked ${sent(`${p}.live.at`)}`);
-      expect(cell("Certificate")).toBe(sent(`${p}.domain.text`));
-      expect(cell("Deploy")).toBe(sent(`${p}.deploy.text`));
-      expect(cell("Forms")).toBe(`${sent(`${p}.forms.text`)}; ${sent(`${p}.lastLead`)}`);
-      expect(cell("Level")).toBe(sent(`${p}.level.text`));
-    });
-  });
 
   it("the leads headline reads each count from its own field", () => {
     const span = (term: string) =>
@@ -454,25 +407,16 @@ describe("the sentinel render: each leaf in its labelled element (T1, T2; round 
     });
   });
 
-  it("the reports section reads each field: checks, medians, sends, due and waiting", () => {
-    const dts = SDOC.querySelectorAll(".ov-checks dt").map(text);
-    const dds = SDOC.querySelectorAll(".ov-checks dd").map(text);
-    expect(dts).toEqual(
-      SV.reports.checks.map((_, i) => sent(`reports.checks[${letters(i)}].name`)),
-    );
-    expect(dds).toEqual(
-      SV.reports.checks.map((_, i) => sent(`reports.checks[${letters(i)}].proof`)),
-    );
+  it("the reports section reads each field: sends, due and waiting; the medians sit in Fleet health", () => {
     expect(one('p[data-term="Reports sent"]')).toBe(
       `${sent("reports.sent.real")} reports sent to clients: ${sent("reports.sent.approvedFirst")} approved by one of us before sending, and ${sent("reports.sent.aroundGate")} without that yes.`,
     );
-    const lh = one('p[data-term="Lighthouse"]');
-    SV.reports.lighthouse.forEach((_, i) =>
-      expect(lh).toContain(
-        `${sent(`reports.lighthouse[${letters(i)}].label`)} ${sent(`reports.lighthouse[${letters(i)}].median`)}`,
-      ),
+    const meds = SDOC.querySelectorAll(".ov-medians dt").map(text);
+    expect(meds).toEqual(SV.reports.lighthouse.map((_, i) => sent(`reports.lighthouse[${letters(i)}].label`)));
+    expect(SDOC.querySelectorAll(".ov-medians dd").map(text)).toEqual(
+      SV.reports.lighthouse.map((_, i) => sent(`reports.lighthouse[${letters(i)}].median`)),
     );
-    expect(lh).toContain(`, from audits as old as ${sent("reports.lighthouseAsOf")}.`);
+    expect(one(".ov-lighthouse-line")).toContain(`from audits as old as ${sent("reports.lighthouseAsOf")}.`);
     const rows = SDOC.querySelectorAll(".ov-due tbody tr");
     expect(rows.length).toBe(SV.reports.perSite.length);
     rows.forEach((tr, i) => {
@@ -483,50 +427,7 @@ describe("the sentinel render: each leaf in its labelled element (T1, T2; round 
     });
   });
 
-  it("the nightly section reads its times, scale, reliability and each step's slots", () => {
-    const span = (term: string) =>
-      one(`section[aria-labelledby="ov-nightly"] span[data-term="${term}"]`);
-    expect(span("Times")).toBe(
-      `The nightly starts at ${sent("nightly.startsAt")}. Approved reports send at ${sent("nightly.sendsAt")}.`,
-    );
-    expect(span("Scale")).toBe(`Scale: ${sent("nightly.scale")}.`);
-    expect(span("Runs completed")).toBe(`Runs completed: ${sent("nightly.reliability")}.`);
-    const steps = SDOC.querySelectorAll(".ov-steps li");
-    expect(steps.length).toBe(SV.nightly.steps.length);
-    steps.forEach((li, i) => {
-      const p = `nightly.steps[${letters(i)}]`;
-      expect(text(li.querySelector(".ov-step-name")!)).toBe(sent(`${p}.label`));
-      expect(text(li.querySelector(".muted")!)).toBe(
-        `${sent("nightly.nightOf")}: ${sent(`${p}.outcome`)}. Last finished: ${sent(`${p}.lastFinished`)}. Reached: ${sent(`${p}.sites`)}.`,
-      );
-    });
-  });
 
-  it("the upkeep lines, the open vulnerabilities and the changes merged read their own fields", () => {
-    const li = (term: string) =>
-      one(`section[aria-labelledby="ov-upkeep"] li[data-term="${term}"]`);
-    expect(li("Dependency updates merged")).toBe(
-      `Dependency updates merged (opened by Renovate, our update bot): ${sent("upkeep.automerged")}.`,
-    );
-    expect(li("Sites cleared of vulnerabilities")).toBe(
-      `Sites cleared of every critical or high vulnerability: ${sent("upkeep.vulnsCleared")}.`,
-    );
-    expect(li("Major-version upgrades waiting")).toBe(
-      `Major-version upgrades waiting: ${sent("upkeep.depsBehind")}.`,
-    );
-    expect(SDOC.querySelectorAll('ul[data-term="Open now"] li').map(text)).toEqual(
-      SV.upkeep.open.map(
-        (_, i) =>
-          `${sent(`upkeep.open[${letters(i)}].siteName`)} ${sent(`upkeep.open[${letters(i)}].text`)}.`,
-      ),
-    );
-    expect(one('p[data-term="PRs merged"]')).toBe(
-      `PRs merged into the maintenance stack (the code that runs these checks and sends the reports): ${sent("prsMerged")}.`,
-    );
-    expect(one('.ov-how p[data-term="Nights counted"]')).toBe(
-      `The nightly has written ${sent("nightsCollected")} of counts so far.`,
-    );
-  });
 });
 
 describe("review round 3: the page reads right for one, and for a form test not yet trusted", () => {
@@ -548,7 +449,7 @@ describe("review round 3: the page reads right for one, and for a form test not 
     );
   });
 
-  it("a failed form test is in the unknown style, and says it is not yet a verdict (O1)", () => {
+  it("a failed form test is not a pass nor a fail in Fleet health: it is not checked (O1)", () => {
     const doc = parse(
       pageHtml(
         overviewFromSnapshot(
@@ -557,42 +458,8 @@ describe("review round 3: the page reads right for one, and for a form test not 
         ),
       ),
     );
-    const td = doc.querySelector('.ov-live td[data-label="Forms"]')!;
-    expect(td.getAttribute("class")).toBe("unknown");
-    expect(text(td)).toBe(
-      "Test failed, but the test itself is being fixed, so this is not yet a verdict; no real lead yet",
-    );
-    expect(text(doc.querySelector('.ov-live td[data-label="Level"]')!)).toBe("OK");
-  });
-});
-
-describe("every number on the page sits under a How-we-count label (T6)", () => {
-  /** Each text node holding a digit, below the shell (the How-we-count list itself
-   *  is the explanation, not a count), with the nearest `data-term` above it. */
-  function unlabelled(doc: HTMLElement): string[] {
-    const out: string[] = [];
-    const walk = (n: Node) => {
-      if (n instanceof TextNode) {
-        if (/\d/.test(n.text) && (n.parentNode as HTMLElement).closest("[data-term]") === null)
-          out.push(n.text.trim());
-      } else for (const c of n.childNodes) walk(c);
-    };
-    for (const el of doc.querySelectorAll("h1, section, .ov-how > p")) walk(el);
-    return out;
-  }
-
-  it("holds on the full fixture and the sentinel render", () => {
-    expect(shownNumbers(DOC).length).toBeGreaterThan(20);
-    expect(unlabelled(DOC)).toEqual([]);
-    expect(unlabelled(SDOC)).toEqual([]);
-  });
-
-  it("is an instrument that can fail: a number with no label is caught", () => {
-    const bare = HTML.replace(
-      "<h1>Overview</h1>",
-      "<h1>Overview</h1><section><p>42 things</p></section>",
-    );
-    expect(unlabelled(parse(bare))).toEqual(["42 things"]);
+    const row = doc.querySelectorAll(".ov-check").find((r) => text(r).startsWith("Contact form"))!;
+    expect(text(row.querySelector(".ov-check-count")!)).toBe("0 · 1 not checked");
   });
 });
 
@@ -689,34 +556,7 @@ describe("review round 4: emphasis, the none-open sentence, and the shipping cop
     expect(quiet.querySelector("section.ov-status")!.classList.contains("ok")).toBe(true);
   });
 
-  it("says none is open only when every site has a fresh security check (C2)", () => {
-    const NONE = "No critical or high vulnerability is open.";
-    expect(pageText(parse(pageHtml(overviewFromSnapshot(snapshot(), NOW))))).toContain(NONE);
-    const never = snapshot({
-      sites: [
-        healthy({ id: "recA", name: "Acme" }),
-        healthy({
-          id: "recR",
-          name: "Rsvp Site",
-          lastSecurityAuditAt: null,
-          securityVulnsCritical: null,
-          securityVulnsHigh: null,
-        }),
-      ],
-    });
-    const words = pageText(parse(pageHtml(overviewFromSnapshot(never, NOW))));
-    expect(words).not.toContain(NONE);
-    expect(words).toContain(
-      "Rsvp Site has no security check on record, so we cannot say what is open now.",
-    );
-  });
 
-  it("glosses a pull request, and says who promotes staging (O9, O10)", () => {
-    const ship = text(DOC.querySelector('section[aria-labelledby="ov-ship"]')!);
-    expect(ship).toContain("each as a pull request (PR)");
-    expect(ship).toContain("when one of us promotes staging");
-    expect(ship).not.toContain("when you promote");
-  });
 });
 
 /** The digit runs a visitor reads outside How we count's definitions: every text node
@@ -934,12 +774,9 @@ describe("P1-78h: section 8 drawn, once fleet_daily holds 14 nights", () => {
     expect(titles).toContain("Oct 20: no count that night");
   });
 
-  it("every number in the section came from the view, and has its How-we-count line", () => {
+  it("every number in the section came from the view", () => {
     const allowed = new Set([...(JSON.stringify({ TVIEW, HOW_WE_COUNT }).match(/\d+/g) ?? [])]);
     expect(shownNumbers(TDOC).filter((d) => !allowed.has(d))).toEqual([]);
-    const terms = new Set(TDOC.querySelectorAll(".ov-how dt").map(text));
-    for (const e of TDOC.querySelectorAll("[data-term]"))
-      expect(terms).toContain(e.getAttribute("data-term"));
   });
 
   it("over the sentinel render: each leaf is on the page, and no digit is typed in", () => {
@@ -959,5 +796,95 @@ describe("P1-78h: section 8 drawn, once fleet_daily holds 14 nights", () => {
     const allowed = new Set(ST.at.values());
     const n = ST.view.reports.checks.length;
     expect(boundNumbers(doc, n).filter((d) => !allowed.has(d))).toEqual([]);
+  });
+});
+
+/**
+ * P1-87 PR 3: the first screen. The strip and two panels above the kept sections, the
+ * removed sections gone, and a closing link to /how.
+ */
+describe("the first screen (P1-87 PR 3)", () => {
+  const quietSites = ["Acme", "Rsvp Site"];
+  const quiet = parse(pageHtml(overviewFromSnapshot(snapshot(), NOW)));
+  const screen = (doc: HTMLElement) =>
+    doc.querySelectorAll(".ov-first").map((e) => e.toString()).join("");
+
+  it("shows no site name in the panels on a quiet day", () => {
+    const panels = parse(screen(quiet));
+    expect(panels.querySelectorAll("section").length).toBe(2);
+    for (const name of quietSites) expect(screen(quiet)).not.toContain(name);
+    // Control: the same scan finds a name when a site is broken and listed in the strip.
+    expect(text(DOC.querySelector("section.ov-status")!)).toContain("Bravo");
+  });
+
+  it("the tier bar's counts read as text, in the order OK, watch, attention, broken", () => {
+    expect(one(".ov-tier-counts")).toBe("2 OK · 0 watch · 0 attention · 1 broken");
+  });
+
+  it("the check rows come in the sketch's order, each with its counts", () => {
+    const rows = DOC.querySelectorAll(".ov-check").map((r) => text(r.querySelector(".ov-check-name")!));
+    expect(rows).toEqual(["Live", "Certificate", "Deploy", "Contact form", "Security", "Accessibility", "Build + tests"]);
+    // Bravo's Live is failing: one failing, and the pass count first.
+    const live = DOC.querySelectorAll(".ov-check")[0]!;
+    expect(text(live.querySelector(".ov-check-count")!)).toBe("2 · 1 failing");
+  });
+
+  it("the broken fixture: the strip is red, names the site, and drops the quiet-day sentence", () => {
+    const strip = DOC.querySelector("section.ov-status")!;
+    expect(strip.classList.contains("broken")).toBe(true);
+    expect(text(strip.querySelector(".ov-list.broken")!)).toContain("Bravo");
+    expect(text(strip)).not.toContain("Nothing needs attention");
+    expect(text(strip)).not.toContain("All live");
+  });
+
+  it("the Lighthouse medians sit in the health panel, under a muted line", () => {
+    expect(one(".ov-lighthouse-line")).toContain("Google Lighthouse, the middle score across our sites");
+    expect(DOC.querySelectorAll(".ov-medians dt").map(text)).toEqual(["Performance", "Accessibility", "Best practices", "SEO"]);
+  });
+
+  it("the removed sections are gone from the page", () => {
+    const all = text(DOC.querySelector("body")!);
+    for (const gone of ["Is every site live?", "What runs every night", "Upkeep", "How changes ship", "How we count", "Open now", "The ladder"])
+      expect(all, gone).not.toContain(gone);
+  });
+
+  it("closes with a link to /how, after the trends", () => {
+    const link = DOC.querySelectorAll('a[href="/how"]').find((a) => text(a) === "How this works")!;
+    expect(link).toBeDefined();
+    // The shell's nav has its own /how link above the page; this one is the closing link.
+    expect(HTML.lastIndexOf('href="/how"')).toBeGreaterThan(HTML.indexOf('id="ov-trends"'));
+  });
+
+  it("an unmeasured tile reads its words, never 0", () => {
+    const none = parse(
+      pageHtml(overviewFromSnapshot(snapshot({ sites: snapshot().sites, submissions: null, nights: null, reports: null }), NOW)),
+    );
+    const nums = none.querySelectorAll(".ov-tile .ov-num").map(text);
+    expect(nums.length).toBe(6);
+    expect(nums).not.toContain("0");
+    expect(nums.every((n) => n === "not readable")).toBe(true);
+  });
+
+  it("each tile names its number, its label and its context; the sparkline is hidden from readers", () => {
+    const tiles = DOC.querySelectorAll(".ov-tile");
+    expect(tiles.length).toBe(6);
+    for (const t of tiles) {
+      expect(t.querySelector(".ov-label")).not.toBeNull();
+      const svg = t.querySelector("svg");
+      if (svg) expect(svg.getAttribute("aria-hidden")).toBe("true");
+    }
+  });
+
+  it("a night with no value is a gap in the sparkline, never a drop to 0", () => {
+    // Two-week fixture: the leads line breaks around its two empty nights.
+    const fourteen = Array.from({ length: 14 }, (_, i) =>
+      night(new Date(Date.parse("2026-10-13T00:00:00Z") + i * 86_400_000).toISOString().slice(0, 10), {
+        leads: { value: i === 5 ? null : { notified: i } },
+      }),
+    ).reverse();
+    const page = parse(pageHtml(overviewFromSnapshot(snapshot({ nights: fourteen }), NOW)));
+    const leads = page.querySelectorAll(".ov-tile")[0]!;
+    expect(leads.querySelectorAll("polyline").length).toBe(2);
+    expect(leads.querySelector("polyline")!.getAttribute("points")!.split(" ").length).toBe(4);
   });
 });
