@@ -353,6 +353,24 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     );
     expect(tops.length).toBe(3);
     for (const row of tops) expect(new Set(row).size).toBe(1);
+    // Each box after the first has its arrow, pointing along the row: not the phone's.
+    const arrows = await page.$$eval(".how-flow > li + li", (els) =>
+      els.map((e) => [
+        getComputedStyle(e, "::before").content,
+        getComputedStyle(e, "::before").transform,
+      ]),
+    );
+    for (const [content] of arrows) expect(content).not.toBe("none");
+    expect(new Set(arrows.map(([, t]) => t)).size).toBe(1);
+    expect(arrows[0]![1]).not.toBe("none");
+    // On a phone the same arrow turns to point down the column.
+    await page.setViewportSize({ width: 390, height: 800 });
+    const phone = await page.$eval(
+      ".how-flow > li + li",
+      (e) => getComputedStyle(e, "::before").transform,
+    );
+    expect(phone).not.toBe("none");
+    expect(phone).not.toBe(arrows[0]![1]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
       1000,
     );
@@ -415,6 +433,48 @@ describe("cockpit navigation, in a browser, against the built app", () => {
         els.map((e) => getComputedStyle(e, "::before").content),
       );
       expect(firstArrows).toEqual(["none", "none", "none"]);
+      // Every box after the first has its arrow, turned to point down the column.
+      const arrows = await page.$$eval(".how-flow > li + li", (els) =>
+        els.map((e) => [
+          getComputedStyle(e, "::before").content,
+          getComputedStyle(e, "::before").transform,
+        ]),
+      );
+      expect(arrows.length).toBeGreaterThan(8);
+      for (const [content] of arrows) expect(content).not.toBe("none");
+      expect(new Set(arrows.map(([, t]) => t)).size).toBe(1);
+      // The end box's words meet 4.5:1 on its fill.
+      const contrast = await page.$$eval(".how-flow li.how-end", (els) =>
+        els.map((e) => {
+          const lum = (c: string) => {
+            const [r, g, b] = c
+              .match(/\d+(\.\d+)?/g)!
+              .slice(0, 3)
+              .map(Number)
+              .map((v) => {
+                const x = v / 255;
+                return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+              });
+            return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+          };
+          const [a, b] = [lum(getComputedStyle(e).color), lum(getComputedStyle(e).backgroundColor)];
+          return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+        }),
+      );
+      for (const r of contrast) expect(r).toBeGreaterThanOrEqual(4.5);
+      // Broken's bar is the Broken red, and no other level's is.
+      const bars = await page.$$eval(".how-ladder li", (els) =>
+        els.map((e) => [e.className, getComputedStyle(e).borderTopColor]),
+      );
+      const red = await page.evaluate(() => {
+        const probe = document.createElement("div");
+        probe.style.color = "var(--broken-fill)";
+        document.body.append(probe);
+        const c = getComputedStyle(probe).color;
+        probe.remove();
+        return c;
+      });
+      expect(bars.filter(([, c]) => c === red).map(([k]) => k)).toEqual(["broken"]);
     },
   );
 

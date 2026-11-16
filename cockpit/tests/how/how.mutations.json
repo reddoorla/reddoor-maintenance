@@ -377,5 +377,109 @@
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "29-arrows-gone",
+    "why": "Every flow loses its arrows (review round 4, tests 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  content: \"\";\n",
+        "replace": "  content: none;\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "30-phone-arrows-sideways",
+    "why": "On a phone the arrows keep pointing sideways (review round 4, tests 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  .how-flow li + li::before {",
+        "replace": "  .how-flow li + li::after {"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "31-end-box-low-contrast",
+    "why": "The end box's words are barely readable on its fill (review round 4, tests 2)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  color: var(--on-ink);\n",
+        "replace": "  color: var(--ink-dark);\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "32-broken-not-red",
+    "why": "Broken's bar is ink, like Attention's (review round 4, tests 3)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": ".how-ladder li.broken {\n  border-top-color: var(--broken-fill);",
+        "replace": ".how-ladder li.broken {\n  border-top-color: var(--ink);"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "33-zero-around-gate",
+    "why": "\"0 went without that yes\" when every report was approved (review round 4, tests 4)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "aroundGate > 0}",
+        "replace": "aroundGate >= 0}"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "34-lighthouse-run-together",
+    "why": "The Lighthouse scores lose their separators (review round 4, tests 5)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "{i > 0 ? \" \u00b7 \" : \"\"}",
+        "replace": "{i > 0 ? \" \" : \"\"}"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "35-step-numbers-gone",
+    "why": "The step numbers the report's proofs cite are gone (review round 4, a11y 1, tests 5)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "><span class=\"how-step-n\">{s.n}</span> \u00b7",
+        "replace": ">"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "36-every-report-six",
+    "why": "The page says every report carries all the checks (review round 4, correctness 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "Every maintenance report carries up to {v.reports.checks.length} checks",
+        "replace": "Every maintenance report carries {v.reports.checks.length} checks"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
   }
 ]

@@ -34,7 +34,10 @@
   <ol class="how-steps" role="list" data-term="Steps">
     {#each v.nightly.steps as s (s.label)}
       <li>
-        <strong>{s.short}</strong>
+        <strong
+          ><span class="how-step-n">{s.n}</span> ·
+          <span class="how-step-name">{s.short}</span></strong
+        >
         <span class="how-step-what">{s.label}</span>
         <span class="how-step-last">{v.nightly.nightOf}: {s.outcome}</span>
       </li>
@@ -67,7 +70,8 @@
   <p>
     Much of the fixing is done by the system itself: once a week an update bot opens changes for the
     packages a site uses that have new versions (after a short wait, minor ones grouped together),
-    and each change is tested before it merges.
+    and each change is tested before it merges. A fix for a known critical or high vulnerability
+    does not wait for the week: it opens the same night.
     <span data-term="Dependency updates merged"
       >Dependency updates merged: {v.upkeep.automerged}.</span
     >
@@ -149,7 +153,8 @@
     </li>
   </ol>
   <p data-term="Checks per report">
-    Every maintenance report carries {v.reports.checks.length} checks, each proven by a step of the night
+    Every maintenance report carries up to {v.reports.checks.length} checks (one that does not apply to
+    a site, such as the CMS check on a site without one, is left out), each proven by a step of the night
     above:
   </p>
   <dl class="how-checks" data-term="Checks per report">

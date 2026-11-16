@@ -21,7 +21,7 @@ export type Tier = "ok" | "watch" | "attention" | "broken";
 export type HowView = {
   /** Chapter 1: the nightly's times, its steps in run order (each with its two-word
    *  name for the diagram), and how it has gone. */
-  nightly: Omit<NightlyView, "steps"> & { steps: Array<StepView & { short: string }> };
+  nightly: Omit<NightlyView, "steps"> & { steps: Array<StepView & { n: number; short: string }> };
   /** Chapter 2: the ladder, mildest first, from the overview's own four lines. */
   ladder: Array<{ tier: Tier; name: string; text: string }>;
   /** Chapter 2: what fixed itself. */
@@ -54,7 +54,11 @@ export function howFromSnapshot(s: CockpitSnapshot, now: Date): HowView {
     // The overview's steps are NIGHTLY_STEPS in order, so index i is step i.
     nightly: {
       ...o.nightly,
-      steps: o.nightly.steps.map((step, i) => ({ ...step, short: NIGHTLY_STEPS[i]!.short })),
+      steps: o.nightly.steps.map((step, i) => ({
+        ...step,
+        n: i + 1,
+        short: NIGHTLY_STEPS[i]!.short,
+      })),
     },
     ladder: ladder(),
     upkeep: { automerged: o.upkeep.automerged, vulnsCleared: o.upkeep.vulnsCleared },

@@ -43,10 +43,8 @@ body {
   padding: 0;
   margin: 0 0 var(--space-4);
   list-style: none;
-  counter-reset: how-step;
 }
 .how-steps li {
-  counter-increment: how-step;
   background: var(--surface);
   /* A true hairline: the ladder below uses 4px bars to mean levels. */
   border-top: 1px solid var(--rule);
@@ -56,9 +54,7 @@ body {
   gap: var(--space-1);
   font-size: 0.9rem;
 }
-.how-steps li strong::before {
-  /* Seen, not read aloud: the list already gives each step its place. */
-  content: counter(how-step) " · " / "";
+.how-step-n {
   color: var(--ink-muted);
 }
 .how-step-what {
@@ -72,7 +68,7 @@ body {
    level (OK's bar is faint on purpose: the level is told by its word). */
 .how-ladder {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
   gap: var(--space-2);
   padding: 0;
   margin: 0 0 var(--space-4);
@@ -87,7 +83,7 @@ body {
   gap: var(--space-1);
 }
 .how-ladder li.watch {
-  border-top-color: var(--rule);
+  border-top-color: var(--ink-muted);
 }
 .how-ladder li.attention {
   border-top-color: var(--ink);
@@ -182,5 +178,15 @@ body {
   }
   .how-checks {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Forced colours drop fills: each box keeps an outline, and the end box a heavier one. */
+@media (forced-colors: active) {
+  .how-flow li {
+    border: 1px solid; /* currentColor: the system text colour here */
+  }
+  .how-flow li.how-end {
+    border-width: 3px;
   }
 }

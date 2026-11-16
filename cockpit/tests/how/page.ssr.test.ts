@@ -129,7 +129,7 @@ describe("five chapters, each with its diagram", () => {
     // The names as written, each with its own step's file: a swap or a typo shows.
     expect(
       Object.fromEntries(
-        NIGHTLY_STEPS.map((s, i) => [s.file, text(steps[i]!.querySelector("strong")!)]),
+        NIGHTLY_STEPS.map((s, i) => [s.file, text(steps[i]!.querySelector(".how-step-name")!)]),
       ),
     ).toEqual({
       "fleet-db-backup.yml": "Backup",
@@ -151,6 +151,15 @@ describe("five chapters, each with its diagram", () => {
           : "Night of Oct 26: ran to the end",
       ),
     );
+  });
+
+  it("chapter 1 numbers its steps in the markup, as the report's proofs cite them", () => {
+    // In the text, not drawn by CSS: a screen reader hears "5" before "Site checks",
+    // which "Step 5 reads the latest production deploy" depends on.
+    expect(DOC.querySelectorAll(".how-steps li .how-step-n").map(text)).toEqual(
+      NIGHTLY_STEPS.map((_, i) => String(i + 1)),
+    );
+    expect(text(DOC.querySelectorAll(".how-steps li strong")[4]!)).toBe("5 · Site checks");
   });
 
   it("chapter 1 labels its scale and runs completed, so a missing value still says what it is", () => {
@@ -233,10 +242,29 @@ describe("five chapters, each with its diagram", () => {
         "Step 5 checks the CMS answers; step 2 checks its content models match the site's code.",
     });
     expect(one(DOC, 'p[data-term="Checks per report"]')).toContain(
-      `carries ${names.length} checks`,
+      `carries up to ${names.length} checks`,
     );
     expect(one(DOC, 'section:has(#how-report) [data-term="Reports sent"]')).toBe(
       "Approved by one of us 1 of 2 approved before sending; 1 went without that yes",
+    );
+  });
+
+  it("chapter 4 says nothing went without a yes when every report was approved first", () => {
+    const all = {
+      ...VIEW,
+      reports: {
+        ...VIEW.reports,
+        sent: { real: 2, approvedFirst: 2, aroundGate: 0, testSends: 0 },
+      },
+    };
+    expect(one(parse(pageHtml(all)), 'section:has(#how-report) [data-term="Reports sent"]')).toBe(
+      "Approved by one of us 2 of 2 approved before sending",
+    );
+  });
+
+  it("chapter 4's Lighthouse line keeps each area apart", () => {
+    expect(one(DOC, 'p[data-term="Lighthouse"]')).toMatch(
+      /^Google's Lighthouse audit, the middle score across our sites: Performance 91 · Accessibility 97 · Best practices 88 · SEO 99/,
     );
   });
 
@@ -248,7 +276,7 @@ describe("five chapters, each with its diagram", () => {
     const doc = parse(pageHtml(three));
     expect(doc.querySelectorAll(".how-checks dt")).toHaveLength(3);
     const sentence = one(doc, 'p[data-term="Checks per report"]');
-    expect(sentence).toContain("carries 3 checks");
+    expect(sentence).toContain("carries up to 3 checks");
     // Its only number is the count: no step count typed beside it, in digits or words.
     expect(sentence.match(/\d+/g)).toEqual(["3"]);
     expect(sentence.match(NUMBER_WORDS)).toBeNull();
