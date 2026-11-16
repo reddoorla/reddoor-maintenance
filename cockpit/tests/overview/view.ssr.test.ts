@@ -1953,34 +1953,67 @@ describe("health and numbers (P1-87 PR 3)", () => {
   });
 
   it("gives each check its pass, fail and unknown counts, a site's unknown never a pass", () => {
-    expect(check("Live")).toEqual({ name: "Live", pass: 4, fail: 1, unknown: 0, total: 5 });
+    // Each unknown is one of three kinds: notChecked (stale or never stamped),
+    // testFailed (the Contact form test ran fresh and failed), noVerdict (checked fresh,
+    // no verdict). `unknown` is their sum (review round 2, group A).
+    const kinds = (c: Partial<Record<"notChecked" | "testFailed" | "noVerdict", number>>) => ({
+      notChecked: c.notChecked ?? 0,
+      testFailed: c.testFailed ?? 0,
+      noVerdict: c.noVerdict ?? 0,
+    });
+    expect(check("Live")).toEqual({
+      name: "Live",
+      pass: 4,
+      fail: 1,
+      unknown: 0,
+      total: 5,
+      ...kinds({}),
+    });
     expect(check("Certificate")).toEqual({
       name: "Certificate",
       pass: 4,
       fail: 1,
       unknown: 0,
       total: 5,
+      ...kinds({}),
     });
-    expect(check("Deploy")).toEqual({ name: "Deploy", pass: 5, fail: 0, unknown: 0, total: 5 });
-    // Charlie has no form test: unknown, and not a pass.
+    expect(check("Deploy")).toEqual({
+      name: "Deploy",
+      pass: 5,
+      fail: 0,
+      unknown: 0,
+      total: 5,
+      ...kinds({}),
+    });
+    // Charlie has no form test stamp: not checked, and not a pass.
     expect(check("Contact form")).toEqual({
       name: "Contact form",
       pass: 4,
       fail: 0,
       unknown: 1,
       total: 5,
+      ...kinds({ notChecked: 1 }),
     });
     // Charlie's security audit is stale: unknown. Delta and Foxtrot each hold a high one.
-    expect(check("Security")).toEqual({ name: "Security", pass: 2, fail: 2, unknown: 1, total: 5 });
+    expect(check("Security")).toEqual({
+      name: "Security",
+      pass: 2,
+      fail: 2,
+      unknown: 1,
+      total: 5,
+      ...kinds({ notChecked: 1 }),
+    });
     // Stale, absent or partial scans are unknown (Acme, 2 of 10 routes; Bravo, none;
     // Delta, stale); Charlie's three violations on a complete scan are a fail, and
-    // Foxtrot's complete clean scan is the one pass.
+    // Foxtrot's complete clean scan is the one pass. Acme's partial scan was checked
+    // fresh, so it has no verdict; Bravo's and Delta's are not checked.
     expect(check("Accessibility")).toEqual({
       name: "Accessibility",
       pass: 1,
       fail: 1,
       unknown: 3,
       total: 5,
+      ...kinds({ notChecked: 2, noVerdict: 1 }),
     });
     expect(check("Build + tests")).toEqual({
       name: "Build + tests",
@@ -1988,6 +2021,34 @@ describe("health and numbers (P1-87 PR 3)", () => {
       fail: 1,
       unknown: 2,
       total: 5,
+      ...kinds({ notChecked: 2 }),
+    });
+  });
+
+  it("names a failed Contact form test apart from one not checked, and a fresh check with no verdict", () => {
+    const H = overviewFromSnapshot(
+      snapshot({
+        sites: [
+          healthy({ id: "recA", name: "Acme" }),
+          healthy({ id: "recB", name: "Bravo", formE2eOk: "fail", formE2eCheckedAt: FRESH }),
+          healthy({ id: "recC", name: "Charlie", formE2eOk: null, formE2eCheckedAt: FRESH }),
+          healthy({ id: "recD", name: "Delta", formE2eOk: "fail", formE2eCheckedAt: STALE }),
+        ],
+      }),
+      NOW,
+    ).health;
+    const form = H.checks.find((c) => c.name === "Contact form")!;
+    // Bravo's fresh failed test is "test failed"; Charlie's fresh stamp with no result is
+    // no verdict; Delta's stale result is not checked, whatever it says.
+    expect(form).toEqual({
+      name: "Contact form",
+      pass: 1,
+      fail: 0,
+      unknown: 3,
+      total: 4,
+      notChecked: 1,
+      testFailed: 1,
+      noVerdict: 1,
     });
   });
 

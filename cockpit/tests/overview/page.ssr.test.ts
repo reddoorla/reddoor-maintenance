@@ -16,7 +16,7 @@ import { buildCockpitView } from "../../src/lib/cockpit/view.js";
 import { cockpitModelFromSnapshot } from "../../../src/dashboard/snapshot-views.js";
 import { makeSubmissionRow } from "../../../tests/_helpers/submission-row.js";
 import { withoutComments } from "../legacy/render.js";
-import { NOW, FRESH, healthy, night, report, snapshot } from "./fixtures.js";
+import { NOW, FRESH, STALE, healthy, night, report, snapshot } from "./fixtures.js";
 
 /**
  * P1-78g review round 1 (T1, T2, T6, T7): the overview page itself, rendered inside
@@ -359,6 +359,8 @@ describe("the sentinel render: each leaf in its labelled element (T1, T2; round 
       // Only the check bars' totals: the sites in each check, which the page reads as
       // "of N" in a visually hidden span, not a sentinel-checked leaf (round 1, item 24).
       /^health\.checks\.\d+\.total$/.test(p) ||
+      // The sum of the three unknown kinds below, which the page reads as its parts.
+      /^health\.checks\[[a-z]+\]\.unknown$/.test(p) ||
       p.startsWith("status.counts.") ||
       p === "status.line" ||
       p === "status.cls" ||
@@ -506,7 +508,7 @@ describe("review round 3: the page reads right for one, and for a form test not 
     );
   });
 
-  it("a failed form test is not a pass nor a fail in Fleet health: it is not checked (O1)", () => {
+  it("a failed form test is not a pass nor a fail in Fleet health: it is not yet a verdict (O1)", () => {
     const doc = parse(
       pageHtml(
         overviewFromSnapshot(
@@ -517,10 +519,34 @@ describe("review round 3: the page reads right for one, and for a form test not 
     );
     const row = doc.querySelectorAll(".ov-check").find((r) => text(r).startsWith("Contact form"))!;
     // The screen reader's " of 1" is part of the count (round 1, item 13).
-    expect(text(row.querySelector(".ov-check-count")!)).toBe("0 of 1 · 1 not checked");
+    // A test that ran and failed is named as such, not "not checked" (review round 2, A).
+    expect(text(row.querySelector(".ov-check-count")!)).toBe(
+      "0 of 1 · 1 test failed, not yet a verdict",
+    );
     // The failed test changes no level: the site is counted in OK (round 1, restored).
     expect(text(doc.querySelector(".ov-tier-counts")!)).toBe(
       "1 OK · 0 watch · 0 attention · 0 broken",
+    );
+  });
+
+  it("reads a failed, a no-verdict and a not-checked Contact form apart (review round 2, A)", () => {
+    const doc = parse(
+      pageHtml(
+        overviewFromSnapshot(
+          snapshot({
+            sites: [
+              healthy({ id: "recA", name: "Acme", formE2eOk: "fail", formE2eCheckedAt: FRESH }),
+              healthy({ id: "recB", name: "Bravo", formE2eOk: null, formE2eCheckedAt: FRESH }),
+              healthy({ id: "recC", name: "Charlie", formE2eOk: "pass", formE2eCheckedAt: STALE }),
+            ],
+          }),
+          NOW,
+        ),
+      ),
+    );
+    const row = doc.querySelectorAll(".ov-check").find((r) => text(r).startsWith("Contact form"))!;
+    expect(text(row.querySelector(".ov-check-count")!)).toBe(
+      "0 of 3 · 1 test failed, not yet a verdict · 1 no verdict · 1 not checked",
     );
   });
 });

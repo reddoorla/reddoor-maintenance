@@ -91,7 +91,11 @@
           <span class="ov-check-count"
             >{c.pass}{" "}<span class="visually-hidden">of {c.total}</span>{c.fail > 0
               ? ` · ${c.fail} failing`
-              : ""}{c.unknown > 0 ? ` · ${c.unknown} not checked` : ""}</span
+              : ""}{c.testFailed > 0
+              ? ` · ${c.testFailed} test failed, not yet a verdict`
+              : ""}{c.noVerdict > 0 ? ` · ${c.noVerdict} no verdict` : ""}{c.notChecked > 0
+              ? ` · ${c.notChecked} not checked`
+              : ""}</span
           >
         </li>
       {/each}

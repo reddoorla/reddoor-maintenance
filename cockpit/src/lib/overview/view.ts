@@ -1791,7 +1791,11 @@ export type HealthCheck = {
   name: string;
   pass: number;
   fail: number;
+  /** The three kinds of unknown below, summed (the grey part of the bar). */
   unknown: number;
+  notChecked: number;
+  testFailed: number;
+  noVerdict: number;
   total: number;
 };
 export type HealthView = {
@@ -1815,8 +1819,12 @@ export type NumberTile = {
   spark: Array<number | null> | null;
 };
 
-/** A check's verdict for one site: pass, fail, or unknown (null, never a pass). */
-type Verdict = boolean | null;
+/** Three kinds of unknown, never a pass: not checked lately (a stale or unstamped check),
+ *  the Contact form test ran fresh and failed (not yet a verdict), and checked fresh with
+ *  no verdict (no form, a partial scan, a deploy in progress, no deploy recorded...). */
+export type UnknownKind = "notChecked" | "testFailed" | "noVerdict";
+/** A check's verdict for one site: pass (true), fail (false), or the kind of unknown. */
+type Verdict = boolean | UnknownKind;
 
 /** Maintained sites only (launching, pre-launch and archived sites never count). Live,
  *  Certificate, Deploy and Contact form read the cells the Live columns showed; the
@@ -1839,45 +1847,76 @@ export function healthView(
   const row = (s: WebsiteRow) => live.find((r) => r.siteId === s.id);
   // Security: a fresh audit with a count; none of critical or high is a pass.
   const security = (s: WebsiteRow): Verdict => {
-    const fresh =
-      freshWithin(s.lastSecurityAuditAt, PRODUCTION_STALE_DAYS, now) &&
-      (s.securityVulnsCritical !== null || s.securityVulnsHigh !== null);
-    if (!fresh) return null;
+    if (!freshWithin(s.lastSecurityAuditAt, PRODUCTION_STALE_DAYS, now)) return "notChecked";
+    if (s.securityVulnsCritical === null && s.securityVulnsHigh === null) return "noVerdict";
     return (s.securityVulnsCritical ?? 0) + (s.securityVulnsHigh ?? 0) === 0;
   };
   // Accessibility: a pass needs a complete fresh scan (the alarm's rule, production-
   // signals.ts): every route scanned, both counts read, and the scan inside A11Y_STALE_DAYS.
   // A partial scan is unknown, whatever its count (the alarm raises coverage instead).
-  const a11y = (s: WebsiteRow): Verdict =>
-    s.a11yViolations === null ||
-    s.a11yRoutesScanned === null ||
-    s.a11yRoutesTotal === null ||
-    s.a11yRoutesScanned < s.a11yRoutesTotal ||
-    !freshWithin(s.a11yCheckedAt, A11Y_STALE_DAYS, now)
-      ? null
-      : s.a11yViolations === 0;
+  const a11y = (s: WebsiteRow): Verdict => {
+    if (!freshWithin(s.a11yCheckedAt, A11Y_STALE_DAYS, now)) return "notChecked";
+    if (
+      s.a11yViolations === null ||
+      s.a11yRoutesScanned === null ||
+      s.a11yRoutesTotal === null ||
+      s.a11yRoutesScanned < s.a11yRoutesTotal
+    )
+      return "noVerdict";
+    return s.a11yViolations === 0;
+  };
   // Build and tests: the nightly smoke run, read within the production window.
-  const build = (s: WebsiteRow): Verdict =>
-    s.smokeOk === null || !freshWithin(s.lastSmokeAt, PRODUCTION_STALE_DAYS, now)
-      ? null
-      : s.smokeOk === "pass";
+  const build = (s: WebsiteRow): Verdict => {
+    if (!freshWithin(s.lastSmokeAt, PRODUCTION_STALE_DAYS, now)) return "notChecked";
+    if (s.smokeOk === null) return "noVerdict";
+    return s.smokeOk === "pass";
+  };
+  // The Live, Certificate, Deploy and Contact form cells carry the same verdict; a
+  // cell with no verdict is "not checked" unless its check was fresh (then "no verdict").
+  const liveV = (s: WebsiteRow): Verdict => {
+    const c = row(s)?.live;
+    if (c === undefined) return "notChecked";
+    if (c.ok !== null) return c.ok;
+    return c.unsampled ? "noVerdict" : "notChecked";
+  };
+  const domain = (s: WebsiteRow): Verdict => row(s)?.domain.ok ?? "notChecked";
+  const deploy = (s: WebsiteRow): Verdict => {
+    const c = row(s)?.deploy;
+    if (c === undefined) return "notChecked";
+    if (c.ok !== null) return c.ok;
+    return freshWithin(s.deployCheckedAt, PRODUCTION_STALE_DAYS, now) ? "noVerdict" : "notChecked";
+  };
+  const form = (s: WebsiteRow): Verdict => {
+    const c = row(s)?.forms;
+    if (c === undefined) return "notChecked";
+    if (c.ok !== null) return c.ok;
+    if (!freshWithin(s.formE2eCheckedAt, PRODUCTION_STALE_DAYS, now)) return "notChecked";
+    return s.formE2eOk === "fail" ? "testFailed" : "noVerdict";
+  };
   const verdicts: Record<string, (s: WebsiteRow) => Verdict> = {
-    Live: (s) => row(s)?.live.ok ?? null,
-    Certificate: (s) => row(s)?.domain.ok ?? null,
-    Deploy: (s) => row(s)?.deploy.ok ?? null,
-    "Contact form": (s) => row(s)?.forms.ok ?? null,
+    Live: liveV,
+    Certificate: domain,
+    Deploy: deploy,
+    "Contact form": form,
     Security: security,
     Accessibility: a11y,
     "Build + tests": build,
   };
   const checks = HEALTH_CHECK_NAMES.map((name) => {
     const v = sites.map(verdicts[name]!);
+    const count = (k: UnknownKind) => v.filter((x) => x === k).length;
+    const notChecked = count("notChecked");
+    const testFailed = count("testFailed");
+    const noVerdict = count("noVerdict");
     return {
       name,
       total: v.length,
       pass: v.filter((x) => x === true).length,
       fail: v.filter((x) => x === false).length,
-      unknown: v.filter((x) => x === null).length,
+      unknown: notChecked + testFailed + noVerdict,
+      notChecked,
+      testFailed,
+      noVerdict,
     };
   });
   const launchingAt = (level: "broken" | "attention" | "watch", bar: number, line: number) =>
