@@ -143,8 +143,10 @@ describe("the bar mid-run: running (plan, Tests 3 to 6, 9)", () => {
       sites: [
         site("recA", { prismicModelsCheckedAt: "2026-10-27T06:10:00.000Z" }),
         site("recC", { prismicModelsCheckedAt: "2026-10-27T06:10:00.000Z" }),
-        // Yesterday's audit, on another site: before tonight's start, so ignored.
+        // Yesterday's audit, on two other sites: both before tonight's start, so ignored.
+        // (Two, so that only the start bound can keep Security from counting.)
         site("recB", { lastSecurityAuditAt: "2026-10-26T05:00:00.000Z" }),
+        site("recD", { lastSecurityAuditAt: "2026-10-26T05:00:00.000Z" }),
       ],
     });
     const v = cycle(s, NOW_RUN);
@@ -459,5 +461,112 @@ describe("the bar counts only what tonight's stamps prove (P1-87 PR 5a, review r
     expect(v.mode).toBe("recorded");
     expect(v.steps[4]!.time).toBe("11:40pm");
     expect(v.steps[4]!.words).toBe("ran to the end, 11:40pm PT");
+  });
+});
+
+/**
+ * P1-87 PR 5a, review round 2 (correctness minor 2; tests M1, M2, e4, e5, e8, e9, e13): the
+ * view's stale time, the distinct-site rule, the cap on the need, the night order, and the
+ * clock's end of tonight are each pinned by a test that fails if it is wrong.
+ */
+describe("the bar's stale time, site counting and night order are pinned (P1-87 PR 5a, round 2)", () => {
+  const NOW_RUN = new Date("2026-10-27T07:30:00.000Z");
+  const LIGHTHOUSE_18 = () =>
+    night("2026-10-25", {
+      coverage: { value: { lighthouse_at: { value: 18 } } } as never,
+    });
+
+  it("staleAfterIso while running is the window's end", () => {
+    expect(cycle(snapshot({ nights: [], sites: [site("recA")] }), NOW_RUN).staleAfterIso).toBe(
+      "2026-10-27T11:07:00.000Z",
+    );
+  });
+
+  it("staleAfterIso once recorded is the next start", () => {
+    const v = cycle(
+      snapshot({ nights: [night("2026-10-26")], sites: [] }),
+      new Date("2026-10-27T09:00:00.000Z"),
+    );
+    expect(v.mode).toBe("recorded");
+    expect(v.staleAfterIso).toBe("2026-10-28T06:07:00.000Z");
+  });
+
+  it("staleAfterIso when unrecorded is the next start", () => {
+    const v = cycle(snapshot({ nights: [] }), new Date("2026-10-27T12:30:00.000Z"));
+    expect(v.mode).toBe("unrecorded");
+    expect(v.staleAfterIso).toBe("2026-10-28T06:07:00.000Z");
+  });
+
+  it("one site stamping two of Site checks' fields does not count: the step needs two sites", () => {
+    const s = snapshot({
+      nights: [LIGHTHOUSE_18()],
+      sites: [
+        site("recA", {
+          lastLighthouseAuditAt: "2026-10-27T06:20:00.000Z",
+          browserCheckedAt: "2026-10-27T06:20:00.000Z",
+        }),
+        site("recB"),
+      ],
+    });
+    const v = cycle(s, NOW_RUN);
+    expect(v.steps[4]!.state).toBe("waiting");
+    expect(v.steps[4]!.words).toBe("not started yet");
+  });
+
+  it("a second site with one field in range makes Site checks count", () => {
+    const s = snapshot({
+      nights: [LIGHTHOUSE_18()],
+      sites: [
+        site("recA", {
+          lastLighthouseAuditAt: "2026-10-27T06:20:00.000Z",
+          browserCheckedAt: "2026-10-27T06:20:00.000Z",
+        }),
+        site("recB", { browserCheckedAt: "2026-10-27T06:20:00.000Z" }),
+      ],
+    });
+    const v = cycle(s, NOW_RUN);
+    expect(v.steps[4]!.state).toBe("done");
+    expect(v.steps[4]!.words).toBe("finished at 11:20pm PT");
+  });
+
+  it("one maintained site with no measured coverage: CMS check counts on that site", () => {
+    const s = snapshot({
+      nights: [],
+      sites: [site("recA", { prismicModelsCheckedAt: "2026-10-27T06:10:00.000Z" })],
+    });
+    const v = cycle(s, NOW_RUN);
+    expect(v.steps[1]!.state).toBe("done");
+    expect(v.steps[1]!.words).toBe("finished at 11:10pm PT");
+  });
+
+  it("the newest night's coverage sets the need: a step that reached one site last night counts on one", () => {
+    const s = snapshot({
+      // Newest first, as the query returns them: last night reached one site, the night
+      // before reached eighteen.
+      nights: [
+        night("2026-10-25", {
+          coverage: { value: { prismic_models_checked_at: { value: 1 } } } as never,
+        }),
+        night("2026-10-24", {
+          coverage: { value: { prismic_models_checked_at: { value: 18 } } } as never,
+        }),
+      ],
+      sites: [site("recA", { prismicModelsCheckedAt: "2026-10-27T06:10:00.000Z" }), site("recB")],
+    });
+    const v = cycle(s, NOW_RUN);
+    expect(v.steps[1]!.state).toBe("done");
+  });
+
+  it("a stamp after now but before the window's end is not tonight's: the bar does not read the future", () => {
+    const s = snapshot({
+      nights: [],
+      sites: [
+        site("recA", { prismicModelsCheckedAt: "2026-10-27T08:00:00.000Z" }),
+        site("recB", { prismicModelsCheckedAt: "2026-10-27T08:00:00.000Z" }),
+      ],
+    });
+    const v = cycle(s, NOW_RUN);
+    expect(v.steps[1]!.state).toBe("running");
+    expect(v.runningLabel).toBe("Backup or CMS check");
   });
 });

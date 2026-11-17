@@ -124,16 +124,23 @@ function stampsIn(
 }
 
 /** How many maintained sites must carry a step's stamp before it counts as finished
- *  mid-run: one when the step's newest measured coverage is exactly one site, else two.
- *  A single-site re-test by hand therefore never moves the bar. */
-function needFor(step: CycleStepSpec, nights: OverviewNight[] | null): number {
+ *  mid-run: one when the step's newest measured coverage is exactly one site, else two,
+ *  and never more than the maintained sites there are (a fleet of one can still show
+ *  progress). A single-site re-test by hand therefore never moves the bar on a fleet of
+ *  two or more. */
+function needFor(step: CycleStepSpec, nights: OverviewNight[] | null, maintained: number): number {
   const col = step.coverage?.[0];
-  if (col === undefined) return 2;
-  for (const n of nights ?? []) {
-    const m = n.counts.coverage?.value?.[col];
-    if (m && m.value !== null) return m.value === 1 ? 1 : 2;
+  let want = 2;
+  if (col !== undefined) {
+    for (const n of nights ?? []) {
+      const m = n.counts.coverage?.value?.[col];
+      if (m && m.value !== null) {
+        want = m.value === 1 ? 1 : 2;
+        break;
+      }
+    }
   }
-  return 2;
+  return Math.min(want, Math.max(1, maintained));
 }
 
 /** "in 11 hours", "in 40 minutes", "in 1 minute", "starting now": the time left to
@@ -225,7 +232,9 @@ export function cycleView(
     const tonightEnd = Math.min(windowEndMs, nowMs);
     const tonight = steps.map((step) => {
       const hit = stampsIn(maintained, step.stamps, lastStartMs, tonightEnd);
-      return hit.newest !== null && hit.sites >= needFor(step, s.nights) ? hit.newest : null;
+      return hit.newest !== null && hit.sites >= needFor(step, s.nights, maintained.length)
+        ? hit.newest
+        : null;
     });
     // k: the last step with a stamp tonight, so the steps 0..k have finished.
     let k = -1;
