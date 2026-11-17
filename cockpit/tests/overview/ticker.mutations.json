@@ -5,8 +5,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/overview.css",
-        "find": "  .ov-ticker-run {\n    animation: none;\n    width: auto;\n  }",
-        "replace": "  .ov-ticker-run {\n    width: auto;\n  }"
+        "find": "  .ov-ticker-run {\n    animation: none;\n    display: block;",
+        "replace": "  .ov-ticker-run {\n    display: block;"
       }
     ],
     "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
@@ -171,8 +171,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/overview.css",
-        "find": "    overflow-wrap: anywhere;\n",
-        "replace": ""
+        "find": "    min-width: 0;\n    overflow-wrap: anywhere;\n",
+        "replace": "    min-width: 0;\n"
       }
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
