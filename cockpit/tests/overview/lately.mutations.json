@@ -209,12 +209,17 @@
   },
   {
     "id": "17-leads-undated-day",
-    "why": "Leads are grouped by the day without its year, so a year-old lead joins",
+    "why": "The year bug as it was: leads grouped by the day without its year, and not filtered to the window before grouping",
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
         "find": "const key = `${r.siteId}|${pacificYmd(new Date(r.submittedAt))}`;",
         "replace": "const key = `${r.siteId}|${pacificDay(new Date(r.submittedAt))}`;"
+      },
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      Date.parse(r.submittedAt) < since ||",
+        "replace": ""
       }
     ],
     "test": ["cockpit/tests/overview/view.ssr.test.ts"],
