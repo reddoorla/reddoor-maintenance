@@ -5,7 +5,7 @@ import {
   oldestUnreplayedDeadLetterBySlug,
 } from "../db/deadletter.js";
 import { listAllSubmissions } from "../db/submissions.js";
-import { listFleetEvents } from "../db/fleet-events.js";
+import { listFleetEvents, type FleetEventType } from "../db/fleet-events.js";
 import { listScreenOutBucketsSince, screenOutsSince } from "../db/screenouts.js";
 import { readDigestState, readCockpitRollup } from "../db/digest-state.js";
 import { listRecentProspectAudits } from "../db/prospect-audits.js";
@@ -63,6 +63,7 @@ export async function loadCockpitSnapshot(
     digest,
     rollup,
     recentEvents,
+    feedEvents,
     deadLetters,
     deadLetterOldest,
     submissions,
@@ -87,6 +88,17 @@ export async function loadCockpitSnapshot(
         listFleetEvents(db, {
           sinceIso: new Date(now.getTime() - RECENT_EVENTS_DAYS * 86_400_000).toISOString(),
           limit: RECENT_EVENTS_LIMIT,
+        }),
+      [],
+    ),
+    // P1-87 PR 4: the same week, without the sweeps, which can fill `recentEvents`' cap.
+    read(
+      "feed events",
+      () =>
+        listFleetEvents(db, {
+          sinceIso: new Date(now.getTime() - RECENT_EVENTS_DAYS * 86_400_000).toISOString(),
+          limit: RECENT_EVENTS_LIMIT,
+          excludeTypes: LATELY_EXCLUDED_TYPES,
         }),
       [],
     ),
@@ -143,6 +155,7 @@ export async function loadCockpitSnapshot(
     digest,
     rollup,
     recentEvents,
+    feedEvents,
     deadLetters,
     deadLetterOldest,
     submissions: submissions === null ? null : boundLeadText(submissions.rows),
@@ -153,6 +166,10 @@ export async function loadCockpitSnapshot(
     nights,
   };
 }
+
+/** The Lately feed's read leaves out the nightly's sweeps: they are the nightly's own
+ *  steps, shown there, and up to three a night would fill the feed's cap. */
+const LATELY_EXCLUDED_TYPES: readonly FleetEventType[] = ["fleet_swept"];
 
 /** `read`'s marker for a read that fell back. */
 const GAP = Symbol("gap");
