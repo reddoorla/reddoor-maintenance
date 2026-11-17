@@ -5,7 +5,13 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } 
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { chromium, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import {
+  chromium,
+  type Browser,
+  type BrowserContext,
+  type BrowserContextOptions,
+  type Page,
+} from "@playwright/test";
 import { openDb } from "../../src/db/client.js";
 import { recordFleetEvent } from "../../src/db/fleet-events.js";
 import { NIGHTLIES } from "../../scripts/nightly-conductor.mjs";
@@ -307,9 +313,10 @@ afterAll(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-async function signedIn(user = "op"): Promise<Page> {
+async function signedIn(user = "op", options: BrowserContextOptions = {}): Promise<Page> {
   // The gate redirects rather than challenging, so the header goes on every request.
   const context = await browser.newContext({
+    ...options,
     extraHTTPHeaders: {
       authorization: `Basic ${Buffer.from(`${user}:${PASSWORD}`).toString("base64")}`,
     },
@@ -1480,7 +1487,6 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
       .toBeGreaterThanOrEqual(2);
     // boundingBox is in the viewport, so bring the window into it first.
     await page.locator(".ov-ticker-window").scrollIntoViewIfNeeded();
-    await page.locator(".ov-ticker-window").scrollIntoViewIfNeeded();
     const win = (await page.locator(".ov-ticker-window").boundingBox())!;
     const points = [
       { label: "the top padding", x: win.x + win.width / 2, y: win.y + 1 },
@@ -1652,9 +1658,9 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
         expect(g.link.r, `link ${n} right edge at ${width}px`).toBeLessThanOrEqual(g.window.r);
         expect(g.link.t, `link ${n} top edge at ${width}px`).toBeGreaterThanOrEqual(g.window.t);
         expect(g.link.b, `link ${n} bottom edge at ${width}px`).toBeLessThanOrEqual(g.window.b);
-        expect(
-          await page.locator(".ov-ticker-run").evaluate((el) => getComputedStyle(el).animationName),
-        ).toBe("none");
+        await expect
+          .poll(() => animation(page), { message: `the row is still on link ${n} at ${width}px` })
+          .toBe("none");
         // The loop's copy is hidden meanwhile: a focused copy would be a second, inert row (r2 E, B3).
         expect(
           await page.locator(".ov-ticker-list.copy").evaluate((el) => getComputedStyle(el).display),
@@ -1736,6 +1742,8 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
         .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
         .toBeGreaterThanOrEqual(2);
       const link = page.locator(".ov-ticker-list:not(.copy) > li:nth-child(1) a");
+      const href = await link.getAttribute("href");
+      expect(href, `link 1 is a link at ${width}px`).toBeTruthy();
       await page.locator(".ov-ticker-window").hover();
       await settledPaused(page);
       const box = (await link.boundingBox())!;
@@ -1746,6 +1754,12 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
       await page.mouse.move((left + right) / 2, box.y + box.height / 2);
       await page.mouse.down({ button: "right" });
       await page.mouse.up({ button: "right" });
+      expect(
+        await page.evaluate(
+          () => document.activeElement!.closest("a")?.getAttribute("href") ?? null,
+        ),
+        `the right press leaves link 1 focused at ${width}px`,
+      ).toBe(href);
       await page.keyboard.press("Escape");
       await page.mouse.move(2, 2);
       await expect
@@ -1756,10 +1770,10 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
         .toBe("none");
       expect(
         await page.evaluate(
-          () => document.activeElement!.closest(".ov-ticker-list:not(.copy) > li a") !== null,
+          () => document.activeElement!.closest("a")?.getAttribute("href") ?? null,
         ),
         `link 1 holds the focus at ${width}px`,
-      ).toBe(true);
+      ).toBe(href);
       const g = await page.evaluate(() => {
         const a = document.activeElement!.getBoundingClientRect();
         const w = document.querySelector(".ov-ticker-window")!.getBoundingClientRect();
@@ -2068,6 +2082,290 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     ).toBe(true);
     expect(await animation(page), "the row stands still with no script").toBe("none");
     expect(await page.locator(".ov-ticker-window").getAttribute("data-js")).toBeNull();
+    const inWindow = await page.evaluate(() => {
+      const a = document.activeElement!.getBoundingClientRect();
+      const w = document.querySelector(".ov-ticker-window")!.getBoundingClientRect();
+      return a.left >= w.left && a.right <= w.right && a.top >= w.top && a.bottom <= w.bottom;
+    });
+    expect(inWindow, "the focused link is inside the window with no script").toBe(true);
+  });
+
+  // P1-87 PR 5b review r5 A: a touch tap's focus arrives after its pointerup, so the tap is a press:
+  // the still layout must not take the link out from under the tap.
+  it("a touch tap on link 2 or 3 opens that link, at 1280px and 390px", async () => {
+    const cases = [
+      { width: 1280, touch: false, n: 2 },
+      { width: 1280, touch: false, n: 3 },
+      { width: 390, touch: true, n: 2 },
+    ];
+    for (const { width, touch, n } of cases) {
+      const page = await signedIn("op", { hasTouch: true, isMobile: touch });
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`${origin}/`);
+      await expect
+        .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
+        .toBeGreaterThanOrEqual(3);
+      const link = page.locator(`.ov-ticker-list:not(.copy) > li:nth-child(${n}) a`);
+      const href = await link.getAttribute("href");
+      expect(href, `link ${n} is a link at ${width}px`).toBeTruthy();
+      // The window and the link must be on the screen and the link wholly inside the window before the
+      // tap: the row moves past the link, and a tap off the screen tests nothing.
+      await page.locator(".ov-ticker-window").scrollIntoViewIfNeeded();
+      const point = () =>
+        page.evaluate((n) => {
+          const a = document
+            .querySelector(`.ov-ticker-list:not(.copy) > li:nth-child(${n}) a`)!
+            .getBoundingClientRect();
+          const w = document.querySelector(".ov-ticker-window")!.getBoundingClientRect();
+          const inWindow =
+            a.left >= w.left && a.right <= w.right && a.top >= w.top && a.bottom <= w.bottom;
+          const onScreen =
+            a.left >= 0 && a.right <= innerWidth && a.top >= 0 && a.bottom <= innerHeight;
+          return {
+            inside: inWindow && onScreen,
+            x: (a.left + a.right) / 2,
+            y: (a.top + a.bottom) / 2,
+          };
+        }, n);
+      await expect
+        .poll(async () => (await point()).inside, {
+          message: `link ${n} comes into the window on screen at ${width}px`,
+          timeout: 15_000,
+        })
+        .toBe(true);
+      const p = await point();
+      await page.touchscreen.tap(p.x, p.y);
+      await expect
+        .poll(() => page.url().endsWith(href!), {
+          message: `the tap opens link ${n} (${href}) at ${width}px`,
+        })
+        .toBe(true);
+    }
+  });
+
+  // P1-87 PR 5b review r5 correctness major 1: a focus made before the script loads (a Tab through
+  // the server-rendered page) gets the still layout once the script runs.
+  it("a focus made before the script loads stands the row still once the script runs", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    let release!: () => void;
+    const held = new Promise<void>((done) => (release = done));
+    await page.route("**/_app/**/*.js", async (route) => {
+      await held;
+      await route.continue();
+    });
+    await page.goto(`${origin}/`, { waitUntil: "commit" });
+    await page.waitForSelector(".ov-ticker-pause");
+    await page.locator(".ov-ticker-pause").focus();
+    await page.keyboard.press("Tab");
+    expect(
+      await page.evaluate(
+        () => document.activeElement!.closest(".ov-ticker-list:not(.copy)") !== null,
+      ),
+      "Tab lands on link 1 before the script runs",
+    ).toBe(true);
+    release();
+    await expect
+      .poll(() => page.locator(".ov-ticker-window").getAttribute("data-js"), {
+        message: "the script sets data-js",
+      })
+      .not.toBeNull();
+    await expect
+      .poll(() => page.locator(".ov-ticker-window").getAttribute("data-still"), {
+        message: "the script stills the row for the focus made before it ran",
+      })
+      .not.toBeNull();
+    await expect
+      .poll(() => animation(page), { message: "the row stands still on link 1" })
+      .toBe("none");
+    const inWindow = await page.evaluate(() => {
+      const a = document.activeElement!.getBoundingClientRect();
+      const w = document.querySelector(".ov-ticker-window")!.getBoundingClientRect();
+      return a.left >= w.left && a.right <= w.right && a.top >= w.top && a.bottom <= w.bottom;
+    });
+    expect(inWindow, "link 1 is inside the window").toBe(true);
+  });
+
+  // P1-87 PR 5b review r5 accessibility major 2 and minor: a press with no release cannot hold the
+  // row. A window blur and a context menu each clear the press.
+  it("a left press with no release is cleared by the window's blur, and a right press by its context menu", async () => {
+    for (const button of ["left", "right"] as const) {
+      const page = await signedIn();
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(`${origin}/`);
+      await expect
+        .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
+        .toBeGreaterThanOrEqual(2);
+      await page.locator(".ov-ticker-window").scrollIntoViewIfNeeded();
+      const win = (await page.locator(".ov-ticker-window").boundingBox())!;
+      await page.evaluate(() => {
+        (window as unknown as { __ctx: number }).__ctx = 0;
+        document.addEventListener("contextmenu", () => {
+          (window as unknown as { __ctx: number }).__ctx++;
+        });
+      });
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send("Input.dispatchMouseEvent", {
+        type: "mousePressed",
+        x: win.x + win.width / 2,
+        y: win.y + 2,
+        button,
+        buttons: button === "left" ? 1 : 2,
+        clickCount: 1,
+      });
+      if (button === "left") {
+        await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+      } else {
+        // Log whether Chromium sends a real context menu for this press (it may not on Linux).
+        const fired = await page.evaluate(() => (window as unknown as { __ctx: number }).__ctx);
+        console.log(`right press with no release: native contextmenu events = ${fired}`);
+        if (fired === 0) {
+          await page.evaluate(() =>
+            document
+              .querySelector(".ov-ticker-window")!
+              .dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })),
+          );
+        }
+      }
+      await page.mouse.move(2, 2);
+      await page.locator(".ov-ticker-pause").focus();
+      await page.keyboard.press("Tab");
+      await expect
+        .poll(() => animation(page), {
+          message: `after a ${button} press with no release, a Tab in stills the row`,
+        })
+        .toBe("none");
+    }
+  });
+
+  // P1-87 PR 5b review r5 correctness major 3: a press on non-link text in the still list keeps the
+  // layout until the release, and the row moves once the focus has gone to the body.
+  it("a press on non-link text in the still list keeps the row still until the release, then the row moves", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await expect
+      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
+      .toBeGreaterThanOrEqual(2);
+    await page.locator(".ov-ticker-pause").focus();
+    await page.keyboard.press("Tab");
+    await expect.poll(() => animation(page)).toBe("none");
+    const link = page.locator(".ov-ticker-list:not(.copy) > li:nth-child(2) a");
+    const fact = page.locator(".ov-ticker-list:not(.copy) > li:nth-child(2) .ov-ticker-fact");
+    const before = (await link.boundingBox())!;
+    const factBox = (await fact.boundingBox())!;
+    await page.mouse.move(factBox.x + factBox.width / 2, factBox.y + factBox.height / 2);
+    await page.mouse.down();
+    const during = (await link.boundingBox())!;
+    expect(
+      Math.abs(during.x - before.x),
+      "link 2 does not move under a press on the text beside it",
+    ).toBeLessThanOrEqual(1);
+    expect(
+      await page.locator(".ov-ticker-window").getAttribute("data-still"),
+      "the still layout holds during the press",
+    ).not.toBeNull();
+    await page.mouse.up();
+    await expect
+      .poll(() => page.locator(".ov-ticker-window").getAttribute("data-still"), {
+        message: "after the release the focus is on the body, so the row moves again",
+      })
+      .toBeNull();
+  });
+
+  // P1-87 PR 5b review r5 tests major 1: the key re-check (onKey) is what stills a link focused by a
+  // mouse press once a key is pressed; the other rules cannot do it.
+  it("a key press after a right press on link 1 and the pointer leaving stills the row, and the precondition holds first", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await expect
+      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
+      .toBeGreaterThanOrEqual(2);
+    const link = page.locator(".ov-ticker-list:not(.copy) > li:nth-child(1) a");
+    const href = await link.getAttribute("href");
+    await page.locator(".ov-ticker-window").hover();
+    await settledPaused(page);
+    const box = (await link.boundingBox())!;
+    const win = (await page.locator(".ov-ticker-window").boundingBox())!;
+    const left = Math.max(box.x, win.x, 0) + 1;
+    const right = Math.min(box.x + box.width, win.x + win.width, 1280) - 1;
+    await page.mouse.move((left + right) / 2, box.y + box.height / 2);
+    await page.mouse.down({ button: "right" });
+    await page.mouse.up({ button: "right" });
+    await page.mouse.move(2, 2);
+    // The precondition: the row moves, link 1 holds the focus, and the focus shows no ring.
+    await expect
+      .poll(() => animation(page), { message: "the precondition: the row moves" })
+      .toBe("ov-ticker");
+    expect(
+      await page.evaluate(() => document.activeElement!.closest("a")?.getAttribute("href") ?? null),
+      "the precondition: link 1 holds the focus",
+    ).toBe(href);
+    expect(
+      await page.evaluate(() => document.activeElement!.matches(":focus-visible")),
+      "the precondition: no focus ring",
+    ).toBe(false);
+    await page.keyboard.press("Shift");
+    await expect
+      .poll(() => animation(page), {
+        message: "a key press re-checks the focus and stills the row",
+        timeout: 5_000,
+      })
+      .toBe("none");
+    const inWindow = await page.evaluate(() => {
+      const a = document.activeElement!.getBoundingClientRect();
+      const w = document.querySelector(".ov-ticker-window")!.getBoundingClientRect();
+      return a.left >= w.left && a.right <= w.right && a.top >= w.top && a.bottom <= w.bottom;
+    });
+    expect(inWindow, "link 1 is inside the window").toBe(true);
+  });
+
+  // P1-87 PR 5b review r5 tests major 2: focus that leaves the window to nowhere (a click on the page
+  // background, which takes no focus) restarts the row.
+  it("focus that leaves the window to nowhere restarts the row", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await expect
+      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
+      .toBeGreaterThanOrEqual(2);
+    await page.locator(".ov-ticker-pause").focus();
+    await page.keyboard.press("Tab");
+    await expect.poll(() => animation(page)).toBe("none");
+    await page.mouse.click(1275, 5);
+    expect(
+      await page.evaluate(() => document.activeElement === document.body),
+      "the background click takes the focus to the body",
+    ).toBe(true);
+    await expect
+      .poll(() => animation(page), { message: "the row moves again once focus is nowhere" })
+      .toBe("ov-ticker");
+  });
+
+  // P1-87 PR 5b review r5 nit 5: a pointercancel ends a press, so the next keyboard focus stills the row.
+  it("a pointercancel ends a press in the window's padding, so a Tab in stills the row", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await expect
+      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
+      .toBeGreaterThanOrEqual(2);
+    await page.locator(".ov-ticker-window").scrollIntoViewIfNeeded();
+    const win = (await page.locator(".ov-ticker-window").boundingBox())!;
+    await page.mouse.move(win.x + win.width / 2, win.y + 2);
+    await page.mouse.down();
+    await page.evaluate(() =>
+      document.dispatchEvent(
+        new PointerEvent("pointercancel", { bubbles: true, pointerType: "mouse" }),
+      ),
+    );
+    await page.mouse.move(2, 2);
+    await page.locator(".ov-ticker-pause").focus();
+    await page.keyboard.press("Tab");
+    await expect
+      .poll(() => animation(page), { message: "after a cancelled press, a Tab in stills the row" })
+      .toBe("none");
   });
 
   // P1-87 PR 5b review r4 C, listeners: the ticker's listeners leave with the page, so a round trip
