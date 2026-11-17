@@ -1752,6 +1752,10 @@ describe("the nightly audit bar on the page (P1-87 PR 5a)", () => {
     expect(entry).toBeDefined();
     expect(entry!.text).toContain("Backup, CMS sync and Report drafts leave no time");
     expect(entry!.text).toContain("every 2 minutes");
+    // P1-87 PR 5a, review round 1, Group D: what a step needs mid-run, and when a page left open
+    // checks again.
+    expect(entry!.text).toContain("a single site re-tested by hand does not move the bar");
+    expect(entry!.text).toContain("once the run's five hours are up or the next start has come");
     expect(
       RDOC.querySelector('section.ov-cycle[data-term="The nightly audit bar"]'),
     ).not.toBeNull();
