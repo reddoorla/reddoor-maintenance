@@ -75,16 +75,17 @@
         class="ov-tier-counts"
         data-term={v.health.launching.some((l) => l.kind === "launching")
           ? "Launching sites"
-          : "Sites not marked maintained"}>{launching}</p>{/if}
+          : "Sites not marked maintained"}
+      >
+        {launching}
+      </p>{/if}
     <h3>Sites passing each check</h3>
     <ul class="ov-checks-list" data-term="Sites passing each check">
       {#each v.health.checks as c (c.name)}
         <li class="ov-check">
           <span class="ov-check-name">{c.name}</span>
           <span class="ov-check-bar" aria-hidden="true"
-            >{#if c.pass > 0}<span
-                class="ov-check-fill"
-                style="width: {(100 * c.pass) / c.total}%"
+            >{#if c.pass > 0}<span class="ov-check-fill" style="width: {(100 * c.pass) / c.total}%"
               ></span>{/if}{#if c.unknown > 0}<span
                 class="ov-check-unknown"
                 style="left: {c.total === 0 ? 0 : (100 * c.pass) / c.total}%; width: {(100 *

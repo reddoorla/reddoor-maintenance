@@ -343,8 +343,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "style=\"width: {c.total === 0 ? 0 : (100 * c.pass) / c.total}%\"",
-        "replace": "style=\"width: {c.total === 0 ? 0 : (100 * (c.pass + c.unknown)) / c.total}%\""
+        "find": "style=\"width: {(100 * c.pass) / c.total}%\"",
+        "replace": "style=\"width: {(100 * (c.pass + c.unknown)) / c.total}%\""
       }
     ],
     "test": ["cockpit/tests/overview/page.ssr.test.ts"],
@@ -395,8 +395,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/overview.css",
-        "find": "  .ov-check-fill {\n    box-sizing: border-box;\n    border: 2px solid;\n  }",
-        "replace": "  .ov-check-fill {\n    box-sizing: border-box;\n  }"
+        "find": "  .ov-check-fill {\n    box-sizing: border-box;\n    border: 0;\n    border-top: 8px solid;\n  }",
+        "replace": "  .ov-check-fill {\n    box-sizing: border-box;\n    border: 0;\n  }"
       }
     ],
     "test": ["cockpit/tests/overview/page.ssr.test.ts"],
@@ -761,12 +761,12 @@
   },
   {
     "id": "59-forced-colours-keep-forced-color-adjust-none-on",
-    "why": "Forced colours keep forced-color-adjust none on the check bar",
+    "why": "Forced colours keep forced-color-adjust none on the pass fill",
     "edits": [
       {
         "file": "cockpit/src/lib/overview/overview.css",
-        "find": "  .ov-check-bar {\n    outline-style: solid;\n  }",
-        "replace": "  .ov-check-bar {\n    outline-style: solid;\n    forced-color-adjust: none;\n  }"
+        "find": "  .ov-check-fill {\n    box-sizing: border-box;\n    border: 0;\n    border-top: 8px solid;\n  }",
+        "replace": "  .ov-check-fill {\n    box-sizing: border-box;\n    border: 0;\n    border-top: 8px solid;\n    forced-color-adjust: none;\n  }"
       }
     ],
     "test": ["cockpit/tests/overview/page.ssr.test.ts"],
@@ -796,6 +796,243 @@
       }
     ],
     "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "62-deps-window-includes-tonight",
+    "why": "The Deps and Shipped windows read a row newer than last night (round 3, correctness M1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "const dated = nights.filter((n) => n.night <= expected);",
+        "replace": "const dated = nights;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "63-newest-counted-takes-tonight",
+    "why": "The checks tile's newest counted night may be a row newer than last night (round 3, correctness M1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "x.v !== null && x.night <= lastNight,",
+        "replace": "x.v !== null,"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "64-spark-ends-at-newest-row",
+    "why": "The checks sparkline ends at the newest row, not last night (round 3, tests minor 5)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "spark: nightSpark(counted, lastNight),",
+        "replace": "spark: nightSpark(counted, counted.reduce((a, x) => (x.night > a ? x.night : a), lastNight)),"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "65-grey-part-counts-not-checked-only",
+    "why": "The grey part counts only the not-checked sites (round 3, tests M1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "c.unknown) /",
+        "replace": "c.notChecked) /"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "66-live-no-verdict-reads-not-checked",
+    "why": "An unsampled Live site reads not checked, not no verdict (round 3, tests minor 3)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "return c.unsampled ? \"noVerdict\" : \"notChecked\";",
+        "replace": "return \"notChecked\";"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "67-deploy-no-verdict-reads-not-checked",
+    "why": "A fresh deploy with no verdict reads not checked (round 3, tests minor 3)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "return c.fresh ? \"noVerdict\" : \"notChecked\";",
+        "replace": "return \"notChecked\";"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "68-smoke-no-result-reads-not-checked",
+    "why": "A fresh smoke run with no result reads not checked (round 3, tests minor 3)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "if (s.smokeOk === null) return \"noVerdict\";",
+        "replace": "if (s.smokeOk === null) return \"notChecked\";"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "69-security-no-count-reads-not-checked",
+    "why": "A fresh security audit with no counts reads not checked (round 3, tests minor 3)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "if (s.securityVulnsCritical === null && s.securityVulnsHigh === null) return \"noVerdict\";",
+        "replace": "if (s.securityVulnsCritical === null && s.securityVulnsHigh === null) return \"notChecked\";"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "70-security-high-unstored-fails",
+    "why": "A fresh audit with no critical and an unstored high count fails (round 3, tests minor 4)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "return (s.securityVulnsCritical ?? 0) + (s.securityVulnsHigh ?? 0) === 0;",
+        "replace": "return s.securityVulnsCritical === 0 && s.securityVulnsHigh === 0;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "71-zero-width-fill-rendered",
+    "why": "A check with no site passing still draws its fill span (round 3, tests minor 6)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "{#if c.pass > 0}",
+        "replace": "{#if c.pass >= 0}"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "72-forced-pass-fill-hollow",
+    "why": "Under forced colours a pass is a hollow outline again (round 3, a11y M1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "  .ov-check-fill {\n    box-sizing: border-box;\n    border: 0;\n    border-top: 8px solid;\n  }",
+        "replace": "  .ov-check-fill {\n    box-sizing: border-box;\n    border: 2px solid;\n  }"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "73-forced-ok-segment-hollow",
+    "why": "Under forced colours the OK segment is a hollow box beside broken (round 3, a11y M1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "  .ov-seg.ok {\n    border: 0;\n    border-top: 2.25rem solid;\n  }",
+        "replace": "  .ov-seg.ok {\n    border: 2px solid;\n  }"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "74-forced-broken-not-double",
+    "why": "Under forced colours broken is not drawn double (round 3, a11y M1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "    border-style: double;",
+        "replace": "    border-style: solid;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "75-spark-circle-not-forced",
+    "why": "Under forced colours the sparkline's dot keeps the stored theme's fill (round 3, a11y minor 2)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "  .ov-spark circle {\n    fill: currentColor;\n  }",
+        "replace": "  .ov-spark circle {\n    fill: var(--ink);\n  }"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "76-count-column-back-to-12rem",
+    "why": "The count column takes 12rem, so a bad day halves the bars (round 3, a11y minor 3)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "fit-content(9rem);",
+        "replace": "fit-content(12rem);"
+      }
+    ],
+    "test": [
+      "cockpit/tests/overview/page.ssr.test.ts",
+      "tests/cockpit/snapshot-navigation.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "77-phone-count-beside-the-bar",
+    "why": "On a phone the count sits beside the bar, not under it (round 3, tests M2)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "  .ov-checks-list {\n    grid-template-columns: minmax(0, 1fr);\n  }",
+        "replace": "  .ov-checks-list {\n    grid-template-columns: minmax(0, 1fr) max-content;\n  }"
+      }
+    ],
+    "test": ["tests/cockpit/snapshot-navigation.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "78-status-part-term-missing-from-how",
+    "why": "A status part's term has no How-we-count entry (round 3, correctness m2)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "attention too.`,\n      term: LEVEL,",
+        "replace": "attention too.`,\n      term: \"Fleet-wide attention\","
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "79-off-care-plural",
+    "why": "Two sites not marked maintained read as one (round 3, H)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "other: [\"site not marked maintained\", \"sites not marked maintained\"],",
+        "replace": "other: [\"site not marked maintained\", \"site not marked maintained\"],"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
     "expect": "red"
   }
 ]

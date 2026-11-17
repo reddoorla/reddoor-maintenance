@@ -1250,7 +1250,12 @@ describe("review round 3", () => {
       snapshot({ sites: [healthy({ id: "recA", name: "Acme", formE2eOk: "fail" })] }),
       NOW,
     );
-    expect(v.live[0]!.forms).toEqual({ ok: null, text: FORM_TEST_FAILED, fresh: true, testFailed: true });
+    expect(v.live[0]!.forms).toEqual({
+      ok: null,
+      text: FORM_TEST_FAILED,
+      fresh: true,
+      testFailed: true,
+    });
     expect(FORM_TEST_FAILED).toBe(
       "Test failed, but the test itself is being fixed, so this is not yet a verdict",
     );

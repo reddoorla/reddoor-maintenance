@@ -1382,4 +1382,3 @@ describe("review round 3: the check list names its How-we-count term (group G)",
     );
   });
 });
-
