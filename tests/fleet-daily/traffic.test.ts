@@ -239,6 +239,24 @@ describe("readTraffic", () => {
     expect(reason).not.toContain("b.com");
   });
 
+  // Review round 2, Group C: a JSON parse error quotes part of the key file, so a malformed
+  // key file stores the fixed reason, never the text the parser quoted.
+  it("a key file that is not valid JSON stores the fixed reason, never the text it quoted", async () => {
+    const out = await readTraffic(
+      [site("alpha")],
+      NIGHT,
+      readers({
+        search: async () => {
+          throw new SyntaxError(
+            `Unexpected token 'F', ..."ate_key": FAKEKEYMAT"... is not valid JSON`,
+          );
+        },
+      }),
+    );
+    expect(out.sites[0]!.search).toEqual({ value: null, reason: "GA key file unreadable" });
+    expect(out.search.reason ?? "").not.toContain("FAKE");
+  });
+
   // Review round 2, Group B (X5): two addresses in one message are each masked, and neither
   // the local part nor the domain of either is stored.
   it("a reader error that names two addresses stores <account> for each, and neither address", async () => {

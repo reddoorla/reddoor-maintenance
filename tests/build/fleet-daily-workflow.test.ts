@@ -60,6 +60,13 @@ describe("fleet-daily workflow: the traffic block's GA key", () => {
     expect(printfAt).toBeGreaterThan(guardAt);
   });
 
+  // Review round 2, Group C: the key file is never world-readable: umask 077 is the first
+  // line inside the guard's if, before the printf that creates the file.
+  it("sets umask 077 as the first line inside the guard, before the key is written", () => {
+    const script = withoutComments(stepRunScript(workflow, WRITE_STEP));
+    expect(script).toMatch(/if \[ -n "\$GA_SA_KEY_JSON" \]; then\n\s*umask 077\n\s*printf/);
+  });
+
   // Group C: the key's text leaves the writer's environment once the file is written.
   it("unsets GA_SA_KEY_JSON after the key file is written, so the writer never sees it", () => {
     const script = withoutComments(stepRunScript(workflow, WRITE_STEP));

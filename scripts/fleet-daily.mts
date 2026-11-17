@@ -150,8 +150,12 @@ async function main(): Promise<void> {
 }
 
 if (isMain(import.meta.url)) {
-  main().catch((e) => {
-    process.stderr.write(`fleet-daily: ${(e as Error)?.stack ?? String(e)}\n`);
-    process.exitCode = 1;
-  });
+  // Exit once main settles: a token POST that stalls (google-auth-library's has no timeout)
+  // must not hold the job to its 15-minute limit after the row is written (P1-87 PR 6 r2).
+  main()
+    .catch((e) => {
+      process.stderr.write(`fleet-daily: ${(e as Error)?.stack ?? String(e)}\n`);
+      process.exitCode = 1;
+    })
+    .finally(() => process.exit(process.exitCode ?? 0));
 }

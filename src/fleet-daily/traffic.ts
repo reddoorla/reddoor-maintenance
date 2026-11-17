@@ -81,6 +81,9 @@ function datesOf(w: TrafficWindow): string[] {
 /** The reason a failed read stores: its message, with any address masked (a subject's
  *  address can reach a message, and the row is stored), capped. */
 function reasonOf(e: unknown): string {
+  // A JSON parse error quotes part of the key file it parsed, so a malformed key stores the
+  // fixed reason, never that text (P1-87, PR 6 review r2, Group C).
+  if (e instanceof SyntaxError && /JSON/.test(e.message)) return "GA key file unreadable";
   const msg = e instanceof Error ? e.message : String(e);
   return (msg.trim().replace(/\S+@\S+/g, "<account>") || "read failed").slice(0, REASON_MAX);
 }
