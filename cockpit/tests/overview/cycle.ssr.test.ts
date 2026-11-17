@@ -450,4 +450,3 @@ describe("the bar counts only what tonight's stamps prove (P1-87 PR 5a, review r
     expect(v.steps[4]!.words).toBe("ran to the end, 11:40pm PT");
   });
 });
-

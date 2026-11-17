@@ -245,4 +245,3 @@ describe("the bar's clock re-reads a stale view, settles hung reads, and ticks o
     expect(r.reads).toEqual([]);
   });
 });
-

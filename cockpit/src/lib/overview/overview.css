@@ -510,6 +510,40 @@ section {
   .ov-spark circle {
     fill: currentColor;
   }
+  /* P1-87 PR 5a: the nightly bar's fills are the page colour under forced colours, so each
+     state is a border: done a solid bar as thick as the bar, a problem dotted like Attention,
+     none dashed, and the waiting bars and the wait track a thin solid outline. */
+  .ov-cycle-bar {
+    box-sizing: border-box;
+  }
+  .ov-cycle-seg.done .ov-cycle-bar {
+    background: none;
+    border: 0;
+    border-top: 0.625rem solid;
+  }
+  .ov-cycle-seg.problem .ov-cycle-bar {
+    background: none;
+    box-shadow: none;
+    border: 2px dotted;
+  }
+  .ov-cycle-seg.none .ov-cycle-bar {
+    background: none;
+    box-shadow: none;
+    border: 2px dashed;
+  }
+  .ov-cycle-seg.waiting .ov-cycle-bar {
+    box-shadow: none;
+    border: 1px solid;
+  }
+  .ov-cycle-seg.wait .ov-cycle-bar {
+    box-shadow: none;
+    border: 1px solid;
+  }
+  .ov-cycle-marker {
+    background: none;
+    width: 0;
+    border-left: 2px solid;
+  }
 }
 
 /* P1-87 PR 5a: the nightly audit bar, a full-width panel under the first screen's three.
@@ -572,6 +606,10 @@ section {
   background: transparent;
   box-shadow: inset 0 0 0 1px var(--ink-muted);
 }
+/* Waiting bars sit on the band, which is faint in dark: a thin outline keeps them seen. */
+.ov-cycle-seg.waiting .ov-cycle-bar {
+  box-shadow: inset 0 0 0 1px var(--ink-muted);
+}
 /* The marker: a 2px rule a little above and below the bar, where the wait is now. */
 .ov-cycle-marker {
   position: absolute;
@@ -588,6 +626,11 @@ section {
 .ov-cycle-time {
   color: var(--ink-muted);
   font-variant-numeric: tabular-nums;
+  white-space: normal;
+}
+.ov-cycle-when,
+.ov-cycle-until {
+  display: block;
   white-space: nowrap;
 }
 @media (min-width: 48rem) {

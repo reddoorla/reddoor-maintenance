@@ -1757,6 +1757,53 @@ describe("the nightly audit bar on the page (P1-87 PR 5a)", () => {
     ).not.toBeNull();
   });
 
+  // P1-87 PR 5a, review round 1, Group C: forced colours replace every bar's fill, so each
+  // state is a border; a waiting bar is seen on the page; and each step's time is read once.
+  it("gives every state its own border under forced colours, and a waiting bar a visible outline (review round 1, C)", () => {
+    const raw = readFileSync(
+      new URL("../../src/lib/overview/overview.css", import.meta.url),
+      "utf8",
+    ).replace(/\/\*[\s\S]*?\*\//g, "");
+    const at = raw.indexOf("@media (forced-colors: active)");
+    expect(at).toBeGreaterThan(-1);
+    let depth = 0;
+    let end = raw.indexOf("{", at);
+    for (let i = end; i < raw.length; i++) {
+      if (raw[i] === "{") depth++;
+      else if (raw[i] === "}" && --depth === 0) {
+        end = i;
+        break;
+      }
+    }
+    const forced = raw.slice(at, end + 1);
+    const block = (sel: string) =>
+      [...forced.matchAll(/([^{}]+)\{([^}]*)\}/g)].find(([, s]) => s!.trim() === sel)?.[2] ?? "";
+    expect(block(".ov-cycle-bar")).toMatch(/box-sizing:\s*border-box/);
+    expect(block(".ov-cycle-seg.done .ov-cycle-bar")).toMatch(/border-top:\s*0?\.625rem solid/);
+    expect(block(".ov-cycle-seg.problem .ov-cycle-bar")).toMatch(/border:\s*2px dotted/);
+    expect(block(".ov-cycle-seg.none .ov-cycle-bar")).toMatch(/border:\s*2px dashed/);
+    expect(block(".ov-cycle-seg.waiting .ov-cycle-bar")).toMatch(/border:\s*1px solid/);
+    expect(block(".ov-cycle-seg.wait .ov-cycle-bar")).toMatch(/border:\s*1px solid/);
+    expect(block(".ov-cycle-marker")).toMatch(/border-left:\s*2px solid/);
+    // Outside the forced block, a waiting bar keeps the band fill and an inset outline.
+    const plain = raw.slice(0, at) + raw.slice(end + 1);
+    const outlined = [...plain.matchAll(/([^{}]+)\{([^}]*)\}/g)].some(
+      ([, sel, body]) =>
+        sel!.trim() === ".ov-cycle-seg.waiting .ov-cycle-bar" &&
+        /box-shadow:\s*inset 0 0 0 1px var\(--ink-muted\)/.test(body!),
+    );
+    expect(outlined).toBe(true);
+  });
+
+  it("reads each step's time once: the visible time is hidden, and the next run's time stays readable", () => {
+    const steps = RDOC.querySelectorAll(".ov-cycle-track > li:not(.wait) .ov-cycle-time");
+    expect(steps).toHaveLength(8);
+    for (const t of steps) expect(t.getAttribute("aria-hidden")).toBe("true");
+    const next = RDOC.querySelector(".ov-cycle-seg.wait .ov-cycle-time")!;
+    expect(next.getAttribute("aria-hidden") ?? null).toBeNull();
+    expect(text(next.querySelector(".ov-cycle-when")!)).toBe(RUNNING.cycle.next.startsAt);
+  });
+
   it("keeps its own rules in the stylesheet: no animation, no gradient, and full width", () => {
     const css = readFileSync(
       new URL("../../src/lib/overview/overview.css", import.meta.url),

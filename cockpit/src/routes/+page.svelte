@@ -243,7 +243,8 @@
               >{/if}
           </span>
           <span class="ov-cycle-name">{step.short}</span>
-          <span class="ov-cycle-time">{step.time ?? ""}</span>
+          <!-- The time is read once, in the hidden words after the name (P1-87 PR 5a). -->
+          <span class="ov-cycle-time" aria-hidden="true">{step.time ?? ""}</span>
           <span class="visually-hidden">: {step.words}</span>
         </li>
       {/each}
@@ -253,10 +254,12 @@
             ></span>{/if}
         </span>
         <span class="ov-cycle-name">Next run</span>
-        <span class="ov-cycle-time"
-          >{v.cycle.next.startsAt}{#if clock !== null}
-            · {untilWords(v.cycle.next.startIso, nowMs)}{/if}</span
-        >
+        <span class="ov-cycle-time">
+          <span class="ov-cycle-when">{v.cycle.next.startsAt}</span>
+          {#if clock !== null}<span class="ov-cycle-until"
+              >{untilWords(v.cycle.next.startIso, nowMs)}</span
+            >{/if}
+        </span>
       </li>
     </ol>
   </section>

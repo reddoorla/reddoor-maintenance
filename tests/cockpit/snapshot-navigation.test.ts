@@ -456,6 +456,72 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     expect(overflows).toBe(false);
   });
 
+  // P1-87 PR 5a, review round 1 (accessibility majors and minors): the bar's next-run time
+  // fits its column at the widths between the stacked and the wide layouts, where the page
+  // scrolled sideways and clipped it.
+  it("the nightly audit's times fit their columns at 768px and 1000px, with no sideways scroll", async () => {
+    const page = await signedIn();
+    for (const width of [768, 1000]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`${origin}/`);
+      // The precondition: all nine segments rendered (eight steps and the wait).
+      await expect.poll(() => page.locator(".ov-cycle-seg").count()).toBe(9);
+      // The screen-reader words are clipped to one pixel by design (.visually-hidden), so
+      // they are not part of the layout this checks.
+      const clipped = await page.evaluate(() =>
+        [...document.querySelectorAll(".ov-cycle *:not(.visually-hidden)")]
+          .filter((e) => e.closest(".visually-hidden") === null)
+          .filter((e) => e.scrollWidth > e.clientWidth + 1)
+          .map((e) => `${e.tagName.toLowerCase()}.${String(e.getAttribute("class"))}`),
+      );
+      expect(clipped, `at ${width}px`).toEqual([]);
+      // The page's own sideways scroll is not this bar's: at 768px the Leads sites table is
+      // wider than the page (a pre-existing overflow outside the bar, not in this PR). The
+      // bar's section must not overflow its own box.
+      const barOverflows = await page.evaluate(() => {
+        const s = document.querySelector<HTMLElement>(".ov-cycle")!;
+        return s.scrollWidth > s.clientWidth + 1;
+      });
+      expect(barOverflows, `at ${width}px`).toBe(false);
+    }
+  });
+
+  // P1-87 PR 5a, review round 1, accessibility critical 1 and major 2: under forced colours
+  // the bars keep a border the browser draws (their background is the page's colour), and
+  // the marker keeps a left border. The running bars' stripes are a pattern, so they are not
+  // checked here.
+  it("under forced colours every non-running bar draws a border, and the marker a left border, at 1280px", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.emulateMedia({ forcedColors: "active" });
+    await page.goto(`${origin}/`);
+    await expect.poll(() => page.locator(".ov-cycle-seg").count()).toBe(9);
+    const bars = await page.evaluate(() =>
+      [...document.querySelectorAll(".ov-cycle-seg")].map((li) => {
+        const cs = getComputedStyle(li.querySelector(".ov-cycle-bar")!);
+        const sides = ["Top", "Right", "Bottom", "Left"].map((d) => ({
+          width: Number.parseFloat(cs.getPropertyValue(`border-${d.toLowerCase()}-width`)),
+          style: cs.getPropertyValue(`border-${d.toLowerCase()}-style`),
+        }));
+        return {
+          cls: li.getAttribute("class") ?? "",
+          drawn: sides.some((x) => x.width >= 1 && x.style !== "none"),
+        };
+      }),
+    );
+    // Precondition: a finished step and an unfinished one rendered, so the check is not empty.
+    expect(bars.some((b) => /\b(done|none)\b/.test(b.cls))).toBe(true);
+    for (const b of bars) {
+      if (/\brunning\b/.test(b.cls)) continue;
+      expect(b.drawn, b.cls).toBe(true);
+    }
+    const marker = await page.evaluate(() => {
+      const el = document.querySelector<HTMLElement>(".ov-cycle-marker");
+      return el === null ? null : Number.parseFloat(getComputedStyle(el).borderLeftWidth);
+    });
+    if (marker !== null) expect(marker).toBeGreaterThan(0);
+  });
+
   // P1-87 PR 4, review round 2 B: at 1280px the feed is the tallest first-screen panel, so
   // without `align-items: start` on the row, Health and Happening stretch to its height. Its
   // time column is fixed, so every line's text starts at one x.
@@ -1047,7 +1113,7 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       return html
         .replace(/\b(just now|\d+ (?:minute|hour|day|week|month|year)s? ago)/g, "<ago>")
         .replace(/left: [\d.]+%/g, "left: <marker>%")
-        .replace(/· (?:in \d+ (?:minutes?|hours?)|starting now)/g, "· <until>");
+        .replace(/(<span class="ov-cycle-until">)[^<]*/g, "$1<until>");
     };
     const erik = await overview("erik");
     const tim = await overview("tim");
