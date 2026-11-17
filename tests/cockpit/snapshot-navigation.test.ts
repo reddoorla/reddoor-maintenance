@@ -9,6 +9,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from "@playwri
 import { openDb } from "../../src/db/client.js";
 import { recordFleetEvent } from "../../src/db/fleet-events.js";
 import { NIGHTLIES } from "../../scripts/nightly-conductor.mjs";
+import { seededNights } from "../_helpers/bar-nights.js";
 import { expectedNight } from "../../cockpit/src/lib/overview/view.js";
 
 /**
@@ -165,7 +166,8 @@ async function seed(url: string): Promise<void> {
       submitted_at: new Date().toISOString(),
     } as never)
     .execute();
-  // Review round 5 (R5-8): two fleet_daily nights, the newest the one expected by now,
+  // Review round 5 (R5-8): two fleet_daily nights (three from 10pm to 6am Pacific, when
+  // the bar's own run night is written too, P1-87 PR 5a), the newest expected one by now,
   // so fleet_daily reaches `/` through the real loader and the overview's windowed
   // counts and reliability are figures, not "not yet collected". These are their
   // short forms; the longer ones (a stopped nightly, nights not recorded) are pinned
@@ -173,13 +175,10 @@ async function seed(url: string): Promise<void> {
   // run that crosses 6am Pacific between seeding and the check would read one night
   // behind.
   const newest = expectedNight(new Date());
-  const before = new Date(Date.parse(`${newest}T00:00:00Z`) - 86_400_000)
-    .toISOString()
-    .slice(0, 10);
-  for (const [night, merged] of [
-    [before, 600],
-    [newest, 612],
-  ] as const)
+  // P1-87 PR 5a, review round 3 (Group C): the bar's own run night is written too, so the bar
+  // reads recorded at any hour (see seededNights). Its backup did not run, so it renders a
+  // `none` step for the forced-colours check.
+  for (const { night, merged, backupRan } of seededNights(new Date()))
     await db
       .insertInto("fleet_daily")
       .values({
@@ -188,7 +187,9 @@ async function seed(url: string): Promise<void> {
           steps: Object.fromEntries(
             NIGHTLIES.map((n: { file: string }) => [
               n.file,
-              { outcome: "completed", runId: 1, conclusion: "success" },
+              n.file === "fleet-db-backup.yml" && !backupRan
+                ? null
+                : { outcome: "completed", runId: 1, conclusion: "success" },
             ]),
           ),
           prsMerged: { value: merged },
@@ -199,7 +200,7 @@ async function seed(url: string): Promise<void> {
       .execute();
   // P1-78h: fourteen older nights, so section 8 draws its charts in the 390px check.
   // They carry only the blocks the trends read and no step results, so the nightly's
-  // reliability above still counts its two recorded nights. Each is on the current
+  // reliability above still counts only its seeded recorded nights. Each is on the current
   // ladder but the oldest, so the level chart has a break; one night is missing.
   for (let i = 2; i <= 16; i++) {
     if (i === 9) continue;
@@ -416,6 +417,127 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
     );
     expect(overflows).toBe(false);
+  });
+
+  // P1-87 PR 5a: the nightly audit bar under the first screen's three panels. At 1280px its
+  // nine segments share one row below them; at 390px they stack, each below the last.
+  it("the nightly audit's nine segments sit below the three panels at 1280px and stack at 390px, with no overflow", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    // The precondition: all nine segments rendered (eight steps and the wait).
+    await expect.poll(() => page.locator(".ov-cycle-seg").count()).toBe(9);
+    const wide = await page.evaluate(() => {
+      const panelsBottom = Math.max(
+        ...[...document.querySelectorAll(".ov-health, .ov-happening, .ov-lately")].map(
+          (e) => e.getBoundingClientRect().bottom,
+        ),
+      );
+      const tops = [...document.querySelectorAll(".ov-cycle-seg")].map((e) =>
+        Math.round(e.getBoundingClientRect().top),
+      );
+      return { panelsBottom, tops };
+    });
+    expect(new Set(wide.tops).size).toBe(1);
+    expect(Math.min(...wide.tops)).toBeGreaterThanOrEqual(wide.panelsBottom);
+    await page.setViewportSize({ width: 390, height: 844 });
+    const narrow = await page.locator(".ov-cycle-seg").evaluateAll((els) =>
+      els.map((e) => ({
+        top: Math.round(e.getBoundingClientRect().top),
+        bottom: Math.round(e.getBoundingClientRect().bottom),
+      })),
+    );
+    expect(narrow).toHaveLength(9);
+    for (let i = 1; i < narrow.length; i++) {
+      expect(narrow[i]!.top).toBeGreaterThanOrEqual(narrow[i - 1]!.bottom);
+    }
+    const overflows = await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    );
+    expect(overflows).toBe(false);
+  });
+
+  // P1-87 PR 5a, review round 1 (accessibility majors and minors): the bar's next-run time
+  // fits its column at the widths between the stacked and the wide layouts, where the page
+  // scrolled sideways and clipped it.
+  it("the nightly audit's times fit their columns at 768px and 1000px, with no sideways scroll", async () => {
+    const page = await signedIn();
+    for (const width of [768, 1000]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`${origin}/`);
+      // The precondition: all nine segments rendered (eight steps and the wait).
+      await expect.poll(() => page.locator(".ov-cycle-seg").count()).toBe(9);
+      // The screen-reader words are clipped to one pixel by design (.visually-hidden), so
+      // they are not part of the layout this checks.
+      const clipped = await page.evaluate(() =>
+        [...document.querySelectorAll(".ov-cycle *:not(.visually-hidden)")]
+          .filter((e) => e.closest(".visually-hidden") === null)
+          .filter((e) => e.scrollWidth > e.clientWidth + 1)
+          .map((e) => `${e.tagName.toLowerCase()}.${String(e.getAttribute("class"))}`),
+      );
+      expect(clipped, `at ${width}px`).toEqual([]);
+      // The page's own sideways scroll is not this bar's: at 768px the Leads sites table is
+      // wider than the page (a pre-existing overflow outside the bar, not in this PR). The
+      // bar's section must not overflow its own box.
+      const barOverflows = await page.evaluate(() => {
+        const s = document.querySelector<HTMLElement>(".ov-cycle")!;
+        return s.scrollWidth > s.clientWidth + 1;
+      });
+      expect(barOverflows, `at ${width}px`).toBe(false);
+    }
+  });
+
+  // P1-87 PR 5a, review round 1, accessibility critical 1 and major 2: under forced colours
+  // the bars keep a border the browser draws (their background is the page's colour), and
+  // the marker keeps a left border. The running bars' stripes are a pattern, so they are not
+  // checked here.
+  it("under forced colours every non-running bar draws a border, and the marker a left border, at 1280px", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.emulateMedia({ forcedColors: "active" });
+    await page.goto(`${origin}/`);
+    await expect.poll(() => page.locator(".ov-cycle-seg").count()).toBe(9);
+    const bars = await page.evaluate(() =>
+      [...document.querySelectorAll(".ov-cycle-seg")].map((li) => {
+        const cs = getComputedStyle(li.querySelector(".ov-cycle-bar")!);
+        const sides = ["Top", "Right", "Bottom", "Left"].map((d) => ({
+          width: Number.parseFloat(cs.getPropertyValue(`border-${d.toLowerCase()}-width`)),
+          style: cs.getPropertyValue(`border-${d.toLowerCase()}-style`),
+        }));
+        return {
+          cls: li.getAttribute("class") ?? "",
+          drawn: sides.some((x) => x.width >= 1 && x.style !== "none"),
+        };
+      }),
+    );
+    // Precondition: a finished step and an unfinished one rendered, so the check is not empty.
+    expect(bars.some((b) => /\b(done|none)\b/.test(b.cls))).toBe(true);
+    for (const b of bars) {
+      if (/\brunning\b/.test(b.cls)) continue;
+      expect(b.drawn, b.cls).toBe(true);
+    }
+    const marker = await page.evaluate(() => {
+      const el = document.querySelector<HTMLElement>(".ov-cycle-marker");
+      return el === null ? null : Number.parseFloat(getComputedStyle(el).borderLeftWidth);
+    });
+    // The seeded newest night is recorded, so the bar has a marker to check (P1-87 PR 5a,
+    // review round 2): a bar that drops its marker under forced colours fails here.
+    expect(marker, "the marker is rendered").not.toBeNull();
+    expect(marker!).toBeGreaterThan(0);
+    // P1-87 PR 5a, review round 3 (correctness major 2): a `none` step is dashed at 2px
+    // under forced colours, as the forced block says. The base rule once beat it at 1px.
+    expect(
+      await page.locator(".ov-cycle-seg.none").count(),
+      "a none step rendered",
+    ).toBeGreaterThan(0);
+    const noneBorder = await page
+      .locator(".ov-cycle-seg.none .ov-cycle-bar")
+      .first()
+      .evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return { width: cs.borderTopWidth, style: cs.borderTopStyle };
+      });
+    expect(noneBorder).toEqual({ width: "2px", style: "dashed" });
   });
 
   // P1-87 PR 4, review round 2 B: at 1280px the feed is the tallest first-screen panel, so
@@ -1000,11 +1122,24 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       const page = await signedIn(user);
       await page.goto(`${origin}/`);
       await expect.poll(() => page.locator("h1").first().textContent()).toContain("Overview");
+      // The bar's "in N hours" renders only once the page's clock has started in the
+      // browser (the server cannot know the browser's time), so read the page after that
+      // first tick, or one load can be read between hydration and the tick (P1-87 PR 5a:
+      // CI at 9b296709 read erik after the tick and tim before it).
+      await expect.poll(() => page.locator(".ov-cycle-until").count()).toBe(1);
       const html = await page.evaluate(() =>
         [...document.querySelectorAll("h1, section")].map((e) => e.outerHTML).join("\n"),
       );
       // Relative times may tick between the two loads; everything else must match.
-      return html.replace(/\b(just now|\d+ (?:minute|hour|day|week|month|year)s? ago)/g, "<ago>");
+      // The nightly bar's marker and its "in N hours" are the same kind of reading: where
+      // the clock is, so they tick between the loads too (P1-87 PR 5a).
+      return (
+        html
+          .replace(/\b(just now|\d+ (?:minute|hour|day|week|month|year)s? ago)/g, "<ago>")
+          // The marker's position only: Fleet health's own `left:` values are compared exactly.
+          .replace(/(class="ov-cycle-marker[^"]*" style="left: )[\d.e+-]+%;?/g, "$1<marker>%")
+          .replace(/(<span class="ov-cycle-until">)[^<]*/g, "$1<until>")
+      );
     };
     const erik = await overview("erik");
     const tim = await overview("tim");
