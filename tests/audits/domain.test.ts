@@ -309,7 +309,7 @@ describe("defaultDomainDeps against local TLS servers", () => {
     dir = mkdtempSync(join(tmpdir(), "domain-tls-"));
     ({ key, cert } = makeCert("loopback", "IP:127.0.0.1"));
     other = makeCert("other.invalid", "DNS:other.invalid");
-    now = new Date(new X509Certificate(cert).validFrom);
+    now = new X509Certificate(cert).validFromDate;
   });
 
   afterAll(async () => {

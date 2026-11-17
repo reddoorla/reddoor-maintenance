@@ -6,6 +6,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ResendSendInput } from "../../src/reports/send/resend.js";
+import { TIME_TRAVEL_FAKES } from "../../vitest.time-travel.js";
 
 const dir = mkdtempSync(join(tmpdir(), "test-send-"));
 let n = 0;
@@ -153,6 +154,9 @@ describe("report --test-send", () => {
  * shared one `sent_at` and the random ids decided which was newest (#1978: streak=0 and
  * streak=1 where 2 is right). Each send gets its own frozen instant instead. When the shim is
  * on, its forward clock is put back where it would have been; when it is off, the real clock.
+ * Not re-entrant: an inner call would restore a running clock under the outer frozen one.
+ * The sends it wraps run at a fixed date, so under the shim they are not at +90 days; the
+ * file's other `--test-send` calls still are.
  */
 async function atFrozenTime<T>(at: Date, fn: () => Promise<T>): Promise<T> {
   const shimmed = vi.isFakeTimers();
@@ -163,7 +167,7 @@ async function atFrozenTime<T>(at: Date, fn: () => Promise<T>): Promise<T> {
     return await fn();
   } finally {
     if (shimmed) {
-      vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
+      vi.useFakeTimers({ toFake: [...TIME_TRAVEL_FAKES], shouldAdvanceTime: true });
       vi.setSystemTime(vi.getRealSystemTime() + offset);
     } else {
       vi.useRealTimers();
