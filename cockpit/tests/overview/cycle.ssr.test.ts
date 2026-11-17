@@ -599,3 +599,28 @@ describe("the bar is recorded, with its marker, at every hour of the seeded nigh
     });
   }
 });
+
+/**
+ * P1-87 PR 5a, review round 3 (tests minor 3, Group D): tonight's stamps run to the window's
+ * end, not to the clock, so a stamp made after the window does not finish a step even once
+ * the clock has passed it.
+ */
+describe("tonight's stamps end at the window's end (P1-87 PR 5a, round 3)", () => {
+  it("after the window has ended, two Security stamps made after it do not finish Security", () => {
+    // 9:00am PST on 2026-11-17: the run that started at 10:07pm the night before ended at
+    // 3:07am, and no row exists for it. Its Security stamps are at 8:30am, after the end.
+    const now = new Date("2026-11-17T17:00:00.000Z");
+    const s = snapshot({
+      nights: [],
+      sites: [
+        site("recB", { lastSecurityAuditAt: "2026-11-17T16:30:00.000Z" }),
+        site("recD", { lastSecurityAuditAt: "2026-11-17T16:30:00.000Z" }),
+      ],
+    });
+    const v = cycle(s, now);
+    expect(v.mode).toBe("unrecorded");
+    expect(v.steps[3]!.short).toBe("Security");
+    expect(v.steps[3]!.state).toBe("none");
+    expect(v.steps[3]!.words).toBe("not recorded");
+  });
+});
