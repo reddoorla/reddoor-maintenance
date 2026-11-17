@@ -148,6 +148,11 @@
 
   <section class="ov-lately" aria-labelledby="ov-lately-h">
     <h2 id="ov-lately-h">Lately</h2>
+    {#if v.lately.unreadable.length > 0}
+      <p>Could not read {listWords(v.lately.unreadable)} just now.</p>
+    {:else if v.lately.lines.length === 0}
+      <p class="muted">Nothing recorded in the last 7 days.</p>
+    {/if}
     {#if v.lately.lines.length > 0}
       <ol data-term="Lately">
         {#each v.lately.lines as l, i (i)}
@@ -161,11 +166,6 @@
           </li>
         {/each}
       </ol>
-    {/if}
-    {#if v.lately.unreadable.length > 0}
-      <p class="muted">Could not read {listWords(v.lately.unreadable)} just now.</p>
-    {:else if v.lately.lines.length === 0}
-      <p class="muted">Nothing recorded in the last 7 days.</p>
     {/if}
   </section>
 </div>

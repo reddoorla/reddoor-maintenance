@@ -1577,6 +1577,26 @@ describe("the Lately feed on the page (P1-87 PR 4)", () => {
     expect(panel).not.toContain("Nothing recorded");
   });
 
+  it("says a failed read first, in ink, and still shows the lines that did read", () => {
+    const html = pageHtml(overviewFromSnapshot({ ...SNAP, reports: null }, NOW));
+    const panel = parse(html).querySelector(".ov-lately")!;
+    const paragraph = [...panel.querySelectorAll("p")].find((p) =>
+      text(p).includes("Could not read reports just now."),
+    );
+    expect(paragraph).toBeDefined();
+    expect(paragraph!.hasAttribute("class")).toBe(false);
+    // Heading, then the sentence, then the list: a failed read is said before the lines.
+    expect([...panel.children].map((el) => el.tagName)).toEqual(["H2", "P", "OL"]);
+    expect(panel.querySelectorAll("ol > li").length).toBeGreaterThan(0);
+  });
+
+  it("never says 'Nothing recorded' over a render with lines", () => {
+    const html = pageHtml(overviewFromSnapshot(SNAP, NOW));
+    const panel = text(parse(html).querySelector(".ov-lately")!);
+    expect(parse(html).querySelectorAll(".ov-lately ol > li").length).toBeGreaterThan(0);
+    expect(panel).not.toContain("Nothing recorded");
+  });
+
   it("names a failed source by its sentinel, so the sentence is over the rendered view", () => {
     const US = sentinelize(overviewFromSnapshot({ ...SNAP, reports: null }, NOW));
     const UDOC = parse(pageHtml(US.view));
