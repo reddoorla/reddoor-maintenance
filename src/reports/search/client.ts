@@ -131,7 +131,7 @@ export function selectBrandPosition(
  *  empty list with no auth error at all — so this opts into subject failover explicitly.
  *  When EVERY subject resolves empty, `fetchSearchPresence` restores the pre-failover
  *  behavior: a plain not-found result, not a throw. */
-class NoPropertyForSubjectError extends Error {
+export class NoPropertyForSubjectError extends Error {
   readonly failoverToNextSubject = true;
   constructor(subject: string, host: string) {
     super(`no Search Console property matching ${host} is visible to ${subject}`);

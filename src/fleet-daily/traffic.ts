@@ -11,6 +11,7 @@
  *   and at most `concurrency` reads are in flight at once.
  */
 import type { Measured, TrafficCounts, TrafficSite, TrafficWindow } from "./types.js";
+import { NoPropertyForSubjectError } from "../reports/search/client.js";
 
 /** A site as the block needs it: its id, URL, and the properties recorded for it. */
 export type TrafficSiteInput = {
@@ -77,9 +78,11 @@ function datesOf(w: TrafficWindow): string[] {
   return out;
 }
 
+/** The reason a failed read stores: its message, with any address masked (a subject's
+ *  address can reach a message, and the row is stored), capped. */
 function reasonOf(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e);
-  return (msg.trim() || "read failed").slice(0, REASON_MAX);
+  return (msg.trim().replace(/\S+@\S+/g, "<account>") || "read failed").slice(0, REASON_MAX);
 }
 
 /** Reject if `p` has not settled within `ms`. */
@@ -167,6 +170,9 @@ export async function readTraffic(
   const hasGa = (s: TrafficSiteInput): boolean => (s.ga4PropertyId ?? "").trim() !== "";
   const hasSearch = (s: TrafficSiteInput): boolean =>
     (s.searchConsoleProperty ?? "").trim() !== "" || s.url.trim() !== "";
+  // Sites whose search read found no property for any subject: "no property", counted in
+  // neither sitesRead nor sitesWithProperty (P1-87, PR 6 review round 1).
+  const noSearchProperty = new Set<string>();
 
   type Task = () => Promise<void>;
   const tasks: Task[] = [];
@@ -195,7 +201,12 @@ export async function readTraffic(
           );
           searchRead.set(s.id, { value: map });
         } catch (e) {
-          searchRead.set(s.id, { value: null, reason: reasonOf(e) });
+          if (e instanceof NoPropertyForSubjectError) {
+            noSearchProperty.add(s.id);
+            searchRead.set(s.id, { value: null, reason: NO_SEARCH_PROPERTY });
+          } else {
+            searchRead.set(s.id, { value: null, reason: reasonOf(e) });
+          }
         }
       });
     } else {
@@ -261,7 +272,8 @@ export async function readTraffic(
             impressions: siteRows.reduce((n, r) => n + (r.search.value?.impressions ?? 0), 0),
             window: windows.search,
             sitesRead: readSearch.length,
-            sitesWithProperty: sites.filter(hasSearch).length,
+            sitesWithProperty: sites.filter((s) => hasSearch(s) && !noSearchProperty.has(s.id))
+              .length,
             daily: datesOf(windows.search).map((date) => ({
               date,
               clicks: readSearch.reduce((n, m) => n + (m.get(date)?.clicks ?? 0), 0),

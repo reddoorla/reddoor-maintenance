@@ -19,6 +19,7 @@ import {
   selectBrandPosition,
   bareHost,
   BRAND_QUERY_ROW_LIMIT,
+  NoPropertyForSubjectError,
 } from "../../../src/reports/search/client.js";
 import { JWT } from "google-auth-library";
 
@@ -668,6 +669,17 @@ describe("fetchSearchDaily", () => {
     ).rejects.toThrow(/no Search Console property/);
   });
 
+  // Group B: every subject sees no matching property, so the read throws the typed error
+  // the traffic block maps to "no Search Console property".
+  it("throws NoPropertyForSubjectError when every subject sees no matching property", async () => {
+    request
+      .mockResolvedValueOnce(ok({ siteEntry: [{ siteUrl: "sc-domain:other.com" }] }))
+      .mockResolvedValueOnce(ok({ siteEntry: [] }));
+    await expect(
+      fetchSearchDaily({ keyPath, subjects: ["a@x.com", "b@x.com"], host: "erpfunds.com" }, range),
+    ).rejects.toBeInstanceOf(NoPropertyForSubjectError);
+  });
+
   it("throws when the only candidate's request fails", async () => {
     request.mockRejectedValueOnce(new Error("socket hang up"));
     await expect(
@@ -690,20 +702,14 @@ describe("fetchSearchDaily", () => {
     request
       .mockResolvedValueOnce(
         ok({
-          siteEntry: [
-            { siteUrl: "https://www.x.com/" },
-            { siteUrl: "sc-domain:x.com" },
-          ],
+          siteEntry: [{ siteUrl: "https://www.x.com/" }, { siteUrl: "sc-domain:x.com" }],
         }),
       ) // sites.list
       .mockResolvedValueOnce(ok({})) // sc-domain: answers {}
       .mockResolvedValueOnce(
         ok({ rows: [{ keys: ["2026-10-17"], clicks: 40, impressions: 900 }] }),
       ); // url-prefix: the data
-    const out = await fetchSearchDaily(
-      { keyPath, subjects: ["s@x.com"], host: "x.com" },
-      range,
-    );
+    const out = await fetchSearchDaily({ keyPath, subjects: ["s@x.com"], host: "x.com" }, range);
     expect(out).toEqual(new Map([["2026-10-17", { clicks: 40, impressions: 900 }]]));
     expect(request).toHaveBeenCalledTimes(3);
     expect(request.mock.calls[2]![0].url).toContain(encodeURIComponent("https://www.x.com/"));

@@ -5,6 +5,7 @@
  * one site's failure never fails the block.
  */
 import { describe, it, expect, vi } from "vitest";
+import { NoPropertyForSubjectError } from "../../src/reports/search/client.js";
 import {
   readTraffic,
   trafficWindows,
@@ -202,6 +203,39 @@ describe("readTraffic", () => {
       reason: "no Search Console property",
     });
     expect(out.search.value).toMatchObject({ sitesRead: 1, sitesWithProperty: 1 });
+  });
+
+  // Group B (P1-87 PR 6, review round 1): a site with a URL but no Search Console property
+  // is "no property", counted in neither count, and its subject's address is never stored.
+  it("a site with a URL whose search reader finds no property is 'no Search Console property', out of sitesWithProperty", async () => {
+    const out = await readTraffic(
+      [site("alpha"), site("bravo")],
+      NIGHT,
+      readers({
+        search: async (s, r) => {
+          if (s.id === "bravo")
+            throw new NoPropertyForSubjectError("tucker@reddoorla.com", "bravo.example");
+          return new Map(datesIn(r).map((d) => [d, { clicks: 1, impressions: 10 }]));
+        },
+      }),
+    );
+    expect(out.sites[1]!.search).toEqual({ value: null, reason: "no Search Console property" });
+    expect(out.search.value).toMatchObject({ sitesRead: 1, sitesWithProperty: 1 });
+  });
+
+  it("a reader error that names an address stores it as <account>, never the address", async () => {
+    const out = await readTraffic(
+      [site("alpha")],
+      NIGHT,
+      readers({
+        search: async () => {
+          throw new Error("no Search Console property matching b.com is visible to a@b.com");
+        },
+      }),
+    );
+    const reason = out.sites[0]!.search.reason ?? "";
+    expect(reason).toContain("<account>");
+    expect(reason).not.toContain("@");
   });
 
   it("a site with a URL but no recorded property is read: the reader may resolve one", async () => {
