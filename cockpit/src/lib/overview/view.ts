@@ -2065,9 +2065,10 @@ export function numbersView(
     context:
       [
         ...(stoppedMeasured && leads.stoppedAsOf !== null ? [`as of ${leads.stoppedAsOf}`] : []),
-        ...(leads.allTime === null
-          ? []
-          : [`${leads.allTime.screened} more screened after arriving`]),
+        // "More" needs a stopped count to add to: unmeasured, the clause is left out.
+        ...(stoppedMeasured && leads.allTime !== null
+          ? [`${leads.allTime.screened} more screened after arriving`]
+          : []),
       ].join("; ") || null,
     spark: null,
   };

@@ -2557,3 +2557,14 @@ describe("review round 2: the leads tile, the tier bar and the security count (g
     });
   });
 });
+
+describe("review round 2: the spam tile's context when the stopped count is unmeasured (group J)", () => {
+  it("drops 'more screened' when there is no stopped count to add to", () => {
+    const spam = overviewFromSnapshot(
+      snapshot({ ...numbersFleet(), nights: null }),
+      NOW,
+    ).numbers.find((t) => t.key === "spam")!;
+    expect(spam.measured).toBe(false);
+    expect(spam.context ?? "").not.toContain("more screened");
+  });
+});
