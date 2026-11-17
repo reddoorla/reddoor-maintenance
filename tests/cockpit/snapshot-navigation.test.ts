@@ -1405,14 +1405,17 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     await expect
       .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
       .toBeGreaterThanOrEqual(2);
+    // The row must be moving before it is paused: poll for a change, so a slow first frame
+    // on a fresh build does not read as a row that never moved.
     const moving = await transform(page);
-    await page.waitForTimeout(1500);
-    expect(await transform(page)).not.toBe(moving);
+    await expect
+      .poll(() => transform(page), { message: `the row moves before pause (was ${moving})` })
+      .not.toBe(moving);
     await page.locator(".ov-ticker-pause").click();
     expect(await page.locator(".ov-ticker-pause").getAttribute("aria-pressed")).toBe("true");
     const paused = await transform(page);
     await page.waitForTimeout(1500);
-    expect(await transform(page)).toBe(paused);
+    expect(await transform(page), "the row stands still once paused").toBe(paused);
   });
 
   it("stops while the pointer is over it", async () => {
