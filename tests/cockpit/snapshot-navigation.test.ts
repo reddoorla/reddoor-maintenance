@@ -1918,6 +1918,47 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     expect(inWindow, "the focused link is inside the window").toBe(true);
   });
 
+  // P1-87 PR 5b review r4 M1, the other side: a mouse focus with no key press is no keyboard focus,
+  // so the row keeps moving once the pointer leaves. Chromium shows no focus ring for it, and the
+  // still layout waits for a ring (the re-check reads :focus-visible, not :focus).
+  it("a right press on link 1 with no key press keeps the row moving once the pointer leaves, with no ring", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await expect
+      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
+      .toBeGreaterThanOrEqual(2);
+    const link = page.locator(".ov-ticker-list:not(.copy) > li:nth-child(1) a");
+    await page.locator(".ov-ticker-window").hover();
+    await settledPaused(page);
+    const box = (await link.boundingBox())!;
+    const win = (await page.locator(".ov-ticker-window").boundingBox())!;
+    const left = Math.max(box.x, win.x, 0) + 1;
+    const right = Math.min(box.x + box.width, win.x + win.width, 1280) - 1;
+    await page.mouse.move((left + right) / 2, box.y + box.height / 2);
+    await page.mouse.down({ button: "right" });
+    await page.mouse.up({ button: "right" });
+    expect(
+      await page.evaluate(() => document.activeElement!.tagName.toLowerCase()),
+      "the right press focuses link 1",
+    ).toBe("a");
+    expect(
+      await page.evaluate(() => document.activeElement!.matches(":focus-visible")),
+      "a mouse focus shows no focus ring",
+    ).toBe(false);
+    await page.mouse.move(2, 2);
+    await page.evaluate(
+      () =>
+        new Promise<void>((done) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => done())),
+        ),
+    );
+    expect(
+      await animation(page),
+      "the row keeps moving: a mouse focus with no ring does not still it",
+    ).toBe("ov-ticker");
+  });
+
   // P1-87 PR 5b review r4 A: a press on the pause button, then a Tab into the ticker, stills the row.
   it("a press on the pause button, then a Tab into the ticker, stills the row", async () => {
     const page = await signedIn();

@@ -274,11 +274,11 @@
   },
   {
     "id": "21-focus-still-layout-removed",
-    "why": "A focus inside the window no longer stops the row, so a focused link moves out of the window (the Group B control: hand-checked by this run)",
+    "why": "A focus inside the window no longer stops the row (the run rule is gone from both halves), so a focused link moves out of the window (r4 A: the held state rewrites the r3 selector)",
     "edits": [
       {
         "file": "cockpit/src/lib/overview/overview.css",
-        "find": ".ov-ticker-window:has(:focus-visible):not([data-pointer]) .ov-ticker-run {\n  animation: none;\n  display: block;\n  width: auto;\n}\n",
+        "find": ".ov-ticker-window[data-still] .ov-ticker-run,\n.ov-ticker-window:not([data-js]):has(:focus-visible) .ov-ticker-run {\n  animation: none;\n  display: block;\n  width: auto;\n}\n",
         "replace": ""
       }
     ],
@@ -326,26 +326,26 @@
   },
   {
     "id": "25-keyboard-still-keyed-on-focus-within",
-    "why": "r2 A: the still layout is keyed on any focus, so a mouse focus reflows the row under the pointer and a click on a moving link opens nothing. All four keyboard selectors change together; the run selector alone is mutant 25b, which the click test must also catch",
+    "why": "r2 A, rewritten for r4 A: the four keyboard still rules are keyed on any focus within the window, so a mouse focus reflows the row under the pointer and a click on a moving link opens nothing. All four change together; the run rule alone is mutant 25b",
     "edits": [
       {
         "file": "cockpit/src/lib/overview/overview.css",
-        "find": ".ov-ticker-window:has(:focus-visible):not([data-pointer]) .ov-ticker-run {",
+        "find": ".ov-ticker-window[data-still] .ov-ticker-run,\n.ov-ticker-window:not([data-js]):has(:focus-visible) .ov-ticker-run {",
         "replace": ".ov-ticker-window:focus-within .ov-ticker-run {"
       },
       {
         "file": "cockpit/src/lib/overview/overview.css",
-        "find": ".ov-ticker-window:has(:focus-visible):not([data-pointer]) .ov-ticker-list {",
+        "find": ".ov-ticker-window[data-still] .ov-ticker-list,\n.ov-ticker-window:not([data-js]):has(:focus-visible) .ov-ticker-list {",
         "replace": ".ov-ticker-window:focus-within .ov-ticker-list {"
       },
       {
         "file": "cockpit/src/lib/overview/overview.css",
-        "find": ".ov-ticker-window:has(:focus-visible):not([data-pointer]) .ov-ticker-list li {",
+        "find": ".ov-ticker-window[data-still] .ov-ticker-list li,\n.ov-ticker-window:not([data-js]):has(:focus-visible) .ov-ticker-list li {",
         "replace": ".ov-ticker-window:focus-within .ov-ticker-list li {"
       },
       {
         "file": "cockpit/src/lib/overview/overview.css",
-        "find": ".ov-ticker-window:has(:focus-visible):not([data-pointer]) .ov-ticker-list.copy {",
+        "find": ".ov-ticker-window[data-still] .ov-ticker-list.copy,\n.ov-ticker-window:not([data-js]):has(:focus-visible) .ov-ticker-list.copy {",
         "replace": ".ov-ticker-window:focus-within .ov-ticker-list.copy {"
       }
     ],
@@ -354,11 +354,11 @@
   },
   {
     "id": "25b-run-selector-only-focus-within",
-    "why": "r3 B: only the run selector is back on :focus-within, so a mouse focus stills the row and it snaps back before link 2's press lands. The click test must catch it on every run",
+    "why": "r3 B, rewritten for r4 A: only the run rule is keyed on :focus-within, so a mouse focus stills the row and it snaps back before link 2's press lands. The click test must catch it",
     "edits": [
       {
         "file": "cockpit/src/lib/overview/overview.css",
-        "find": ".ov-ticker-window:has(:focus-visible):not([data-pointer]) .ov-ticker-run {",
+        "find": ".ov-ticker-window[data-still] .ov-ticker-run,\n.ov-ticker-window:not([data-js]):has(:focus-visible) .ov-ticker-run {",
         "replace": ".ov-ticker-window:focus-within .ov-ticker-run {"
       }
     ],
@@ -397,7 +397,7 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/overview.css",
-        "find": "  .ov-ticker-pause[aria-pressed=\"true\"] {\n    border-width: 3px;\n    padding: calc(0.2em - 2px) calc(0.7em - 2px);\n  }\n",
+        "find": "  .ov-ticker-pause[aria-pressed=\"true\"] {\n    border-width: 3px;\n    padding: max(0px, calc(0.2em - 2px)) max(0px, calc(0.7em - 2px));\n  }\n",
         "replace": ""
       }
     ],
@@ -423,8 +423,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/overview.css",
-        "find": ".ov-ticker-window:has(:focus-visible):not([data-pointer]) .ov-ticker-list {\n  flex-direction: column;\n  gap: 1rem;",
-        "replace": ".ov-ticker-window:has(:focus-visible):not([data-pointer]) .ov-ticker-list {\n  flex-direction: column;\n  gap: 0.5rem;"
+        "find": ".ov-ticker-window[data-still] .ov-ticker-list,\n.ov-ticker-window:not([data-js]):has(:focus-visible) .ov-ticker-list {\n  flex-direction: column;\n  gap: 1rem;",
+        "replace": ".ov-ticker-window[data-still] .ov-ticker-list,\n.ov-ticker-window:not([data-js]):has(:focus-visible) .ov-ticker-list {\n  flex-direction: column;\n  gap: 0.5rem;"
       }
     ],
     "test": ["cockpit/tests/overview/page.ssr.test.ts"],
@@ -458,11 +458,11 @@
   },
   {
     "id": "33-copy-not-hidden-while-focused",
-    "why": "r2 E (B3): the loop's copy is not hidden while a focus is inside the window, so it shows as a second, inert row in the still layout",
+    "why": "r2 E (B3), rewritten for r4 A: the loop's copy is not hidden while the row is still, so it shows as a second, inert row in the still layout",
     "edits": [
       {
         "file": "cockpit/src/lib/overview/overview.css",
-        "find": ".ov-ticker-window:has(:focus-visible):not([data-pointer]) .ov-ticker-list.copy {\n  display: none;\n}\n",
+        "find": ".ov-ticker-window[data-still] .ov-ticker-list.copy,\n.ov-ticker-window:not([data-js]):has(:focus-visible) .ov-ticker-list.copy {\n  display: none;\n}\n",
         "replace": ""
       }
     ],
@@ -496,47 +496,6 @@
     "expect": "survives"
   },
   {
-    "id": "36-keyboard-selectors-ignore-the-pointer-flag",
-    "why": "r3 A: the four keyboard selectors drop :not([data-pointer]), so a key press after a mouse press stills the row under the pointer again (the Group A control, by mutant)",
-    "edits": [
-      {
-        "file": "cockpit/src/lib/overview/overview.css",
-        "find": ".ov-ticker-window:has(:focus-visible):not([data-pointer]) .ov-ticker-run {",
-        "replace": ".ov-ticker-window:has(:focus-visible) .ov-ticker-run {"
-      },
-      {
-        "file": "cockpit/src/lib/overview/overview.css",
-        "find": ".ov-ticker-window:has(:focus-visible):not([data-pointer]) .ov-ticker-list {",
-        "replace": ".ov-ticker-window:has(:focus-visible) .ov-ticker-list {"
-      },
-      {
-        "file": "cockpit/src/lib/overview/overview.css",
-        "find": ".ov-ticker-window:has(:focus-visible):not([data-pointer]) .ov-ticker-list li {",
-        "replace": ".ov-ticker-window:has(:focus-visible) .ov-ticker-list li {"
-      },
-      {
-        "file": "cockpit/src/lib/overview/overview.css",
-        "find": ".ov-ticker-window:has(:focus-visible):not([data-pointer]) .ov-ticker-list.copy {",
-        "replace": ".ov-ticker-window:has(:focus-visible) .ov-ticker-list.copy {"
-      }
-    ],
-    "test": "tests/cockpit/snapshot-navigation.test.ts",
-    "expect": "red"
-  },
-  {
-    "id": "37-tab-keeps-the-pointer-flag",
-    "why": "r3 A: a Tab no longer clears the pointer flag, so after a mouse press the keyboard into the row cannot still it. The Group A test reaches that path (a press, then Tab) and the round-1 keyboard test does not, since its focus never sets the flag",
-    "edits": [
-      {
-        "file": "cockpit/src/routes/+page.svelte",
-        "find": "if (e.key === \"Tab\") pointer = false;",
-        "replace": "if (e.key === \"Enter\") pointer = false;"
-      }
-    ],
-    "test": "tests/cockpit/snapshot-navigation.test.ts",
-    "expect": "red"
-  },
-  {
     "id": "38-hover-pause-keyed-on-the-list",
     "why": "r3 C (X11): the hover pause is keyed on the real list, so a pointer on the window's padding no longer stops the row",
     "edits": [
@@ -555,7 +514,7 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/overview.css",
-        "find": "    padding: calc(0.2em - 2px) calc(0.7em - 2px);\n",
+        "find": "    padding: max(0px, calc(0.2em - 2px)) max(0px, calc(0.7em - 2px));\n",
         "replace": "    padding: 0.2em 0.7em;\n"
       }
     ],
@@ -573,6 +532,125 @@
       }
     ],
     "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "41-a-still-on-every-focusin",
+    "why": "r4 A control: a focus from outside the window stills the row whatever the press state, so a mouse press on a link stills it under the pointer (the M2 test and the mouse-then-key test go red)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      if (!(from instanceof Node) || !el?.contains(from)) still = !pressing;",
+        "replace": "      if (!(from instanceof Node) || !el?.contains(from)) still = true;"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "42-a-leave-still-on-any-focusout",
+    "why": "r4 A control: focus moving between two links inside the window drops the still state, so the row moves under a press on link 2 (the M2 test goes red)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      if (!(to instanceof Node) || !el?.contains(to)) still = false;",
+        "replace": "      still = false;"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "43-a-no-pointerleave-recheck",
+    "why": "r4 A control: the window's pointerleave no longer re-checks a visible focus, so a link focused by a right press and a key stays moving once the pointer leaves (the M1 test goes red)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "    el?.addEventListener(\"pointerleave\", onLeave);\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "44-a-pressing-never-cleared",
+    "why": "r4 A control: a release never clears the press state, so a keyboard focus from outside after any press leaves the row moving (the press-in-padding then Shift+Tab test goes red)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "    const onRelease = () => {\n      pressing = false;\n    };",
+        "replace": "    const onRelease = () => {};"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "45-run-still-half-removed",
+    "why": "r4 A: the [data-still] half is removed from the run rule, so a held still state does not stop the row under JS (the M2 and nit tests go red)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-ticker-window[data-still] .ov-ticker-run,\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "46-no-script-fallback-removed",
+    "why": "r4 A: the :not([data-js]) no-script fallback is removed from the four keyboard rules, so with no script a Tab to a link no longer stills the row (the no-script test goes red)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ",\n.ov-ticker-window:not([data-js]):has(:focus-visible) .ov-ticker-run {",
+        "replace": " {"
+      },
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ",\n.ov-ticker-window:not([data-js]):has(:focus-visible) .ov-ticker-list {",
+        "replace": " {"
+      },
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ",\n.ov-ticker-window:not([data-js]):has(:focus-visible) .ov-ticker-list li {",
+        "replace": " {"
+      },
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ",\n.ov-ticker-window:not([data-js]):has(:focus-visible) .ov-ticker-list.copy {",
+        "replace": " {"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "47-recheck-reads-focus-not-focus-visible",
+    "why": "r4 A: the key and pointer re-check reads :focus, not :focus-visible, so a mouse focus with no ring goes still once the pointer leaves (the no-ring test goes red)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "!a.matches(\":focus-visible\")",
+        "replace": "!a.matches(\":focus\")"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "48-listeners-left-on-document",
+    "why": "r4 C (x4): the effect's cleanup does not remove the document listeners, so after a round trip the document has two of each (the listener-count test goes red)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      document.removeEventListener(\"keydown\", onKey);\n      document.removeEventListener(\"pointerup\", onRelease);\n      document.removeEventListener(\"pointercancel\", onRelease);\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
     "expect": "red"
   }
 ]
