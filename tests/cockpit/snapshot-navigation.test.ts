@@ -1456,4 +1456,66 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     );
     expect(overflows).toBe(false);
   });
+
+  // P1-87 PR 5b review r1 B: a visitor who tabs into the moving row reads its links, so
+  // each focused link must be inside the window and the row must stand still meanwhile.
+  it("keeps each focused link inside the window, and stands the row still, at 1280px and 390px", async () => {
+    const geometry = (page: Page) =>
+      page.evaluate(() => {
+        const a = (document.activeElement as HTMLElement).getBoundingClientRect();
+        const w = document.querySelector(".ov-ticker-window")!.getBoundingClientRect();
+        return {
+          link: { l: a.left - 4, t: a.top - 4, r: a.right + 4, b: a.bottom + 4 },
+          window: { l: w.left, t: w.top, r: w.right, b: w.bottom },
+        };
+      });
+    const focused = (page: Page) =>
+      page.evaluate(() => {
+        const el = document.activeElement as HTMLElement;
+        return {
+          tag: el.tagName.toLowerCase(),
+          inMovingList: el.closest(".ov-ticker-list:not(.copy)") !== null,
+        };
+      });
+    for (const width of [1280, 390]) {
+      const page = await signedIn();
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`${origin}/`);
+      await expect
+        .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
+        .toBeGreaterThanOrEqual(2);
+      await page.locator(".ov-ticker-pause").focus();
+      for (const n of [1, 2]) {
+        await page.keyboard.press("Tab");
+        expect(await focused(page), `link ${n} at ${width}px`).toEqual({
+          tag: "a",
+          inMovingList: true,
+        });
+        const g = await geometry(page);
+        expect(g.link.l, `link ${n} left edge at ${width}px`).toBeGreaterThanOrEqual(g.window.l);
+        expect(g.link.r, `link ${n} right edge at ${width}px`).toBeLessThanOrEqual(g.window.r);
+        expect(g.link.t, `link ${n} top edge at ${width}px`).toBeGreaterThanOrEqual(g.window.t);
+        expect(g.link.b, `link ${n} bottom edge at ${width}px`).toBeLessThanOrEqual(g.window.b);
+        expect(
+          await page.locator(".ov-ticker-run").evaluate((el) => getComputedStyle(el).animationName),
+        ).toBe("none");
+        expect(await page.locator(".ov-ticker-window").evaluate((el) => el.scrollLeft)).toBe(0);
+      }
+      // Tab on past the last ticker link: the row moves again, and nothing was scrolled.
+      for (let i = 0; i < 6; i++) {
+        const inTicker = await page.evaluate(
+          () => document.activeElement!.closest(".ov-ticker") !== null,
+        );
+        if (!inTicker) break;
+        await page.keyboard.press("Tab");
+      }
+      expect(
+        await page.evaluate(() => document.activeElement!.closest(".ov-ticker") !== null),
+      ).toBe(false);
+      expect(await page.locator(".ov-ticker-window").evaluate((el) => el.scrollLeft)).toBe(0);
+      expect(
+        await page.locator(".ov-ticker-run").evaluate((el) => getComputedStyle(el).animationName),
+      ).toBe("ov-ticker");
+    }
+  });
 });

@@ -513,7 +513,8 @@ section {
 
 /* P1-87 PR 5b: the site ticker, one row of every maintained site. The copy after the
    list is the loop's second half: hidden from readers and from the tab order, and gone
-   under reduced motion, where the row wraps as plain text. */
+   under reduced motion, where the row wraps as plain text. A focus inside the window
+   gives the same still layout, so every focused link is in view. */
 .ov-ticker-pause {
   font: inherit;
   color: var(--ink);
@@ -524,15 +525,16 @@ section {
 }
 .ov-ticker-window {
   overflow: hidden;
+  padding-block: 0.25rem;
+  padding-inline: 0.25rem;
 }
 .ov-ticker-run {
   display: flex;
   width: max-content;
   animation: ov-ticker var(--ov-ticker-s) linear infinite;
 }
-.ov-ticker-run.paused,
 .ov-ticker-window:hover .ov-ticker-run,
-.ov-ticker-window:focus-within .ov-ticker-run {
+.ov-ticker-run.paused {
   animation-play-state: paused;
 }
 .ov-ticker-list {
@@ -579,4 +581,26 @@ section {
   .ov-ticker-pause {
     display: none;
   }
+}
+/* A focus inside the window: the same still layout as reduced motion, so a focused link
+   is never scrolled out of the window, and the row stops while the focus is in it.
+   The values repeat the reduced-motion block above; keep the two in step. */
+.ov-ticker-window:focus-within .ov-ticker-run {
+  animation: none;
+  display: block;
+  width: auto;
+}
+.ov-ticker-window:focus-within .ov-ticker-list {
+  flex-wrap: wrap;
+  row-gap: 0.5rem;
+  padding: 0;
+}
+.ov-ticker-window:focus-within .ov-ticker-list li {
+  flex-wrap: wrap;
+  white-space: normal;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ov-ticker-window:focus-within .ov-ticker-list.copy {
+  display: none;
 }
