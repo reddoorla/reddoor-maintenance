@@ -313,6 +313,17 @@ describe("untilWords (plan, Test 13)", () => {
     expect(untilWords(START, at("2026-10-28T06:07:00.000Z"))).toBe("starting now");
     expect(untilWords(START, at("2026-10-28T06:08:00.000Z"))).toBe("starting now");
   });
+
+  it("rounds down: 11 hours 30 minutes is 11 hours, 61 minutes is 1 hour, 60 minutes is 60 minutes, 59 minutes 30 seconds is 59 minutes (P1-87 PR 5a, review round 1, Group E)", () => {
+    // 11h30m before the start.
+    expect(untilWords(START, at("2026-10-27T18:37:00.000Z"))).toBe("in 11 hours");
+    // 61 minutes: over the hour, so whole hours.
+    expect(untilWords(START, at("2026-10-28T05:06:00.000Z"))).toBe("in 1 hour");
+    // Exactly 60 minutes: not over the hour, so whole minutes (the code's own output).
+    expect(untilWords(START, at("2026-10-28T05:07:00.000Z"))).toBe("in 60 minutes");
+    // 59 minutes 30 seconds: whole minutes, rounded down.
+    expect(untilWords(START, at("2026-10-28T05:07:30.000Z"))).toBe("in 59 minutes");
+  });
 });
 
 /**

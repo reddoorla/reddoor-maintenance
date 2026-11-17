@@ -1110,10 +1110,13 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       // Relative times may tick between the two loads; everything else must match.
       // The nightly bar's marker and its "in N hours" are the same kind of reading: where
       // the clock is, so they tick between the loads too (P1-87 PR 5a).
-      return html
-        .replace(/\b(just now|\d+ (?:minute|hour|day|week|month|year)s? ago)/g, "<ago>")
-        .replace(/left: [\d.]+%/g, "left: <marker>%")
-        .replace(/(<span class="ov-cycle-until">)[^<]*/g, "$1<until>");
+      return (
+        html
+          .replace(/\b(just now|\d+ (?:minute|hour|day|week|month|year)s? ago)/g, "<ago>")
+          // The marker's position only: Fleet health's own `left:` values are compared exactly.
+          .replace(/(class="ov-cycle-marker[^"]*" style="left: )[\d.e+-]+%/g, "$1<marker>%")
+          .replace(/(<span class="ov-cycle-until">)[^<]*/g, "$1<until>")
+      );
     };
     const erik = await overview("erik");
     const tim = await overview("tim");

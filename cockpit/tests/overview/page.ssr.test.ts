@@ -1799,6 +1799,59 @@ describe("the nightly audit bar on the page (P1-87 PR 5a)", () => {
     expect(outlined).toBe(true);
   });
 
+  it("gives each step its own class: done, problem, none, running and waiting (review round 1, Group E)", () => {
+    // A recorded night with a done step, a problem (Security failed), and a none (no CMS
+    // check result).
+    const n = night("2026-10-26");
+    const recorded = overviewFromSnapshot(
+      snapshot({
+        nights: [
+          {
+            ...n,
+            counts: {
+              ...n.counts,
+              steps: {
+                ...n.counts.steps,
+                "fleet-security.yml": { outcome: "completed", runId: 1, conclusion: "failure" },
+                "fleet-prismic-drift.yml": null,
+              },
+            },
+          },
+        ],
+        sites: [],
+      }),
+      new Date("2026-10-27T09:00:00.000Z"),
+    );
+    const classes = (view: OverviewView) =>
+      parse(pageHtml(view))
+        .querySelectorAll(".ov-cycle-track > li")
+        .map((li) => li.getAttribute("class"));
+    expect(classes(recorded)).toEqual([
+      "ov-cycle-seg done",
+      "ov-cycle-seg none",
+      "ov-cycle-seg done",
+      "ov-cycle-seg problem",
+      "ov-cycle-seg done",
+      "ov-cycle-seg done",
+      "ov-cycle-seg done",
+      "ov-cycle-seg done",
+      "ov-cycle-seg wait",
+    ]);
+    // Mid-run, two sites stamp the CMS check: Backup and CMS check are done, CMS sync and
+    // Security are running, and the rest wait.
+    expect(classes(RUNNING)).toEqual([
+      "ov-cycle-seg done",
+      "ov-cycle-seg done",
+      "ov-cycle-seg running",
+      "ov-cycle-seg running",
+      "ov-cycle-seg waiting",
+      "ov-cycle-seg waiting",
+      "ov-cycle-seg waiting",
+      "ov-cycle-seg waiting",
+      "ov-cycle-seg wait",
+    ]);
+  });
+
   it("reads each step's time once: the visible time is hidden, and the next run's time stays readable", () => {
     const steps = RDOC.querySelectorAll(".ov-cycle-track > li:not(.wait) .ov-cycle-time");
     expect(steps).toHaveLength(8);

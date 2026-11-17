@@ -57,3 +57,39 @@ describe("the layout clears the newer-data notice after a re-read (P1-87 PR 5a)"
     target.remove();
   });
 });
+
+describe("the layout keeps the newer-data notice on a same-version change (P1-87 PR 5a, review round 1, Group E)", () => {
+  it("a data change with the same version (only the path) leaves the notice showing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => version(2)),
+    );
+    const { default: Layout } = await import("../../src/routes/+layout.svelte");
+    const { holder } = await import("./reread-props.svelte.js");
+    holder.data = { email: null, path: "/", snapshot: { version: 1 } };
+    const target = document.createElement("div");
+    document.body.append(target);
+    const app = mount(Layout, {
+      target,
+      props: {
+        get data() {
+          return holder.data as never;
+        },
+        children: createRawSnippet(() => ({ render: () => "<span></span>" })),
+      },
+    });
+    flushSync();
+
+    window.dispatchEvent(new Event("focus"));
+    await vi.waitFor(() => expect(target.querySelector(".cockpit-newer")).not.toBeNull());
+
+    // Another page of the same snapshot: the version is still 1, which is the one the
+    // notice is about, so the notice stays.
+    holder.data = { email: null, path: "/s/acme", snapshot: { version: 1 } };
+    flushSync();
+    expect(target.querySelector(".cockpit-newer")).not.toBeNull();
+
+    await unmount(app);
+    target.remove();
+  });
+});
