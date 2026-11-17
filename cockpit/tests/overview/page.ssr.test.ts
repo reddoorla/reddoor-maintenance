@@ -1467,9 +1467,9 @@ describe("review round 3: the check list names its How-we-count term (group G)",
 /** P1-87 PR 4: the Lately feed on the page, the third panel of the first screen. */
 describe("the Lately feed on the page (P1-87 PR 4)", () => {
   it("is the third panel beside the first screen, headed Lately, with no All activity link", () => {
-    expect(DOC.querySelectorAll(".ov-first > section").map((el) => el.getAttribute("class"))).toEqual(
-      ["ov-health", "ov-happening", "ov-lately"],
-    );
+    expect(
+      DOC.querySelectorAll(".ov-first > section").map((el) => el.getAttribute("class")),
+    ).toEqual(["ov-health", "ov-happening", "ov-lately"]);
     expect(text(DOC.querySelector(".ov-lately > h2")!)).toBe("Lately");
     expect(HTML).not.toMatch(/All activity/i);
   });

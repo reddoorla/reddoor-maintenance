@@ -225,7 +225,6 @@ async function seed(url: string): Promise<void> {
       })
       .execute();
   }
-  await db.destroy();
   // P1-87 PR 4: one event for the Lately feed, and a sweep newer than it, which the feed leaves out.
   await recordFleetEvent(db, {
     id: "pr4-merge",
@@ -245,6 +244,7 @@ async function seed(url: string): Promise<void> {
     summary: "Swept 2 sites",
     data: null,
   });
+  await db.destroy();
 }
 
 beforeAll(async () => {
@@ -402,14 +402,12 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     expect(wide).toHaveLength(3);
     expect(new Set(wide).size).toBe(1);
     await page.setViewportSize({ width: 390, height: 844 });
-    const narrow = await page
-      .locator(".ov-happening, .ov-lately")
-      .evaluateAll((els) =>
-        els.map((e) => ({
-          top: Math.round(e.getBoundingClientRect().top),
-          bottom: Math.round(e.getBoundingClientRect().bottom),
-        })),
-      );
+    const narrow = await page.locator(".ov-happening, .ov-lately").evaluateAll((els) =>
+      els.map((e) => ({
+        top: Math.round(e.getBoundingClientRect().top),
+        bottom: Math.round(e.getBoundingClientRect().bottom),
+      })),
+    );
     expect(narrow).toHaveLength(2);
     expect(narrow[1]!.top).toBeGreaterThanOrEqual(narrow[0]!.bottom);
     const overflows = await page.evaluate(

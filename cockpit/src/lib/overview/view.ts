@@ -2291,12 +2291,7 @@ export function latelyView(
     delivered.set(key, g);
   }
   for (const g of delivered.values())
-    push(
-      g.newest,
-      g.n === 1 ? "Lead delivered" : `${g.n} leads delivered`,
-      siteName(g.siteId),
-      2,
-    );
+    push(g.newest, g.n === 1 ? "Lead delivered" : `${g.n} leads delivered`, siteName(g.siteId), 2);
   // The nightly (rank 3): the newest night expected by now, one line per step with a result.
   const expected = expectedNight(now);
   const night = (s.nights ?? []).find((n) => n.night <= expected);

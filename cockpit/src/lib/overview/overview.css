@@ -200,7 +200,9 @@ section {
 }
 @media (min-width: 75rem) {
   .ov-first {
-    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr);
+    /* Health keeps its check bars wide (over 100px at 1280px, measured); the plan's 1.2fr
+       left them at 65px. */
+    grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 0.9fr);
   }
   .ov-lately {
     grid-column: auto;
@@ -218,6 +220,10 @@ section {
   padding: 0.3rem 0;
   border-top: 1px solid var(--rule);
   font-size: 0.9rem;
+}
+.ov-lately li > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .ov-lately time {
   flex: 0 0 auto;
