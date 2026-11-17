@@ -326,7 +326,7 @@
   },
   {
     "id": "25-keyboard-still-keyed-on-focus-within",
-    "why": "r2 A: the still layout is keyed on any focus, so a mouse focus reflows the row under the pointer and a click on a moving link opens nothing. All four keyboard selectors change, as in the click test's control run by hand: one selector alone leaves the list in its row and is not the defect",
+    "why": "r2 A: the still layout is keyed on any focus, so a mouse focus reflows the row under the pointer and a click on a moving link opens nothing. All four keyboard selectors change together; the run selector alone is mutant 25b, which the click test must also catch",
     "edits": [
       {
         "file": "cockpit/src/lib/overview/overview.css",
@@ -347,6 +347,19 @@
         "file": "cockpit/src/lib/overview/overview.css",
         "find": ".ov-ticker-window:has(:focus-visible):not([data-pointer]) .ov-ticker-list.copy {",
         "replace": ".ov-ticker-window:focus-within .ov-ticker-list.copy {"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "25b-run-selector-only-focus-within",
+    "why": "r3 B: only the run selector is back on :focus-within, so a mouse focus stills the row and it snaps back before link 2's press lands. The click test must catch it on every run",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-ticker-window:has(:focus-visible):not([data-pointer]) .ov-ticker-run {",
+        "replace": ".ov-ticker-window:focus-within .ov-ticker-run {"
       }
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",

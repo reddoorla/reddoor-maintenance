@@ -1378,6 +1378,8 @@ describe("the built app's Netlify surface", () => {
 describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
   const transform = (page: Page) =>
     page.locator(".ov-ticker-run").evaluate((el) => getComputedStyle(el).transform);
+  /** The row's horizontal offset, read from its computed matrix(a, b, c, d, tx, ty). */
+  const translateX = (matrix: string) => Number(matrix.slice(7, -1).split(",")[4]);
   const names = (page: Page) => page.locator(".ov-ticker-list:not(.copy) > li").allTextContents();
   /** The row is still only once its animation reports paused and two frames have landed.
    *  A computed style can flip before the animation itself does, so one more frame of motion
@@ -1493,6 +1495,8 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
   // P1-87 PR 5b review r2 A: a press on a moving link opens it. Chromium focuses a link on
   // mousedown; the still layout must not follow a mouse focus, or the row reflows under the
   // pointer between press and release and the click lands on nothing.
+  // r3 B: the row is moved well along before the press. A snap back moves link 2 only once the
+  // row has moved, and the earlier test hovered about 1 s after load, when it had moved about 50px.
   it("opens the link a visitor clicks while the row is paused under the pointer", async () => {
     const page = await signedIn();
     await page.setViewportSize({ width: 1280, height: 900 });
@@ -1503,8 +1507,25 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     const link = page.locator(".ov-ticker-list:not(.copy) > li:nth-child(2) a");
     const href = await link.getAttribute("href");
     expect(href).toBeTruthy();
+    const linkWidth = (await link.boundingBox())!.width;
+    await expect
+      .poll(async () => -translateX(await transform(page)), {
+        message: `the row moves on past link 2's ${linkWidth}px before the press`,
+        timeout: 15_000,
+      })
+      .toBeGreaterThan(linkWidth + 20);
     await page.locator(".ov-ticker-window").hover();
-    await link.click();
+    await settledPaused(page);
+    const before = (await link.boundingBox())!;
+    await page.mouse.move(before.x + before.width / 2, before.y + before.height / 2);
+    await page.mouse.down();
+    // The press focuses link 2. It must not move under the pointer, or the release lands elsewhere.
+    const during = (await link.boundingBox())!;
+    expect(
+      Math.abs(during.x - before.x),
+      "link 2 does not move under the press",
+    ).toBeLessThanOrEqual(1);
+    await page.mouse.up();
     await expect
       .poll(() => page.url().endsWith(href!), { message: `the click opens ${href}` })
       .toBe(true);
