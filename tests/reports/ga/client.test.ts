@@ -409,4 +409,11 @@ describe("fetchDailyEngaged", () => {
     runReport.mockRejectedValueOnce(new Error("quota blew up"));
     await expect(fetchDailyEngaged(query, range)).rejects.toThrow("quota blew up");
   });
+
+  // Group C: a stalled GA call must not hold the job open after its row is written.
+  it("passes a 30 s timeout as the call options of runReport", async () => {
+    runReport.mockResolvedValueOnce([{ rows: [] }]);
+    await fetchDailyEngaged(query, range);
+    expect(runReport.mock.calls[0]![1]).toEqual({ timeout: 30_000 });
+  });
 });

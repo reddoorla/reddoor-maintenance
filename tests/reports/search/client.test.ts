@@ -680,6 +680,17 @@ describe("fetchSearchDaily", () => {
     ).rejects.toBeInstanceOf(NoPropertyForSubjectError);
   });
 
+  // Group C: a stalled socket must not hold the job open, so every request in this read
+  // carries a 30 s timeout, the sites.list call included.
+  it("gives every request in the read a 30 s timeout, sites.list included", async () => {
+    request
+      .mockResolvedValueOnce(ok({ siteEntry: [{ siteUrl: "sc-domain:erpfunds.com" }] }))
+      .mockResolvedValueOnce(ok({ rows: [{ keys: ["2026-10-17"], clicks: 1, impressions: 5 }] }));
+    await fetchSearchDaily({ keyPath, subjects: ["s@x.com"], host: "erpfunds.com" }, range);
+    expect(request).toHaveBeenCalledTimes(2);
+    for (const [call] of request.mock.calls) expect(call.timeout).toBe(30_000);
+  });
+
   it("throws when the only candidate's request fails", async () => {
     request.mockRejectedValueOnce(new Error("socket hang up"));
     await expect(

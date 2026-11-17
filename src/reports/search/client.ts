@@ -5,6 +5,8 @@ import { ymd } from "../../util/date.js";
 
 const WEBMASTERS_READONLY = "https://www.googleapis.com/auth/webmasters.readonly";
 const SC_BASE = "https://searchconsole.googleapis.com/webmasters/v3";
+/** Per request in the traffic read: a stalled socket must not hold the job open (P1-87, PR 6). */
+const READ_TIMEOUT_MS = 30_000;
 /** Average-position threshold for "on page 1" (10 organic results per page). */
 const PAGE_1_MAX_POSITION = 10;
 /** Rows to pull for the brand `contains` match. searchAnalytics has no orderBy and returns
@@ -273,6 +275,7 @@ export async function fetchSearchDaily(
       const list = await jwt.request<{ siteEntry?: SiteEntry[] }>({
         url: `${SC_BASE}/sites`,
         method: "GET",
+        timeout: READ_TIMEOUT_MS,
       });
       candidates = resolvePropertyCandidates(list.data.siteEntry ?? [], q.host);
       if (candidates.length === 0) throw new NoPropertyForSubjectError(subject, q.host);
@@ -293,6 +296,7 @@ export async function fetchSearchDaily(
           dimensions: ["date"],
           rowLimit: 1000,
         },
+        timeout: READ_TIMEOUT_MS,
       });
       const rows = res.data.rows ?? [];
       if (rows.length === 0) continue;

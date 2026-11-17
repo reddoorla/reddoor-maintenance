@@ -12,6 +12,8 @@ export { REPORT_WINDOW_DAYS, reportWindows, type GaDateRange } from "./window.js
 const ANALYTICS_READONLY = "https://www.googleapis.com/auth/analytics.readonly";
 const ADMIN_BASE = "https://analyticsadmin.googleapis.com/v1beta";
 const MS_PER_DAY = 86_400_000;
+/** The traffic read's per-call budget: a stalled GA call must not hold the job open (P1-87, PR 6). */
+const READ_TIMEOUT_MS = 30_000;
 
 export type GaQuery = {
   /** GA4 numeric property ID (e.g. "471880366"). */
@@ -214,10 +216,13 @@ export async function fetchDailyEngaged(
       subject,
     });
     const client = new BetaAnalyticsDataClient({ authClient });
-    const [resp] = await client.runReport({
-      ...reportRequest(property, range, "engagedSessions", query.hostnames),
-      dimensions: [{ name: "date" }],
-    });
+    const [resp] = await client.runReport(
+      {
+        ...reportRequest(property, range, "engagedSessions", query.hostnames),
+        dimensions: [{ name: "date" }],
+      },
+      { timeout: READ_TIMEOUT_MS },
+    );
     const days = new Map<string, number>();
     for (const row of resp.rows ?? []) {
       const raw = row.dimensionValues?.[0]?.value ?? "";

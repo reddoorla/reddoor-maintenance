@@ -3,6 +3,7 @@
 // `workflow_run` of fleet-nightly; every decision is src/fleet-daily/write.ts's. This file
 // is only the IO: the GitHub REST reads (GITHUB_TOKEN, `actions: read` and `contents: read`)
 // and the Turso connection (the nightly steps' existing TURSO_* secrets).
+import { existsSync } from "node:fs";
 import { openDb, readDbConfig, type Db } from "../src/db/client.js";
 import { listSites } from "../src/db/fleet-state.js";
 import { nightOf } from "../src/fleet-daily/core.js";
@@ -111,7 +112,9 @@ export function countFirstParentMerges(
  *  configured (the block then reads "GA not configured"). Each read takes the same
  *  subjects and key file the reports use. */
 export function trafficReaders(cfg: GaConfig | null): TrafficReaders | null {
-  if (!cfg) return null;
+  // A key file that is not there is "GA not configured", not a read that fails for every
+  // site (P1-87, PR 6 review round 1).
+  if (!cfg || !existsSync(cfg.keyPath)) return null;
   return {
     visits: (site, range) =>
       fetchDailyEngaged(

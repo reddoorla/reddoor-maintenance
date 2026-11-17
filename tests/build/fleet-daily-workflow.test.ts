@@ -50,6 +50,16 @@ describe("fleet-daily workflow: the traffic block's GA key", () => {
     expect(script).not.toMatch(/set -x/);
   });
 
+  // Group C: the key's text leaves the writer's environment once the file is written.
+  it("unsets GA_SA_KEY_JSON after the key file is written, so the writer never sees it", () => {
+    const script = withoutComments(stepRunScript(workflow, WRITE_STEP));
+    const chmodAt = script.indexOf('chmod 600 "$GA_SA_KEY_PATH"');
+    const unsetAt = script.indexOf("unset GA_SA_KEY_JSON");
+    expect(chmodAt).toBeGreaterThanOrEqual(0);
+    expect(unsetAt).toBeGreaterThan(chmodAt);
+    expect(unsetAt).toBeLessThan(script.indexOf("pnpm tsx scripts/fleet-daily.mts"));
+  });
+
   it("keeps the 15-minute timeout", () => {
     expect(workflow).toMatch(/timeout-minutes: 15/);
   });
