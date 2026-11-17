@@ -2349,10 +2349,19 @@ export function latelyView(
     });
     if (at !== undefined && results.length > 0) {
       const ran = results.filter((x) => ranToEnd(x.r)).length;
-      // The night is one summary line; only a step that did not run to the end gets its own.
-      push(at, `Nightly run: ${ran} of ${results.length} steps ran to the end`, null, 3);
-      for (const { step, r } of results)
-        if (!ranToEnd(r)) push(at, `${step.short}: ${outcomeText(r)}`, null, 3);
+      // The night is always one line: its first two steps that did not run to the end,
+      // named in step order, and a count of any more. Never one line per step.
+      const notRan = results.filter((x) => !ranToEnd(x.r));
+      const named = notRan.slice(0, 2).map(({ step, r }) => `${step.short}: ${outcomeText(r)}`);
+      const more = notRan.length - named.length;
+      if (more > 0) named.push(`${more} more did not`);
+      const tail = named.length === 0 ? "" : ` (${named.join("; ")})`;
+      push(
+        at,
+        `Nightly run: ${ran} of ${count(results.length, "step", "steps")} ran to the end${tail}`,
+        null,
+        3,
+      );
     }
   }
   const lines = found
@@ -2573,6 +2582,6 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Lately",
-    text: "The newest 8 lines from the last 7 days, Pacific time: fleet events (a dependency update merged, a vulnerability cleared, a certificate renewed, and the like), reports sent, leads delivered, and the newest night's steps. A lead line names its site and how many, never who sent it. The nightly is one line saying how many of its steps ran to the end, and each step that did not has its own line after it; a sweep is shown only as those steps. A line six or more days old carries its date (Wed Oct 21, 12:00pm), so two days with the same weekday never read alike. A test send and a withdrawn report are not listed. When a source could not be read, the panel says so, and does not read as nothing recorded.",
+    text: "The newest 8 lines from the last 7 days, Pacific time: fleet events (a dependency update merged, a vulnerability cleared, a certificate renewed, and the like), reports sent, leads delivered, and the newest night's steps. A lead line names its site and how many, never who sent it. The nightly is one line saying how many of its steps ran to the end, naming up to two steps that did not run to the end and how many more did not; a sweep is shown only as those steps. A line six or more days old carries its date (Wed Oct 21, 12:00pm), so two days with the same weekday never read alike. A test send and a withdrawn report are not listed. When a source could not be read, the panel says so, and does not read as nothing recorded.",
   },
 ];

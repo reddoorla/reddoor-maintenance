@@ -3047,10 +3047,10 @@ describe("the Lately feed (P1-87 PR 4)", () => {
     const early = new Date("2026-10-27T12:00:00.000Z"); // 5:00am PT: last night is the 25th
     expect(
       overviewFromSnapshot(snapshot({ nights }), early).lately.lines.map((l) => l.text),
-    ).toEqual(["Nightly run: 1 of 1 steps ran to the end"]);
-    // From 6am the night of the 26th is expected: its summary, then its one failed step.
+    ).toEqual(["Nightly run: 1 of 1 step ran to the end"]);
+    // From 6am the night of the 26th is expected: one line, naming its one step that failed.
     expect(overviewFromSnapshot(snapshot({ nights }), NOW).lately.lines.map((l) => l.text)).toEqual(
-      ["Nightly run: 0 of 1 steps ran to the end", "Backup: failed"],
+      ["Nightly run: 0 of 1 step ran to the end (Backup: failed)"],
     );
   });
 
@@ -3308,7 +3308,7 @@ describe("the Lately feed (P1-87 PR 4)", () => {
     ]);
   });
 
-  it("summarises a night with two failed steps as 6 of 8, then those steps in step order", () => {
+  it("makes a night with two failed steps one line naming both, in step order", () => {
     const steps: Record<string, unknown> = Object.fromEntries(
       NIGHTLIES.map((n: { file: string }) => [
         n.file,
@@ -3322,9 +3322,107 @@ describe("the Lately feed (P1-87 PR 4)", () => {
       NOW,
     );
     expect(v.lately.lines.map((l) => [l.when, l.text, l.site])).toEqual([
-      ["Mon 11:07pm", "Nightly run: 6 of 8 steps ran to the end", null],
-      ["Mon 11:07pm", "Backup: failed", null],
-      ["Mon 11:07pm", "Live forms: failed", null],
+      ["Mon 11:07pm", "Nightly run: 6 of 8 steps ran to the end (Backup: failed; Live forms: failed)", null],
+    ]);
+  });
+
+  it("makes the night one line naming its first two steps that did not finish, and counts the rest", () => {
+    const all: Record<string, unknown> = Object.fromEntries(
+      NIGHTLIES.map((n: { file: string }) => [
+        n.file,
+        { outcome: "completed", runId: 9, conclusion: "failure" },
+      ]),
+    );
+    const nights = [night("2026-10-26", { steps: all as never })];
+    const feedEvents = [event({ id: "ev8", type: "pr_automerged", ts: "2026-10-27T08:00:00.000Z" })];
+    const v = overviewFromSnapshot(snapshot({ nights, feedEvents }), NOW);
+    expect(v.lately.lines.map((l) => [l.when, l.text])).toEqual([
+      ["Tue 1:00am", "Dependency update merged"],
+      [
+        "Mon 11:07pm",
+        "Nightly run: 0 of 8 steps ran to the end (Backup: failed; CMS check: failed; 6 more did not)",
+      ],
+    ]);
+    // A report sent Monday at 1pm PT still shows: the night is one line, not one per step.
+    const withReport = overviewFromSnapshot(
+      snapshot({
+        nights,
+        feedEvents,
+        reports: [report({ id: "m", reportId: "REP-M", sentAt: "2026-10-26T20:00:00.000Z" })],
+      }),
+      NOW,
+    );
+    expect(withReport.lately.lines.map((l) => [l.when, l.text])).toEqual([
+      ["Tue 1:00am", "Dependency update merged"],
+      [
+        "Mon 11:07pm",
+        "Nightly run: 0 of 8 steps ran to the end (Backup: failed; CMS check: failed; 6 more did not)",
+      ],
+      ["Mon 1:00pm", "Maintenance report sent"],
+    ]);
+  });
+
+  it("pins each outcome's words on the night's line: ran out of time, still running, could not start", () => {
+    const steps = (over: Record<string, unknown>) =>
+      Object.fromEntries(
+        NIGHTLIES.map((n: { file: string }) => [
+          n.file,
+          over[n.file] ?? { outcome: "completed", runId: 1, conclusion: "success" },
+        ]),
+      );
+    const timedAndRunning = overviewFromSnapshot(
+      snapshot({
+        nights: [
+          night("2026-10-26", {
+            steps: steps({
+              "fleet-db-backup.yml": { outcome: "completed", runId: 9, conclusion: "timed_out" },
+              "fleet-form-e2e.yml": { outcome: "running", runId: 9, conclusion: null },
+            }) as never,
+          }),
+        ],
+      }),
+      NOW,
+    );
+    expect(timedAndRunning.lately.lines.map((l) => l.text)).toEqual([
+      "Nightly run: 6 of 8 steps ran to the end (Backup: ran out of time; Live forms: still running when the night was written)",
+    ]);
+    const notStarted = overviewFromSnapshot(
+      snapshot({
+        nights: [
+          night("2026-10-26", {
+            steps: steps({
+              "fleet-security.yml": {
+                outcome: "failed",
+                runId: null,
+                conclusion: "dispatch-failed",
+                error: "x",
+              },
+            }) as never,
+          }),
+        ],
+      }),
+      NOW,
+    );
+    expect(notStarted.lately.lines.map((l) => l.text)).toEqual([
+      "Nightly run: 7 of 8 steps ran to the end (Security: could not start)",
+    ]);
+  });
+
+  it("counts a step with no result in neither figure, and never names it", () => {
+    const some = Object.fromEntries(
+      NIGHTLIES.slice(0, 3).map((n: { file: string }) => [
+        n.file,
+        n.file === "fleet-prismic-drift.yml"
+          ? { outcome: "completed", runId: 9, conclusion: "failure" }
+          : { outcome: "completed", runId: 1, conclusion: "success" },
+      ]),
+    );
+    const v = overviewFromSnapshot(
+      snapshot({ nights: [night("2026-10-26", { steps: some as never })] }),
+      NOW,
+    );
+    expect(v.lately.lines.map((l) => l.text)).toEqual([
+      "Nightly run: 2 of 3 steps ran to the end (CMS check: failed)",
     ]);
   });
 
