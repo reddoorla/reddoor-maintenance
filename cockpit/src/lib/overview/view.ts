@@ -983,12 +983,16 @@ function windowFigure(
   now: Date,
 ): { value: string; context: string | null } {
   if (nights === null) return { value: UNREADABLE, context: null };
-  const measured = nights.filter((n) => typeof pick(n.counts) === "number");
+  // A night newer than the expected one (a row written before 6am Pacific) is outside
+  // every tile's window, as it is for the checks tile (review round 3, M1).
+  const expected = expectedNight(now);
+  const dated = nights.filter((n) => n.night <= expected);
+  const measured = dated.filter((n) => typeof pick(n.counts) === "number");
   const newest = measured[0];
   if (newest === undefined) return { value: NOT_YET, context: null };
   const lag = nightsSince(newest.night, now);
   const since = lag > 0 ? `; no count in the ${count(lag, "night", "nights")} since` : "";
-  const w = windowed(nights, pick);
+  const w = windowed(dated, pick);
   // One night has nothing to subtract: say when counting started (review round 3, O4).
   if (w === null)
     return {
@@ -2081,7 +2085,11 @@ export function numbersView(
   const lastNight = expectedNight(now);
   const counted = (s.nights ?? []).map((n) => ({ night: n.night, v: checksRun(n.counts) }));
   const lastValue = counted.find((x) => x.night === lastNight)?.v ?? null;
-  const newestCounted = counted.find((x): x is { night: string; v: number } => x.v !== null);
+  // Only a night up to last night: a newer row (before 6am Pacific) is not "the newest
+  // counted" in one tile while the others leave it out (review round 3, M1).
+  const newestCounted = counted.find(
+    (x): x is { night: string; v: number } => x.v !== null && x.night <= lastNight,
+  );
   const checksTile: NumberTile = {
     key: "checks",
     label: "checks run last night",

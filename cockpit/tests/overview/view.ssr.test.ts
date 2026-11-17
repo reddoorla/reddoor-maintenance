@@ -2463,6 +2463,53 @@ describe("review round 2: the checks tile's window (group B)", () => {
   });
 });
 
+describe("review round 3: one set of nights for every tile (group A, correctness M1)", () => {
+  const BEFORE_6AM = new Date("2026-10-27T12:00:00Z"); // 5am PDT: last night is Oct 25
+  const counted = (date: string, checks: number, merged: number) =>
+    night(date, {
+      coverage: { value: { a: { value: checks } } },
+      events: { value: { pr_automerged: merged } },
+      prsMerged: { value: merged },
+    });
+  const tileOf = (s: CockpitSnapshot, key: string, now: Date = BEFORE_6AM) =>
+    overviewFromSnapshot(s, now).numbers.find((t) => t.key === key)!;
+
+  it("fixture A: checks, deps and shipped all cover the nights of Oct 24 and 25", () => {
+    // Oct 26 is written before 6am but is not last night, so no tile may count it.
+    const s = snapshot({
+      nights: [
+        counted("2026-10-26", 7, 130),
+        counted("2026-10-25", 10, 110),
+        counted("2026-10-24", 10, 100),
+      ],
+    });
+    expect(tileOf(s, "checks")).toMatchObject({
+      value: "10",
+      context: "20 over the last 2 nights",
+      // Ends at last night, not at the newest row (review round 3, tests minor 5).
+      spark: expect.any(Array),
+    });
+    expect(tileOf(s, "checks").spark).toHaveLength(14);
+    expect(tileOf(s, "checks").spark![13]).toBe(10);
+    expect(tileOf(s, "checks").spark![12]).toBe(10);
+    expect(tileOf(s, "deps")).toMatchObject({ value: "10", context: "over the last night" });
+    expect(tileOf(s, "shipped")).toMatchObject({ value: "10", context: "over the last night" });
+  });
+
+  it("fixture B: last night is unread, so the checks tile never cites the newer night's 7", () => {
+    // No row for Oct 25: last night has no count, and the newest counted night is Oct 24.
+    const s = snapshot({
+      nights: [counted("2026-10-26", 7, 130), counted("2026-10-24", 10, 100)],
+    });
+    expect(tileOf(s, "checks")).toMatchObject({
+      value: "no count for last night",
+      measured: false,
+      context: "10 on the night of Oct 24",
+    });
+    expect(JSON.stringify(tileOf(s, "checks"))).not.toContain("7");
+  });
+});
+
 describe("review round 2: the checks sparkline and its geometry (group C)", () => {
   const countedNight = (date: string, value: number) =>
     night(date, { coverage: { value: { a: { value } } } });
