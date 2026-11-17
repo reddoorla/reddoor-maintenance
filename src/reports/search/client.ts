@@ -232,3 +232,77 @@ export async function fetchSearchPresence(
     throw e;
   }
 }
+
+/** The query {@link fetchSearchDaily} takes: the same property and site as
+ *  {@link SearchPresenceQuery}, without a brand query. */
+export type SearchDailyQuery = Omit<SearchPresenceQuery, "query">;
+
+/**
+ * Search Console clicks and impressions for each day of `range`, across all search types
+ * and queries (no filter group), so the numbers are the property's own totals (P1-87,
+ * PR 6). Keys are `YYYY-MM-DD`; a day Search Console omits is absent, not 0.
+ *
+ * Property resolution and subject failover are {@link fetchSearchPresence}'s: an explicit
+ * `property` is used alone, else every `sites.list` match is tried in order. The first
+ * candidate that answers gives the map. Throws when no property resolves for any subject,
+ * or when every candidate fails. It never returns an empty map for a failed read.
+ */
+export async function fetchSearchDaily(
+  q: SearchDailyQuery,
+  range: { startDate: string; endDate: string },
+): Promise<Map<string, { clicks: number; impressions: number }>> {
+  const key = JSON.parse(readFileSync(q.keyPath, "utf8")) as {
+    client_email: string;
+    private_key: string;
+  };
+
+  return withSubjectFailover(q.subjects, "Search Console", async (subject) => {
+    const jwt = new JWT({
+      email: key.client_email,
+      key: key.private_key,
+      scopes: [WEBMASTERS_READONLY],
+      subject,
+    });
+
+    const explicit = q.property?.trim();
+    let candidates: string[];
+    if (explicit) {
+      candidates = [explicit];
+    } else {
+      const list = await jwt.request<{ siteEntry?: SiteEntry[] }>({
+        url: `${SC_BASE}/sites`,
+        method: "GET",
+      });
+      candidates = resolvePropertyCandidates(list.data.siteEntry ?? [], q.host);
+      if (candidates.length === 0) throw new NoPropertyForSubjectError(subject, q.host);
+    }
+
+    let lastError: unknown;
+    for (const property of candidates) {
+      try {
+        const res = await jwt.request<{
+          rows?: Array<{ keys?: string[]; clicks?: number; impressions?: number }>;
+        }>({
+          url: `${SC_BASE}/sites/${encodeURIComponent(property)}/searchAnalytics/query`,
+          method: "POST",
+          data: {
+            startDate: range.startDate,
+            endDate: range.endDate,
+            dimensions: ["date"],
+            rowLimit: 1000,
+          },
+        });
+        const days = new Map<string, { clicks: number; impressions: number }>();
+        for (const row of res.data.rows ?? []) {
+          const date = row.keys?.[0];
+          if (!date) continue;
+          days.set(date, { clicks: row.clicks ?? 0, impressions: row.impressions ?? 0 });
+        }
+        return days;
+      } catch (e) {
+        lastError = e;
+      }
+    }
+    throw lastError;
+  });
+}

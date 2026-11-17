@@ -12,6 +12,7 @@ vi.mock("google-auth-library", () => ({
 }));
 
 import {
+  fetchSearchDaily,
   fetchSearchPresence,
   resolvePropertyCandidates,
   pickBrandQuery,
@@ -614,5 +615,71 @@ describe("fetchSearchPresence", () => {
         end,
       ),
     ).rejects.toThrow("last");
+  });
+});
+
+describe("fetchSearchDaily", () => {
+  const range = { startDate: "2026-10-17", endDate: "2026-10-18" };
+
+  it("POSTs a per-date query with no dimension filter, to an explicit property", async () => {
+    request.mockResolvedValueOnce(
+      ok({
+        rows: [
+          { keys: ["2026-10-17"], clicks: 4, impressions: 90 },
+          { keys: ["2026-10-18"], clicks: 2, impressions: 60 },
+        ],
+      }),
+    );
+    const out = await fetchSearchDaily(
+      { keyPath, subjects: ["s@x.com"], property: "sc-domain:erpfunds.com", host: "erpfunds.com" },
+      range,
+    );
+    expect(out).toEqual(
+      new Map([
+        ["2026-10-17", { clicks: 4, impressions: 90 }],
+        ["2026-10-18", { clicks: 2, impressions: 60 }],
+      ]),
+    );
+    const call = request.mock.calls[0]![0];
+    expect(call.url).toContain(encodeURIComponent("sc-domain:erpfunds.com"));
+    expect(call.data.dimensions).toEqual(["date"]);
+    expect(call.data.dimensionFilterGroups).toBeUndefined();
+    expect(call.data.startDate).toBe("2026-10-17");
+    expect(call.data.endDate).toBe("2026-10-18");
+  });
+
+  it("resolves the property via sites.list when none is given", async () => {
+    request
+      .mockResolvedValueOnce(ok({ siteEntry: [{ siteUrl: "sc-domain:erpfunds.com" }] }))
+      .mockResolvedValueOnce(ok({ rows: [{ keys: ["2026-10-17"], clicks: 1, impressions: 5 }] }));
+    const out = await fetchSearchDaily(
+      { keyPath, subjects: ["s@x.com"], host: "erpfunds.com" },
+      range,
+    );
+    expect(out.get("2026-10-17")).toEqual({ clicks: 1, impressions: 5 });
+    expect(request.mock.calls[0]![0].url).toContain("/sites");
+    expect(request.mock.calls[1]![0].url).toContain(encodeURIComponent("sc-domain:erpfunds.com"));
+  });
+
+  it("throws, rather than returning an empty map, when no property is found", async () => {
+    request.mockResolvedValueOnce(ok({ siteEntry: [] }));
+    await expect(
+      fetchSearchDaily({ keyPath, subjects: ["s@x.com"], host: "erpfunds.com" }, range),
+    ).rejects.toThrow(/no Search Console property/);
+  });
+
+  it("throws when the only candidate's request fails", async () => {
+    request.mockRejectedValueOnce(new Error("socket hang up"));
+    await expect(
+      fetchSearchDaily(
+        {
+          keyPath,
+          subjects: ["s@x.com"],
+          property: "sc-domain:erpfunds.com",
+          host: "erpfunds.com",
+        },
+        range,
+      ),
+    ).rejects.toThrow("socket hang up");
   });
 });
