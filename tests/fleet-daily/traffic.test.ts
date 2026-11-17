@@ -229,7 +229,13 @@ describe("readTraffic", () => {
             s.id === "bravo" ? new Promise(() => {}) : Promise.resolve(flat(r, 2)),
         }),
       );
+      let settled = false;
+      void pending.then(() => {
+        settled = true;
+      });
       await vi.advanceTimersByTimeAsync(30_000);
+      // Fail on an assertion, not on the case's own timeout, when the read hangs.
+      expect(settled).toBe(true);
       const out = await pending;
       const bravo = out.sites[1]!.visits;
       expect(bravo.value).toBeNull();
