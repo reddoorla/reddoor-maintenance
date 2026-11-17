@@ -278,7 +278,7 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/overview.css",
-        "find": ".ov-ticker-window:has(:focus-visible) .ov-ticker-run {\n  animation: none;\n  display: block;\n  width: auto;\n}\n",
+        "find": ".ov-ticker-window:has(:focus-visible):not([data-pointer]) .ov-ticker-run {\n  animation: none;\n  display: block;\n  width: auto;\n}\n",
         "replace": ""
       }
     ],
@@ -330,22 +330,22 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/overview.css",
-        "find": ".ov-ticker-window:has(:focus-visible) .ov-ticker-run {",
+        "find": ".ov-ticker-window:has(:focus-visible):not([data-pointer]) .ov-ticker-run {",
         "replace": ".ov-ticker-window:focus-within .ov-ticker-run {"
       },
       {
         "file": "cockpit/src/lib/overview/overview.css",
-        "find": ".ov-ticker-window:has(:focus-visible) .ov-ticker-list {",
+        "find": ".ov-ticker-window:has(:focus-visible):not([data-pointer]) .ov-ticker-list {",
         "replace": ".ov-ticker-window:focus-within .ov-ticker-list {"
       },
       {
         "file": "cockpit/src/lib/overview/overview.css",
-        "find": ".ov-ticker-window:has(:focus-visible) .ov-ticker-list li {",
+        "find": ".ov-ticker-window:has(:focus-visible):not([data-pointer]) .ov-ticker-list li {",
         "replace": ".ov-ticker-window:focus-within .ov-ticker-list li {"
       },
       {
         "file": "cockpit/src/lib/overview/overview.css",
-        "find": ".ov-ticker-window:has(:focus-visible) .ov-ticker-list.copy {",
+        "find": ".ov-ticker-window:has(:focus-visible):not([data-pointer]) .ov-ticker-list.copy {",
         "replace": ".ov-ticker-window:focus-within .ov-ticker-list.copy {"
       }
     ],
@@ -410,8 +410,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/overview.css",
-        "find": ".ov-ticker-window:has(:focus-visible) .ov-ticker-list {\n  flex-direction: column;\n  gap: 1rem;",
-        "replace": ".ov-ticker-window:has(:focus-visible) .ov-ticker-list {\n  flex-direction: column;\n  gap: 0.5rem;"
+        "find": ".ov-ticker-window:has(:focus-visible):not([data-pointer]) .ov-ticker-list {\n  flex-direction: column;\n  gap: 1rem;",
+        "replace": ".ov-ticker-window:has(:focus-visible):not([data-pointer]) .ov-ticker-list {\n  flex-direction: column;\n  gap: 0.5rem;"
       }
     ],
     "test": ["cockpit/tests/overview/page.ssr.test.ts"],
@@ -449,7 +449,7 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/overview.css",
-        "find": ".ov-ticker-window:has(:focus-visible) .ov-ticker-list.copy {\n  display: none;\n}\n",
+        "find": ".ov-ticker-window:has(:focus-visible):not([data-pointer]) .ov-ticker-list.copy {\n  display: none;\n}\n",
         "replace": ""
       }
     ],

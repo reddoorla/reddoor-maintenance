@@ -1783,9 +1783,10 @@ describe("the ticker's styles and speed (P1-87 PR 5b review r1 D)", () => {
   });
 
   it("lays the still entries one per line while a focus is inside the window", () => {
-    // Keyed on a keyboard focus (:focus-visible), not any focus: r2 A.
+    // Keyed on a keyboard focus (:focus-visible), not any focus: r2 A. And not after a pointer
+    // press in the window, which sets data-pointer until a Tab: r3 A.
     const list = css.match(
-      /\.ov-ticker-window:has\(:focus-visible\) \.ov-ticker-list\s*\{([^}]*)\}/,
+      /\.ov-ticker-window:has\(:focus-visible\):not\(\[data-pointer\]\) \.ov-ticker-list\s*\{([^}]*)\}/,
     );
     expect(list).not.toBeNull();
     expect(list![1]).toMatch(/flex-direction:\s*column/);
@@ -1794,7 +1795,7 @@ describe("the ticker's styles and speed (P1-87 PR 5b review r1 D)", () => {
 
   it("gives each entry's own lines 0.25rem between them while a focus is inside the window (r2 C)", () => {
     const li = css.match(
-      /\.ov-ticker-window:has\(:focus-visible\) \.ov-ticker-list li\s*\{([^}]*)\}/,
+      /\.ov-ticker-window:has\(:focus-visible\):not\(\[data-pointer\]\) \.ov-ticker-list li\s*\{([^}]*)\}/,
     );
     expect(li).not.toBeNull();
     expect(li![1]).toMatch(/row-gap:\s*0\.25rem/);

@@ -22,6 +22,17 @@
   const launching = $derived(launchingClauses(v.health.launching));
   // P1-87 PR 5b: the ticker moves until a visitor pauses it (or points at it, in CSS).
   let paused = $state(false);
+  // P1-87 PR 5b review r3 A: a press in the ticker's window sets this, and a Tab clears it. While
+  // it is set the keyboard still layout is off, so a mouse focus cannot still the row under the
+  // pointer, even after a key press makes Chromium match :focus-visible on that link.
+  let pointer = $state(false);
+  $effect(() => {
+    const clearOnTab = (e: KeyboardEvent) => {
+      if (e.key === "Tab") pointer = false;
+    };
+    document.addEventListener("keydown", clearOnTab);
+    return () => document.removeEventListener("keydown", clearOnTab);
+  });
 </script>
 
 <svelte:head>
@@ -184,7 +195,11 @@
       aria-pressed={paused}
       onclick={() => (paused = !paused)}>Pause the ticker</button
     >
-    <div class="ov-ticker-window">
+    <div
+      class="ov-ticker-window"
+      data-pointer={pointer ? "true" : null}
+      onpointerdown={() => (pointer = true)}
+    >
       <div class="ov-ticker-run" class:paused style="--ov-ticker-s: {tickerSeconds(v.ticker)}s">
         <ul class="ov-ticker-list">
           {#each v.ticker as t (t.key)}

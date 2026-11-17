@@ -1576,4 +1576,79 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
       ).toBe("ov-ticker");
     }
   });
+
+  // P1-87 PR 5b review r3 A: a key press after a mouse press must not still the row. Chromium
+  // makes a link the mouse focused match :focus-visible once a key goes down, so the keyboard
+  // rule reflowed the row under the pointer, and the next click opened another site.
+  it("a key press after a mouse press on a link leaves the row moving and the link under the pointer, at 1280px and 390px", async () => {
+    for (const width of [1280, 390]) {
+      const page = await signedIn();
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`${origin}/`);
+      await expect
+        .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
+        .toBeGreaterThanOrEqual(2);
+      const link = page.locator(".ov-ticker-list:not(.copy) > li:nth-child(1) a");
+      const href = await link.getAttribute("href");
+      expect(href, `link 1 is a link at ${width}px`).toBeTruthy();
+      await page.locator(".ov-ticker-window").hover();
+      await settledPaused(page);
+      // The point is on the link and inside the window and the screen: a long name is wider
+      // than a 390px screen, so its centre can lie off the page.
+      const box = (await link.boundingBox())!;
+      const win = (await page.locator(".ov-ticker-window").boundingBox())!;
+      const left = Math.max(box.x, win.x, 0) + 1;
+      const right = Math.min(box.x + box.width, win.x + win.width, width) - 1;
+      const x = (left + right) / 2;
+      const y = box.y + box.height / 2;
+      const windowHeight = async () =>
+        (await page.locator(".ov-ticker-window").boundingBox())!.height;
+      const heightBefore = await windowHeight();
+      await page.mouse.move(x, y);
+      // A right press focuses the link as a left press does, and opens nothing.
+      await page.mouse.down({ button: "right" });
+      await page.mouse.up({ button: "right" });
+      await page.keyboard.press("ArrowDown");
+      await page.keyboard.press("Escape");
+      expect(
+        await page.locator(".ov-ticker-run").evaluate((el) => getComputedStyle(el).animationName),
+        `the row keeps moving after a key press at ${width}px`,
+      ).toBe("ov-ticker");
+      expect(
+        Math.abs((await windowHeight()) - heightBefore),
+        `the window keeps its height at ${width}px`,
+      ).toBeLessThanOrEqual(1);
+      // ArrowDown scrolls the page a few pixels, which moves the link up or down under a fixed
+      // pointer. The sideways position is what a still layout changes: the link must not move,
+      // and the link in the pointer's column must still be link 1.
+      const after = (await link.boundingBox())!;
+      expect(
+        Math.abs(after.x - box.x),
+        `link 1 does not move sideways at ${width}px`,
+      ).toBeLessThanOrEqual(1);
+      expect(
+        await page.evaluate(
+          ([px, py]) =>
+            document.elementFromPoint(px, py)?.closest("a")?.getAttribute("href") ?? null,
+          [x, after.y + after.height / 2] as const,
+        ),
+        `the link in the pointer's column is still link 1 at ${width}px`,
+      ).toBe(href);
+      await page.keyboard.press("Tab");
+      expect(
+        await page.evaluate(() => {
+          const el = document.activeElement as HTMLElement;
+          return {
+            tag: el.tagName.toLowerCase(),
+            inMovingList: el.closest(".ov-ticker-list:not(.copy)") !== null,
+          };
+        }),
+        `Tab moves to link 2 at ${width}px`,
+      ).toEqual({ tag: "a", inMovingList: true });
+      expect(
+        await page.locator(".ov-ticker-run").evaluate((el) => getComputedStyle(el).animationName),
+        `the row stands still once a keyboard focus is in it at ${width}px`,
+      ).toBe("none");
+    }
+  });
 });
