@@ -135,7 +135,7 @@
     "edits": [
       {
         "file": "src/fleet-daily/read.ts",
-        "find": "traffic: overviewTraffic(rest.traffic, i === 0),",
+        "find": "traffic: overviewTraffic(rest.traffic, i === wholeTraffic),",
         "replace": "traffic: undefined,"
       }
     ],
@@ -483,6 +483,123 @@
       }
     ],
     "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "38-withoutDaily-unguarded",
+    "why": "withoutDaily reads b.value with no guard, so a partial older row throws the overview (Group A)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "  if (b === null || typeof b !== \"object\" || !(\"value\" in b)) return NOT_IN_ROW;\n  const v = (b as { value: unknown }).value;",
+        "replace": "  const v = (b as { value: unknown }).value;"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "39-whole-row-is-first",
+    "why": "The traffic block kept whole is the newest row, not the newest with a value (Group A)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "i === wholeTraffic",
+        "replace": "i === 0"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "40-search-two-candidates",
+    "why": "The Search Console daily read looks at two matching properties, not all of them (X1)",
+    "edits": [
+      {
+        "file": "src/reports/search/client.ts",
+        "find": "    for (const property of candidates) {\n      const res = await jwt.request<{\n        rows?: Array<{ keys?: string[]; clicks?: number",
+        "replace": "    for (const property of candidates.slice(0, 2)) {\n      const res = await jwt.request<{\n        rows?: Array<{ keys?: string[]; clicks?: number"
+      }
+    ],
+    "test": "tests/reports/search/client.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "41-mask-not-global",
+    "why": "The address mask masks only the first address in a message (X5)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": ".replace(/\\S+@\\S+/g, \"<account>\")",
+        "replace": ".replace(/\\S+@\\S+/, \"<account>\")"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "42-mask-leaves-domain",
+    "why": "The address mask leaves the domain after the @ (X6)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": ".replace(/\\S+@\\S+/g, \"<account>\")",
+        "replace": ".replace(/\\S+@(?=\\S)/g, \"<account>\")"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "43-key-check-given-subject",
+    "why": "The key file's existence is checked at the first subject, not the key path (X10)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic-wiring.ts",
+        "find": "deps.existsSync(cfg.keyPath)",
+        "replace": "deps.existsSync(cfg.subjects[0]!)"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "44-ga-metric-unanchored",
+    "why": "GA's whole-number check is not anchored, so 1.5 and 3x are read as numbers (X18)",
+    "edits": [
+      {
+        "file": "src/reports/ga/client.ts",
+        "find": "if (!/^\\d+$/.test(metric))",
+        "replace": "if (!/\\d+/.test(metric))"
+      }
+    ],
+    "test": "tests/reports/ga/client.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "45-reasonOf-syntaxerror-removed",
+    "why": "A malformed key file's parse error is stored with the text it quoted (Group C)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "  if (e instanceof SyntaxError && /JSON/.test(e.message)) return \"GA key file unreadable\";\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "46-umask-removed",
+    "why": "The key file is written with the default umask, so it can be world-readable (Group C)",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-daily.yml",
+        "find": "            umask 077\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/build/fleet-daily-workflow.test.ts",
     "expect": "red"
   }
 ]
