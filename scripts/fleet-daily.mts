@@ -150,12 +150,17 @@ async function main(): Promise<void> {
 }
 
 if (isMain(import.meta.url)) {
-  // Exit once main settles: a token POST that stalls (google-auth-library's has no timeout)
-  // must not hold the job to its 15-minute limit after the row is written (P1-87 PR 6 r2).
+  // The outcome is process.exitCode. A normal run exits on its own once the event loop
+  // empties, so every write flushes (a pipe's stdout is asynchronous past 64 KB, and an exit
+  // called at once cut a long stack trace short). The timer exits only a run that a stalled
+  // handle (google-auth-library's token POST has no timeout) holds open after main settles
+  // (P1-87 PR 6 review r3, Group C).
   main()
     .catch((e) => {
       process.stderr.write(`fleet-daily: ${(e as Error)?.stack ?? String(e)}\n`);
       process.exitCode = 1;
     })
-    .finally(() => process.exit(process.exitCode ?? 0));
+    .finally(() => {
+      setTimeout(() => process.exit(process.exitCode ?? 0), 10_000).unref();
+    });
 }
