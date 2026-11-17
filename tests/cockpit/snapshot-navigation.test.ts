@@ -1122,6 +1122,11 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       const page = await signedIn(user);
       await page.goto(`${origin}/`);
       await expect.poll(() => page.locator("h1").first().textContent()).toContain("Overview");
+      // The bar's "in N hours" renders only once the page's clock has started in the
+      // browser (the server cannot know the browser's time), so read the page after that
+      // first tick, or one load can be read between hydration and the tick (P1-87 PR 5a:
+      // CI at 9b296709 read erik after the tick and tim before it).
+      await expect.poll(() => page.locator(".ov-cycle-until").count()).toBe(1);
       const html = await page.evaluate(() =>
         [...document.querySelectorAll("h1, section")].map((e) => e.outerHTML).join("\n"),
       );
@@ -1132,7 +1137,7 @@ describe("cockpit navigation, in a browser, against the built app", () => {
         html
           .replace(/\b(just now|\d+ (?:minute|hour|day|week|month|year)s? ago)/g, "<ago>")
           // The marker's position only: Fleet health's own `left:` values are compared exactly.
-          .replace(/(class="ov-cycle-marker[^"]*" style="left: )[\d.e+-]+%/g, "$1<marker>%")
+          .replace(/(class="ov-cycle-marker[^"]*" style="left: )[\d.e+-]+%;?/g, "$1<marker>%")
           .replace(/(<span class="ov-cycle-until">)[^<]*/g, "$1<until>")
       );
     };
