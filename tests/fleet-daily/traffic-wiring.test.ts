@@ -24,7 +24,7 @@ function deps(over: Partial<TrafficWiringDeps> = {}): TrafficWiringDeps & {
   return {
     fetchDailyEngaged: visits as unknown as TrafficWiringDeps["fetchDailyEngaged"],
     fetchSearchDaily: search as unknown as TrafficWiringDeps["fetchSearchDaily"],
-    existsSync: () => true,
+    existsSync: vi.fn(() => true),
     ...over,
     visits,
     search,
@@ -42,6 +42,13 @@ const range = { startDate: "2026-10-18", endDate: "2026-11-16" };
 describe("trafficReaders", () => {
   it("is null when GA is not configured", () => {
     expect(trafficReaders(null, deps())).toBeNull();
+  });
+
+  it("checks the key file at the config's keyPath, exactly", () => {
+    const existsSync = vi.fn(() => true);
+    trafficReaders(cfg, deps({ existsSync }));
+    expect(existsSync).toHaveBeenCalledWith("/run/ga-key.json");
+    expect(existsSync).toHaveBeenCalledWith(cfg.keyPath);
   });
 
   it("is null when the key file is not there, so the block reads 'GA not configured'", () => {

@@ -418,6 +418,17 @@ describe("fetchDailyEngaged", () => {
     await expect(fetchDailyEngaged(query, range)).rejects.toThrow(/non-numeric/);
   });
 
+  // Review round 2, Group B (X18): a decimal or a suffixed number is a failed read too.
+  it.each(["1.5", "3x"])(
+    "throws, rather than reading a number, when a metric is %s",
+    async (bad) => {
+      runReport.mockResolvedValueOnce([
+        { rows: [{ dimensionValues: [{ value: "20261101" }], metricValues: [{ value: bad }] }] },
+      ]);
+      await expect(fetchDailyEngaged(query, range)).rejects.toThrow(/non-numeric/);
+    },
+  );
+
   it("throws when a row's date is not YYYYMMDD", async () => {
     runReport.mockResolvedValueOnce([
       { rows: [{ dimensionValues: [{ value: "2026-11-01" }], metricValues: [{ value: "3" }] }] },

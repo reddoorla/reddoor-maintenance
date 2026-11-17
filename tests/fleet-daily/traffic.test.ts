@@ -229,13 +229,33 @@ describe("readTraffic", () => {
       NIGHT,
       readers({
         search: async () => {
-          throw new Error("no Search Console property matching b.com is visible to a@b.com");
+          throw new Error("no Search Console property is visible to a@b.com");
         },
       }),
     );
     const reason = out.sites[0]!.search.reason ?? "";
     expect(reason).toContain("<account>");
     expect(reason).not.toContain("@");
+    expect(reason).not.toContain("b.com");
+  });
+
+  // Review round 2, Group B (X5): two addresses in one message are each masked, and neither
+  // the local part nor the domain of either is stored.
+  it("a reader error that names two addresses stores <account> for each, and neither address", async () => {
+    const out = await readTraffic(
+      [site("alpha")],
+      NIGHT,
+      readers({
+        search: async () => {
+          throw new Error("no Search Console property is visible to a@b.com or c@d.org");
+        },
+      }),
+    );
+    const reason = out.sites[0]!.search.reason ?? "";
+    expect(reason.split("<account>")).toHaveLength(3);
+    expect(reason).not.toContain("@");
+    expect(reason).not.toContain("b.com");
+    expect(reason).not.toContain("d.org");
   });
 
   it("a site with a URL but no recorded property is read: the reader may resolve one", async () => {

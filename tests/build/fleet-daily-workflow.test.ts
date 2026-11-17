@@ -68,6 +68,12 @@ describe("fleet-daily workflow: the traffic block's GA key", () => {
     expect(chmodAt).toBeGreaterThanOrEqual(0);
     expect(unsetAt).toBeGreaterThan(chmodAt);
     expect(unsetAt).toBeLessThan(script.indexOf("pnpm tsx scripts/fleet-daily.mts"));
+    // Review round 2, Group B (X15): the unset is inside the guard's if, before its closing fi.
+    const guardAt = script.indexOf('if [ -n "$GA_SA_KEY_JSON" ]');
+    const closeAt = guardAt + script.slice(guardAt).search(/\n\s*fi\s*(\n|$)/);
+    expect(guardAt).toBeGreaterThanOrEqual(0);
+    expect(unsetAt).toBeGreaterThan(guardAt);
+    expect(unsetAt).toBeLessThan(closeAt);
   });
 
   it("keeps the 15-minute timeout", () => {

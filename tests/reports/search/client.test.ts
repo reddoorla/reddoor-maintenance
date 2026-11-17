@@ -649,6 +649,28 @@ describe("fetchSearchDaily", () => {
     expect(call.data.endDate).toBe("2026-10-18");
   });
 
+  // Review round 2, Group B (X1): a third matching property is read when the first two have
+  // no rows, so the candidate loop is not cut at two.
+  it("reads the third matching property when the first two have no rows", async () => {
+    request
+      .mockResolvedValueOnce(
+        ok({
+          siteEntry: [
+            { siteUrl: "sc-domain:x.com" },
+            { siteUrl: "https://www.x.com/" },
+            { siteUrl: "https://x.com/" },
+          ],
+        }),
+      ) // sites.list
+      .mockResolvedValueOnce(ok({ rows: [] })) // sc-domain:x.com: no rows
+      .mockResolvedValueOnce(ok({ rows: [] })) // https://www.x.com/: no rows
+      .mockResolvedValueOnce(ok({ rows: [{ keys: ["2026-10-17"], clicks: 6, impressions: 12 }] })); // https://x.com/
+    const out = await fetchSearchDaily({ keyPath, subjects: ["s@x.com"], host: "x.com" }, range);
+    expect(out).toEqual(new Map([["2026-10-17", { clicks: 6, impressions: 12 }]]));
+    expect(request).toHaveBeenCalledTimes(4);
+    expect(request.mock.calls[3]![0].url).toContain(encodeURIComponent("https://x.com/"));
+  });
+
   it("resolves the property via sites.list when none is given", async () => {
     request
       .mockResolvedValueOnce(ok({ siteEntry: [{ siteUrl: "sc-domain:erpfunds.com" }] }))
