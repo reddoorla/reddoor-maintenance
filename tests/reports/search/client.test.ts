@@ -680,6 +680,37 @@ describe("fetchSearchDaily", () => {
     ).rejects.toBeInstanceOf(NoPropertyForSubjectError);
   });
 
+  // Review round 1, Group E: one subject's auth failure falls through to the next.
+  it("fails over to the next subject on an auth error, and reads the second subject's rows", async () => {
+    request
+      .mockRejectedValueOnce(Object.assign(new Error("Forbidden"), { response: { status: 403 } }))
+      .mockResolvedValueOnce(ok({ rows: [{ keys: ["2026-10-17"], clicks: 3, impressions: 8 }] }));
+    const out = await fetchSearchDaily(
+      {
+        keyPath,
+        subjects: ["first@x.com", "second@x.com"],
+        property: "sc-domain:x.com",
+        host: "x.com",
+      },
+      range,
+    );
+    expect(out).toEqual(new Map([["2026-10-17", { clicks: 3, impressions: 8 }]]));
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(JWT).mock.calls[0]![0]).toMatchObject({ subject: "first@x.com" });
+    expect(vi.mocked(JWT).mock.calls[1]![0]).toMatchObject({ subject: "second@x.com" });
+  });
+
+  // Review round 1, Group E: a row without its date is a failed read, not a dropped row.
+  it("throws when a row has no date key", async () => {
+    request.mockResolvedValueOnce(ok({ rows: [{ clicks: 1, impressions: 2 }] }));
+    await expect(
+      fetchSearchDaily(
+        { keyPath, subjects: ["s@x.com"], property: "sc-domain:x.com", host: "x.com" },
+        range,
+      ),
+    ).rejects.toThrow(/no date/);
+  });
+
   // Group C: a stalled socket must not hold the job open, so every request in this read
   // carries a 30 s timeout, the sites.list call included.
   it("gives every request in the read a 30 s timeout, sites.list included", async () => {

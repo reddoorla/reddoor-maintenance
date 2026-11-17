@@ -410,6 +410,38 @@ describe("fetchDailyEngaged", () => {
     await expect(fetchDailyEngaged(query, range)).rejects.toThrow("quota blew up");
   });
 
+  // Review round 1, Group E: the metric must be a whole number, or the read fails.
+  it("throws, rather than reading 0, when a day's metric is not a whole number", async () => {
+    runReport.mockResolvedValueOnce([
+      { rows: [{ dimensionValues: [{ value: "20261101" }], metricValues: [{ value: "abc" }] }] },
+    ]);
+    await expect(fetchDailyEngaged(query, range)).rejects.toThrow(/non-numeric/);
+  });
+
+  it("throws when a row's date is not YYYYMMDD", async () => {
+    runReport.mockResolvedValueOnce([
+      { rows: [{ dimensionValues: [{ value: "2026-11-01" }], metricValues: [{ value: "3" }] }] },
+    ]);
+    await expect(fetchDailyEngaged(query, range)).rejects.toThrow(/non-date row/);
+  });
+
+  // Review round 1, Group E: one subject's auth failure falls through to the next.
+  it("fails over to the next subject on an auth error, and reads the second subject's rows", async () => {
+    runReport
+      .mockRejectedValueOnce(Object.assign(new Error("PERMISSION_DENIED"), { code: 7 }))
+      .mockResolvedValueOnce([
+        { rows: [{ dimensionValues: [{ value: "20261101" }], metricValues: [{ value: "9" }] }] },
+      ]);
+    const out = await fetchDailyEngaged(
+      { ...query, subjects: ["first@reddoorla.com", "second@reddoorla.com"] },
+      range,
+    );
+    expect(out).toEqual(new Map([["2026-11-01", 9]]));
+    expect(runReport).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(JWT).mock.calls[0]![0]).toMatchObject({ subject: "first@reddoorla.com" });
+    expect(vi.mocked(JWT).mock.calls[1]![0]).toMatchObject({ subject: "second@reddoorla.com" });
+  });
+
   // Group C: a stalled GA call must not hold the job open after its row is written.
   it("passes a 30 s timeout as the call options of runReport", async () => {
     runReport.mockResolvedValueOnce([{ rows: [] }]);

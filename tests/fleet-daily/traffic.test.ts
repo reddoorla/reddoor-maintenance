@@ -327,3 +327,141 @@ describe("readTraffic", () => {
     expect(out.search.value).not.toBeNull();
   });
 });
+
+// Review round 1, Group E (P1-87 PR 6): the tests lens's majors and minors on the assembly.
+describe("readTraffic: the review's assembly cases", () => {
+  it("when every search read fails, the search half is null with 'no site read'", async () => {
+    const out = await readTraffic(
+      [site("alpha"), site("bravo")],
+      NIGHT,
+      readers({
+        search: async () => {
+          throw new Error("Search Console 500");
+        },
+      }),
+    );
+    expect(out.search).toEqual({ value: null, reason: "no site read" });
+    expect(out.visits.value).not.toBeNull();
+  });
+
+  it("a visits read that resolves at 29 s is read: the per-site timeout is 30 s, not a few ms", async () => {
+    vi.useFakeTimers();
+    try {
+      const pending = readTraffic(
+        [site("alpha", { searchConsoleProperty: null, url: "" })],
+        NIGHT,
+        readers({
+          visits: (_s, r) =>
+            new Promise((resolve) => setTimeout(() => resolve(flat(r, 2)), 29_000)),
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(29_000);
+      const out = await pending;
+      expect(out.sites[0]!.visits.value).not.toBeNull();
+      expect(out.visits.value).toMatchObject({ sitesRead: 1 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a visits read still pending at 29 999 ms is still pending; it times out at 30 s", async () => {
+    vi.useFakeTimers();
+    try {
+      const pending = readTraffic(
+        [site("alpha", { searchConsoleProperty: null, url: "" })],
+        NIGHT,
+        readers({ visits: () => new Promise(() => {}) }),
+      );
+      let settled = false;
+      void pending.then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(29_999);
+      // Assert on a flag, so a block that never settles fails here and not on the case's timeout.
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(settled).toBe(true);
+      expect((await pending).sites[0]!.visits.reason).toMatch(/timed out after 30 s/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a search read that never resolves gives the timeout reason at 30 s, and not before", async () => {
+    vi.useFakeTimers();
+    try {
+      const pending = readTraffic(
+        [site("alpha", { url: "", searchConsoleProperty: "sc-domain:alpha.example" })],
+        NIGHT,
+        readers({ search: () => new Promise(() => {}) }),
+      );
+      let settled = false;
+      void pending.then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(29_999);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(settled).toBe(true);
+      expect((await pending).sites[0]!.search.reason).toMatch(/timed out after 30 s/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("at most 4 reads are in flight by default, and the peak is exactly 4 over 20 sites", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const sites = Array.from({ length: 20 }, (_, i) => site(`s${i}`, { url: "" }));
+    await readTraffic(
+      sites,
+      NIGHT,
+      readers({
+        visits: async (_s, r) => {
+          inFlight++;
+          peak = Math.max(peak, inFlight);
+          await new Promise((res) => setTimeout(res, 2));
+          inFlight--;
+          return flat(r, 1);
+        },
+      }),
+    );
+    expect(peak).toBe(4);
+  });
+
+  it("a concurrency of 0 is read as 1: every site is still read", async () => {
+    const out = await readTraffic([site("a"), site("b"), site("c")], NIGHT, readers({}), {
+      concurrency: 0,
+    });
+    expect(out.visits.value).toMatchObject({ sitesRead: 3 });
+  });
+
+  it("a search read on 3 of the 28 days gives 28 daily entries, with 0 on the other 25", async () => {
+    const out = await readTraffic(
+      [site("alpha")],
+      NIGHT,
+      readers({
+        search: async (_s, r) => {
+          const days = datesIn(r).slice(0, 3);
+          return new Map(days.map((d) => [d, { clicks: 2, impressions: 5 }]));
+        },
+      }),
+    );
+    expect(out.search.value!.daily).toHaveLength(28);
+    expect(out.search.value!.daily.filter((d) => d.clicks === 0)).toHaveLength(25);
+    expect(out.search.value!.daily.slice(0, 3).every((d) => d.clicks === 2)).toBe(true);
+  });
+
+  it("a reason is capped at 200 characters", async () => {
+    const out = await readTraffic(
+      [site("alpha")],
+      NIGHT,
+      readers({
+        visits: async () => {
+          throw new Error("x".repeat(500));
+        },
+      }),
+    );
+    expect(out.sites[0]!.visits.reason).toHaveLength(200);
+  });
+});

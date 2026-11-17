@@ -226,12 +226,12 @@ export async function fetchDailyEngaged(
     const days = new Map<string, number>();
     for (const row of resp.rows ?? []) {
       const raw = row.dimensionValues?.[0]?.value ?? "";
-      const n = Number.parseInt(row.metricValues?.[0]?.value ?? "0", 10);
       if (!/^\d{8}$/.test(raw)) throw new Error(`GA returned a non-date row: ${raw}`);
-      days.set(
-        `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`,
-        Number.isFinite(n) ? n : 0,
-      );
+      // A metric that is not a whole number is a failed read, never a 0 (review round 1).
+      const metric = row.metricValues?.[0]?.value ?? "";
+      if (!/^\d+$/.test(metric))
+        throw new Error(`GA returned a non-numeric engaged-sessions value for ${raw}: ${metric}`);
+      days.set(`${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`, Number(metric));
     }
     return days;
   });

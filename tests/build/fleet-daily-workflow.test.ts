@@ -50,6 +50,16 @@ describe("fleet-daily workflow: the traffic block's GA key", () => {
     expect(script).not.toMatch(/set -x/);
   });
 
+  // Review round 1, Group E: the key is written only when it is set, so an unset secret
+  // never writes an empty key file.
+  it("guards the printf with 'if [ -n \"$GA_SA_KEY_JSON\" ]'", () => {
+    const script = withoutComments(stepRunScript(workflow, WRITE_STEP));
+    const guardAt = script.indexOf('if [ -n "$GA_SA_KEY_JSON" ]');
+    const printfAt = script.indexOf("printf '%s' \"$GA_SA_KEY_JSON\"");
+    expect(guardAt).toBeGreaterThanOrEqual(0);
+    expect(printfAt).toBeGreaterThan(guardAt);
+  });
+
   // Group C: the key's text leaves the writer's environment once the file is written.
   it("unsets GA_SA_KEY_JSON after the key file is written, so the writer never sees it", () => {
     const script = withoutComments(stepRunScript(workflow, WRITE_STEP));

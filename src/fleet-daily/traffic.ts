@@ -213,7 +213,8 @@ export async function readTraffic(
       searchRead.set(s.id, { value: null, reason: NO_SEARCH_PROPERTY });
     }
   }
-  await pool(tasks, opts.concurrency ?? DEFAULT_CONCURRENCY, (t) => t());
+  // A concurrency below 1 would start no reads at all, so it is read as 1.
+  await pool(tasks, Math.max(1, opts.concurrency ?? DEFAULT_CONCURRENCY), (t) => t());
 
   // Each site's entry, from its own reads.
   const siteRows: TrafficSite[] = sites.map((s) => {
