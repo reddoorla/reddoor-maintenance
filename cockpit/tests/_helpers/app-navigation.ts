@@ -34,3 +34,9 @@ export function navigate(to = "/fleet"): void {
   } as unknown as AfterNavigate;
   for (const cb of after) cb(n);
 }
+
+/** `invalidate` for the same reason: a re-read has no server to ask in these tests,
+ *  so the page's call is a no-op here (the browser test runs the real one). */
+export async function invalidate(_dependency: string): Promise<void> {
+  return;
+}
