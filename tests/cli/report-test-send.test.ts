@@ -145,12 +145,42 @@ describe("report --test-send", () => {
   });
 });
 
+/**
+ * Run `fn` on a clock frozen at `at`, then hand back whatever clock was running before.
+ *
+ * The streak reads the sends in `(sent_at, id)` order, and `sent_at` is the send's `new Date()`.
+ * Under the time-travel shim the faked clock only moves in 20 ms steps, so three sends in a row
+ * shared one `sent_at` and the random ids decided which was newest (#1978: streak=0 and
+ * streak=1 where 2 is right). Each send gets its own frozen instant instead. When the shim is
+ * on, its forward clock is put back where it would have been; when it is off, the real clock.
+ */
+async function atFrozenTime<T>(at: Date, fn: () => Promise<T>): Promise<T> {
+  const shimmed = vi.isFakeTimers();
+  const offset = Date.now() - vi.getRealSystemTime();
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(at);
+  try {
+    return await fn();
+  } finally {
+    if (shimmed) {
+      vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
+      vi.setSystemTime(vi.getRealSystemTime() + offset);
+    } else {
+      vi.useRealTimers();
+    }
+  }
+}
+
 describe("report --test-verdict and --test-streak", () => {
   it("records the operator's verdicts and prints the streak they give", async () => {
     await seed();
     const ids: string[] = [];
-    for (let i = 0; i < 3; i++) {
-      const out = await runReportCommand(undefined, { testSend: "report_1" });
+    // A minute apart, oldest first: the order the operator sent them in.
+    const sentAt = [0, 1, 2].map((i) => new Date(Date.UTC(2026, 10, 16, 18, i)));
+    for (const at of sentAt) {
+      const out = await atFrozenTime(at, () =>
+        runReportCommand(undefined, { testSend: "report_1" }),
+      );
       ids.push(/send=(\S+)/.exec(out.output)![1]!);
     }
     expect((await runReportCommand(undefined, { testStreak: true })).output).toMatch(
