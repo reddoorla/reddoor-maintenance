@@ -1,7 +1,7 @@
 import type { CockpitModel, SiteCard } from "../../../../src/dashboard/fleet-cockpit.js";
 import { itemLevel } from "../../../../src/dashboard/fleet-cockpit.js";
 import type { AttentionItem } from "../../../../src/alerts/attention.js";
-import { plainReasons } from "./view.js";
+import { pacificDay, plainReasons } from "./view.js";
 
 /** P1-87 PR 5b: the site ticker, one entry per maintained site, worst first. Names,
  *  tiers, reasons, speed scores and deploy dates only: no lead's details reach it. */
@@ -24,12 +24,6 @@ const TIER_WORD: Record<TickerEntry["tier"], TickerEntry["tierWord"]> = {
   ok: "OK",
 };
 
-const DEPLOY_DAY = new Intl.DateTimeFormat("en-US", {
-  timeZone: "America/Los_Angeles",
-  month: "short",
-  day: "numeric",
-});
-
 /** "and N more" after the first candidate; the first alone when there is one. */
 function summarise(candidates: readonly string[]): string {
   const uniq = [...new Set(candidates)];
@@ -51,7 +45,8 @@ function notOkFact(card: SiteCard, now: Date): string {
 function okFact(card: SiteCard): string {
   const { pScore, lastDeployAt } = card.site;
   if (pScore !== null) return `speed ${pScore} of 100`;
-  if (lastDeployAt !== null) return `last deployed ${DEPLOY_DAY.format(new Date(lastDeployAt))}`;
+  if (lastDeployAt !== null && Number.isFinite(Date.parse(lastDeployAt)))
+    return `last deployed ${pacificDay(new Date(lastDeployAt))}`;
   return "no speed score or deploy recorded yet";
 }
 

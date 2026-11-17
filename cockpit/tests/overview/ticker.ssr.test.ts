@@ -98,6 +98,31 @@ describe("the ticker's facts, by tier", () => {
     });
     expect(byName("Nil", s).fact).toBe("no speed score or deploy recorded yet");
   });
+
+  it.each(["garbage", "", "2026-13-45"])(
+    "does not take the page down on a deploy date it cannot read (%j)",
+    (bad) => {
+      const s = snapshot({
+        sites: [healthy({ id: "recK", name: "Kiln", pScore: null, lastDeployAt: bad })],
+      });
+      expect(() => overviewFromSnapshot(s, NOW)).not.toThrow();
+      expect(byName("Kiln", s).fact).toBe("no speed score or deploy recorded yet");
+    },
+  );
+
+  it("reads a deploy by its Pacific day, so 03:00 UTC is the evening before", () => {
+    const s = snapshot({
+      sites: [
+        healthy({
+          id: "recP",
+          name: "Pacific",
+          pScore: null,
+          lastDeployAt: "2026-10-21T03:00:00Z",
+        }),
+      ],
+    });
+    expect(byName("Pacific", s).fact).toBe("last deployed Oct 20");
+  });
 });
 
 /** A hand-built model: one card per entry, so a tier can be set without the rules that

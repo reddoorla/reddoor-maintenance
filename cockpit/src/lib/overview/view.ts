@@ -130,7 +130,7 @@ const PACIFIC_DAY = new Intl.DateTimeFormat("en-US", {
 });
 
 /** "Nov 2", the Pacific calendar day of an instant. */
-const pacificDay = (d: Date): string => PACIFIC_DAY.format(d);
+export const pacificDay = (d: Date): string => PACIFIC_DAY.format(d);
 
 /** "2026-11-02", the Pacific calendar day of an instant, with its year: for grouping. */
 const pacificYmd = (d: Date): string =>

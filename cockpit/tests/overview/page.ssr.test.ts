@@ -1700,3 +1700,16 @@ describe("the site ticker on the overview (P1-87 PR 5b)", () => {
     }
   });
 });
+
+describe("the overview renders with an unreadable deploy date (P1-87 PR 5b)", () => {
+  it("renders the page, and the ticker says no deploy is recorded, for a deploy date of 'garbage'", () => {
+    const s = snapshot({
+      sites: [healthy({ id: "recK", name: "Kiln", pScore: null, lastDeployAt: "garbage" })],
+    });
+    const html = pageHtml(overviewFromSnapshot(s, NOW));
+    const doc = parse(html);
+    const rows = doc.querySelectorAll("ul.ov-ticker-list:not(.copy) > li");
+    expect(rows).toHaveLength(1);
+    expect(text(rows[0]!)).toContain("no speed score or deploy recorded yet");
+  });
+});
