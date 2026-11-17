@@ -2286,6 +2286,9 @@ export const listWords = (xs: readonly string[]): string =>
  *  named in the order the page says them ("events", "reports", "leads", "the nightly"). */
 export type Lately = { lines: LatelyLine[]; unreadable: string[] };
 
+/** The site a feed line names when the site is no longer listed. */
+const GONE_SITE = "A site no longer listed";
+
 /** P1-87 PR 4: the Lately feed, the newest `LATELY_LINES` of the last
  *  `RECENT_EVENTS_DAYS` days, from the events, the reports sent, the leads delivered
  *  and the newest night's step results. A lead line names the site and counts; it
@@ -2304,7 +2307,7 @@ export function latelyView(
   if (s.nights === null) unreadable.push("the nightly");
   const since = now.getTime() - RECENT_EVENTS_DAYS * DAY_MS;
   // A report or lead names its site as the leads panel does: a site no longer listed.
-  const siteOf = (id: string): string => siteName(id) ?? "A site no longer listed";
+  const siteOf = (id: string): string => siteName(id) ?? GONE_SITE;
   const found: Array<{ t: number; rank: number; line: LatelyLine }> = [];
   const push = (iso: string, text: string, site: string | null, rank: number) => {
     const t = Date.parse(iso);
@@ -2318,13 +2321,11 @@ export function latelyView(
   };
   // Events (rank 0). An override's report is said by its event alone (rank 1 skips it).
   const events = (s.feedEvents ?? []).filter((e) => e.type !== "fleet_swept");
-  for (const e of events)
-    push(
-      e.ts,
-      PLAIN_EVENT[e.type] ?? e.summary,
-      (e.siteId === null ? null : siteName(e.siteId)) ?? e.siteName,
-      0,
-    );
+  // An event names its site as stored when the site is gone; a blank stored name reads as
+  // "A site no longer listed", as a report does.
+  const eventSite = (e: FleetEvent): string | null =>
+    e.siteId === null ? e.siteName || null : (siteName(e.siteId) ?? (e.siteName || GONE_SITE));
+  for (const e of events) push(e.ts, PLAIN_EVENT[e.type] ?? e.summary, eventSite(e), 0);
   const named = new Set(events.map(eventReportId).filter((x): x is string => x !== null));
   // Reports sent (rank 1): not a test send, not withdrawn.
   for (const r of s.reports ?? []) {
@@ -2598,6 +2599,6 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Lately",
-    text: "The newest 8 lines from the last 7 days, Pacific time: fleet events (a dependency update merged, a vulnerability cleared, a certificate renewed, and the like), reports sent, leads delivered, and the newest night's steps. A lead line names its site and how many, never who sent it. The nightly is one line saying how many of its steps ran to the end, naming up to two steps that did not run to the end and how many more did not; a sweep is shown only as those steps. A line six or more days old carries its date (Wed Oct 21, 12:00pm), so two days with the same weekday never read alike. A test send and a withdrawn report are not listed. When a source could not be read, the panel says so, and does not read as nothing recorded.",
+    text: "The newest 8 lines from the last 7 days, Pacific time: fleet events (a dependency update merged, a vulnerability cleared, a certificate renewed, and the like), reports sent, leads delivered, and the night the tiles count (before 6am, the night before last). A lead line names its site and how many, never who sent it. The nightly is one line saying how many of its steps ran to the end, naming up to two steps that did not run to the end and how many more did not; a sweep is shown only as those steps. A line from six Pacific calendar days back carries its date (Wed Oct 21, 12:00pm), so two days with the same weekday never read alike. A test send and a withdrawn report are not listed. When a source could not be read, the panel says so, and does not read as nothing recorded.",
   },
 ];

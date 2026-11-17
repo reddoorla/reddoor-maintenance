@@ -1577,6 +1577,13 @@ describe("the Lately feed on the page (P1-87 PR 4)", () => {
     expect(panel).not.toContain("Nothing recorded");
   });
 
+  it("reads two failed sources as one sentence", () => {
+    const html = pageHtml(overviewFromSnapshot({ ...SNAP, reports: null, submissions: null }, NOW));
+    expect(text(parse(html).querySelector(".ov-lately")!)).toContain(
+      "Could not read reports and leads just now.",
+    );
+  });
+
   it("says a failed read first, in ink, and still shows the lines that did read", () => {
     const html = pageHtml(overviewFromSnapshot({ ...SNAP, reports: null }, NOW));
     const panel = parse(html).querySelector(".ov-lately")!;

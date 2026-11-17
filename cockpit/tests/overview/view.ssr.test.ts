@@ -3131,6 +3131,21 @@ describe("the Lately feed (P1-87 PR 4)", () => {
       expect(v.lately.lines).toEqual([]);
     });
 
+    it("drops a lead outside the window before it groups, so a stale one never joins a fresh line", () => {
+      // NOW is Tue Oct 27, 11am PT; the window opens Tue Oct 20 at 11am PT (18:00Z).
+      const v = overviewFromSnapshot(
+        snapshot({
+          sites: [healthy({ id: "recA", name: "A" })],
+          submissions: [
+            lead({ id: "early", submittedAt: "2026-10-20T17:00:00.000Z" }),
+            lead({ id: "inside", submittedAt: "2026-10-20T21:00:00.000Z" }),
+          ],
+        }),
+        NOW,
+      );
+      expect(v.lately.lines.map((l) => [l.text, l.site])).toEqual([["Lead delivered", "A"]]);
+    });
+
     it("never groups a lead on the same month and day a year earlier with this one", () => {
       const v = overviewFromSnapshot(
         snapshot({
@@ -3429,6 +3444,57 @@ describe("the Lately feed (P1-87 PR 4)", () => {
     );
     expect(v.lately.lines.map((l) => l.text)).toEqual([
       "Nightly run: 2 of 3 steps ran to the end (CMS check: failed)",
+    ]);
+  });
+
+  it("counts days by Pacific calendar days, so 11:30pm six days back is dated", () => {
+    // NOW is 11am PT on Oct 27; 6:30Z on Oct 22 is 11:30pm PT on Oct 21, which is six days back.
+    const v = overviewFromSnapshot(
+      snapshot({ feedEvents: [event({ id: "late", ts: "2026-10-22T06:30:00.000Z" })] }),
+      NOW,
+    );
+    expect(v.lately.lines.map((l) => l.when)).toEqual(["Wed Oct 21, 11:30pm"]);
+  });
+
+  it("says each recorded event in its plain words, whatever its own summary says", () => {
+    const cases = [
+      ["pr_automerged", "Dependency update merged"],
+      ["vuln_cleared", "Vulnerability cleared"],
+      ["cert_renewed", "Certificate renewed"],
+      ["ci_recovered", "Build + tests back to passing"],
+      ["site_launched", "Site launched, now in our care"],
+      ["report_sent_with_override", "Report sent with an override"],
+    ] as const;
+    const v = overviewFromSnapshot(
+      snapshot({
+        feedEvents: cases.map(([type], i) =>
+          event({
+            id: `pw${i}`,
+            type: type as never,
+            ts: new Date(NOW.getTime() - i * 60_000).toISOString(),
+            summary: "SUMMARY-PLAIN",
+          }),
+        ),
+      }),
+      NOW,
+    );
+    expect(v.lately.lines.map((l) => l.text)).toEqual(cases.map(([, words]) => words));
+  });
+
+  it("says a site no longer listed for an event whose site is gone and whose stored name is blank", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [healthy({ id: "recA", name: "Acme" })],
+        feedEvents: [
+          event({ id: "bn", ts: "2026-10-27T09:00:00.000Z", siteId: "recX", siteName: null }),
+          event({ id: "be", ts: "2026-10-27T08:00:00.000Z", siteId: "recX", siteName: "" }),
+        ],
+      }),
+      NOW,
+    );
+    expect(v.lately.lines.map((l) => [l.text, l.site])).toEqual([
+      ["Dependency update merged", "A site no longer listed"],
+      ["Dependency update merged", "A site no longer listed"],
     ]);
   });
 
