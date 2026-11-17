@@ -242,15 +242,34 @@ describe("the overview's stylesheet (T5)", () => {
     expect(rule(".ov-earlier")).toMatch(/fill:\s*var\(--band\)/);
   });
 
-  it("draws each mark under forced colours with a border the browser forces, not a fill (round 1, item 8; round 2, I)", () => {
+  it("draws each mark under forced colours with a border the browser forces, not a fill (round 1, item 8; round 2, I; round 3, E)", () => {
     // The forced palette replaces fills, so the marks keep a border: a pass solid, the
-    // not-checked dotted, and the sparkline in the text colour. No forced-color-adjust
-    // override is left, since it kept the token fills, which read as black on black.
-    const forced = css.slice(css.indexOf("@media (forced-colors: active)"));
+    // not-checked dotted, each tier its own border style, and the sparkline in the text
+    // colour. Only the forced block is read: a rule outside it is not a forced rule.
     expect(css).not.toMatch(/forced-color-adjust:\s*none/);
-    expect(forced).toMatch(/\.ov-check-fill\s*\{[^}]*border:\s*2px solid/);
-    expect(forced).toMatch(/\.ov-check-unknown\s*\{[^}]*border:\s*2px dotted/);
-    expect(forced).toMatch(/\.ov-spark polyline\s*\{[^}]*stroke:\s*currentColor/);
+    const at = css.indexOf("@media (forced-colors: active)");
+    let depth = 0;
+    let end = css.indexOf("{", at);
+    for (let i = end; i < css.length; i++) {
+      if (css[i] === "{") depth++;
+      else if (css[i] === "}" && --depth === 0) {
+        end = i;
+        break;
+      }
+    }
+    const forced = css.slice(at, end + 1).replace(/\/\*[\s\S]*?\*\//g, "");
+    const block = (sel: string) =>
+      [...forced.matchAll(/([^{}]+)\{([^}]*)\}/g)].find(([, s]) => s!.trim() === sel)?.[2] ?? "";
+    expect(block(".ov-check-fill")).toMatch(/border:\s*0;\s*border-top:\s*8px solid/);
+    expect(block(".ov-check-unknown")).toMatch(/border:\s*2px dotted/);
+    expect(block(".ov-seg.ok")).toMatch(/border:\s*0;\s*border-top:\s*2\.25rem solid/);
+    expect(block(".ov-seg.watch")).toMatch(/border-style:\s*dashed/);
+    expect(block(".ov-seg.attention")).toMatch(/border-style:\s*dotted/);
+    expect(block(".ov-seg.broken")).toMatch(/border-width:\s*6px;\s*border-style:\s*double/);
+    expect(block(".ov-tier-inside")).toMatch(/display:\s*none/);
+    expect(block(".ov-tier-counts.visually-hidden")).toMatch(/position:\s*static/);
+    expect(block(".ov-spark polyline")).toMatch(/stroke:\s*currentColor/);
+    expect(block(".ov-spark circle")).toMatch(/fill:\s*currentColor/);
   });
 
   it("holds no rule for the sections removed from the page (round 1, item 14)", () => {

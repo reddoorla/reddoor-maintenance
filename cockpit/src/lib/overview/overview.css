@@ -405,15 +405,18 @@ section {
 }
 
 /* Forced colours: the system palette replaces the fills, so each mark keeps a second
-   signal in its border: the pass solid, the not-checked dotted, each tier its own border
-   style, and the sparkline in the text colour. No colour keyword: the browser forces these. */
+   signal in its border, and no two marks differ by border width alone: a pass is a solid
+   bar, the not-checked part dotted, the OK segment solid, watch dashed, attention dotted,
+   broken double. The sparkline is in the text colour. No colour keyword: the browser forces
+   these. */
 @media (forced-colors: active) {
   .ov-check-bar {
     outline-style: solid;
   }
   .ov-check-fill {
     box-sizing: border-box;
-    border: 2px solid;
+    border: 0;
+    border-top: 8px solid;
   }
   .ov-check-unknown {
     box-sizing: border-box;
@@ -424,6 +427,10 @@ section {
     box-sizing: border-box;
     border: 2px solid;
   }
+  .ov-seg.ok {
+    border: 0;
+    border-top: 2.25rem solid;
+  }
   .ov-seg.watch {
     border-style: dashed;
   }
@@ -431,9 +438,25 @@ section {
     border-style: dotted;
   }
   .ov-seg.broken {
-    border-width: 4px;
+    border-width: 6px;
+    border-style: double;
+  }
+  /* All OK prints its counts under the bar, in text, not inside the now-solid segment. */
+  .ov-tier-inside {
+    display: none;
+  }
+  .ov-tier-counts.visually-hidden {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip: auto;
+    white-space: normal;
   }
   .ov-spark polyline {
     stroke: currentColor;
+  }
+  .ov-spark circle {
+    fill: currentColor;
   }
 }
