@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { execFileSync } from "node:child_process";
+import { X509Certificate } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
@@ -296,11 +297,19 @@ describe("defaultDomainDeps against local TLS servers", () => {
     };
   }
   let other: { key: string; cert: string };
+  // The audit's "now" is frozen at the moment openssl minted the cert (its notBefore), not
+  // read from `new Date()`. openssl stamps the cert from the real clock and the TLS handshake
+  // checks expiry against the real clock, but `new Date()` is the suite's clock: under the
+  // time-travel shim (+90 days) it put the 30-day cert 60 days past expiry and the positive
+  // controls read `warn` (#1978). From notBefore, the cert has exactly 30 days left, whatever
+  // the wall clock says.
+  let now: Date;
 
   beforeAll(() => {
     dir = mkdtempSync(join(tmpdir(), "domain-tls-"));
     ({ key, cert } = makeCert("loopback", "IP:127.0.0.1"));
     other = makeCert("other.invalid", "DNS:other.invalid");
+    now = new X509Certificate(cert).validFromDate;
   });
 
   afterAll(async () => {
@@ -319,7 +328,6 @@ describe("defaultDomainDeps against local TLS servers", () => {
     return (server.address() as net.AddressInfo).port;
   }
   const localSite = { path: "/tmp/local", name: "local", deployedUrl: "https://127.0.0.1/" };
-  const now = new Date();
 
   it("positive control: a cert the client trusts passes", async () => {
     const port = await listen(tls.createServer({ key, cert }, (s) => s.end()));
