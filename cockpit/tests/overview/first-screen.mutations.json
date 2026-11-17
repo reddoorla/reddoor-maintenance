@@ -490,10 +490,7 @@
         "replace": "? \"notChecked\" : \"noVerdict\";"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/page.ssr.test.ts",
-      "cockpit/tests/overview/view.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts", "cockpit/tests/overview/view.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -506,10 +503,7 @@
         "replace": "    )\n      return \"notChecked\";\n    return s.a11yViolations === 0;"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/page.ssr.test.ts",
-      "cockpit/tests/overview/view.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts", "cockpit/tests/overview/view.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -522,9 +516,7 @@
         "replace": "true &&"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -537,10 +529,7 @@
         "replace": "nightsBetween(x.night, end) <= WINDOW_NIGHTS,\n"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts",
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -553,9 +542,7 @@
         "replace": ""
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -568,9 +555,7 @@
         "replace": "counted.find((x) => x.night === day)?.v ?? 0"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -583,9 +568,7 @@
         "replace": "flat ? 0 :"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -598,10 +581,7 @@
         "replace": "launching: items.filter((i) => siteStatus(i) !== \"maintained\").length,"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts",
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -614,10 +594,7 @@
         "replace": "([\"broken\", \"attention\"] as const).flatMap"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts",
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -630,10 +607,7 @@
         "replace": ".join(\", \")"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts",
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -646,9 +620,7 @@
         "replace": "."
       }
     ],
-    "test": [
-      "cockpit/tests/how/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/how/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -661,9 +633,7 @@
         "replace": "The nightly has written some counts."
       }
     ],
-    "test": [
-      "cockpit/tests/how/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/how/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -676,9 +646,7 @@
         "replace": "data-term=\"Trend totals\">"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -691,10 +659,7 @@
         "replace": ","
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts",
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -707,9 +672,7 @@
         "replace": "left: 0%"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -722,9 +685,7 @@
         "replace": "v.health.tiers.watch + v.health.tiers.attention === 0"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -737,10 +698,7 @@
         "replace": "if (s.securityVulnsCritical === null || s.securityVulnsHigh === null) return \"noVerdict\";"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts",
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -753,9 +711,7 @@
         "replace": "<h2 id=\"ov-happening\">"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -768,9 +724,7 @@
         "replace": ".ov-tierbar {\n"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -815,9 +769,7 @@
         "replace": "  .ov-check-bar {\n    outline-style: solid;\n    forced-color-adjust: none;\n  }"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -830,9 +782,7 @@
         "replace": "...(leads.allTime !== null"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -845,9 +795,7 @@
         "replace": "sites"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   }
 ]

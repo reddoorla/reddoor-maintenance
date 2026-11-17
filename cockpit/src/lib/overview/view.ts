@@ -377,7 +377,11 @@ function statusView(
       fleetAttention,
       watch,
       approval,
-      offCare: { broken: offCare("broken"), attention: offCare("attention"), watch: offCare("watch") },
+      offCare: {
+        broken: offCare("broken"),
+        attention: offCare("attention"),
+        watch: offCare("watch"),
+      },
     },
   };
 }

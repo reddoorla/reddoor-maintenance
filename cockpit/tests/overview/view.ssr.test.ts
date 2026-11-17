@@ -2490,16 +2490,6 @@ describe("review round 2: the checks sparkline and its geometry (group C)", () =
 });
 
 describe("review round 2: the launching note names what it counts (group D)", () => {
-  const TRANSITIVE = [
-    {
-      module: "x",
-      severity: "high" as const,
-      title: "t",
-      cves: [],
-      url: null,
-      relationship: "transitive" as const,
-    },
-  ];
   it("a site with a misspelt status is not named launching, whatever its alarm", () => {
     const H = overviewFromSnapshot(
       snapshot({
@@ -2508,7 +2498,8 @@ describe("review round 2: the launching note names what it counts (group D)", ()
           healthy({
             id: "t",
             name: "Typo",
-            status: "Maintaned",
+            // A status outside the four the schema allows: the fixture is typed loosely here.
+            status: "Maintaned" as unknown as "maintained",
             urlResolves: "fail",
             urlCheckedAt: FRESH,
           }),
@@ -2546,7 +2537,15 @@ describe("review round 2: the leads tile, the tier bar and the security count (g
   it("a fresh security audit with only a critical count fails, and is not unknown", () => {
     const h = overviewFromSnapshot(
       snapshot({
-        sites: [healthy({ id: "recA", name: "Acme", securityVulnsCritical: 1, securityVulnsHigh: null, lastSecurityAuditAt: FRESH })],
+        sites: [
+          healthy({
+            id: "recA",
+            name: "Acme",
+            securityVulnsCritical: 1,
+            securityVulnsHigh: null,
+            lastSecurityAuditAt: FRESH,
+          }),
+        ],
       }),
       NOW,
     ).health;

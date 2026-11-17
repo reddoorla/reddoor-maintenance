@@ -236,18 +236,10 @@ section {
 /* Watch and attention carry a hatch as well as a tone, so no two segments differ by
    colour alone (watch against broken is 1.03:1 in light). */
 .ov-seg.watch {
-  background: repeating-linear-gradient(
-    135deg,
-    var(--ink-muted) 0 3px,
-    var(--surface) 3px 6px
-  );
+  background: repeating-linear-gradient(135deg, var(--ink-muted) 0 3px, var(--surface) 3px 6px);
 }
 .ov-seg.attention {
-  background: repeating-linear-gradient(
-    45deg,
-    var(--ink-dark) 0 3px,
-    var(--surface) 3px 6px
-  );
+  background: repeating-linear-gradient(45deg, var(--ink-dark) 0 3px, var(--surface) 3px 6px);
 }
 .ov-seg.broken {
   background: var(--broken-fill);

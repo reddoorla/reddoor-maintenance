@@ -1209,9 +1209,7 @@ describe("the first screen's page structure (review round 2, G and H)", () => {
   it("a broken-only day is not all OK: no counts inside the bar, the line under it shown (G)", () => {
     // SNAP is two OK and one broken: the all-OK style must not apply.
     expect(DOC.querySelector(".ov-tier-inside")).toBeNull();
-    expect(DOC.querySelector(".ov-tier-counts")!.classList.contains("visually-hidden")).toBe(
-      false,
-    );
+    expect(DOC.querySelector(".ov-tier-counts")!.classList.contains("visually-hidden")).toBe(false);
   });
 
   it("names one maintained site in the singular (G)", () => {
