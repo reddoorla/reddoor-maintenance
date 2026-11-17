@@ -309,8 +309,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "(siteName(e.siteId) ?? (e.siteName || GONE_SITE))",
-        "replace": "(e.siteName || siteName(e.siteId) || GONE_SITE)"
+        "find": "(siteName(e.siteId) ?? (stored ?? GONE_SITE))",
+        "replace": "(stored || siteName(e.siteId) || GONE_SITE)"
       }
     ],
     "test": ["cockpit/tests/overview/view.ssr.test.ts"],
@@ -520,8 +520,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "(siteName(e.siteId) ?? (e.siteName || GONE_SITE))",
-        "replace": "(siteName(e.siteId) ?? e.siteName)"
+        "find": "(siteName(e.siteId) ?? (stored ?? GONE_SITE))",
+        "replace": "(siteName(e.siteId) ?? stored)"
       }
     ],
     "test": ["cockpit/tests/overview/view.ssr.test.ts"],
@@ -597,11 +597,11 @@
   },
   {
     "id": "46-time-column-width-deleted",
-    "why": "The time column is as wide as its text, not a fixed 5.5rem, so the text column is ragged",
+    "why": "The time column is as wide as its text, not a fixed 6rem, so the text column is ragged",
     "edits": [
       {
         "file": "cockpit/src/lib/overview/overview.css",
-        "find": "  flex: 0 0 5.5rem;",
+        "find": "  flex: 0 0 6rem;",
         "replace": "  flex: 0 0 auto;"
       }
     ],
@@ -679,6 +679,97 @@
       }
     ],
     "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "52-unparseable-date-kept",
+    "why": "The window test reads an unparseable date as in the window, so a line dated Invalid appears",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "if (!Number.isFinite(t) || t < since) return;",
+        "replace": "if (t < since) return;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "53-second-step-not-counted-as-more",
+    "why": "One more step that did not finish is not counted, so the tail names no 'more'",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      if (more > 0) named.push(`${more} more did not`);",
+        "replace": "      if (more > 1) named.push(`${more} more did not`);"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "54-how-entry-says-each-step-has-a-line",
+    "why": "How we count's Lately entry describes the old one-line-per-step night",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "naming up to two steps that did not run to the end and how many more did not;",
+        "replace": "and each step that did not has its own line after it;"
+      }
+    ],
+    "test": ["cockpit/tests/how/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "55-stored-name-not-trimmed",
+    "why": "A blank stored site name counts as a name again, so a gone site reads blank",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "const stored = e.siteName?.trim() || null;",
+        "replace": "const stored = e.siteName || null;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "56-site-less-event-drops-its-name",
+    "why": "A site-less event with a real stored name loses it, so the line reads with no site",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "e.siteId === null ? stored :",
+        "replace": "e.siteId === null ? null :"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "57-time-column-auto-in-browser",
+    "why": "The time column is as wide as its text in a real browser, so the text column is ragged at 1280px",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "  flex: 0 0 6rem;",
+        "replace": "  flex: 0 0 auto;"
+      }
+    ],
+    "test": ["tests/cockpit/snapshot-navigation.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "58-happening-stretches-its-row",
+    "why": "Happening stretches to the height of the row, so Health's box and Happening's content part",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-lately {\n  align-self: start;\n}",
+        "replace": ".ov-lately {\n  align-self: start;\n}\n.ov-happening {\n  align-self: stretch;\n}"
+      }
+    ],
+    "test": ["tests/cockpit/snapshot-navigation.test.ts"],
     "expect": "red"
   }
 ]
