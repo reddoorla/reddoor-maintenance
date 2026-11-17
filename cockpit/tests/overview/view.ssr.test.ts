@@ -2724,7 +2724,15 @@ describe("review round 4: How we count names both windows and keeps the column's
     const text = HOW_WE_COUNT.find((h) => h.term === "Sites passing each check")!.text;
     expect(text).not.toContain("dark part");
     expect(text).toContain("The solid part, from the left, is the sites that pass.");
-    expect(text).toContain("The paler part after it");
+    expect(text).toContain("The grey part after it");
+    expect(text).not.toContain("paler");
+  });
+
+  it("says the first screen's tiles stop at the night expected by 6am, where /how's windows do not (round 5, correctness minor 1)", () => {
+    const text = HOW_WE_COUNT.find((h) => h.term === "Runs completed")!.text;
+    expect(text).toContain(
+      "The first screen's tiles end on the night expected by now, so before 6am Pacific they leave out last night's row if it is already written; the windows on this page count it, so the two can differ until 6am.",
+    );
   });
 
   it("the seven status-kind entries follow Level, so the /fleet column's entries stay together (correctness n3)", () => {

@@ -229,7 +229,7 @@ section {
   flex-basis: 0;
   min-width: 0;
 }
-/* A watch or attention segment keeps its shape at phone width: one site in 40 would be a
+/* A watch, attention or broken segment keeps its shape at phone width: one site in 40 would be a
    7px stripe or a 2px hairline without a floor (review round 4, a11y minor 1). */
 .ov-seg:not(.ok) {
   min-width: 1.25rem;
