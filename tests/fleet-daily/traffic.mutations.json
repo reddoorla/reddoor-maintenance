@@ -201,7 +201,7 @@
       {
         "file": "src/reports/search/client.ts",
         "find": "      });\n      const rows = res.data.rows ?? [];",
-        "replace": "      }).catch(() => ({ data: {} }));\n      const rows = res.data.rows ?? [];"
+        "replace": "      }).catch(() => ({ data: { rows: [] } }));\n      const rows = res.data.rows ?? [];"
       }
     ],
     "test": "tests/reports/search/client.test.ts",
