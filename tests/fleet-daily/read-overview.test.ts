@@ -432,8 +432,8 @@ describe("readOverviewNights normalises each half, and places each series on the
   );
 
   // Review round 4, Group A (major 2): the search half's required counts and the visits half's
-  // `current` are each checked. Only the half that lacks one is not in the row; the other half
-  // is left alone, and the night before keeps both series.
+  // `current` are each checked. The half that lacks one is not in the row, and the night before
+  // keeps both series.
   it.each([
     ["search {}", { search: { value: {} } }, "search"],
     ["search with only clicks", { search: { value: { clicks: 1 } } }, "search"],
