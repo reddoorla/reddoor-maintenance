@@ -1474,6 +1474,26 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     expect(overflows).toBe(false);
   });
 
+  // P1-87 PR 5b review r2 A: a press on a moving link opens it. Chromium focuses a link on
+  // mousedown; the still layout must not follow a mouse focus, or the row reflows under the
+  // pointer between press and release and the click lands on nothing.
+  it("opens the link a visitor clicks while the row is paused under the pointer", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await expect
+      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
+      .toBeGreaterThanOrEqual(3);
+    const link = page.locator(".ov-ticker-list:not(.copy) > li:nth-child(2) a");
+    const href = await link.getAttribute("href");
+    expect(href).toBeTruthy();
+    await page.locator(".ov-ticker-window").hover();
+    await link.click();
+    await expect
+      .poll(() => page.url().endsWith(href!), { message: `the click opens ${href}` })
+      .toBe(true);
+  });
+
   // P1-87 PR 5b review r1 B: a visitor who tabs into the moving row reads its links, so
   // each focused link must be inside the window and the row must stand still meanwhile.
   it("keeps each focused link inside the window, and stands the row still, at 1280px and 390px", async () => {

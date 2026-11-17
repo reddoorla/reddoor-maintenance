@@ -1749,7 +1749,8 @@ describe("the ticker's styles and speed (P1-87 PR 5b review r1 D)", () => {
   });
 
   it("lays the still entries one per line while a focus is inside the window", () => {
-    const list = css.match(/\.ov-ticker-window:focus-within \.ov-ticker-list\s*\{([^}]*)\}/);
+    // Keyed on a keyboard focus (:focus-visible), not any focus: r2 A.
+    const list = css.match(/\.ov-ticker-window:has\(:focus-visible\) \.ov-ticker-list\s*\{([^}]*)\}/);
     expect(list).not.toBeNull();
     expect(list![1]).toMatch(/flex-direction:\s*column/);
   });

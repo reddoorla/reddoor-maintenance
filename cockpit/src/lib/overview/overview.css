@@ -586,25 +586,27 @@ section {
     display: none;
   }
 }
-/* A focus inside the window: the same still layout as reduced motion, so a focused link
-   is never scrolled out of the window, and the row stops while the focus is in it.
+/* A keyboard focus inside the window: the same still layout as reduced motion, so a focused
+   link is never scrolled out of the window, and the row stops while the focus is in it.
+   Keyed on :focus-visible, not :focus-within: Chromium focuses a link on mousedown, and a
+   mouse focus must not reflow the row under the pointer before the click lands (r2 A).
    The values repeat the reduced-motion block above; keep the two in step. */
-.ov-ticker-window:focus-within .ov-ticker-run {
+.ov-ticker-window:has(:focus-visible) .ov-ticker-run {
   animation: none;
   display: block;
   width: auto;
 }
-.ov-ticker-window:focus-within .ov-ticker-list {
+.ov-ticker-window:has(:focus-visible) .ov-ticker-list {
   flex-direction: column;
   gap: 0.5rem;
   padding: 0;
 }
-.ov-ticker-window:focus-within .ov-ticker-list li {
+.ov-ticker-window:has(:focus-visible) .ov-ticker-list li {
   flex-wrap: wrap;
   white-space: normal;
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.ov-ticker-window:focus-within .ov-ticker-list.copy {
+.ov-ticker-window:has(:focus-visible) .ov-ticker-list.copy {
   display: none;
 }
