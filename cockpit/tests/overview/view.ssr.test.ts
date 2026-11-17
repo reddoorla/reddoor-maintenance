@@ -913,11 +913,11 @@ describe("review round 2", () => {
       Array.from({ length: n }, (_, i) =>
         night(new Date(Date.UTC(2026, 9, 26) - i * 86_400_000).toISOString().slice(0, 10)),
       );
-    expect(overviewFromSnapshot(snapshot({ nights: days(30) }), NOW).nightsCollected).toBe(
-      "30 nights",
-    );
     expect(overviewFromSnapshot(snapshot({ nights: days(31) }), NOW).nightsCollected).toBe(
-      "at least 31 nights",
+      "31 nights",
+    );
+    expect(overviewFromSnapshot(snapshot({ nights: days(32) }), NOW).nightsCollected).toBe(
+      "at least 32 nights",
     );
     expect(
       overviewFromSnapshot(snapshot({ nights: [night("2026-10-26")] }), NOW).nightsCollected,
@@ -2577,7 +2577,7 @@ describe("review round 3: one set of nights for every tile (group A, correctness
   const tileOf = (s: CockpitSnapshot, key: string, now: Date = BEFORE_6AM) =>
     overviewFromSnapshot(s, now).numbers.find((t) => t.key === key)!;
 
-  it("fixture A: checks, deps and shipped all cover the nights of Oct 24 and 25", () => {
+  it("no tile reads the night of Oct 26 before 6am: checks sums two nights, deps and shipped take one difference", () => {
     // Oct 26 is written before 6am but is not last night, so no tile may count it.
     const s = snapshot({
       nights: [
@@ -2610,6 +2610,75 @@ describe("review round 3: one set of nights for every tile (group A, correctness
       context: "10 on the night of Oct 24",
     });
     expect(JSON.stringify(tileOf(s, "checks"))).not.toContain("7");
+  });
+});
+
+describe("review round 4: the night bound belongs to the first screen's tiles (group A, correctness M1, M2)", () => {
+  const BEFORE_6AM = new Date("2026-10-27T12:00:00Z"); // 5am PDT: tonight's row is written
+  const DAY = 86_400_000;
+  const counted = (date: string, checks: number, merged: number) =>
+    night(date, {
+      coverage: { value: { a: { value: checks } } },
+      events: { value: { pr_automerged: merged, vuln_cleared: merged } },
+      prsMerged: { value: merged },
+    });
+  // The reader's rows, newest first, from Oct 26 back `n` nights: 10 checks a night,
+  // and running totals of 1000 - 10 * i (correctness round 4, M1).
+  const readerRows = (n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      counted(new Date(Date.UTC(2026, 9, 26) - i * DAY).toISOString().slice(0, 10), 10, 1000 - 10 * i),
+    );
+  const tiles = (s: CockpitSnapshot) => {
+    const v = overviewFromSnapshot(s, BEFORE_6AM);
+    const tile = (key: string) => v.numbers.find((t) => t.key === key)!;
+    return {
+      checks: tile("checks"),
+      deps: tile("deps"),
+      shipped: tile("shipped"),
+      how: { ...v.upkeep, prsMerged: v.prsMerged },
+    };
+  };
+
+  it("at 5am with the reader's 32 rows, checks, deps and shipped all say over the last 30 nights", () => {
+    const t = tiles(snapshot({ nights: readerRows(32) }));
+    expect(t.checks).toMatchObject({ value: "10", context: "300 over the last 30 nights" });
+    expect(t.deps).toMatchObject({ value: "300", context: "over the last 30 nights" });
+    expect(t.shipped).toMatchObject({ value: "300", context: "over the last 30 nights" });
+  });
+
+  it("at 5am with only 31 rows, the tiles say what the rows cover: checks 30 nights, deps and shipped 29", () => {
+    const t = tiles(snapshot({ nights: readerRows(31) }));
+    expect(t.checks).toMatchObject({ value: "10", context: "300 over the last 30 nights" });
+    expect(t.deps).toMatchObject({ value: "290", context: "over the last 29 nights" });
+    expect(t.shipped).toMatchObject({ value: "290", context: "over the last 29 nights" });
+  });
+
+  it("at 5am, /how's windows still end on tonight's night, as at c2200488", () => {
+    const t = tiles(snapshot({ nights: readerRows(31) }));
+    expect(t.how.automerged).toBe("300 over the last 30 nights");
+    expect(t.how.vulnsCleared).toBe("300 over the last 30 nights");
+    expect(t.how.prsMerged).toBe("300 over the last 30 nights");
+  });
+
+  it("at 5am, a missing last night is said by the deps and shipped tiles over one night", () => {
+    // Oct 25 is missing: the newest counted night is Oct 24, and Oct 23 is its base.
+    const t = tiles(
+      snapshot({
+        nights: [
+          counted("2026-10-26", 7, 130),
+          counted("2026-10-24", 10, 100),
+          counted("2026-10-23", 10, 90),
+        ],
+      }),
+    );
+    expect(t.deps).toMatchObject({
+      value: "10",
+      context: "over the night of Oct 24; no count in the 1 night since",
+    });
+    expect(t.shipped).toMatchObject({
+      value: "10",
+      context: "over the night of Oct 24; no count in the 1 night since",
+    });
   });
 });
 

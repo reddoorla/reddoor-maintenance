@@ -982,6 +982,8 @@ function overNights(
   pick: (c: Counts) => number | null | undefined,
   now: Date,
 ): string {
+  // The page's windows are unbounded: /how counts back from the newest night (review round
+  // 4, M2), as the first screen's tiles do not.
   const f = windowFigure(nights, pick, now);
   if (f.context === null) return f.value;
   return f.value === NOT_YET ? f.context : `${f.value} ${f.context}`;
@@ -990,17 +992,18 @@ function overNights(
 /** A window's figure and its context, shared by the page's windows and the first
  *  screen's tiles: the value is digits, or NOT_YET / UNREADABLE with the context (if
  *  any) saying why. When the newest count is older than the night expected by now,
- *  the context dates the window by its newest night and says the nights since. */
+ *  the context dates the window by its newest night and says the nights since.
+ *  `lastNight`, when given, bounds the nights: the first screen passes the night
+ *  expected by now, so a row written before 6am is outside its tiles (review round 3,
+ *  M1; round 4, M2). Without it, the window counts back from the newest row. */
 function windowFigure(
   nights: OverviewNight[] | null,
   pick: (c: Counts) => number | null | undefined,
   now: Date,
+  lastNight?: string,
 ): { value: string; context: string | null } {
   if (nights === null) return { value: UNREADABLE, context: null };
-  // A night newer than the expected one (a row written before 6am Pacific) is outside
-  // every tile's window, as it is for the checks tile (review round 3, M1).
-  const expected = expectedNight(now);
-  const dated = nights.filter((n) => n.night <= expected);
+  const dated = lastNight === undefined ? nights : nights.filter((n) => n.night <= lastNight);
   const measured = dated.filter((n) => typeof pick(n.counts) === "number");
   const newest = measured[0];
   if (newest === undefined) return { value: NOT_YET, context: null };
@@ -2126,7 +2129,7 @@ export function numbersView(
           : `${newestCounted.v} on the night of ${nightLabel(newestCounted.night)}`,
     spark: nightSpark(counted, lastNight),
   };
-  const deps = windowFigure(s.nights, eventTotal("pr_automerged"), now);
+  const deps = windowFigure(s.nights, eventTotal("pr_automerged"), now, lastNight);
   const depsTile: NumberTile = {
     key: "deps",
     label: "dependency updates merged",
@@ -2144,7 +2147,7 @@ export function numbersView(
       reports.sent === null ? null : `${reports.sent.approvedFirst} approved by one of us first`,
     spark: null,
   };
-  const shipped = windowFigure(s.nights, (c) => c.prsMerged.value, now);
+  const shipped = windowFigure(s.nights, (c) => c.prsMerged.value, now, lastNight);
   const shippedTile: NumberTile = {
     key: "shipped",
     label: "changes shipped to the maintenance stack",
@@ -2203,7 +2206,7 @@ export type OverviewView = {
   prsMerged: string;
   /** Section 8: the charts from `fleet_daily`, or how many nights are collected. */
   trends: TrendsView;
-  /** How many `fleet_daily` nights the page has, in words ("1 night", "at least 31
+  /** How many `fleet_daily` nights the page has, in words ("1 night", "at least 32
    *  nights" once the reader's cap is reached); null when they could not be read. */
   nightsCollected: string | null;
 };
