@@ -168,6 +168,20 @@ export function markerAt(view: Pick<CycleView, "next">, lastEndIso: string, nowM
  * The nightly audit bar for `now`. `steps` is NIGHTLY_STEPS (its order is the run's),
  * and `outcomeText` is view.ts's `outcomeText`, the words a recorded result gets.
  */
+/** Tonight's run, as the last start at or before `now`. The conductor's start is a daily UTC
+ *  cron (the cron is UTC, so a day is exactly 24 hours). */
+function lastStartOf(now: Date, nextStart: Date): number {
+  const nowMs = now.getTime();
+  return nextStart.getTime() === nowMs ? nowMs : nextStart.getTime() - DAY_MS;
+}
+
+/** The Pacific calendar date of the night the bar shows at `now` (the night its run was
+ *  started on): the row the bar reads for this run. */
+export function runNightOf(now: Date): string {
+  const nextStart = nextDailyFiring(NIGHTLY_CRON, now);
+  return pacificDate(new Date(lastStartOf(now, nextStart)));
+}
+
 export function cycleView(
   s: CockpitSnapshot,
   now: Date,
@@ -175,10 +189,8 @@ export function cycleView(
   outcomeText: (r: StepResult | null | undefined) => string,
 ): CycleView {
   const nowMs = now.getTime();
-  // The conductor's start is a daily UTC cron. Tonight's run is the last start at or
-  // before now (the cron is UTC, so a day is exactly 24 hours).
   const nextStart = nextDailyFiring(NIGHTLY_CRON, now);
-  const lastStartMs = nextStart.getTime() === nowMs ? nowMs : nextStart.getTime() - DAY_MS;
+  const lastStartMs = lastStartOf(now, nextStart);
   const lastStart = new Date(lastStartMs);
   const windowEndMs = lastStartMs + RUN_WINDOW_MINUTES * 60_000;
   const runNight = pacificDate(lastStart);

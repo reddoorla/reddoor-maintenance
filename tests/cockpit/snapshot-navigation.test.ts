@@ -9,6 +9,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from "@playwri
 import { openDb } from "../../src/db/client.js";
 import { recordFleetEvent } from "../../src/db/fleet-events.js";
 import { NIGHTLIES } from "../../scripts/nightly-conductor.mjs";
+import { seededNights } from "../_helpers/bar-nights.js";
 import { expectedNight } from "../../cockpit/src/lib/overview/view.js";
 
 /**
@@ -173,15 +174,10 @@ async function seed(url: string): Promise<void> {
   // run that crosses 6am Pacific between seeding and the check would read one night
   // behind.
   const newest = expectedNight(new Date());
-  const before = new Date(Date.parse(`${newest}T00:00:00Z`) - 86_400_000)
-    .toISOString()
-    .slice(0, 10);
-  // P1-87 PR 5a, review round 3 (Group B): the newest night's backup did not run, so the bar
-  // renders a `none` step for the forced-colours check to measure.
-  for (const [night, merged, backupRan] of [
-    [before, 600, true],
-    [newest, 612, false],
-  ] as const)
+  // P1-87 PR 5a, review round 3 (Group C): the bar's own run night is written too, so the bar
+  // reads recorded at any hour (see seededNights). Its backup did not run, so it renders a
+  // `none` step for the forced-colours check.
+  for (const { night, merged, backupRan } of seededNights(new Date()))
     await db
       .insertInto("fleet_daily")
       .values({

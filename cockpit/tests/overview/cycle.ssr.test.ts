@@ -6,6 +6,7 @@ import { NIGHTLY_STEPS } from "../../src/lib/overview/view.js";
 import { NIGHTLIES } from "../../../scripts/nightly-conductor.mjs";
 import { makeWebsiteRow } from "../../../tests/_helpers/website-row.js";
 import { NOW, night, snapshot } from "./fixtures.js";
+import { seededNights } from "../../../tests/_helpers/bar-nights.js";
 import type { WebsiteRow } from "../../../src/fleet/site-row.js";
 import type { StepResult } from "../../../src/fleet-daily/types.js";
 import type { OverviewNight } from "../../../src/fleet-daily/read.js";
@@ -569,4 +570,32 @@ describe("the bar's stale time, site counting and night order are pinned (P1-87 
     expect(v.steps[1]!.state).toBe("running");
     expect(v.runningLabel).toBe("Backup or CMS check");
   });
+});
+
+/**
+ * P1-87 PR 5a, review round 3 (tests major, Group C): the browser seed writes the nights the
+ * bar reads at any hour. The bar's own run night is a night later than the expected one from
+ * 10pm to 6am Pacific, so without its row the bar is running or unrecorded then, and the
+ * forced-colours test failed in that window. The seed here is the browser seed's shape.
+ */
+describe("the bar is recorded, with its marker, at every hour of the seeded night (P1-87 PR 5a, round 3)", () => {
+  const DATE = "2026-10-27";
+  for (const iso of [
+    `${DATE}T05:00:00.000Z`,
+    `${DATE}T06:30:00.000Z`,
+    `${DATE}T08:00:00.000Z`,
+    `${DATE}T11:00:00.000Z`,
+    `${DATE}T12:30:00.000Z`,
+    `${DATE}T15:00:00.000Z`,
+  ]) {
+    it(`at ${iso.slice(11, 16)}Z the bar reads the seeded run as recorded`, () => {
+      const now = new Date(iso);
+      const nights = seededNights(now).map((n) =>
+        nightWith(n.night, n.backupRan ? {} : { "fleet-db-backup.yml": null }),
+      );
+      const v = cycle(snapshot({ nights, sites: [] }), now);
+      expect(v.mode).toBe("recorded");
+      expect(v.marker).not.toBeNull();
+    });
+  }
 });
