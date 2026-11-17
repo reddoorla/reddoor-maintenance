@@ -17,6 +17,14 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+/** A timer function that, like the browser's, refuses to be called as a method. */
+function unboundOnly<F extends (...args: never[]) => unknown>(f: F): F {
+  return function (this: unknown, ...args: never[]) {
+    if (this !== undefined) throw new TypeError("Illegal invocation");
+    return (f as (...a: never[]) => unknown)(...args);
+  } as unknown as F;
+}
+
 /** A clock on fake timers, with the page's dependencies as fakes. */
 function rig(opts: { refresh?: CycleView["refresh"]; visible?: boolean; invalidate?: () => Promise<void> } = {}) {
   vi.useFakeTimers({ now: START });
@@ -34,8 +42,10 @@ function rig(opts: { refresh?: CycleView["refresh"]; visible?: boolean; invalida
       return invalidate();
     },
     onTick: (t) => ticks.push(t),
-    setInterval: globalThis.setInterval,
-    clearInterval: globalThis.clearInterval,
+    // The browser's timers refuse a call on any object but the window ("Illegal
+    // invocation"), so these fakes refuse one too: the clock must call them bare.
+    setInterval: unboundOnly(globalThis.setInterval),
+    clearInterval: unboundOnly(globalThis.clearInterval),
   });
   return {
     clock,
@@ -95,6 +105,16 @@ describe("the nightly bar's clock", () => {
     await vi.advanceTimersByTimeAsync(10 * MIN);
     expect(r.reads).toHaveLength(1);
     r.clock.stop();
+  });
+
+  it("calls the timers bare, as the browser requires, and says so when called as a method", async () => {
+    const r = rig();
+    await vi.advanceTimersByTimeAsync(1 * MIN);
+    expect(r.ticks).toHaveLength(1);
+    r.clock.stop();
+    // Control: the same fake, called as a method, is refused.
+    const asMethod = { t: unboundOnly(globalThis.setInterval) };
+    expect(() => asMethod.t(() => undefined, 1000)).toThrow("Illegal invocation");
   });
 
   it("stop clears the timer: no tick, no read, after it", async () => {

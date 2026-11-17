@@ -49,6 +49,8 @@ export function startCycleClock(deps: CycleClockDeps): { stop: () => void } {
       });
   };
 
-  const timer = deps.setInterval(tick, TICK_MS);
-  return { stop: () => deps.clearInterval(timer) };
+  // Called bare: a browser's timers refuse a call on any object but the window.
+  const { setInterval: every, clearInterval: cancel } = deps;
+  const timer = every(tick, TICK_MS);
+  return { stop: () => cancel(timer) };
 }
