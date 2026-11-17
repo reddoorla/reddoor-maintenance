@@ -9,10 +9,7 @@
         "replace": "(g.n === 1 ? \"Lead delivered\" : `${g.n} leads delivered`) + \" \" + (s.submissions ?? []).find((x) => x.siteId === g.siteId)?.email,"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts",
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -25,9 +22,7 @@
         "replace": "const events = s.feedEvents ?? [];"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -40,9 +35,7 @@
         "replace": "          excludeTypes: [],"
       }
     ],
-    "test": [
-      "tests/dashboard/snapshot-feed-events.test.ts"
-    ],
+    "test": ["tests/dashboard/snapshot-feed-events.test.ts"],
     "expect": "red"
   },
   {
@@ -55,9 +48,7 @@
         "replace": "      \"events\",\n      () =>\n        listFleetEvents(db, {\n          excludeTypes: LATELY_EXCLUDED_TYPES,"
       }
     ],
-    "test": [
-      "tests/dashboard/snapshot-feed-events.test.ts"
-    ],
+    "test": ["tests/dashboard/snapshot-feed-events.test.ts"],
     "expect": "red"
   },
   {
@@ -70,9 +61,7 @@
         "replace": ".sort((a, b) => a.t - b.t || a.rank - b.rank)"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -85,9 +74,7 @@
         "replace": ".slice(0, 1e9)"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -100,9 +87,7 @@
         "replace": "if (r.sentAt === null || r.withdrawnAt !== null) continue;"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -115,9 +100,7 @@
         "replace": "(PLAIN_EVENT[e.type] ?? e.summary) + \" \" + String((e.data as { reason?: unknown } | null)?.reason ?? \"\"),"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -135,9 +118,7 @@
         "replace": "push(at, `${step.short}: ${r == null ? \"ran to the end\" : outcomeText(r)}`, null, 3);"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -150,9 +131,7 @@
         "replace": "const LATELY_WHEN = new Intl.DateTimeFormat(\"en-US\", {\n  timeZone: \"UTC\","
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -165,9 +144,7 @@
         "replace": "  const night = (s.nights ?? [])[0];"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -180,9 +157,7 @@
         "replace": "    {/if}\n    <a href=\"/activity\">All activity</a>\n  </section>\n</div>\n\n<section aria-labelledby=\"ov-leads\">"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   }
 ]
