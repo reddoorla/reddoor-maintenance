@@ -390,6 +390,12 @@ function statusView(
 
 export type Cell = { ok: boolean | null; text: string };
 
+/** A deploy or form cell also says whether its check was fresh: a cell with no verdict
+ *  is "no verdict" beside a fresh check and "not checked" beside a stale one, decided
+ *  here, where the freshness is (review round 3, correctness m1). */
+export type DeployCell = Cell & { fresh: boolean };
+export type FormsCell = Cell & { fresh: boolean; testFailed: boolean };
+
 /** The Live cell also says when it was read: the older of its two checks.
  *  `unsampled`: the address answers and the browser check ran, but it sampled no
  *  page, so whether pages answer is unmeasured (src/audits/browser.ts). */
@@ -401,8 +407,8 @@ export type LiveRow = {
   url: string;
   live: LiveCell;
   domain: Cell;
-  deploy: Cell;
-  forms: Cell;
+  deploy: DeployCell;
+  forms: FormsCell;
   lastLead: string;
   level: { tier: Tier; text: string };
 };
@@ -507,17 +513,19 @@ export function domainCell(site: WebsiteRow, now: Date): Cell {
 
 /** The latest production deploy, as the nightly deploy check last read it. A reading
  *  older than the freshness window is unknown, never a green "published". */
-export function deployCell(site: WebsiteRow, now: Date): Cell {
-  if (!freshWithin(site.deployCheckedAt, PRODUCTION_STALE_DAYS, now))
-    return { ok: null, text: "Not checked lately" };
-  if (site.deployStatus === null) return { ok: null, text: "No deploy recorded" };
-  if (isFailedDeployStatus(site.deployStatus)) return { ok: false, text: "Latest deploy failed" };
+export function deployCell(site: WebsiteRow, now: Date): DeployCell {
+  const fresh = freshWithin(site.deployCheckedAt, PRODUCTION_STALE_DAYS, now);
+  if (!fresh) return { ok: null, text: "Not checked lately", fresh };
+  if (site.deployStatus === null) return { ok: null, text: "No deploy recorded", fresh };
+  if (isFailedDeployStatus(site.deployStatus))
+    return { ok: false, text: "Latest deploy failed", fresh };
   if (isReadyDeployStatus(site.deployStatus))
     return {
       ok: true,
       text: `Published ${agoInWords(site.lastDeployAt, now) ?? "(date not recorded)"}`,
+      fresh,
     };
-  return { ok: null, text: "A deploy was in progress" };
+  return { ok: null, text: "A deploy was in progress", fresh };
 }
 
 export const FORM_TEST_FAILED =
@@ -525,15 +533,21 @@ export const FORM_TEST_FAILED =
 
 /** The nightly live form test. A verdict counts only beside a fresh stamp: a stale
  *  pass is "not tested lately", never "working". */
-export function formsCell(site: WebsiteRow, now: Date): Cell {
-  if (!freshWithin(site.formE2eCheckedAt, PRODUCTION_STALE_DAYS, now))
-    return { ok: null, text: "Not tested lately" };
+export function formsCell(site: WebsiteRow, now: Date): FormsCell {
+  const fresh = freshWithin(site.formE2eCheckedAt, PRODUCTION_STALE_DAYS, now);
+  if (!fresh) return { ok: null, text: "Not tested lately", fresh, testFailed: false };
   // Not a verdict yet: the test's failures on 10-26 were all false, so it does not
   // place a site on the ladder until it is fixed (src/dashboard/fleet-cockpit.ts,
   // collectFormTestAlerts is not registered). Shown in the unknown style, and said.
-  if (site.formE2eOk === "fail") return { ok: null, text: FORM_TEST_FAILED };
-  if (site.formE2eOk === "pass") return { ok: true, text: "Test passed" };
-  return { ok: null, text: "No result (no form, or the test skipped it)" };
+  if (site.formE2eOk === "fail")
+    return { ok: null, text: FORM_TEST_FAILED, fresh, testFailed: true };
+  if (site.formE2eOk === "pass") return { ok: true, text: "Test passed", fresh, testFailed: false };
+  return {
+    ok: null,
+    text: "No result (no form, or the test skipped it)",
+    fresh,
+    testFailed: false,
+  };
 }
 
 /** What the live checks last said about one site: the four cells "Is every site
@@ -542,8 +556,8 @@ export function formsCell(site: WebsiteRow, now: Date): Cell {
 export type SiteFacts = {
   live: LiveCell;
   domain: Cell;
-  deploy: Cell;
-  forms: Cell;
+  deploy: DeployCell;
+  forms: FormsCell;
   lastLead: string;
 };
 
@@ -1916,14 +1930,14 @@ export function healthView(
     const c = row(s)?.deploy;
     if (c === undefined) return "notChecked";
     if (c.ok !== null) return c.ok;
-    return freshWithin(s.deployCheckedAt, PRODUCTION_STALE_DAYS, now) ? "noVerdict" : "notChecked";
+    return c.fresh ? "noVerdict" : "notChecked";
   };
   const form = (s: WebsiteRow): Verdict => {
     const c = row(s)?.forms;
     if (c === undefined) return "notChecked";
     if (c.ok !== null) return c.ok;
-    if (!freshWithin(s.formE2eCheckedAt, PRODUCTION_STALE_DAYS, now)) return "notChecked";
-    return s.formE2eOk === "fail" ? "testFailed" : "noVerdict";
+    if (!c.fresh) return "notChecked";
+    return c.testFailed ? "testFailed" : "noVerdict";
   };
   const verdicts: Record<string, (s: WebsiteRow) => Verdict> = {
     Live: liveV,

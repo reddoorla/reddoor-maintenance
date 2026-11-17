@@ -121,7 +121,12 @@ describe("section 2: is every site live?", () => {
       snapshot({ sites: [healthy({ id: "recA", name: "Acme", formE2eCheckedAt: STALE })] }),
       NOW,
     );
-    expect(v.live[0]!.forms).toEqual({ ok: null, text: "Not tested lately" });
+    expect(v.live[0]!.forms).toEqual({
+      ok: null,
+      text: "Not tested lately",
+      fresh: false,
+      testFailed: false,
+    });
   });
 
   it("names the newest real lead, not spam", () => {
@@ -475,13 +480,22 @@ describe("review round 1: the counts behind every shown number", () => {
         snapshot({ sites: [healthy({ id: "recA", name: "Acme", ...over })] }),
         NOW,
       ).live[0]!.deploy;
-    expect(at({})).toEqual({ ok: true, text: "Published 2 days ago" });
-    expect(at({ deployCheckedAt: STALE })).toEqual({ ok: null, text: "Not checked lately" });
-    expect(at({ deployStatus: "error" })).toEqual({ ok: false, text: "Latest deploy failed" });
+    expect(at({})).toEqual({ ok: true, text: "Published 2 days ago", fresh: true });
+    expect(at({ deployCheckedAt: STALE })).toEqual({
+      ok: null,
+      text: "Not checked lately",
+      fresh: false,
+    });
+    expect(at({ deployStatus: "error" })).toEqual({
+      ok: false,
+      text: "Latest deploy failed",
+      fresh: true,
+    });
     // No raw Netlify status in the cell.
     expect(at({ deployStatus: "building" })).toEqual({
       ok: null,
       text: "A deploy was in progress",
+      fresh: true,
     });
   });
 
@@ -661,6 +675,8 @@ describe("review round 1: the counts behind every shown number", () => {
     expect(v.live[0]!.forms).toEqual({
       ok: null,
       text: "No result (no form, or the test skipped it)",
+      fresh: true,
+      testFailed: false,
     });
   });
 
@@ -1234,7 +1250,7 @@ describe("review round 3", () => {
       snapshot({ sites: [healthy({ id: "recA", name: "Acme", formE2eOk: "fail" })] }),
       NOW,
     );
-    expect(v.live[0]!.forms).toEqual({ ok: null, text: FORM_TEST_FAILED });
+    expect(v.live[0]!.forms).toEqual({ ok: null, text: FORM_TEST_FAILED, fresh: true, testFailed: true });
     expect(FORM_TEST_FAILED).toBe(
       "Test failed, but the test itself is being fixed, so this is not yet a verdict",
     );
@@ -1362,7 +1378,7 @@ describe("review round 4", () => {
   it("a ready deploy with no date says the date was not recorded (C3, O8)", () => {
     expect(
       sites(healthy({ id: "recA", name: "Acme", lastDeployAt: null })).live[0]!.deploy,
-    ).toEqual({ ok: true, text: "Published (date not recorded)" });
+    ).toEqual({ ok: true, text: "Published (date not recorded)", fresh: true });
   });
 
   it("reliability counts only the steps that finished (T2)", () => {
