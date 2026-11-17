@@ -718,5 +718,96 @@
     ],
     "test": "tests/fleet-daily/traffic.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "r4-visits-half-drops-currentWindow",
+    "why": "visitsHalf keeps every visits key but currentWindow, so the page loses the current window's dates (the round-4 major 1 key pin)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "    currentWindow: v.currentWindow,\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4-search-half-drops-sitesWithProperty",
+    "why": "searchHalf keeps every search key but sitesWithProperty, so the page loses the search property count (the round-4 major 1 key pin)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "    window: v.window,\n    sitesRead: v.sitesRead,\n    sitesWithProperty: v.sitesWithProperty,\n",
+        "replace": "    window: v.window,\n    sitesRead: v.sitesRead,\n"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4-search-half-required-counts-removed",
+    "why": "searchHalf no longer checks its required counts, so a newest search half of {} or with one count is read as a half and the night before's series is lost (the round-4 major 2)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "!isPlain(v) || !isCount(v.clicks) || !isCount(v.impressions)",
+        "replace": "!isPlain(v)"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4-search-half-clicks-check-removed",
+    "why": "searchHalf checks impressions but not clicks, so a newest search half with only impressions is read as a half (the round-4 major 2, the clicks part alone)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "!isPlain(v) || !isCount(v.clicks) || !isCount(v.impressions)",
+        "replace": "!isPlain(v) || !isCount(v.impressions)"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4-visits-half-current-check-removed",
+    "why": "visitsHalf checks previous but not current, so a newest visits half with only previous is read as a half (the round-4 major 2, the current check alone)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "!isCount(v.current) || !isCount(v.previous)",
+        "replace": "!isCount(v.previous)"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4-sitesAt-keyed-on-visits-only",
+    "why": "The night that holds sites is found by a visits read only, so a newest night that read search and failed visits does not hold them (the round-4 major 3, the mirror case)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "return h.hasSites && (h.visits.value !== null || h.search.value !== null);",
+        "replace": "return h.hasSites && h.visits.value !== null;"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4-sites-keep-flag-takes-visitsAt",
+    "why": "The sites keep flag is set on the night the visits series sits on, not the night that holds sites, so a newest night with search read and failed visits drops its sites (the round-4 major 3, the mirror case)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "sites: i === at.sitesAt,",
+        "replace": "sites: i === at.visitsAt,"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
   }
 ]
