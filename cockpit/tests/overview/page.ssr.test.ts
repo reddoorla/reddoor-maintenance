@@ -1817,28 +1817,32 @@ describe("the ticker's styles and speed (P1-87 PR 5b review r1 D)", () => {
     );
   });
 
-  // r2 E (R2-6): the page takes its speed from tickerSeconds, not from its own count. Two
-  // entries of 100 characters each give 200 characters, so 30 seconds, above the floor.
-  it("takes its speed from the ticker's text, above the floor: two 100-character entries give 30s", () => {
-    const entry = (i: number) => ({
+  // r2 E (R2-6): the page takes its speed from tickerSeconds, not from its own count. Three
+  // entries of unequal length give 120 + 40 + 80 = 240 characters, so 36 seconds: a count, or
+  // any per-entry formula that ignores the text, would not give 36.
+  it("takes its speed from the ticker's text: three entries of unequal length give 36s", () => {
+    const entry = (i: number, fact: number) => ({
       key: `k${i}`,
       name: "A",
       tier: "ok" as const,
       tierWord: "OK" as const,
-      fact: "f".repeat(97),
+      fact: "f".repeat(fact),
       href: null,
     });
-    const view: OverviewView = { ...VIEW, ticker: [entry(1), entry(2)] };
+    const view: OverviewView = {
+      ...VIEW,
+      ticker: [entry(1, 117), entry(2, 37), entry(3, 77)],
+    };
     const doc = parse(pageHtml(view));
     expect(doc.querySelector("div.ov-ticker-run")!.getAttribute("style")).toContain(
-      "--ov-ticker-s: 30s",
+      "--ov-ticker-s: 36s",
     );
   });
 });
 
 describe("the overview renders with an unreadable deploy date (P1-87 PR 5b)", () => {
   // r2 E nit: every bad date renders the page, not only "garbage".
-  it.each(["garbage", "", "2026-13-45"])(
+  it.each(["garbage", "", "2026-13-45", "0", "12", "2026-02-30T12:00:00Z", "2026-13-01T12:00:00Z"])(
     "renders the page, and the ticker says no deploy is recorded, for a deploy date of %j",
     (bad) => {
       const s = snapshot({

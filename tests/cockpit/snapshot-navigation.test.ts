@@ -1385,11 +1385,17 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
    *  A computed style can flip before the animation itself does, so one more frame of motion
    *  can read as a row that never stopped (r2 E: -21.0992px, then -22.0165px). */
   const settledPaused = async (page: Page) => {
-    await page.waitForFunction(
-      () =>
-        (document.querySelector(".ov-ticker-run") as HTMLElement | null)?.getAnimations()[0]
-          ?.playState === "paused",
-    );
+    await page
+      .waitForFunction(
+        () =>
+          (document.querySelector(".ov-ticker-run") as HTMLElement | null)?.getAnimations()[0]
+            ?.playState === "paused",
+        undefined,
+        { timeout: 10_000 },
+      )
+      .catch(() => {
+        throw new Error("the ticker never reported paused within 10 s");
+      });
     await page.evaluate(
       () =>
         new Promise<void>((done) =>
@@ -1412,8 +1418,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
       await page.locator(".ov-ticker-run").evaluate((el) => getComputedStyle(el).animationName),
     ).toBe("ov-ticker");
     const before = await transform(page);
-    await page.waitForTimeout(1500);
-    expect(await transform(page)).not.toBe(before);
+    await expect.poll(() => transform(page), { message: "the row moves" }).not.toBe(before);
   });
 
   it("stops when its pause button is pressed", async () => {
@@ -1458,6 +1463,46 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     const hovered = await transform(page);
     await page.waitForTimeout(1500);
     expect(await transform(page)).toBe(hovered);
+  });
+
+  // P1-87 PR 5b review r3 C: the pause keys on the whole window, not on the list alone (mutant
+  // X11). The padding above and below the row is never under the list, so a pointer there must
+  // still stop the row.
+  it("stops while the pointer is over the window's padding, not only over the list", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await expect
+      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
+      .toBeGreaterThanOrEqual(2);
+    // boundingBox is in the viewport, so bring the window into it first.
+    await page.locator(".ov-ticker-window").scrollIntoViewIfNeeded();
+    const win = (await page.locator(".ov-ticker-window").boundingBox())!;
+    const points = [
+      { label: "the top padding", x: win.x + win.width / 2, y: win.y + 1 },
+      { label: "the bottom padding", x: win.x + win.width / 2, y: win.y + win.height - 1 },
+    ];
+    for (const { label, x, y } of points) {
+      // Point out of the window first, so the row moves again, then point at the padding.
+      await page.mouse.move(0, 0);
+      const moving = await transform(page);
+      await expect
+        .poll(() => transform(page), { message: `the row moves before ${label} is pointed at` })
+        .not.toBe(moving);
+      await page.mouse.move(x, y);
+      expect(
+        await page.evaluate(
+          ([px, py]) =>
+            document.elementFromPoint(px, py) === document.querySelector(".ov-ticker-window"),
+          [x, y] as const,
+        ),
+        `${label} is the window itself, not the list`,
+      ).toBe(true);
+      await settledPaused(page);
+      const hovered = await transform(page);
+      await page.waitForTimeout(1500);
+      expect(await transform(page), `the row stands still under ${label}`).toBe(hovered);
+    }
   });
 
   it("under reduced motion stands still: no animation, no copy, no button, both sites as text", async () => {
