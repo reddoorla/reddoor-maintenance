@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb, type Db } from "../../src/db/client.js";
 import { readOverviewNights } from "../../src/fleet-daily/read.js";
+import { readTraffic } from "../../src/fleet-daily/traffic.js";
 
 /**
  * P1-78g review round 1 (C6, C7): the overview's nights are read on `/`, which is
@@ -92,7 +93,14 @@ describe("readOverviewNights guards every block it reads", () => {
     await put("2026-11-16", { traffic });
     await put("2026-11-15", {});
     const [newer, older] = await readOverviewNights(db);
-    expect(newer!.counts.traffic).toEqual(traffic);
+    // Review round 3, Group A: a visits half with no `previous` is not a valid half, so it
+    // reads as not in the row (it used to pass through whole).
+    expect(newer!.counts.traffic).toEqual({
+      value: {
+        visits: { value: null, reason: "not in this row" },
+        search: { value: null, reason: "not in this row" },
+      },
+    });
     expect(older!.counts.traffic).toEqual({ value: null, reason: "not in this row" });
   });
 
@@ -197,7 +205,11 @@ describe("readOverviewNights keeps the traffic series whole on the newest row wi
     expect(newer!.counts.traffic.value!.sites).toHaveLength(1);
     expect(bare!.counts.traffic.value!.visits).toEqual({ value: null, reason: "not in this row" });
     expect(bare!.counts.traffic.value!.search).toEqual({ value: null, reason: "not in this row" });
-    expect(partial!.counts.traffic.value!.visits).toEqual({ value: { current: 3 } });
+    // Review round 3, Group A: no `previous` count, so the half is not in the row.
+    expect(partial!.counts.traffic.value!.visits).toEqual({
+      value: null,
+      reason: "not in this row",
+    });
     expect(partial!.counts.traffic.value!.search).toEqual({
       value: null,
       reason: "not in this row",
@@ -219,5 +231,193 @@ describe("readOverviewNights keeps the traffic series whole on the newest row wi
     expect(tt).not.toHaveProperty("sites");
     expect(tt.visits.value).not.toHaveProperty("daily");
     expect(tt.search.value).not.toHaveProperty("daily");
+  });
+});
+
+// Review round 3, Group A: each half is normalised on its own, and each half's series sits on
+// the newest night that read that half. A row is never taken whole, so a failed newest night
+// (or a malformed one) cannot blank a series an older night still holds.
+describe("readOverviewNights normalises each half, and places each series on the night that read it", () => {
+  let dir: string;
+  let db: Db;
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), "overview-halves-"));
+    db = await openDb({ url: `file:${join(dir, "db.sqlite")}` });
+  });
+  afterEach(async () => {
+    await db.destroy();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const put = (night: string, counts: unknown) =>
+    db
+      .insertInto("fleet_daily")
+      .values({ night, counts: JSON.stringify(counts), written_at: `${night}T07:00:00.000Z` })
+      .execute();
+  const NOT_IN_ROW = { value: null, reason: "not in this row" };
+  const window = { startDate: "2026-10-18", endDate: "2026-11-16" };
+  const block = (n: number) => ({
+    visits: {
+      value: {
+        current: n,
+        previous: n - 1,
+        currentWindow: window,
+        previousWindow: window,
+        sitesRead: 2,
+        sitesWithProperty: 2,
+        daily: [{ date: "2026-11-16", visits: n }],
+      },
+    },
+    search: {
+      value: {
+        clicks: n,
+        impressions: n * 10,
+        window,
+        sitesRead: 1,
+        sitesWithProperty: 1,
+        daily: [{ date: "2026-11-14", clicks: n, impressions: n * 10 }],
+      },
+    },
+    sites: [{ siteId: "acme", visits: { value: { current: n, previous: 1 } } }],
+  });
+  const acme = {
+    id: "acme",
+    url: "https://acme.example/",
+    ga4PropertyId: "100001",
+    searchConsoleProperty: null,
+  };
+
+  // The writer's own failure shapes, built by the writer (not by hand).
+  it("a newest row the writer stores with GA not configured keeps the night before's series", async () => {
+    const unconfigured = await readTraffic([acme], "2026-11-16", null);
+    await put("2026-11-16", { traffic: { value: unconfigured } });
+    await put("2026-11-15", { traffic: { value: block(7) } });
+    const [newer, before] = await readOverviewNights(db);
+    const nt = newer!.counts.traffic.value!;
+    expect(nt.visits).toEqual(unconfigured.visits);
+    expect(nt.search).toEqual(unconfigured.search);
+    expect(nt).not.toHaveProperty("sites");
+    const bt = before!.counts.traffic.value!;
+    expect(bt.visits.value!.daily).toHaveLength(1);
+    expect(bt.search.value!.daily).toHaveLength(1);
+    expect(bt.sites).toHaveLength(1);
+  });
+
+  it("a newest row where every read threw keeps the night before's series", async () => {
+    const failing = {
+      visits: async () => {
+        throw new Error("invalid_grant");
+      },
+      search: async () => {
+        throw new Error("invalid_grant");
+      },
+    };
+    const failed = await readTraffic([acme], "2026-11-16", failing);
+    await put("2026-11-16", { traffic: { value: failed } });
+    await put("2026-11-15", { traffic: { value: block(7) } });
+    const [newer, before] = await readOverviewNights(db);
+    const nt = newer!.counts.traffic.value!;
+    expect(nt.visits).toEqual(failed.visits);
+    expect(nt.search).toEqual(failed.search);
+    expect(nt.visits.value).toBeNull();
+    expect(nt.search.value).toBeNull();
+    expect(before!.counts.traffic.value!.visits.value!.daily).toHaveLength(1);
+    expect(before!.counts.traffic.value!.search.value!.daily).toHaveLength(1);
+    expect(before!.counts.traffic.value!.sites).toHaveLength(1);
+  });
+
+  it("each half's series is on the newest night that read that half", async () => {
+    const failedSearch = { value: null, reason: "search read failed" };
+    await put("2026-11-16", {
+      traffic: { value: { visits: block(9).visits, search: failedSearch } },
+    });
+    await put("2026-11-15", { traffic: { value: block(7) } });
+    const [newer, before] = await readOverviewNights(db);
+    const nt = newer!.counts.traffic.value!;
+    expect(nt.visits.value!.daily).toHaveLength(1);
+    expect(nt.search).toEqual(failedSearch);
+    const bt = before!.counts.traffic.value!;
+    expect(bt.visits.value).not.toHaveProperty("daily");
+    expect(bt.search.value!.daily).toHaveLength(1);
+  });
+
+  // Malformed newest blocks: each reads as not in the row, and the night before keeps both
+  // series. None of them throws the page.
+  it.each([
+    ["{}", {}],
+    ["[]", []],
+    ['"x"', "x"],
+    ["5", 5],
+    ["{visits: null}", { visits: null }],
+    ['{visits: {value: "x"}}', { visits: { value: "x" } }],
+  ])(
+    "a newest block of %s reads as not in the row, and the night before keeps both series",
+    async (_name, value) => {
+      await put("2026-11-16", { traffic: { value } });
+      await put("2026-11-15", { traffic: { value: block(7) } });
+      const [newer, before] = await readOverviewNights(db);
+      const t = newer!.counts.traffic;
+      if (t.value === null) expect(t).toEqual(NOT_IN_ROW);
+      else {
+        expect(t.value.visits).toEqual(NOT_IN_ROW);
+        expect(t.value.search).toEqual(NOT_IN_ROW);
+      }
+      const bt = before!.counts.traffic.value!;
+      expect(bt.visits.value!.daily).toHaveLength(1);
+      expect(bt.search.value!.daily).toHaveLength(1);
+    },
+  );
+
+  // A stored failed half keeps its reason, on the newest row and on an older one.
+  it("an older row's failed visits half keeps its stored reason", async () => {
+    await put("2026-11-16", { traffic: { value: block(9) } });
+    await put("2026-11-15", {
+      traffic: {
+        value: { visits: { value: null, reason: "no site read" }, search: NOT_IN_ROW },
+      },
+    });
+    const [, older] = await readOverviewNights(db);
+    expect(older!.counts.traffic.value!.visits).toEqual({
+      value: null,
+      reason: "no site read",
+    });
+  });
+
+  it("an older row's failed search half keeps its stored reason", async () => {
+    await put("2026-11-16", { traffic: { value: block(9) } });
+    await put("2026-11-15", {
+      traffic: {
+        value: {
+          visits: NOT_IN_ROW,
+          search: { value: null, reason: "no Search Console property" },
+        },
+      },
+    });
+    const [, older] = await readOverviewNights(db);
+    expect(older!.counts.traffic.value!.search).toEqual({
+      value: null,
+      reason: "no Search Console property",
+    });
+  });
+
+  it("a newest row's failed half keeps its stored reason", async () => {
+    await put("2026-11-16", {
+      traffic: {
+        value: { visits: { value: null, reason: "GA not configured" }, search: NOT_IN_ROW },
+      },
+    });
+    const [newer] = await readOverviewNights(db);
+    expect(newer!.counts.traffic.value!.visits).toEqual({
+      value: null,
+      reason: "GA not configured",
+    });
+  });
+
+  // The string value: spreading a string copied its characters as keys ("0", "1", ...).
+  it("an older row whose block value is a string reads as not in the row, with no character keys", async () => {
+    await put("2026-11-16", { traffic: { value: block(9) } });
+    await put("2026-11-15", { traffic: { value: "x" } });
+    const [, older] = await readOverviewNights(db);
+    expect(older!.counts.traffic).toEqual(NOT_IN_ROW);
+    expect(JSON.stringify(older!.counts.traffic)).not.toContain('"0"');
   });
 });
