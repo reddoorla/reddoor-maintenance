@@ -49,11 +49,22 @@ function notOkFact(card: SiteCard, now: Date): string {
   return summarise([...at("watch").map((it) => it.title), ...card.watchReasons]);
 }
 
+/** A stored deploy time, read only when it is a real timestamp. Date.parse is lenient: "0" and
+ *  "12" parse to a believable year and day, and "2026-02-30" rolls over into March. So the
+ *  value must have the column's shape, parse, and keep its own calendar day in UTC. */
+function deployedAt(value: string | null): Date | null {
+  if (value === null || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) return null;
+  const ms = Date.parse(value);
+  if (!Number.isFinite(ms)) return null;
+  const d = new Date(ms);
+  return d.toISOString().slice(0, 10) === value.slice(0, 10) ? d : null;
+}
+
 function okFact(card: SiteCard): string {
   const { pScore, lastDeployAt } = card.site;
   if (pScore !== null) return `speed ${pScore} of 100`;
-  if (lastDeployAt !== null && Number.isFinite(Date.parse(lastDeployAt)))
-    return `last deployed ${pacificDay(new Date(lastDeployAt))}`;
+  const deployed = deployedAt(lastDeployAt);
+  if (deployed !== null) return `last deployed ${pacificDay(deployed)}`;
   return "no speed score or deploy recorded yet";
 }
 

@@ -124,6 +124,37 @@ describe("the ticker's facts, by tier", () => {
     });
     expect(byName("Pacific", s).fact).toBe("last deployed Oct 20");
   });
+
+  // P1-87 PR 5b review r2 B: Date.parse is lenient. "0" and "12" parse to a year 2000 or a
+  // day in 2001, and "2026-02-30" rolls over into March, so each read as a believable date.
+  // Only a real timestamp is a deploy date; anything else falls back.
+  it.each(["0", "12", "2026-02-30T12:00:00Z", "2026-10-20", "2026-13-01T12:00:00Z"])(
+    "gives the fallback for a deploy value that is not a real timestamp (%j)",
+    (bad) => {
+      const s = snapshot({
+        sites: [healthy({ id: "recF", name: "Fake", pScore: null, lastDeployAt: bad })],
+      });
+      expect(byName("Fake", s).fact).toBe("no speed score or deploy recorded yet");
+    },
+  );
+
+  it("dates a full timestamp, 18:00 UTC on Oct 20, as Oct 20", () => {
+    const s = snapshot({
+      sites: [
+        healthy({ id: "recT", name: "Stamp", pScore: null, lastDeployAt: "2026-10-20T18:00:00Z" }),
+      ],
+    });
+    expect(byName("Stamp", s).fact).toBe("last deployed Oct 20");
+  });
+
+  it("dates a deploy at 03:00 UTC on Oct 21 as Oct 20, the Pacific day it fell on", () => {
+    const s = snapshot({
+      sites: [
+        healthy({ id: "recU", name: "Early", pScore: null, lastDeployAt: "2026-10-21T03:00:00Z" }),
+      ],
+    });
+    expect(byName("Early", s).fact).toBe("last deployed Oct 20");
+  });
 });
 
 /** A hand-built model: one card per entry, so a tier can be set without the rules that
