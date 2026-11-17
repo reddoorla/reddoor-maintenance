@@ -23,7 +23,7 @@ import type { WebsiteRow } from "../../../src/fleet/site-row.js";
 import { NIGHTLIES } from "../../../scripts/nightly-conductor.mjs";
 import { DEFAULT_COPY } from "../../../src/reports/copy.js";
 import { makeSubmissionRow } from "../../../tests/_helpers/submission-row.js";
-import { PRODUCTION_STALE_DAYS } from "../../../src/alerts/production-signals.js";
+import { A11Y_STALE_DAYS, PRODUCTION_STALE_DAYS } from "../../../src/alerts/production-signals.js";
 
 /**
  * P1-78g: the overview's model (workspace briefs/2026-10-26-p1-78g-overview.md).
@@ -2545,11 +2545,26 @@ describe("review round 3: the words the first screen prints are defined (group G
   it("every status part the status view can produce has a How-we-count entry (G)", () => {
     // One fixture per kind of part: a fleet-wide attention item, a Broken site, reports
     // not read (a waiting part), and a quiet fleet with every site live.
+    // Review round 4 (tests minor 5): also the watch, approval and unsampled branches, and
+    // a fleet-wide Broken item, each of which the fixtures above never reach.
+    const draftFor = (id: string, siteId: string) =>
+      report({ id, siteId, approvedToSend: false, sentAt: null, approvedAt: null });
     const fixtures = [
       snapshot({ sites: [healthy({ id: "recA", name: "Acme", urlCheckedAt: STALE })] }),
       snapshot({ sites: [healthy({ id: "recB", name: "Bravo", reachableOk: "fail" })] }),
       snapshot({ reports: null }),
       snapshot({ sites: [healthy({ id: "recC", name: "Cal" })] }),
+      // A watch site, and a draft waiting for a yes.
+      snapshot({
+        sites: [
+          healthy({ id: "recA", name: "Acme" }),
+          healthy({ id: "recW", name: "Wren", pScore: 80 }),
+        ],
+        reports: [draftFor("p1", "recA")],
+      }),
+      // A fresh check that sampled no page.
+      snapshot({ sites: [healthy({ id: "recA", name: "Acme", reachableOk: null })] }),
+      snapshot({ deadLetters: new Map([["ghost-site", 2]]) }),
     ];
     const seen = new Set<string>();
     for (const f of fixtures)
@@ -2561,6 +2576,7 @@ describe("review round 3: the words the first screen prints are defined (group G
     expect(seen).toContain("Waiting for your yes");
     expect(seen).toContain("Live");
     expect(seen).toContain("Sites in our care");
+    expect(seen).toContain("Waiting for your yes");
   });
 
   it("defines the check words and the note under the bar", () => {
@@ -2637,7 +2653,11 @@ describe("review round 4: the night bound belongs to the first screen's tiles (g
   // and running totals of 1000 - 10 * i (correctness round 4, M1).
   const readerRows = (n: number) =>
     Array.from({ length: n }, (_, i) =>
-      counted(new Date(Date.UTC(2026, 9, 26) - i * DAY).toISOString().slice(0, 10), 10, 1000 - 10 * i),
+      counted(
+        new Date(Date.UTC(2026, 9, 26) - i * DAY).toISOString().slice(0, 10),
+        10,
+        1000 - 10 * i,
+      ),
     );
   const tiles = (s: CockpitSnapshot) => {
     const v = overviewFromSnapshot(s, BEFORE_6AM);
@@ -2690,6 +2710,30 @@ describe("review round 4: the night bound belongs to the first screen's tiles (g
       value: "10",
       context: "over the night of Oct 24; no count in the 1 night since",
     });
+  });
+});
+
+describe("review round 4: How we count names both windows and keeps the column's order (group D)", () => {
+  it("'Not checked' names the accessibility scan's window as well as the 3-day one (correctness n2)", () => {
+    const text = HOW_WE_COUNT.find((h) => h.term === "Not checked")!.text;
+    expect(text).toContain(`${PRODUCTION_STALE_DAYS} days for most checks`);
+    expect(text).toContain(`${A11Y_STALE_DAYS} days for the accessibility scan`);
+  });
+
+  it("the seven status-kind entries follow Level, so the /fleet column's entries stay together (correctness n3)", () => {
+    const terms = HOW_WE_COUNT.map((h) => h.term);
+    const at = terms.indexOf("Level");
+    expect(at).toBeGreaterThan(terms.indexOf("Forms"));
+    expect(terms.slice(at + 1, at + 8)).toEqual([
+      "Sites passing each check",
+      "Failing",
+      "Test failed, not yet a verdict",
+      "No verdict",
+      "Not checked",
+      "Launching sites",
+      "Sites not marked maintained",
+    ]);
+    expect(terms[at + 8]).toBe("Submissions");
   });
 });
 

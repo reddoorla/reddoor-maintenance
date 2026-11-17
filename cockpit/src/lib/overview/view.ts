@@ -1987,18 +1987,28 @@ export function healthView(
  *  sites not marked maintained, carried in `HealthView.launching`), in words: "plus 1
  *  launching site at Attention" or "plus 2 sites not marked maintained at Watch"; null
  *  when the bar and the status line agree. */
-export function launchingNote(launching: HealthView["launching"]): string | null {
-  if (launching.length === 0) return null;
+export function launchingClauses(
+  launching: HealthView["launching"],
+): Array<{ text: string; term: string }> {
   const LEVEL_NAME = { broken: "Broken", attention: "Attention", watch: "Watch" } as const;
   const KIND = {
-    launching: ["launching site", "launching sites"],
-    other: ["site not marked maintained", "sites not marked maintained"],
+    launching: { words: ["launching site", "launching sites"], term: "Launching sites" },
+    other: {
+      words: ["site not marked maintained", "sites not marked maintained"],
+      term: "Sites not marked maintained",
+    },
   } as const;
-  return `plus ${launching
-    .map((l) => {
-      const [one, many] = KIND[l.kind];
-      return `${count(l.count, one, many)} at ${LEVEL_NAME[l.level]}`;
-    })
+  // Each clause carries the How-we-count term for its own kind (review round 4, correctness n1).
+  return launching.map((l) => {
+    const { words, term } = KIND[l.kind];
+    return { text: `${count(l.count, words[0], words[1])} at ${LEVEL_NAME[l.level]}`, term };
+  });
+}
+
+export function launchingNote(launching: HealthView["launching"]): string | null {
+  if (launching.length === 0) return null;
+  return `plus ${launchingClauses(launching)
+    .map((c) => c.text)
     .join(" and ")}`;
 }
 
@@ -2284,6 +2294,10 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
     text: `The nightly live form test sends a real test entry through the form. ${STALE} reads "not tested lately", never "passed". The test itself is being fixed: until it is, a failure is shown but is not a verdict, and it does not change the site's level. "No result" means the test gave no verdict: the site has no form, or the test skipped it. "Last real lead" is the newest submission accepted as real; for an RSVP or signup form it says "submission", since those are not leads.`,
   },
   {
+    term: "Level",
+    text: "The site's place on the ladder, explained on How this works.",
+  },
+  {
     term: "Sites passing each check",
     text: "On the first screen, each check's bar shows how many of the sites in our care pass it, out of how many. The dark part is the sites that pass. The grey part is the sites that neither pass nor fail: the sum of the three kinds below, test failed, no verdict and not checked. A site that fails is in neither part; the count says how many fail.",
   },
@@ -2301,7 +2315,7 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Not checked",
-    text: `A check older than its window, so it is not known now. ${STALE} reads "not checked lately" (or "not tested lately" for the form). A check that never ran is not checked too.`,
+    text: `A check older than its window, so it is not known now: ${count(PRODUCTION_STALE_DAYS, "day", "days")} for most checks, and ${count(A11Y_STALE_DAYS, "day", "days")} for the accessibility scan. A result older than that reads "not checked lately" (or "not tested lately" for the form). A check that never ran is not checked too.`,
   },
   {
     term: "Launching sites",
@@ -2310,10 +2324,6 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   {
     term: "Sites not marked maintained",
     text: "Sites whose plan status is not marked maintained (a misspelt status, say). They are not in our care, so the bar does not count them. The status line counts them at the level they sit at, and the note under the bar says how many, for each level.",
-  },
-  {
-    term: "Level",
-    text: "The site's place on the ladder, explained on How this works.",
   },
   {
     term: "Submissions",

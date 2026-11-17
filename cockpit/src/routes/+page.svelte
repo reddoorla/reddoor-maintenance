@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { OverviewView } from "../lib/overview/view.js";
-  import { launchingNote, sparkGeometry, trendGeometry } from "../lib/overview/view.js";
+  import { launchingClauses, sparkGeometry, trendGeometry } from "../lib/overview/view.js";
   import PageStyles from "../lib/PageStyles.svelte";
   import healthCss from "../lib/cockpit/health.css?inline";
   import overviewCss from "../lib/overview/overview.css?inline";
@@ -13,7 +13,7 @@
   const allOk = $derived(
     v.health.tiers.watch + v.health.tiers.attention + v.health.tiers.broken === 0,
   );
-  const launching = $derived(launchingNote(v.health.launching));
+  const launching = $derived(launchingClauses(v.health.launching));
 </script>
 
 <svelte:head>
@@ -71,13 +71,10 @@
       {v.health.tiers.ok} OK · {v.health.tiers.watch} watch · {v.health.tiers.attention} attention · {v
         .health.tiers.broken} broken
     </p>
-    {#if launching}<p
-        class="ov-tier-counts"
-        data-term={v.health.launching.some((l) => l.kind === "launching")
-          ? "Launching sites"
-          : "Sites not marked maintained"}
-      >
-        {launching}
+    {#if launching.length > 0}<p class="ov-tier-counts">
+        plus {#each launching as c, i (i)}{i > 0 ? " and " : ""}<span data-term={c.term}
+            >{c.text}</span
+          >{/each}
       </p>{/if}
     <h3>Sites passing each check</h3>
     <ul class="ov-checks-list" data-term="Sites passing each check">

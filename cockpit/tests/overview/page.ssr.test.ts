@@ -267,7 +267,15 @@ describe("the overview's stylesheet (T5)", () => {
     expect(block(".ov-seg.attention")).toMatch(/border-style:\s*dotted/);
     expect(block(".ov-seg.broken")).toMatch(/border-width:\s*6px;\s*border-style:\s*double/);
     expect(block(".ov-tier-inside")).toMatch(/display:\s*none/);
-    expect(block(".ov-tier-counts.visually-hidden")).toMatch(/position:\s*static/);
+    // Review round 4 (tests minor 4): the all-OK counts keep their size under forced colours,
+    // so a count is not a 1px clipped box, and the hidden copy reads as it did.
+    const hiddenCounts = block(".ov-tier-counts.visually-hidden");
+    expect(hiddenCounts).toMatch(/position:\s*static/);
+    expect(hiddenCounts).toMatch(/width:\s*auto/);
+    expect(hiddenCounts).toMatch(/height:\s*auto/);
+    expect(hiddenCounts).toMatch(/overflow:\s*visible/);
+    expect(hiddenCounts).toMatch(/clip:\s*auto/);
+    expect(hiddenCounts).toMatch(/white-space:\s*normal/);
     expect(block(".ov-spark polyline")).toMatch(/stroke:\s*currentColor/);
     expect(block(".ov-spark circle")).toMatch(/fill:\s*currentColor/);
   });
@@ -1160,6 +1168,31 @@ describe("the first screen's bars and launching line (P1-87 PR 3, round 1)", () 
     );
     const notes = golf.querySelectorAll(".ov-health .ov-tier-counts").map(text);
     expect(notes).toContain("plus 1 launching site at Attention");
+    // The note's term is the one for its kind (review round 4, tests minor 6).
+    const note = golf
+      .querySelectorAll(".ov-health .ov-tier-counts")
+      .find((e) => text(e).startsWith("plus"))!;
+    expect(note.querySelectorAll("[data-term]").map((e) => e.getAttribute("data-term"))).toEqual([
+      "Launching sites",
+    ]);
+  });
+
+  it("a note that carries both kinds marks each clause with its own term (review round 4, correctness n1)", () => {
+    const v = overviewFromSnapshot(snapshot({ sites: [healthy({ id: "z", name: "Zed" })] }), NOW);
+    v.health.launching = [
+      { level: "attention", count: 1, kind: "launching" },
+      { level: "watch", count: 2, kind: "other" },
+    ];
+    const note = parse(pageHtml(v))
+      .querySelectorAll(".ov-health .ov-tier-counts")
+      .find((e) => text(e).startsWith("plus"))!;
+    expect(text(note)).toBe(
+      "plus 1 launching site at Attention and 2 sites not marked maintained at Watch",
+    );
+    expect(note.querySelectorAll("[data-term]").map((e) => e.getAttribute("data-term"))).toEqual([
+      "Launching sites",
+      "Sites not marked maintained",
+    ]);
   });
 
   it("the broken fixture: the panels name no site, though the strip names the broken one", () => {

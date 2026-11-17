@@ -116,8 +116,14 @@ async function seed(url: string): Promise<void> {
   // checked): "1 test failed, not yet a verdict · 1 no verdict · 1 not checked".
   // Review round 4 (tests M1): Acme also has a passing Live and Certificate, so at least
   // one check bar draws a fill for the "fill inside track" browser test to measure.
-  const passing = { uptime_reachable: "pass", url_resolves: "pass", browser_checked_at: now,
-    url_checked_at: now, cert_days_remaining: 90, domain_checked_at: now };
+  const passing = {
+    uptime_reachable: "pass",
+    url_resolves: "pass",
+    browser_checked_at: now,
+    url_checked_at: now,
+    cert_days_remaining: 90,
+    domain_checked_at: now,
+  };
   for (const [site_id, extra] of [
     ["recA", { form_e2e_ok: "fail", ...passing }],
     ["recB", { form_e2e_ok: null }],
