@@ -1166,3 +1166,26 @@ describe("the first screen's bars and launching line (P1-87 PR 3, round 1)", () 
     expect(nums.filter((n) => n.classList.contains("unknown")).length).toBe(words.length);
   });
 });
+
+describe("every data-term on the overview is a How-we-count term (review round 2, F)", () => {
+  // The T6 check was deleted with the overview's How-we-count block; this restores it. A
+  // term on / with no entry in HOW_WE_COUNT is a label a visitor cannot look up.
+  const unknownTerms = (html: string): string[] => {
+    const known = new Set(HOW_WE_COUNT.map((h) => h.term));
+    const terms = parse(html)
+      .querySelectorAll("[data-term]")
+      .map((el) => el.getAttribute("data-term")!);
+    return [...new Set(terms)].filter((t) => !known.has(t));
+  };
+
+  it("every data-term rendered on / has an entry in HOW_WE_COUNT", () => {
+    expect(unknownTerms(HTML)).toEqual([]);
+  });
+
+  it("is an instrument that can fail: a made-up data-term on / is reported", () => {
+    // Control: one term on the page changed to a made-up one.
+    const changed = HTML.replace('data-term="Trends"', 'data-term="Made up term"');
+    expect(changed).not.toBe(HTML);
+    expect(unknownTerms(changed)).toEqual(["Made up term"]);
+  });
+});
