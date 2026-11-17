@@ -2720,6 +2720,13 @@ describe("review round 4: How we count names both windows and keeps the column's
     expect(text).toContain(`${A11Y_STALE_DAYS} days for the accessibility scan`);
   });
 
+  it("describes the bar's parts by position and strength, not tone, so it reads right in dark mode (a11y minor 2)", () => {
+    const text = HOW_WE_COUNT.find((h) => h.term === "Sites passing each check")!.text;
+    expect(text).not.toContain("dark part");
+    expect(text).toContain("The solid part, from the left, is the sites that pass.");
+    expect(text).toContain("The paler part after it");
+  });
+
   it("the seven status-kind entries follow Level, so the /fleet column's entries stay together (correctness n3)", () => {
     const terms = HOW_WE_COUNT.map((h) => h.term);
     const at = terms.indexOf("Level");

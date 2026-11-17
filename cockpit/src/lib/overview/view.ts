@@ -2299,7 +2299,7 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Sites passing each check",
-    text: "On the first screen, each check's bar shows how many of the sites in our care pass it, out of how many. The dark part is the sites that pass. The grey part is the sites that neither pass nor fail: the sum of the three kinds below, test failed, no verdict and not checked. A site that fails is in neither part; the count says how many fail.",
+    text: "On the first screen, each check's bar shows how many of the sites in our care pass it, out of how many. The solid part, from the left, is the sites that pass. The paler part after it (dotted in high-contrast mode) is the sites that neither pass nor fail: the sum of the three kinds below, test failed, no verdict and not checked. A site that fails is in neither part; the count says how many fail.",
   },
   {
     term: "Failing",

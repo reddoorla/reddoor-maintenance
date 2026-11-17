@@ -1315,6 +1315,11 @@ describe("the first screen's layout and tones, pinned in the stylesheet (review 
   const ruleOf = (sel: string) =>
     [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].find(([, s]) => s!.trim() === sel)?.[2] ?? "";
 
+  it("gives a watch or attention segment a floor of 1.25rem, so one site in 40 keeps its shape (review round 4, a11y minor 1)", () => {
+    expect(ruleOf(".ov-seg:not(.ok)")).toMatch(/min-width:\s*1\.25rem/);
+    expect(ruleOf(".ov-seg")).toMatch(/min-width:\s*0/);
+  });
+
   it("keeps a phone's check bars wide: the count goes under the bar below 30rem (I, phone)", () => {
     // The phone block's own declaration, not only its opening selector (review round 3, F).
     expect(css).toMatch(
