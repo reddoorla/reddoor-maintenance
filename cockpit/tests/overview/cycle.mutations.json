@@ -638,11 +638,11 @@
   },
   {
     "id": "none-border-out-of-media-wrapper",
-    "why": "(round 3, Group B) the base none border is back outside @media not (forced-colors: active), so it beats the forced 2px dashed border",
+    "why": "(round 3, Group B) the base none border is back outside @media not all and (forced-colors: active), so it beats the forced 2px dashed border",
     "edits": [
       {
         "file": "cockpit/src/lib/overview/overview.css",
-        "find": "@media not (forced-colors: active) {\n  .ov-cycle-seg.none .ov-cycle-bar {\n    border: 1px dashed var(--ink-muted);\n  }\n}",
+        "find": "@media not all and (forced-colors: active) {\n  .ov-cycle-seg.none .ov-cycle-bar {\n    border: 1px dashed var(--ink-muted);\n  }\n}",
         "replace": "  .ov-cycle-seg.none .ov-cycle-bar {\n    border: 1px dashed var(--ink-muted);\n  }"
       }
     ],

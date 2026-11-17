@@ -163,7 +163,7 @@ describe("the nightly bar's clock", () => {
  * when the view is stale as well as inside its window, a hung re-read settles, a
  * rejected one is caught, and a tab made visible is looked at at once.
  */
-describe("the bar's clock re-reads a stale view, settles hung reads, and ticks on visibility (P1-87 PR 5a)", () => {
+describe("the bar's clock re-reads a stale view, is not held by a hung read, and ticks on visibility (P1-87 PR 5a)", () => {
   const WINDOW_END = Date.parse("2026-10-27T11:07:00.000Z");
   const STALE_RUN = {
     refresh: { fromIso: "2026-10-27T07:00:00.000Z", untilIso: "2026-10-27T11:07:00.000Z" },

@@ -3,8 +3,9 @@ import type { CycleView } from "./cycle.js";
 /**
  * P1-87 PR 5a: the nightly bar's clock (plan, "The clock"). Every minute it hands the
  * page the time, so the day marker moves like a clock hand (decision 2). It asks the
- * server for the snapshot again every 2 minutes, but only while the tab is visible and
- * the view is due: inside its `refresh` window (the run may still be writing its record),
+ * server for the snapshot again about every 2 minutes (every second tick, and at least
+ * 90 s apart, so a tick made by the tab becoming visible can come sooner), but only while
+ * the tab is visible and the view is due: inside its `refresh` window (the run may still be writing its record),
  * or past its `staleAfterIso` (the view was made for a moment that has passed, so a
  * fresh one is wanted, decision 5). A tab made visible ticks at once. Nothing here
  * touches the DOM, so the page passes its own browser calls in.
@@ -35,7 +36,7 @@ export type CycleClockDeps = {
 
 /** Start the clock; `stop` removes its timer and its visibility listener. */
 export function startCycleClock(deps: CycleClockDeps): { stop: () => void } {
-  // When the last re-read began. The 2-minute gap runs from the start of a read, not from
+  // When the last re-read began. The gap runs from the start of a read, not from
   // its settle, so a slow read does not push the next one back a whole tick, and a read
   // that hangs never blocks the next one: nothing waits on a read's promise.
   let lastStartedMs: number | null = null;

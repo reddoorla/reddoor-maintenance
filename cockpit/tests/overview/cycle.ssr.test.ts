@@ -596,6 +596,7 @@ describe("the bar is recorded, with its marker, at every hour of the seeded nigh
       const v = cycle(snapshot({ nights, sites: [] }), now);
       expect(v.mode).toBe("recorded");
       expect(v.marker).not.toBeNull();
+      expect(v.steps.some((st) => st.state === "none")).toBe(true);
     });
   }
 });

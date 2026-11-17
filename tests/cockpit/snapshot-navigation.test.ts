@@ -166,7 +166,8 @@ async function seed(url: string): Promise<void> {
       submitted_at: new Date().toISOString(),
     } as never)
     .execute();
-  // Review round 5 (R5-8): two fleet_daily nights, the newest the one expected by now,
+  // Review round 5 (R5-8): two fleet_daily nights (three from 10pm to 6am Pacific, when
+  // the bar's own run night is written too, P1-87 PR 5a), the newest expected one by now,
   // so fleet_daily reaches `/` through the real loader and the overview's windowed
   // counts and reliability are figures, not "not yet collected". These are their
   // short forms; the longer ones (a stopped nightly, nights not recorded) are pinned
@@ -199,7 +200,7 @@ async function seed(url: string): Promise<void> {
       .execute();
   // P1-78h: fourteen older nights, so section 8 draws its charts in the 390px check.
   // They carry only the blocks the trends read and no step results, so the nightly's
-  // reliability above still counts its two recorded nights. Each is on the current
+  // reliability above still counts only its seeded recorded nights. Each is on the current
   // ladder but the oldest, so the level chart has a break; one night is missing.
   for (let i = 2; i <= 16; i++) {
     if (i === 9) continue;

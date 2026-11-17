@@ -7,8 +7,9 @@ export type SeededNight = { night: string; merged: number; backupRan: boolean };
 
 /** The nights the browser seed and the bar's SSR tests share, at `now`: the night before
  *  the expected one (600 merged), the expected one (612), and, when the bar's own run night
- *  is one later than the expected one (10pm to 6am Pacific), that run night (624, so the
- *  changes-shipped tile still reads 12 over the night before). The run night's backup did
+ *  is one later than the expected one (10pm to 6am Pacific), that run night (624; the
+ *  changes-shipped tile reads only nights up to the expected one, so it plays no part
+ *  there). The run night's backup did
  *  not run, so the bar renders a `none` step; when the run night is the expected one, that
  *  night carries it. */
 export function seededNights(now: Date): SeededNight[] {

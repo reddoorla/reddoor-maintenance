@@ -610,7 +610,7 @@ section {
 .ov-cycle-seg.none .ov-cycle-bar {
   background: transparent;
 }
-@media not (forced-colors: active) {
+@media not all and (forced-colors: active) {
   .ov-cycle-seg.none .ov-cycle-bar {
     border: 1px dashed var(--ink-muted);
   }

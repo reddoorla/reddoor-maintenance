@@ -1810,11 +1810,11 @@ describe("the nightly audit bar on the page (P1-87 PR 5a)", () => {
       "utf8",
     ).replace(/\/\*[\s\S]*?\*\//g, "");
     // The base rules alone: the forced-colours block is cut out first, and the wrapper of
-    // the base none border (`@media not (forced-colors: active)`, P1-87 PR 5a round 3) is
+    // the base none border (`@media not all and (forced-colors: active)`, P1-87 PR 5a round 3) is
     // taken off, so its rule still reads as a base rule.
     const plain = raw
       .replace(/@media \(forced-colors: active\)\s*\{[\s\S]*?\n\}/, "")
-      .replace(/@media not \(forced-colors: active\)\s*\{/g, "");
+      .replace(/@media not all and \(forced-colors: active\)\s*\{/g, "");
     const bodies = (sel: string) =>
       [...plain.matchAll(/([^{}]+)\{([^}]*)\}/g)]
         .filter(([, s]) => s!.trim() === sel)

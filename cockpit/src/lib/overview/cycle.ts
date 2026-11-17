@@ -164,10 +164,6 @@ export function markerAt(view: Pick<CycleView, "next">, lastEndIso: string, nowM
   return Math.min(1, Math.max(0, (nowMs - from) / (to - from)));
 }
 
-/**
- * The nightly audit bar for `now`. `steps` is NIGHTLY_STEPS (its order is the run's),
- * and `outcomeText` is view.ts's `outcomeText`, the words a recorded result gets.
- */
 /** Tonight's run, as the last start at or before `now`. The conductor's start is a daily UTC
  *  cron (the cron is UTC, so a day is exactly 24 hours). */
 function lastStartOf(now: Date, nextStart: Date): number {
@@ -182,6 +178,10 @@ export function runNightOf(now: Date): string {
   return pacificDate(new Date(lastStartOf(now, nextStart)));
 }
 
+/**
+ * The nightly audit bar for `now`. `steps` is NIGHTLY_STEPS (its order is the run's),
+ * and `outcomeText` is view.ts's `outcomeText`, the words a recorded result gets.
+ */
 export function cycleView(
   s: CockpitSnapshot,
   now: Date,
