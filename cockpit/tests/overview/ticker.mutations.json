@@ -397,7 +397,7 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/overview.css",
-        "find": "  .ov-ticker-pause[aria-pressed=\"true\"] {\n    border-width: 3px;\n  }\n",
+        "find": "  .ov-ticker-pause[aria-pressed=\"true\"] {\n    border-width: 3px;\n    padding: calc(0.2em - 2px) calc(0.7em - 2px);\n  }\n",
         "replace": ""
       }
     ],
@@ -494,5 +494,85 @@
     ],
     "test": ["tests/cockpit/snapshot-navigation.test.ts"],
     "expect": "survives"
+  },
+  {
+    "id": "36-keyboard-selectors-ignore-the-pointer-flag",
+    "why": "r3 A: the four keyboard selectors drop :not([data-pointer]), so a key press after a mouse press stills the row under the pointer again (the Group A control, by mutant)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-ticker-window:has(:focus-visible):not([data-pointer]) .ov-ticker-run {",
+        "replace": ".ov-ticker-window:has(:focus-visible) .ov-ticker-run {"
+      },
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-ticker-window:has(:focus-visible):not([data-pointer]) .ov-ticker-list {",
+        "replace": ".ov-ticker-window:has(:focus-visible) .ov-ticker-list {"
+      },
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-ticker-window:has(:focus-visible):not([data-pointer]) .ov-ticker-list li {",
+        "replace": ".ov-ticker-window:has(:focus-visible) .ov-ticker-list li {"
+      },
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-ticker-window:has(:focus-visible):not([data-pointer]) .ov-ticker-list.copy {",
+        "replace": ".ov-ticker-window:has(:focus-visible) .ov-ticker-list.copy {"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "37-tab-keeps-the-pointer-flag",
+    "why": "r3 A: a Tab no longer clears the pointer flag, so after a mouse press the keyboard into the row cannot still it. The Group A test reaches that path (a press, then Tab) and the round-1 keyboard test does not, since its focus never sets the flag",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "if (e.key === \"Tab\") pointer = false;",
+        "replace": "if (e.key === \"Enter\") pointer = false;"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "38-hover-pause-keyed-on-the-list",
+    "why": "r3 C (X11): the hover pause is keyed on the real list, so a pointer on the window's padding no longer stops the row",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-ticker-window:hover .ov-ticker-run,\n",
+        "replace": ".ov-ticker-run:has(.ov-ticker-list:not(.copy):hover),\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "39-forced-pressed-padding-at-base",
+    "why": "r3 D: under forced colours the pressed button keeps the base padding, so its 3px border makes it 4px taller and the ticker below jumps on each press",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "    padding: calc(0.2em - 2px) calc(0.7em - 2px);\n",
+        "replace": "    padding: 0.2em 0.7em;\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "40-page-bad-date-guard-removed",
+    "why": "r3 C: the Number.isFinite guard is removed and only page.ssr runs: a deploy date that matches the shape but names no day (2026-13-01T12:00:00Z) gives a RangeError from toISOString and takes the page down",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "  if (!Number.isFinite(ms)) return null;\n",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
   }
 ]
