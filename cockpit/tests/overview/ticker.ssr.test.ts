@@ -4,6 +4,7 @@ import { overviewFromSnapshot } from "../../src/lib/overview/view.js";
 import { tickerView, type TickerEntry } from "../../src/lib/overview/ticker.js";
 import type { CockpitModel, SiteCard } from "../../../src/dashboard/fleet-cockpit.js";
 import type { WebsiteRow } from "../../../src/fleet/site-row.js";
+import type { AttentionItem } from "../../../src/alerts/attention.js";
 import { makeSubmissionRow } from "../../../tests/_helpers/submission-row.js";
 import { NOW, FRESH, healthy, snapshot } from "./fixtures.js";
 
@@ -153,6 +154,30 @@ describe("the ticker's unit rules", () => {
     expect(t!.fact).toBe("see the site's page");
   });
 
+  it("leaves out a launching site even when its tier is broken", () => {
+    const m = modelOf(
+      card({ id: "recT", name: "Tower", status: "launching" }, "broken"),
+      card({ id: "recM", name: "Maint" }, "healthy"),
+    );
+    expect(tickerView(m, new Map(), NOW).map((t) => t.name)).toEqual(["Maint"]);
+  });
+
+  it("names a Watch site by its watch-level item before its watch reasons", () => {
+    const item = {
+      key: "renovate:recW",
+      kind: "renovate",
+      title: "Renovate PR open 9 days",
+      level: "watch",
+    } as unknown as AttentionItem;
+    const c: SiteCard = {
+      ...card({ id: "recW", name: "Watcher" }, "watch"),
+      items: [item],
+      watchReasons: ["Performance 78"],
+    };
+    const [t] = tickerView(modelOf(c), new Map(), NOW);
+    expect(t!.fact).toBe("Renovate PR open 9 days, and 1 more");
+  });
+
   it("leaves out a site that is not maintained", () => {
     const m = modelOf(
       card({ id: "recL", name: "Launch", status: "launching" }, "pre-launch"),
@@ -172,6 +197,23 @@ describe("the ticker's order", () => {
       digest: { "uptime:recZ": { metric: 1, firstFlaggedAt: "2026-10-25" } },
     });
     expect(ticker(s).map((t) => t.name)).toEqual(["Zeta", "Acme"]);
+  });
+
+  it("orders a model whose cards come out of order: Broken, then Attention, then OK, by name", () => {
+    const m = modelOf(
+      card({ id: "recZ", name: "Acme" }, "healthy"),
+      card({ id: "recY", name: "Zeta", reachableOk: "fail" }, "broken"),
+      card({ id: "recX", name: "Bravo" }, "attention"),
+      card({ id: "recW", name: "Beta" }, "healthy"),
+      card({ id: "recV", name: "Mike" }, "broken"),
+    );
+    expect(tickerView(m, new Map(), NOW).map((t) => t.name)).toEqual([
+      "Mike",
+      "Zeta",
+      "Bravo",
+      "Acme",
+      "Beta",
+    ]);
   });
 
   it("orders sites of one tier by name", () => {

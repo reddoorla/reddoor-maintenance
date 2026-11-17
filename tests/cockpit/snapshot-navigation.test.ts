@@ -1405,6 +1405,9 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     await expect
       .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
       .toBeGreaterThanOrEqual(2);
+    const moving = await transform(page);
+    await page.waitForTimeout(1500);
+    expect(await transform(page)).not.toBe(moving);
     await page.locator(".ov-ticker-pause").click();
     expect(await page.locator(".ov-ticker-pause").getAttribute("aria-pressed")).toBe("true");
     const paused = await transform(page);
@@ -1419,6 +1422,9 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     await expect
       .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
       .toBeGreaterThanOrEqual(2);
+    const moving = await transform(page);
+    await page.waitForTimeout(1500);
+    expect(await transform(page)).not.toBe(moving);
     await page.locator(".ov-ticker-window").hover();
     const hovered = await transform(page);
     await page.waitForTimeout(1500);

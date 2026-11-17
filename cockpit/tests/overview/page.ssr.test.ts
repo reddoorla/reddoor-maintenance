@@ -1678,6 +1678,22 @@ describe("the site ticker on the overview (P1-87 PR 5b)", () => {
     expect(text(li)).toContain("Nolink");
   });
 
+  it("gives the OK pill the healthy class and a Broken pill the broken class", () => {
+    const view: OverviewView = {
+      ...VIEW,
+      ticker: [
+        { key: "a", name: "Okay", tier: "ok", tierWord: "OK", fact: "f", href: null },
+        { key: "b", name: "Badly", tier: "broken", tierWord: "Broken", fact: "f", href: null },
+      ],
+    };
+    const doc = parse(pageHtml(view));
+    expect(
+      real(doc)
+        .querySelectorAll("li .pill")
+        .map((p) => p.getAttribute("class")),
+    ).toEqual(["pill healthy", "pill broken"]);
+  });
+
   it("says so when no site is in our care", () => {
     const doc = parse(pageHtml({ ...VIEW, ticker: [] }));
     expect(text(section(doc))).toContain("No sites in our care yet.");
@@ -1691,8 +1707,8 @@ describe("the site ticker on the overview (P1-87 PR 5b)", () => {
   });
 
   it("renders its sentinels: every leaf of the ticker is on the page", () => {
-    const sec = SDOC.querySelector("section.ov-ticker")!;
-    const shown = text(sec);
+    // The moving list only: the loop's copy must not supply a leaf the real list dropped.
+    const shown = text(real(SDOC));
     for (const [path, v] of S.at) {
       if (!path.startsWith("ticker[")) continue;
       if (/\.(key|href|tier)$/.test(path)) continue;
