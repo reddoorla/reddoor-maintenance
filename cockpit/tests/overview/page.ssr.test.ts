@@ -1787,7 +1787,9 @@ describe("the nightly audit bar on the page (P1-87 PR 5a)", () => {
     expect(block(".ov-cycle-seg.problem .ov-cycle-bar")).toMatch(/border:\s*2px dotted/);
     expect(block(".ov-cycle-seg.none .ov-cycle-bar")).toMatch(/border:\s*2px dashed/);
     expect(block(".ov-cycle-seg.waiting .ov-cycle-bar")).toMatch(/border:\s*1px solid/);
-    expect(block(".ov-cycle-seg.wait .ov-cycle-bar")).toMatch(/border:\s*1px solid/);
+    // Round 2 (accessibility minor 1): the Next-run track is 3px double, so it differs from a
+    // waiting step's 1px solid under forced colours.
+    expect(block(".ov-cycle-seg.wait .ov-cycle-bar")).toMatch(/border:\s*3px double/);
     expect(block(".ov-cycle-marker")).toMatch(/border-left:\s*2px solid/);
     // Outside the forced block, a waiting bar keeps the band fill and an inset outline.
     const plain = raw.slice(0, at) + raw.slice(end + 1);
@@ -1797,6 +1799,46 @@ describe("the nightly audit bar on the page (P1-87 PR 5a)", () => {
         /box-shadow:\s*inset 0 0 0 1px var\(--ink-muted\)/.test(body!),
     );
     expect(outlined).toBe(true);
+  });
+
+  // P1-87 PR 5a, review round 2 (accessibility minors 1 and 2): in light and dark alike, the
+  // Next-run track is outlined like a waiting bar, and a none step is a dashed outline, so the
+  // two differ by shape.
+  it("outlines the Next-run track and dashes a none step's outline in light and dark (review round 2)", () => {
+    const raw = readFileSync(
+      new URL("../../src/lib/overview/overview.css", import.meta.url),
+      "utf8",
+    ).replace(/\/\*[\s\S]*?\*\//g, "");
+    // The base rules alone: the forced-colours block is cut out first.
+    const plain = raw.replace(/@media \(forced-colors: active\)\s*\{[\s\S]*?\n\}/, "");
+    const bodies = (sel: string) =>
+      [...plain.matchAll(/([^{}]+)\{([^}]*)\}/g)]
+        .filter(([, s]) => s!.trim() === sel)
+        .map(([, , body]) => body!);
+    expect(bodies(".ov-cycle-seg.wait .ov-cycle-bar").join(" ")).toMatch(
+      /box-shadow:\s*inset 0 0 0 1px var\(--ink-muted\)/,
+    );
+    expect(bodies(".ov-cycle-seg.none .ov-cycle-bar").join(" ")).toMatch(
+      /border:\s*1px dashed var\(--ink-muted\)/,
+    );
+    expect(bodies(".ov-cycle-seg.none .ov-cycle-bar").join(" ")).not.toMatch(/box-shadow/);
+  });
+
+  // P1-87 PR 5a, review round 2 (accessibility nit): the words a screen reader hears have no
+  // space before the colon, and the Next-run item has its ", " before the time. Pinned as the
+  // rendered text of one step's list item, with the aria-hidden time left out.
+  it("reads one step as 'Backup: ran to the end', and the Next-run item with a comma (review round 2)", () => {
+    const li = EDOC.querySelectorAll(".ov-cycle-track > li")[0]!;
+    const spoken = li.childNodes
+      .filter((n) => n.nodeType !== 1 || (n as HTMLElement).getAttribute("aria-hidden") !== "true")
+      .map((n) => n.textContent)
+      .join("")
+      .replace(/\s+/g, " ")
+      .trim();
+    expect(spoken).toBe("Backup: ran to the end");
+    const next = EDOC.querySelector(".ov-cycle-track > li.wait")!;
+    expect(next.querySelector(".visually-hidden")!.textContent).toBe(",");
+    expect(text(next).startsWith("Next run, 11:07pm PT")).toBe(true);
   });
 
   it("gives each step its own class: done, problem, none, running and waiting (review round 1, Group E)", () => {
