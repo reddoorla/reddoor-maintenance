@@ -1302,3 +1302,33 @@ describe("the first screen's layout and tones, pinned in the stylesheet (review 
     expect(ruleOf(".ov-num.unknown")).toMatch(/min-height:\s*calc\(1\.9rem \* 1\.1\)/);
   });
 });
+
+describe("review round 3: the grey part covers all three unknown kinds (group C, tests M1)", () => {
+  // A failed fresh form test, a fresh form with no result, and a stale pass: the grey
+  // part is the sum of all three, so the whole track is grey (review round 3, tests M1).
+  const trio = parse(
+    pageHtml(
+      overviewFromSnapshot(
+        snapshot({
+          sites: [
+            healthy({ id: "recA", name: "Ann", formE2eOk: "fail", formE2eCheckedAt: FRESH }),
+            healthy({ id: "recB", name: "Ben", formE2eOk: null, formE2eCheckedAt: FRESH }),
+            healthy({ id: "recC", name: "Cal", formE2eOk: "pass", formE2eCheckedAt: STALE }),
+          ],
+        }),
+        NOW,
+      ),
+    ),
+  );
+  const form = trio.querySelectorAll(".ov-check").find((r) => text(r).startsWith("Contact form"))!;
+
+  it("the grey part spans the whole track when a test failed, no verdict and not checked", () => {
+    expect(form.querySelector(".ov-check-unknown")!.getAttribute("style")).toBe(
+      "left: 0%; width: 100%",
+    );
+    expect(text(form.querySelector(".ov-check-count")!)).toBe(
+      "0 of 3 · 1 test failed, not yet a verdict · 1 no verdict · 1 not checked",
+    );
+  });
+});
+

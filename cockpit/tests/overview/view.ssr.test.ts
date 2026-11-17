@@ -2479,6 +2479,41 @@ describe("review round 2: the checks tile's window (group B)", () => {
   });
 });
 
+describe("review round 3: each unknown kind is named on its own check (group C, tests minor 3, nit)", () => {
+  const healthOf = (over: Partial<WebsiteRow>) =>
+    overviewFromSnapshot(snapshot({ sites: [healthy({ id: "recX", name: "Xan", ...over })] }), NOW)
+      .health.checks;
+  const kinds = (checks: ReturnType<typeof healthOf>, name: string) => {
+    const c = checks.find((x) => x.name === name)!;
+    return { noVerdict: c.noVerdict, notChecked: c.notChecked };
+  };
+
+  it("an unsampled Live, a fresh deploy with no verdict, a fresh smoke and a fresh audit with no counts are no verdict", () => {
+    const checks = healthOf({
+      reachableOk: null,
+      deployStatus: "building",
+      deployCheckedAt: FRESH,
+      lastSmokeAt: FRESH,
+      smokeOk: null,
+      lastSecurityAuditAt: FRESH,
+      securityVulnsCritical: null,
+      securityVulnsHigh: null,
+    });
+    for (const name of ["Live", "Deploy", "Build + tests", "Security"]) {
+      expect(kinds(checks, name)).toEqual({ noVerdict: 1, notChecked: 0 });
+    }
+  });
+
+  it("a fresh audit with no critical and a null high count is a pass when critical is 0 (tests minor 4)", () => {
+    const security = healthOf({
+      securityVulnsCritical: 0,
+      securityVulnsHigh: null,
+      lastSecurityAuditAt: FRESH,
+    }).find((x) => x.name === "Security")!;
+    expect(security).toMatchObject({ pass: 1, fail: 0, unknown: 0 });
+  });
+});
+
 describe("review round 3: one set of nights for every tile (group A, correctness M1)", () => {
   const BEFORE_6AM = new Date("2026-10-27T12:00:00Z"); // 5am PDT: last night is Oct 25
   const counted = (date: string, checks: number, merged: number) =>
