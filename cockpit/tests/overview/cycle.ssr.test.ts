@@ -1,16 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { overviewFromSnapshot } from "../../src/lib/overview/view.js";
-import {
-  RUN_WINDOW_MINUTES,
-  untilWords,
-  type CycleView,
-} from "../../src/lib/overview/cycle.js";
+import { RUN_WINDOW_MINUTES, untilWords, type CycleView } from "../../src/lib/overview/cycle.js";
 import { NIGHTLY_STEPS } from "../../src/lib/overview/view.js";
 import { NIGHTLIES } from "../../../scripts/nightly-conductor.mjs";
 import { makeWebsiteRow } from "../../../tests/_helpers/website-row.js";
 import { NOW, night, snapshot } from "./fixtures.js";
 import type { WebsiteRow } from "../../../src/fleet/site-row.js";
+import type { StepResult } from "../../../src/fleet-daily/types.js";
+import type { OverviewNight } from "../../../src/fleet-daily/read.js";
 
 /**
  * P1-87 PR 5a: the nightly audit bar's model (plan, "The model"). Each fixture site
@@ -36,8 +34,9 @@ function site(id: string, stamps: Partial<WebsiteRow> = {}): WebsiteRow {
 }
 
 /** A `fleet_daily` night whose every step is given (default: all ran to the end). */
-function nightWith(date: string, steps: Record<string, unknown>) {
+function nightWith(date: string, steps: Record<string, StepResult | null>): OverviewNight {
   const n = night(date);
+  const ok: StepResult = { outcome: "completed", runId: 1, conclusion: "success" };
   return {
     ...n,
     counts: {
@@ -45,16 +44,13 @@ function nightWith(date: string, steps: Record<string, unknown>) {
       steps: Object.fromEntries(
         NIGHTLIES.map((x: { file: string }) => [
           x.file,
-          x.file in steps
-            ? steps[x.file]
-            : { outcome: "completed", runId: 1, conclusion: "success" },
+          x.file in steps ? (steps[x.file] ?? null) : ok,
         ]),
       ),
     },
   };
 }
 
-const ok = { outcome: "completed", runId: 1, conclusion: "success" };
 const cycle = (s: ReturnType<typeof snapshot>, now: Date): CycleView =>
   overviewFromSnapshot(s, now).cycle;
 
@@ -119,7 +115,10 @@ describe("the bar's model: a recorded night (plan, Tests 1, 2, 8, 9, 10)", () =>
   });
 
   it("a row written before the window ends is recorded: the marker is 0 and the page re-reads the next night", () => {
-    const v = cycle(snapshot({ nights: [night("2026-10-26")] }), new Date("2026-10-27T09:00:00.000Z"));
+    const v = cycle(
+      snapshot({ nights: [night("2026-10-26")] }),
+      new Date("2026-10-27T09:00:00.000Z"),
+    );
     expect(v.mode).toBe("recorded");
     expect(v.marker).toBe(0);
     expect(v.refresh).toEqual({
@@ -259,9 +258,7 @@ describe("the bar after the window with no row: unrecorded (plan, Test 7)", () =
   it("with nights unreadable, says the record could not be read", () => {
     const v = cycle(snapshot({ nights: null }), NOW_LATE);
     expect(v.mode).toBe("unrecorded");
-    expect(v.line).toBe(
-      "The nightly record could not be read · next run starts 11:07pm PT",
-    );
+    expect(v.line).toBe("The nightly record could not be read · next run starts 11:07pm PT");
   });
 
   it("the marker runs along the wait to the next start, from the window's end", () => {

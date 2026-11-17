@@ -241,7 +241,8 @@
       {/each}
       <li class="ov-cycle-seg wait">
         <span class="ov-cycle-bar" aria-hidden="true">
-          {#if marker !== null}<span class="ov-cycle-marker" style="left: {marker * 100}%"></span>{/if}
+          {#if marker !== null}<span class="ov-cycle-marker" style="left: {marker * 100}%"
+            ></span>{/if}
         </span>
         <span class="ov-cycle-name">Next run</span>
         <span class="ov-cycle-time"

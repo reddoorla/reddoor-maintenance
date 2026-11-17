@@ -432,8 +432,8 @@ describe("cockpit navigation, in a browser, against the built app", () => {
           (e) => e.getBoundingClientRect().bottom,
         ),
       );
-      const tops = [...document.querySelectorAll(".ov-cycle-seg")].map(
-        (e) => Math.round(e.getBoundingClientRect().top),
+      const tops = [...document.querySelectorAll(".ov-cycle-seg")].map((e) =>
+        Math.round(e.getBoundingClientRect().top),
       );
       return { panelsBottom, tops };
     });

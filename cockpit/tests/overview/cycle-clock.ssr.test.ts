@@ -26,7 +26,13 @@ function unboundOnly<F extends (...args: never[]) => unknown>(f: F): F {
 }
 
 /** A clock on fake timers, with the page's dependencies as fakes. */
-function rig(opts: { refresh?: CycleView["refresh"]; visible?: boolean; invalidate?: () => Promise<void> } = {}) {
+function rig(
+  opts: {
+    refresh?: CycleView["refresh"];
+    visible?: boolean;
+    invalidate?: () => Promise<void>;
+  } = {},
+) {
   vi.useFakeTimers({ now: START });
   let refresh = opts.refresh ?? IN_WINDOW;
   let visible = opts.visible ?? true;

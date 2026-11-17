@@ -391,7 +391,9 @@ describe("the sentinel render: each leaf in its labelled element (T1, T2; round 
       // P1-87 PR 5a: the bar's mode, its running label and instants are read as
       // attributes or inside its line; the marker is a style the page computes; a
       // step's file and state are its class and its inferred place.
-      /^cycle\.(mode|runningLabel|nowIso|windowEndIso|marker|refresh\.(fromIso|untilIso)|next\.startIso)$/.test(p) ||
+      /^cycle\.(mode|runningLabel|nowIso|windowEndIso|marker|refresh\.(fromIso|untilIso)|next\.startIso)$/.test(
+        p,
+      ) ||
       /^cycle\.steps\[[a-z]+\]\.(file|state)$/.test(p) ||
       // The Upkeep section keeps only Open now and the major upgrades (the operator,
       // 11-16): the two counts on /how and the tiles are not shown here.
@@ -1718,14 +1720,18 @@ describe("the nightly audit bar on the page (P1-87 PR 5a)", () => {
   });
 
   it("says each step's words to a screen reader, after its name", () => {
-    const words = RDOC.querySelectorAll(".ov-cycle-track > li").slice(0, 8).map((li) => text(li.querySelector(".visually-hidden")!));
+    const words = RDOC.querySelectorAll(".ov-cycle-track > li")
+      .slice(0, 8)
+      .map((li) => text(li.querySelector(".visually-hidden")!));
     expect(words).toEqual(RUNNING.cycle.steps.map((x) => `: ${x.words}`));
     expect(words[1]).toBe(": finished at 11:10pm PT");
     expect(words[2]).toBe(": running now, or the step beside it");
   });
 
   it("shows a step's time where it has one, and none where it does not", () => {
-    const times = EDOC.querySelectorAll(".ov-cycle-track > li").slice(0, 8).map((li) => text(li.querySelector(".ov-cycle-time")!));
+    const times = EDOC.querySelectorAll(".ov-cycle-track > li")
+      .slice(0, 8)
+      .map((li) => text(li.querySelector(".ov-cycle-time")!));
     expect(times).toEqual(RECORDED.cycle.steps.map((x) => x.time ?? ""));
     expect(times[1]).toBe("11:15pm");
     expect(times[0]).toBe("");
@@ -1744,7 +1750,9 @@ describe("the nightly audit bar on the page (P1-87 PR 5a)", () => {
     expect(entry).toBeDefined();
     expect(entry!.text).toContain("Backup, CMS sync and Report drafts leave no time");
     expect(entry!.text).toContain("every 2 minutes");
-    expect(RDOC.querySelector('section.ov-cycle[data-term="The nightly audit bar"]')).not.toBeNull();
+    expect(
+      RDOC.querySelector('section.ov-cycle[data-term="The nightly audit bar"]'),
+    ).not.toBeNull();
   });
 
   it("keeps its own rules in the stylesheet: no animation, no gradient, and full width", () => {

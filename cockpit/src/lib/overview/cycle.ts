@@ -123,11 +123,7 @@ export function untilWords(nextIso: string, nowMs: number): string {
 
 /** 0..1 along the wait from the window's end (`lastEndIso`) to the next start, held
  *  at 0 before the window ends and at 1 once the next start has come. */
-export function markerAt(
-  view: Pick<CycleView, "next">,
-  lastEndIso: string,
-  nowMs: number,
-): number {
+export function markerAt(view: Pick<CycleView, "next">, lastEndIso: string, nowMs: number): number {
   const from = Date.parse(lastEndIso);
   const to = Date.parse(view.next.startIso);
   return Math.min(1, Math.max(0, (nowMs - from) / (to - from)));

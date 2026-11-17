@@ -1,0 +1,262 @@
+[
+  {
+    "id": "1-steps-sorted-by-name",
+    "why": "(floor) The steps are ordered by name rather than by run order",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle.ts",
+        "find": "  const nowMs = now.getTime();\n",
+        "replace": "  steps = [...steps].sort((a, b) => a.short.localeCompare(b.short));\n  const nowMs = now.getTime();\n"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "2-null-step-done",
+    "why": "(floor) A step that did not run (a null result) is marked done",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle.ts",
+        "find": "const ranToEnd = r?.outcome === \"completed\" && r.conclusion === \"success\";",
+        "replace": "const ranToEnd = r === null || (r?.outcome === \"completed\" && r.conclusion === \"success\");"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "3-skipped-counts-done",
+    "why": "A skipped step counts as done",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle.ts",
+        "find": "const ranToEnd = r?.outcome === \"completed\" && r.conclusion === \"success\";",
+        "replace": "const ranToEnd = r?.outcome === \"skipped\" || (r?.outcome === \"completed\" && r.conclusion === \"success\");"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "4-running-counts-done",
+    "why": "A running (wait-exceeded) result counts as done",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle.ts",
+        "find": "const ranToEnd = r?.outcome === \"completed\" && r.conclusion === \"success\";",
+        "replace": "const ranToEnd = r?.outcome === \"running\" || (r?.outcome === \"completed\" && r.conclusion === \"success\");"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "5-failed-step-done",
+    "why": "A failed step is filled as done",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle.ts",
+        "find": "const state: CycleState = ranToEnd ? \"done\" : problem ? \"problem\" : \"none\";",
+        "replace": "const state: CycleState = ranToEnd || problem ? \"done\" : \"none\";"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "6-stamp-before-start-counts",
+    "why": "A stamp before lastStart counts as tonight's",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle.ts",
+        "find": "const tonight = steps.map((step) => newestStamp(maintained, step.stamps, lastStartMs));",
+        "replace": "const tonight = steps.map((step) => newestStamp(maintained, step.stamps, -Infinity));"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "7-running-span-one-step",
+    "why": "The running span is always one step",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle.ts",
+        "find": "      while (spanEnd < steps.length - 1 && steps[spanEnd]!.stamps.length === 0) spanEnd++;",
+        "replace": "      void spanEnd;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "8-running-label-and",
+    "why": "The running label joins with \" and \"",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle.ts",
+        "find": "runningLabel = span.map((x) => x.short).join(\" or \");",
+        "replace": "runningLabel = span.map((x) => x.short).join(\" and \");"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "9-window-240",
+    "why": "The window is 240 minutes",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle.ts",
+        "find": "export const RUN_WINDOW_MINUTES = 300;",
+        "replace": "export const RUN_WINDOW_MINUTES = 240;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "10-row-ignored-in-window",
+    "why": "A row is ignored in the window (a row only counts once the window has ended)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle.ts",
+        "find": "    row !== undefined\n      ? \"recorded\"",
+        "replace": "    row !== undefined && nowMs >= windowEndMs\n      ? \"recorded\""
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "11-older-night-taken",
+    "why": "An older night's row is taken for tonight's",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle.ts",
+        "find": "(n) => n.night === runNight && Object.values(n.counts.steps).some((r) => r != null),",
+        "replace": "(n) => Object.values(n.counts.steps).some((r) => r != null),"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "12-unrecorded-shows-running",
+    "why": "unrecorded shows running steps",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle.ts",
+        "find": "              state: \"none\",",
+        "replace": "              state: \"running\","
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "13-marker-unclamped",
+    "why": "The marker is not clamped",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle.ts",
+        "find": "  return Math.min(1, Math.max(0, (nowMs - from) / (to - from)));",
+        "replace": "  return (nowMs - from) / (to - from);"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "14-times-in-utc",
+    "why": "Times are in UTC",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle.ts",
+        "find": "const ZONE = \"America/Los_Angeles\";",
+        "replace": "const ZONE = \"UTC\";"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "15-clock-rereads-outside-window",
+    "why": "The clock re-reads outside the window",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle-clock.ts",
+        "find": "    if (!(from <= now && now < until)) return;",
+        "replace": "    void from;\n    void until;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle-clock.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "16-clock-rereads-hidden",
+    "why": "The clock re-reads while hidden",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle-clock.ts",
+        "find": "    if (!deps.isVisible() || inFlight) return;",
+        "replace": "    if (inFlight) return;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle-clock.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "17-clock-rereads-every-tick",
+    "why": "The clock re-reads every tick (every 60 s)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle-clock.ts",
+        "find": "    if (lastReadMs !== null && now - lastReadMs < REREAD_MS) return;",
+        "replace": "    void lastReadMs;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle-clock.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "18-layout-never-clears-newer",
+    "why": "The layout never clears newer on a new version",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+layout.svelte",
+        "find": "      newer = false;",
+        "replace": "      void 0;"
+      }
+    ],
+    "test": ["cockpit/tests/snapshot/layout-reread.dom.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "19-stripes-on-done",
+    "why": "The SVG stripes drawn for a done step",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "{#if step.state === \"running\"}<svg",
+        "replace": "{#if step.state === \"running\" || step.state === \"done\"}<svg"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "20-security-wait-25",
+    "why": "waitMinutes for Security changed to 25 (the pin goes red)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    waitMinutes: 30,\n    short: \"Security\",",
+        "replace": "    waitMinutes: 25,\n    short: \"Security\","
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
+    "expect": "red"
+  }
+]
