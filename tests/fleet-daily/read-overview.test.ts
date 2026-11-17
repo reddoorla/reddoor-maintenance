@@ -95,4 +95,47 @@ describe("readOverviewNights guards every block it reads", () => {
     expect(newer!.counts.traffic).toEqual(traffic);
     expect(older!.counts.traffic).toEqual({ value: null, reason: "not in this row" });
   });
+
+  // Review round 1, Group F: the page ships one night's per-day series and per-site array,
+  // not 32 of them. The older nights keep their totals, windows and counts.
+  it("the older traffic rows drop the daily series and the per-site array; the newest keeps both", async () => {
+    const window = { startDate: "2026-10-18", endDate: "2026-11-16" };
+    const block = (n: number) => ({
+      visits: {
+        value: {
+          current: n,
+          previous: n - 1,
+          currentWindow: window,
+          previousWindow: window,
+          sitesRead: 2,
+          sitesWithProperty: 2,
+          daily: [{ date: "2026-11-16", visits: n }],
+        },
+      },
+      search: {
+        value: {
+          clicks: n,
+          impressions: n * 10,
+          window,
+          sitesRead: 1,
+          sitesWithProperty: 1,
+          daily: [{ date: "2026-11-14", clicks: n, impressions: n * 10 }],
+        },
+      },
+      sites: [{ siteId: "acme", visits: { value: { current: n, previous: 1 } } }],
+    });
+    await put("2026-11-16", { traffic: { value: block(9) } });
+    await put("2026-11-15", { traffic: { value: block(7) } });
+    const [newer, older] = await readOverviewNights(db);
+    const nt = newer!.counts.traffic.value!;
+    expect(nt.sites).toHaveLength(1);
+    expect(nt.visits.value!.daily).toHaveLength(1);
+    expect(nt.search.value!.daily).toHaveLength(1);
+    const ot = older!.counts.traffic.value!;
+    expect(ot).not.toHaveProperty("sites");
+    expect(ot.visits.value).not.toHaveProperty("daily");
+    expect(ot.search.value).not.toHaveProperty("daily");
+    expect(ot.visits.value).toMatchObject({ current: 7, previous: 6 });
+    expect(ot.search.value).toMatchObject({ clicks: 7, impressions: 70 });
+  });
 });

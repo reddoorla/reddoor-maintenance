@@ -7,7 +7,7 @@
  */
 import { sql } from "kysely";
 import type { Db } from "../db/client.js";
-import type { FleetDailyCounts, Measured } from "./types.js";
+import type { FleetDailyCounts, Measured, TrafficCounts } from "./types.js";
 import { OVERVIEW_NIGHTS } from "./types.js";
 import type { DepsReading, StoredRow } from "./core.js";
 import type { LatestDeps } from "../alerts/production-signals.js";
@@ -57,13 +57,31 @@ export async function readLatestDeps(db: Db): Promise<LatestDeps | null> {
 /** P1-78g: one night as the overview reads it: the row without its per-site package
  *  lists (the deps alarm reads those through `readLatestDeps`), so a month of nights
  *  costs the snapshot about 1.5 KB each instead of about 7 KB. */
+/** A traffic value with its per-day series optional: an older night on the overview has
+ *  none (P1-87, PR 6 review round 1). */
+type WithOptionalDaily<T extends { daily: unknown }> = Omit<T, "daily"> & {
+  daily?: T["daily"];
+};
+
+/** The traffic block as the overview reads it. The newest night keeps its per-day series
+ *  and its per-site array; an older night keeps the totals, windows and counts only, so the
+ *  page does not ship 32 copies of the series. */
+export type OverviewTraffic = Measured<
+  Omit<TrafficCounts, "visits" | "search" | "sites"> & {
+    visits: Measured<WithOptionalDaily<NonNullable<TrafficCounts["visits"]["value"]>>>;
+    search: Measured<WithOptionalDaily<NonNullable<TrafficCounts["search"]["value"]>>>;
+    sites?: TrafficCounts["sites"];
+  }
+>;
+
 export type OverviewNight = {
   night: string;
   /** `run` is null on a row that does not carry it (review round 2). */
-  counts: Omit<FleetDailyCounts, "deps" | "run"> & {
+  counts: Omit<FleetDailyCounts, "deps" | "run" | "traffic"> & {
     /** `sitesRead`: how many sites' package lists that night's count adds up. */
     deps: Measured<{ behind: number; sitesRead: number }>;
     run: FleetDailyCounts["run"] | null;
+    traffic: OverviewTraffic;
   };
 };
 
@@ -84,9 +102,40 @@ function measured<T extends { value: unknown }>(b: T | null | undefined): T | ty
  *  reads is guarded the way `readLatestDeps` guards `deps`: a row written before a
  *  block existed (or hand-written) reads it as unmeasured, so `/`, the sign-in
  *  landing, never fails on one (review round 1). */
+/** A copy of `o` without `key`. */
+function withoutKey<T extends object, K extends keyof T>(o: T, key: K): Omit<T, K> {
+  const out = { ...o };
+  delete (out as Partial<T>)[key];
+  return out;
+}
+
+/** A visits or search half with its per-day series dropped. */
+function withoutDaily<T extends { daily: unknown }>(
+  b: Measured<T>,
+): Measured<WithOptionalDaily<T>> {
+  return b.value === null ? b : { value: withoutKey(b.value, "daily") };
+}
+
+/** The traffic block for the page: whole on the newest night, slimmed on the others. */
+function overviewTraffic(
+  block: Measured<TrafficCounts> | null | undefined,
+  newest: boolean,
+): OverviewTraffic {
+  const m = measured(block);
+  if (m.value === null || newest) return m;
+  const v = m.value;
+  return {
+    value: {
+      ...withoutKey(v, "sites"),
+      visits: withoutDaily(v.visits),
+      search: withoutDaily(v.search),
+    },
+  };
+}
+
 export async function readOverviewNights(db: Db): Promise<OverviewNight[]> {
   const rows = await readRecentRows(db, OVERVIEW_NIGHTS);
-  return rows.map(({ night, counts }) => {
+  return rows.map(({ night, counts }, i) => {
     const { deps, ...rest } = counts as Partial<FleetDailyCounts>;
     return {
       night,
@@ -102,7 +151,7 @@ export async function readOverviewNights(db: Db): Promise<OverviewNight[]> {
         screenouts: measured(rest.screenouts),
         events: measured(rest.events),
         prsMerged: measured(rest.prsMerged),
-        traffic: measured(rest.traffic),
+        traffic: overviewTraffic(rest.traffic, i === 0),
         deps:
           deps?.value != null
             ? {
