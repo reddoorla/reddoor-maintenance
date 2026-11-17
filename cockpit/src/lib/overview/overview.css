@@ -21,8 +21,12 @@ section {
   color: var(--ink-muted);
 }
 .ov-status {
+  background: var(--surface);
   border-left: 4px solid var(--rule);
   padding: 0.5rem 0 0.5rem 1rem;
+}
+.ov-status.ok {
+  border-left-color: var(--ink);
 }
 .ov-status.broken {
   border-left-color: var(--broken-fill);
@@ -229,11 +233,21 @@ section {
   background: var(--ink);
   color: var(--on-ink);
 }
+/* Watch and attention carry a hatch as well as a tone, so no two segments differ by
+   colour alone (watch against broken is 1.03:1 in light). */
 .ov-seg.watch {
-  background: var(--ink-muted);
+  background: repeating-linear-gradient(
+    135deg,
+    var(--ink-muted) 0 3px,
+    var(--surface) 3px 6px
+  );
 }
 .ov-seg.attention {
-  background: var(--ink-dark);
+  background: repeating-linear-gradient(
+    45deg,
+    var(--ink-dark) 0 3px,
+    var(--surface) 3px 6px
+  );
 }
 .ov-seg.broken {
   background: var(--broken-fill);
@@ -262,8 +276,18 @@ section {
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: 8.5rem minmax(0, 1fr) minmax(0, max-content);
+  grid-template-columns: minmax(6rem, 8.5rem) minmax(4rem, 1fr) fit-content(12rem);
   column-gap: 0.5rem;
+}
+/* On a phone the count goes under the bar: a long count would otherwise take the whole row
+   and leave every bar 0px wide. */
+@media (max-width: 30rem) {
+  .ov-checks-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ov-check {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .ov-check {
   grid-column: 1 / -1;
@@ -298,6 +322,7 @@ section {
 }
 .ov-check-unknown {
   background: var(--ink-muted);
+  box-shadow: inset 2px 0 0 var(--surface);
 }
 .ov-lighthouse-line {
   font-size: 0.85rem;
@@ -306,9 +331,14 @@ section {
 /* The four medians across, each number above its label (the label is first in the DOM). */
 .ov-medians {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(5.5rem, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem 1rem;
   margin: 0.75rem 0 0;
+}
+@media (min-width: 30rem) {
+  .ov-medians {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 .ov-medians > div {
   display: flex;
@@ -343,6 +373,9 @@ section {
   line-height: 1.1;
 }
 .ov-num.unknown {
+  display: flex;
+  align-items: flex-end;
+  min-height: calc(1.9rem * 1.1);
   font-size: 0.95rem;
   font-weight: var(--weight-text);
   color: var(--ink-muted);
@@ -354,12 +387,6 @@ section {
 .ov-context {
   margin: 0.1rem 0 0;
   font-size: 0.8rem;
-}
-@media (forced-colors: active) {
-  .ov-tierbar,
-  .ov-check-bar {
-    forced-color-adjust: none;
-  }
 }
 .ov-spark {
   display: block;
@@ -379,4 +406,38 @@ section {
 }
 .ov-closing {
   margin: 2rem 0 0;
+}
+
+/* Forced colours: the system palette replaces the fills, so each mark keeps a second
+   signal in its border: the pass solid, the not-checked dotted, each tier its own border
+   style, and the sparkline in the text colour. No colour keyword: the browser forces these. */
+@media (forced-colors: active) {
+  .ov-check-bar {
+    outline-style: solid;
+  }
+  .ov-check-fill {
+    box-sizing: border-box;
+    border: 2px solid;
+  }
+  .ov-check-unknown {
+    box-sizing: border-box;
+    border: 2px dotted;
+    box-shadow: none;
+  }
+  .ov-seg {
+    box-sizing: border-box;
+    border: 2px solid;
+  }
+  .ov-seg.watch {
+    border-style: dashed;
+  }
+  .ov-seg.attention {
+    border-style: dotted;
+  }
+  .ov-seg.broken {
+    border-width: 4px;
+  }
+  .ov-spark polyline {
+    stroke: currentColor;
+  }
 }

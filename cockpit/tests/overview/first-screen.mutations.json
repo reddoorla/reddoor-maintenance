@@ -18,8 +18,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "\"Contact form\": (s) => row(s)?.forms.ok ?? null,",
-        "replace": "\"Contact form\": (s) => row(s)?.forms.ok ?? true,"
+        "find": "\"Contact form\": form,",
+        "replace": "\"Contact form\": (s) => (form(s) === \"notChecked\" ? true : form(s)),"
       }
     ],
     "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
@@ -53,12 +53,12 @@
   },
   {
     "id": "5-stale-security-passes",
-    "why": "A stale security audit with no count is a pass",
+    "why": "A stale security audit is read as fresh (round 2: the verdicts return the kind of unknown)",
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "freshWithin(s.lastSecurityAuditAt, PRODUCTION_STALE_DAYS, now) &&",
-        "replace": "true &&"
+        "find": "if (!freshWithin(s.lastSecurityAuditAt, PRODUCTION_STALE_DAYS, now)) return \"notChecked\";",
+        "replace": "if (false) return \"notChecked\";"
       }
     ],
     "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
@@ -183,12 +183,12 @@
   },
   {
     "id": "15-stale-a11y-passes",
-    "why": "A stale accessibility scan with no violations is a pass",
+    "why": "A stale accessibility scan is read as fresh (round 2: the verdicts return the kind of unknown)",
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "    s.a11yRoutesScanned < s.a11yRoutesTotal ||\n    !freshWithin(s.a11yCheckedAt, A11Y_STALE_DAYS, now)",
-        "replace": "    s.a11yRoutesScanned < s.a11yRoutesTotal"
+        "find": "if (!freshWithin(s.a11yCheckedAt, A11Y_STALE_DAYS, now)) return \"notChecked\";",
+        "replace": "if (false) return \"notChecked\";"
       }
     ],
     "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
@@ -278,8 +278,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "s.a11yRoutesScanned < s.a11yRoutesTotal ||",
-        "replace": "false ||"
+        "find": "s.a11yRoutesScanned < s.a11yRoutesTotal\n    )",
+        "replace": "false\n    )"
       }
     ],
     "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
@@ -317,8 +317,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "...launchingAt(\"broken\", tiers.broken, status.counts.broken),",
-        "replace": ""
+        "find": "([\"broken\", \"attention\", \"watch\"] as const).flatMap((level) => {",
+        "replace": "([\"attention\", \"watch\"] as const).flatMap((level) => {"
       }
     ],
     "test": ["cockpit/tests/overview/view.ssr.test.ts"],
@@ -434,8 +434,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "y: Math.round((height - (v / top) * height) * 10) / 10,",
-        "replace": "y: Math.round(((v / top) * height) * 10) / 10,"
+        "find": "Math.round((height - (v / top) * height) * 10) / 10,",
+        "replace": "Math.round(((v / top) * height) * 10) / 10,"
       }
     ],
     "test": ["cockpit/tests/overview/view.ssr.test.ts"],

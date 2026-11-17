@@ -242,10 +242,15 @@ describe("the overview's stylesheet (T5)", () => {
     expect(rule(".ov-earlier")).toMatch(/fill:\s*var\(--band\)/);
   });
 
-  it("keeps the tier and check fills under forced colours (round 1, item 8)", () => {
-    expect(css).toMatch(
-      /@media \(forced-colors: active\)\s*\{\s*\.ov-tierbar,\s*\.ov-check-bar\s*\{\s*forced-color-adjust:\s*none;/,
-    );
+  it("draws each mark under forced colours with a border the browser forces, not a fill (round 1, item 8; round 2, I)", () => {
+    // The forced palette replaces fills, so the marks keep a border: a pass solid, the
+    // not-checked dotted, and the sparkline in the text colour. No forced-color-adjust
+    // override is left, since it kept the token fills, which read as black on black.
+    const forced = css.slice(css.indexOf("@media (forced-colors: active)"));
+    expect(css).not.toMatch(/forced-color-adjust:\s*none/);
+    expect(forced).toMatch(/\.ov-check-fill\s*\{[^}]*border:\s*2px solid/);
+    expect(forced).toMatch(/\.ov-check-unknown\s*\{[^}]*border:\s*2px dotted/);
+    expect(forced).toMatch(/\.ov-spark polyline\s*\{[^}]*stroke:\s*currentColor/);
   });
 
   it("holds no rule for the sections removed from the page (round 1, item 14)", () => {
@@ -1251,5 +1256,48 @@ describe("the first screen's page structure (review round 2, G and H)", () => {
   it("the tier bar and each check bar are positioned, so their parts stay inside them (H)", () => {
     expect(cssRule(".ov-tierbar")).toMatch(/position:\s*relative/);
     expect(cssRule(".ov-check-bar")).toMatch(/position:\s*relative/);
+  });
+});
+
+describe("the first screen's layout and tones, pinned in the stylesheet (review round 2, I)", () => {
+  // Comments are cut first, so a selector never carries the comment above it.
+  const css = readFileSync(
+    new URL("../../src/lib/overview/overview.css", import.meta.url),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  const ruleOf = (sel: string) =>
+    [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].find(([, s]) => s!.trim() === sel)?.[2] ?? "";
+
+  it("keeps a phone's check bars wide: the count goes under the bar below 30rem (I, phone)", () => {
+    expect(css).toMatch(/@media \(max-width: 30rem\)\s*\{[^}]*\n?\s*\.ov-checks-list\s*\{/);
+    expect(ruleOf(".ov-checks-list")).toMatch(
+      /grid-template-columns:\s*minmax\(6rem, 8\.5rem\) minmax\(4rem, 1fr\) fit-content\(12rem\)/,
+    );
+  });
+
+  it("lays the Lighthouse medians two by two on a phone, all four in a row above 30rem (I, nit 8)", () => {
+    expect(ruleOf(".ov-medians")).toMatch(/grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/);
+    expect(css).toMatch(
+      /@media \(min-width: 30rem\)\s*\{\s*\.ov-medians\s*\{\s*grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\)/,
+    );
+  });
+
+  it("tells watch and attention apart by a hatch as well as a tone (I, tier segments)", () => {
+    expect(ruleOf(".ov-seg.watch")).toMatch(/repeating-linear-gradient\(/);
+    expect(ruleOf(".ov-seg.watch")).toMatch(/var\(--surface\)/);
+    expect(ruleOf(".ov-seg.attention")).toMatch(/repeating-linear-gradient\(/);
+  });
+
+  it("separates a dark pass fill from its not-checked part by a 2px gap (I, dark)", () => {
+    expect(ruleOf(".ov-check-unknown")).toMatch(/box-shadow:\s*inset 2px 0 0 var\(--surface\)/);
+  });
+
+  it("gives the status strip the panel surface, and an ink bar when all is well (I, nit 7)", () => {
+    expect(ruleOf(".ov-status")).toMatch(/background:\s*var\(--surface\)/);
+    expect(ruleOf(".ov-status.ok")).toMatch(/border-left-color:\s*var\(--ink\)/);
+  });
+
+  it("lines an unmeasured tile's label up with its neighbours: the measured line box (I, nit 10)", () => {
+    expect(ruleOf(".ov-num.unknown")).toMatch(/min-height:\s*calc\(1\.9rem \* 1\.1\)/);
   });
 });
