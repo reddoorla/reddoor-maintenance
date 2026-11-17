@@ -391,7 +391,7 @@ describe("the sentinel render: each leaf in its labelled element (T1, T2; round 
       // P1-87 PR 5a: the bar's mode, its running label and instants are read as
       // attributes or inside its line; the marker is a style the page computes; a
       // step's file and state are its class and its inferred place.
-      /^cycle\.(mode|runningLabel|nowIso|windowEndIso|marker|refresh\.(fromIso|untilIso)|next\.startIso)$/.test(
+      /^cycle\.(mode|runningLabel|nowIso|windowEndIso|staleAfterIso|marker|refresh\.(fromIso|untilIso)|next\.startIso)$/.test(
         p,
       ) ||
       /^cycle\.steps\[[a-z]+\]\.(file|state)$/.test(p) ||

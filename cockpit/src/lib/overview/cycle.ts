@@ -53,6 +53,10 @@ export type CycleView = {
   marker: number | null;
   /** When the page should re-read every 2 minutes: [fromIso, untilIso). */
   refresh: { fromIso: string; untilIso: string };
+  /** The instant from which this view is wrong, so the page re-reads it at once and
+   *  every 2 minutes until a fresh one replaces it: the window's end while running,
+   *  the next start otherwise (P1-87 PR 5a, decision 5). */
+  staleAfterIso: string;
   /** The instant the view was made for, and the end of the run's window: the page
    *  moves the marker with its own clock from these (decision 2). */
   nowIso: string;
@@ -275,6 +279,7 @@ export function cycleView(
     next,
     marker: mode === "running" ? null : markerAt({ next }, windowEndIso, nowMs),
     refresh,
+    staleAfterIso: mode === "running" ? windowEndIso : next.startIso,
     nowIso: now.toISOString(),
     windowEndIso,
   };

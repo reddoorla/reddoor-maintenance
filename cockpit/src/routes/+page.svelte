@@ -27,7 +27,10 @@
   // P1-87 PR 5a: the nightly bar's clock. Until the page mounts, the view's own instant
   // is the clock, so the server render says what the view says; then the clock moves the
   // marker once a minute and the bar re-reads the snapshot while the run is writing.
+  // The view is made on the server's clock, so the page's clock carries the offset
+  // between the two, read once at mount (P1-87 PR 5a, review round 1).
   let clock = $state<number | null>(null);
+  let offsetMs = 0;
   const nowMs = $derived(clock ?? Date.parse(v.cycle.nowIso));
   const marker = $derived(
     v.cycle.marker === null
@@ -38,11 +41,16 @@
   );
   const cycleRunning = $derived(v.cycle.steps.some((x) => x.state === "running"));
   onMount(() => {
-    clock = Date.now();
+    offsetMs = Date.parse(v.cycle.nowIso) - Date.now();
+    clock = Date.now() + offsetMs;
     const cycle = startCycleClock({
       getView: () => v.cycle,
-      nowMs: () => Date.now(),
+      nowMs: () => Date.now() + offsetMs,
       isVisible: () => document.visibilityState === "visible",
+      listenVisible: (handler) => {
+        document.addEventListener("visibilitychange", handler);
+        return () => document.removeEventListener("visibilitychange", handler);
+      },
       invalidate: () => invalidate("cockpit:snapshot"),
       onTick: (t) => {
         clock = t;
