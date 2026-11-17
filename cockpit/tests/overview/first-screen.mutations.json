@@ -1045,9 +1045,7 @@
         "replace": ".ov-check-bar {\n"
       }
     ],
-    "test": [
-      "tests/cockpit/snapshot-navigation.test.ts"
-    ],
+    "test": ["tests/cockpit/snapshot-navigation.test.ts"],
     "expect": "red"
   },
   {
@@ -1060,10 +1058,7 @@
         "replace": "const f = windowFigure(nights, pick, now, expectedNight(now));"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts",
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -1076,9 +1071,7 @@
         "replace": "const deps = windowFigure(s.nights, eventTotal(\"pr_automerged\"), now);"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -1091,9 +1084,7 @@
         "replace": "const shipped = windowFigure(s.nights, (c) => c.prsMerged.value, now);"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -1106,9 +1097,7 @@
         "replace": "const measured = nights.filter((n) => typeof pick(n.counts) === \"number\");"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -1121,9 +1110,7 @@
         "replace": "export const OVERVIEW_NIGHTS = 31;"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -1136,9 +1123,7 @@
         "replace": "nights.filter((n) => n.night < lastNight)"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -1151,9 +1136,7 @@
         "replace": "return \"noVerdict\";"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -1166,9 +1149,7 @@
         "replace": "return { ok: null, text: \"No deploy recorded\", fresh: false };"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -1181,9 +1162,7 @@
         "replace": "{#if c.notChecked > 0}"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -1196,9 +1175,7 @@
         "replace": "{#if c.pass < c.total}"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -1211,9 +1188,7 @@
         "replace": ""
       }
     ],
-    "test": [
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -1226,9 +1201,7 @@
         "replace": "const { words, term } = KIND[l.kind === \"launching\" ? \"other\" : \"launching\"];"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -1241,10 +1214,7 @@
         "replace": "term: \"Watch\",\n      href: toGroup(\"watch\"),"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts",
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -1257,10 +1227,7 @@
         "replace": "for your yes.`,\n      term: \"Waiting for approval\","
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts",
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -1273,10 +1240,7 @@
         "replace": "sampled.`,\n          term: \"Live sampling\","
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts",
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -1289,9 +1253,7 @@
         "replace": ""
       }
     ],
-    "test": [
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -1304,9 +1266,7 @@
         "replace": "The dark part is the sites that pass."
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -1319,9 +1279,7 @@
         "replace": "for the scan. A result older"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
     "expect": "red"
   }
 ]
