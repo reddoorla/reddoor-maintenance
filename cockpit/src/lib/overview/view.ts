@@ -2270,6 +2270,8 @@ export function latelyView(
   if (s.submissions === null) unreadable.push("leads");
   if (s.nights === null) unreadable.push("the nightly");
   const since = now.getTime() - RECENT_EVENTS_DAYS * DAY_MS;
+  // A report or lead names its site as the leads panel does: a site no longer listed.
+  const siteOf = (id: string): string => siteName(id) ?? "A site no longer listed";
   const found: Array<{ t: number; rank: number; line: LatelyLine }> = [];
   const push = (iso: string, text: string, site: string | null, rank: number) => {
     const t = Date.parse(iso);
@@ -2290,7 +2292,7 @@ export function latelyView(
   for (const r of s.reports ?? []) {
     if (r.sentAt === null || r.withdrawnAt !== null || isTestSend(r)) continue;
     if (named.has(r.reportId)) continue;
-    push(r.sentAt, `${r.reportType} report sent`, siteName(r.siteId), 1);
+    push(r.sentAt, `${r.reportType} report sent`, siteOf(r.siteId), 1);
   }
   // Leads delivered (rank 2): one line per site per Pacific day, at its newest. A lead
   // outside the window is dropped before it is grouped, and the day is dated, so a
@@ -2312,7 +2314,7 @@ export function latelyView(
     delivered.set(key, g);
   }
   for (const g of delivered.values())
-    push(g.newest, g.n === 1 ? "Lead delivered" : `${g.n} leads delivered`, siteName(g.siteId), 2);
+    push(g.newest, g.n === 1 ? "Lead delivered" : `${g.n} leads delivered`, siteOf(g.siteId), 2);
   // The nightly (rank 3): the newest night expected by now, one line per step with a result.
   const expected = expectedNight(now);
   const night = (s.nights ?? []).find((n) => n.night <= expected);

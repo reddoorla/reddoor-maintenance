@@ -1485,6 +1485,13 @@ describe("the Lately feed on the page (P1-87 PR 4)", () => {
     );
   });
 
+  it("renders a nightly line as its time and text, with no site and no '· null'", () => {
+    const html = pageHtml(overviewFromSnapshot(snapshot({ nights: [night("2026-10-26")] }), NOW));
+    const first = parse(html).querySelector(".ov-lately ol > li")!;
+    expect(text(first)).toBe("Mon 11:07pm Nightly run: 8 of 8 steps ran to the end");
+    expect(html).not.toContain("· null");
+  });
+
   it("says which sources could not be read, and never 'Nothing recorded' over them", () => {
     const failed = parse(
       pageHtml(

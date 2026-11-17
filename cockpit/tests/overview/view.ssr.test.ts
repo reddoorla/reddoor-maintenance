@@ -7,6 +7,7 @@ import {
   LADDER_LINES,
   NIGHTLY_STEPS,
   NOT_YET,
+  latelyView,
   UNREADABLE,
   expectedNight,
   launchingNote,
@@ -2980,7 +2981,7 @@ describe("the Lately feed (P1-87 PR 4)", () => {
   it("makes one line for an override, without the reason typed on it", () => {
     const v = overviewFromSnapshot(
       snapshot({
-        sites: [healthy({ id: "recA", name: "Acme" })],
+        sites: [healthy({ id: "recA", name: "Acme" }), healthy({ id: "recB", name: "Bravo" })],
         reports: [
           report({
             id: "o",
@@ -2989,6 +2990,13 @@ describe("the Lately feed (P1-87 PR 4)", () => {
             sentAt: "2026-10-26T20:00:00.000Z",
             sendOverride: true,
             overrideReason: "SECRET-REASON-Z",
+          }),
+          report({
+            id: "n",
+            reportId: "REP-4",
+            reportType: "Testing",
+            siteId: "recB",
+            sentAt: "2026-10-26T21:00:00.000Z",
           }),
         ],
         feedEvents: [
@@ -3004,7 +3012,9 @@ describe("the Lately feed (P1-87 PR 4)", () => {
       }),
       NOW,
     );
+    // The override's own report is said by its event alone; another report still shows.
     expect(v.lately.lines.map((l) => [l.text, l.site])).toEqual([
+      ["Testing report sent", "Bravo"],
       ["Report sent with an override", "Acme"],
     ]);
     expect(JSON.stringify(v.lately.lines)).not.toContain("SECRET-REASON-Z");
@@ -3136,6 +3146,62 @@ describe("the Lately feed (P1-87 PR 4)", () => {
         ["Mon 11:00am", "Lead delivered", "Acme"],
       ]);
     });
+  });
+
+  it("says a site no longer listed for a report or a lead, and keeps an event's stored name", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [healthy({ id: "recA", name: "Acme" })],
+        feedEvents: [
+          event({
+            id: "old",
+            ts: "2026-10-27T09:00:00.000Z",
+            siteId: "recA",
+            siteName: "Acme (old)",
+          }),
+          event({
+            id: "gone",
+            ts: "2026-10-27T08:00:00.000Z",
+            siteId: "recX",
+            siteName: "Gone Co",
+          }),
+        ],
+        reports: [
+          report({
+            id: "rg",
+            reportId: "REP-G",
+            siteId: "recX",
+            sentAt: "2026-10-27T07:00:00.000Z",
+          }),
+        ],
+        submissions: [
+          makeSubmissionRow({
+            siteId: "recX",
+            formType: "contact",
+            status: "new",
+            notifyStatus: "sent",
+            submittedAt: "2026-10-27T06:00:00.000Z",
+          }),
+        ],
+      }),
+      NOW,
+    );
+    expect(v.lately.lines.map((l) => [l.text, l.site])).toEqual([
+      ["Dependency update merged", "Acme"],
+      ["Dependency update merged", "Gone Co"],
+      ["Maintenance report sent", "A site no longer listed"],
+      ["Lead delivered", "A site no longer listed"],
+    ]);
+    // With no sites list at all, every report and lead names its site as gone.
+    const nul = latelyView(
+      snapshot({
+        sites: null,
+        reports: [report({ id: "rn", reportId: "REP-N", sentAt: "2026-10-27T07:00:00.000Z" })],
+      }),
+      () => null,
+      NOW,
+    );
+    expect(nul.lines.map((l) => l.site)).toEqual(["A site no longer listed"]);
   });
 
   it("names every source whose read failed, and shows no 'Nothing recorded' over them", () => {

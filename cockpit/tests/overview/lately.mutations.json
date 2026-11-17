@@ -271,5 +271,57 @@
     ],
     "test": ["cockpit/tests/overview/view.ssr.test.ts"],
     "expect": "red"
+  },
+  {
+    "id": "22-override-dedupe-drops-all",
+    "why": "The override dedupe hides every report when any override exists",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    if (named.has(r.reportId)) continue;",
+        "replace": "    if (named.size > 0) continue;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "23-report-type-hard-coded",
+    "why": "A report's line says Maintenance whatever its type",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "push(r.sentAt, `${r.reportType} report sent`, siteOf(r.siteId), 1);",
+        "replace": "push(r.sentAt, `Maintenance report sent`, siteOf(r.siteId), 1);"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "24-stored-event-name-preferred",
+    "why": "An event's stored site name beats the site's current name",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "(e.siteId === null ? null : siteName(e.siteId)) ?? e.siteName,",
+        "replace": "e.siteName ?? (e.siteId === null ? null : siteName(e.siteId)),"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "25-null-site-rendered",
+    "why": "The page renders a separator and 'null' for a line with no site",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "{l.site === null ? \"\" : ` · ${l.site}`}",
+        "replace": "{` · ${l.site}`}"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
   }
 ]
