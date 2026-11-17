@@ -1110,7 +1110,7 @@ describe("the first screen's bars and launching line (P1-87 PR 3, round 1)", () 
     // SNAP's Accessibility: no scan on any of its three sites, so none passes and all three
     // are not checked: the pass fill is empty and the grey part spans the whole track.
     const acc = DOC.querySelectorAll(".ov-check")[5]!;
-    expect(acc.querySelector(".ov-check-fill")!.getAttribute("style")).toBe("width: 0%");
+    expect(acc.querySelector(".ov-check-fill")).toBeNull();
     expect(acc.querySelector(".ov-check-unknown")!.getAttribute("style")).toBe(
       "left: 0%; width: 100%",
     );
@@ -1329,6 +1329,30 @@ describe("review round 3: the grey part covers all three unknown kinds (group C,
     expect(text(form.querySelector(".ov-check-count")!)).toBe(
       "0 of 3 · 1 test failed, not yet a verdict · 1 no verdict · 1 not checked",
     );
+  });
+});
+
+describe("review round 3: no zero-width parts on a check bar (group D, tests minor 6)", () => {
+  // Under forced colours a 0%-wide bordered span still draws a 4px mark, so a part with no
+  // sites is not rendered at all (review round 3, correctness and tests minor 6).
+  const healthyOnly = parse(
+    pageHtml(overviewFromSnapshot(snapshot({ sites: [healthy({ id: "z", name: "Zed" })] }), NOW)),
+  );
+  const rowNamed = (doc: HTMLElement, name: string) =>
+    doc.querySelectorAll(".ov-check").find((r) => text(r).startsWith(name))!;
+
+  it("a row with no site passing has no fill span: the accessibility row of DOC", () => {
+    const acc = DOC.querySelectorAll(".ov-check")[5]!;
+    expect(text(acc)).toMatch(/^Accessibility 0 of 3/);
+    expect(acc.querySelector(".ov-check-fill")).toBeNull();
+    expect(acc.querySelector(".ov-check-unknown")).not.toBeNull();
+  });
+
+  it("a row with every site passing has no grey part", () => {
+    const live = rowNamed(healthyOnly, "Live");
+    expect(text(live)).toMatch(/^Live 1 of 1/);
+    expect(live.querySelector(".ov-check-fill")!.getAttribute("style")).toBe("width: 100%");
+    expect(live.querySelector(".ov-check-unknown")).toBeNull();
   });
 });
 

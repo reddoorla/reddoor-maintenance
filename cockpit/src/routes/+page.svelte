@@ -78,15 +78,15 @@
         <li class="ov-check">
           <span class="ov-check-name">{c.name}</span>
           <span class="ov-check-bar" aria-hidden="true"
-            ><span
-              class="ov-check-fill"
-              style="width: {c.total === 0 ? 0 : (100 * c.pass) / c.total}%"
-            ></span><span
-              class="ov-check-unknown"
-              style="left: {c.total === 0 ? 0 : (100 * c.pass) / c.total}%; width: {c.total === 0
-                ? 0
-                : (100 * c.unknown) / c.total}%"
-            ></span></span
+            >{#if c.pass > 0}<span
+                class="ov-check-fill"
+                style="width: {(100 * c.pass) / c.total}%"
+              ></span>{/if}{#if c.unknown > 0}<span
+                class="ov-check-unknown"
+                style="left: {c.total === 0 ? 0 : (100 * c.pass) / c.total}%; width: {(100 *
+                  c.unknown) /
+                  c.total}%"
+              ></span>{/if}</span
           >
           <span class="ov-check-count"
             >{c.pass}{" "}<span class="visually-hidden">of {c.total}</span>{c.fail > 0
