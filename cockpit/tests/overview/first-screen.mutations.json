@@ -804,7 +804,7 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "const dated = nights.filter((n) => n.night <= expected);",
+        "find": "const dated = lastNight === undefined ? nights : nights.filter((n) => n.night <= lastNight);",
         "replace": "const dated = nights;"
       }
     ],
@@ -1033,6 +1033,21 @@
       }
     ],
     "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "80-fill-escapes-track-browser-only",
+    "why": "(round 4, tests M1) With a fill drawn for Acme, an unpositioned bar lets the fill escape its track: the browser test alone must see it",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-check-bar {\n  position: relative;\n",
+        "replace": ".ov-check-bar {\n"
+      }
+    ],
+    "test": [
+      "tests/cockpit/snapshot-navigation.test.ts"
+    ],
     "expect": "red"
   }
 ]
