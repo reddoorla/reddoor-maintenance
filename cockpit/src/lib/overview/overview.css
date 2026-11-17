@@ -218,7 +218,7 @@ section {
   display: flex;
   gap: 0.6rem;
   padding: 0.3rem 0;
-  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
   font-size: 0.9rem;
 }
 .ov-lately li > span {
@@ -238,6 +238,10 @@ section {
   padding: 1rem 1.25rem;
   background: var(--surface);
   min-width: 0;
+}
+/* A long feed grows only its own panel, not the row it shares with the other two. */
+.ov-lately {
+  align-self: start;
 }
 /* The panel headings: the cockpit's kicker style (.feed-group-label). */
 .ov-first h2 {

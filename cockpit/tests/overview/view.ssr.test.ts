@@ -3204,6 +3204,24 @@ describe("the Lately feed (P1-87 PR 4)", () => {
     expect(nul.lines.map((l) => l.site)).toEqual(["A site no longer listed"]);
   });
 
+  it("stamps a line six or more days old with its date, and a newer one with its weekday", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        feedEvents: [
+          event({ id: "d5", ts: "2026-10-22T19:00:00.000Z" }),
+          event({ id: "d6", ts: "2026-10-21T19:00:00.000Z" }),
+          event({ id: "d7", ts: "2026-10-20T19:00:00.000Z" }),
+        ],
+      }),
+      NOW,
+    );
+    expect(v.lately.lines.map((l) => l.when)).toEqual([
+      "Thu 12:00pm",
+      "Wed Oct 21, 12:00pm",
+      "Tue Oct 20, 12:00pm",
+    ]);
+  });
+
   it("names every source whose read failed, and shows no 'Nothing recorded' over them", () => {
     const v = overviewFromSnapshot(
       snapshot({

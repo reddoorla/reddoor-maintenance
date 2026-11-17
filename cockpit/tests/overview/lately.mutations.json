@@ -313,12 +313,64 @@
   },
   {
     "id": "25-null-site-rendered",
-    "why": "The page renders a separator and 'null' for a line with no site",
+    "why": "The page renders the separator and the site for a line with no site ('null')",
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "{l.site === null ? \"\" : ` · ${l.site}`}",
-        "replace": "{` · ${l.site}`}"
+        "find": "{#if l.site !== null}",
+        "replace": "{#if true}"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "26-weekday-alone-when-old",
+    "why": "A line six or more days old keeps its weekday alone, so two Mondays read alike",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "if (days < LATELY_DATED_DAYS) return",
+        "replace": "if (days < 1e9) return"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "27-feed-stretches-its-row",
+    "why": "The feed stretches the row it shares with the other two panels",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-lately {\n  align-self: start;\n}",
+        "replace": ".ov-lately {\n  align-self: stretch;\n}"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "28-rule-above-each-line",
+    "why": "The rule is drawn above each line, not under every line",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "  border-bottom: 1px solid var(--rule);\n  font-size: 0.9rem;",
+        "replace": "  border-top: 1px solid var(--rule);\n  font-size: 0.9rem;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "29-separator-read-aloud",
+    "why": "The separator dot is read by a screen reader",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "<span aria-hidden=\"true\">{\" · \"}</span>",
+        "replace": "<span>{\" · \"}</span>"
       }
     ],
     "test": ["cockpit/tests/overview/page.ssr.test.ts"],

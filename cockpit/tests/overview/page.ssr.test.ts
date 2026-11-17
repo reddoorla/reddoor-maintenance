@@ -1480,8 +1480,9 @@ describe("the Lately feed on the page (P1-87 PR 4)", () => {
     expect(VIEW.lately.lines.length).toBeGreaterThan(0);
     const times = DOC.querySelectorAll(".ov-lately li time").map((t) => t.getAttribute("datetime"));
     expect(times).toEqual(VIEW.lately.lines.map((l) => l.atIso));
+    // The comma is for a screen reader only: the page's text reads it as a visually hidden ", ".
     expect(text(lines[0]!)).toBe(
-      `${VIEW.lately.lines[0]!.when} ${VIEW.lately.lines[0]!.text} · ${VIEW.lately.lines[0]!.site}`,
+      `${VIEW.lately.lines[0]!.when} ${VIEW.lately.lines[0]!.text} · , ${VIEW.lately.lines[0]!.site}`,
     );
   });
 
@@ -1490,6 +1491,26 @@ describe("the Lately feed on the page (P1-87 PR 4)", () => {
     const first = parse(html).querySelector(".ov-lately ol > li")!;
     expect(text(first)).toBe("Mon 11:07pm Nightly run: 8 of 8 steps ran to the end");
     expect(html).not.toContain("· null");
+  });
+
+  it("shows the separator to a reader as a dot, and to a screen reader as a comma", () => {
+    const sep = DOC.querySelector(".ov-lately li span[aria-hidden='true']")!;
+    expect(sep.textContent).toBe(" · ");
+    const comma = DOC.querySelector(".ov-lately li span.visually-hidden")!;
+    expect(comma.textContent).toBe(", ");
+  });
+
+  it("pins the panel's own rules: the feed does not stretch its row, and each line is ruled below", () => {
+    const css = readFileSync(
+      new URL("../../src/lib/overview/overview.css", import.meta.url),
+      "utf8",
+    ).replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(css).toMatch(/\.ov-lately\s*\{[^}]*align-self:\s*start/);
+    const liRule = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].find(
+      ([, sel]) => sel!.trim() === ".ov-lately li",
+    )![2]!;
+    expect(liRule).toMatch(/border-bottom:\s*1px solid var\(--rule\)/);
+    expect(liRule).not.toMatch(/border-top/);
   });
 
   it("says which sources could not be read, and never 'Nothing recorded' over them", () => {

@@ -153,7 +153,11 @@
         {#each v.lately.lines as l, i (i)}
           <li>
             <time datetime={l.atIso}>{l.when}</time>
-            <span>{l.text}{l.site === null ? "" : ` · ${l.site}`}</span>
+            <span
+              >{l.text}{#if l.site !== null}<span aria-hidden="true">{" · "}</span><span
+                  class="visually-hidden">{", "}</span
+                >{l.site}{/if}</span
+            >
           </li>
         {/each}
       </ol>

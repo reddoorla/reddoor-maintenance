@@ -2232,11 +2232,33 @@ const LATELY_WHEN = new Intl.DateTimeFormat("en-US", {
   hour12: true,
 });
 
-/** "Sun 11:45pm": the weekday and the time, Pacific, as the sketch has it. */
-function latelyWhen(iso: string): string {
-  const parts = LATELY_WHEN.formatToParts(new Date(iso));
+/** "Nov 9", for a line old enough that its weekday alone would repeat within the feed. */
+const LATELY_DATE = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Los_Angeles",
+  month: "short",
+  day: "numeric",
+});
+
+/** Lines this many Pacific days old or more carry their date: a 7-day window holds two
+ *  days with each weekday, so "Mon" alone reads the same at both ends. */
+const LATELY_DATED_DAYS = 6;
+
+/** "Sun 11:45pm": the weekday and the time, Pacific, as the sketch has it; from
+ *  `LATELY_DATED_DAYS` before `now`, "Mon Nov 9, 6:07pm". */
+function latelyWhen(iso: string, now: Date): string {
+  const at = new Date(iso);
+  const parts = LATELY_WHEN.formatToParts(at);
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
-  return `${get("weekday")} ${get("hour")}:${get("minute")}${get("dayPeriod").toLowerCase()}`;
+  const time = `${get("hour")}:${get("minute")}${get("dayPeriod").toLowerCase()}`;
+  const days = Math.round(
+    (Date.parse(`${pacificYmd(now)}T00:00:00Z`) - Date.parse(`${pacificYmd(at)}T00:00:00Z`)) /
+      DAY_MS,
+  );
+  if (days < LATELY_DATED_DAYS) return `${get("weekday")} ${time}`;
+  const date = LATELY_DATE.formatToParts(at)
+    .map((p) => p.value)
+    .join("");
+  return `${get("weekday")} ${date}, ${time}`;
 }
 
 /** The `reportId` an event names in its detail, when it names one. */
@@ -2276,7 +2298,7 @@ export function latelyView(
   const push = (iso: string, text: string, site: string | null, rank: number) => {
     const t = Date.parse(iso);
     if (!Number.isFinite(t) || t < since) return;
-    found.push({ t, rank, line: { atIso: iso, when: latelyWhen(iso), text, site } });
+    found.push({ t, rank, line: { atIso: iso, when: latelyWhen(iso, now), text, site } });
   };
   // Events (rank 0). An override's report is said by its event alone (rank 1 skips it).
   const events = (s.feedEvents ?? []).filter((e) => e.type !== "fleet_swept");
@@ -2551,6 +2573,6 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Lately",
-    text: "The newest 8 lines from the last 7 days, Pacific time: fleet events (a dependency update merged, a vulnerability cleared, a certificate renewed, and the like), reports sent, leads delivered, and the newest night's steps. A lead line names its site and how many, never who sent it. The nightly is one line saying how many of its steps ran to the end, and each step that did not has its own line after it; a sweep is shown only as those steps. A test send and a withdrawn report are not listed. When a source could not be read, the panel says so, and does not read as nothing recorded.",
+    text: "The newest 8 lines from the last 7 days, Pacific time: fleet events (a dependency update merged, a vulnerability cleared, a certificate renewed, and the like), reports sent, leads delivered, and the newest night's steps. A lead line names its site and how many, never who sent it. The nightly is one line saying how many of its steps ran to the end, and each step that did not has its own line after it; a sweep is shown only as those steps. A line six or more days old carries its date (Wed Oct 21, 12:00pm), so two days with the same weekday never read alike. A test send and a withdrawn report are not listed. When a source could not be read, the panel says so, and does not read as nothing recorded.",
   },
 ];
