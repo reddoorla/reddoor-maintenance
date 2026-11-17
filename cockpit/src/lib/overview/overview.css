@@ -181,8 +181,9 @@ section {
   font-size: 0.85rem;
 }
 
-/* P1-87 PR 3: the first screen, as sketch 3. Two cards side by side from 60rem (a third
-   column, Lately, comes later), stacked below. Tokens only; red is for Broken alone. */
+/* P1-87 PR 3, PR 4: the first screen, as sketch 3. Two cards side by side from 60rem, with
+   Lately (PR 4) across both below them; three columns from 75rem, stacked below 60rem.
+   Tokens only; red is for Broken alone. */
 .ov-first {
   display: grid;
   grid-template-columns: 1fr;
@@ -193,13 +194,60 @@ section {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: stretch;
   }
+  .ov-lately {
+    grid-column: 1 / -1;
+  }
+}
+@media (min-width: 75rem) {
+  .ov-first {
+    /* Health keeps its check bars wide (over 100px at 1280px, measured); the plan's 1.2fr
+       left them at 65px. Each panel is its own height: a long feed does not stretch the
+       other two (P1-87 PR 4, review round 2). */
+    grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 0.9fr);
+    align-items: start;
+  }
+  .ov-lately {
+    grid-column: auto;
+  }
+}
+/* Lately: the newest lines, the time first, tabular so the times line up. */
+.ov-lately ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ov-lately li {
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: 0.9rem;
+}
+.ov-lately li > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* The time is a fixed column that wraps after the date; each span keeps its own words whole. */
+.ov-lately time {
+  flex: 0 0 6rem;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: normal;
+}
+.ov-lately time > span {
+  white-space: nowrap;
 }
 .ov-health,
-.ov-happening {
+.ov-happening,
+.ov-lately {
   margin: 0;
   padding: 1rem 1.25rem;
   background: var(--surface);
   min-width: 0;
+}
+/* A long feed grows only its own panel, not the row it shares with the other two. */
+.ov-lately {
+  align-self: start;
 }
 /* The panel headings: the cockpit's kicker style (.feed-group-label). */
 .ov-first h2 {

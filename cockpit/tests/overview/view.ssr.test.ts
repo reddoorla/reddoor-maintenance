@@ -7,6 +7,7 @@ import {
   LADDER_LINES,
   NIGHTLY_STEPS,
   NOT_YET,
+  latelyView,
   UNREADABLE,
   expectedNight,
   launchingNote,
@@ -30,7 +31,7 @@ import { A11Y_STALE_DAYS, PRODUCTION_STALE_DAYS } from "../../../src/alerts/prod
  * Every number it shows is pinned here against fixture rows.
  */
 
-import { NOW, FRESH, STALE, healthy, report, night, snapshot } from "./fixtures.js";
+import { NOW, FRESH, STALE, event, healthy, report, night, snapshot } from "./fixtures.js";
 import type { CockpitSnapshot } from "../../../src/dashboard/snapshot-views.js";
 
 describe("section 1: the one-line status", () => {
@@ -2854,5 +2855,710 @@ describe("review round 2: the spam tile's context when the stopped count is unme
     ).numbers.find((t) => t.key === "spam")!;
     expect(spam.measured).toBe(false);
     expect(spam.context ?? "").not.toContain("more screened");
+  });
+});
+
+/** P1-87 PR 4: the Lately feed, first version (plan pr4-lately-feed-plan.md). */
+describe("the Lately feed (P1-87 PR 4)", () => {
+  it("makes one line from each source, in Pacific time, naming the site", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [healthy({ id: "recA", name: "Acme" })],
+        feedEvents: [
+          event({ ts: "2026-10-27T10:00:00.000Z", type: "pr_automerged", siteName: "Acme" }),
+        ],
+        reports: [
+          report({
+            id: "r1",
+            reportId: "REP-1",
+            reportType: "Maintenance",
+            siteId: "recA",
+            sentAt: "2026-10-26T20:00:00.000Z",
+            approvedBy: "op@example.com",
+          }),
+        ],
+        submissions: [
+          makeSubmissionRow({
+            siteId: "recA",
+            formType: "contact",
+            status: "new",
+            notifyStatus: "sent",
+            submittedAt: "2026-10-26T18:00:00.000Z",
+          }),
+        ],
+      }),
+      NOW,
+    );
+    expect(v.lately.lines.map((l) => [l.when, l.text, l.site])).toEqual([
+      ["Tue 3:00am", "Dependency update merged", "Acme"],
+      ["Mon 1:00pm", "Maintenance report sent", "Acme"],
+      ["Mon 11:00am", "Lead delivered", "Acme"],
+    ]);
+    expect(v.lately.lines[0]!.atIso).toBe("2026-10-27T10:00:00.000Z");
+  });
+
+  it("never carries a lead's name, email, phone, message, extra fields, source or utm", () => {
+    const sub = makeSubmissionRow({
+      siteId: "recA",
+      formType: "contact",
+      status: "new",
+      notifyStatus: "sent",
+      submittedAt: FRESH,
+      name: "SENTINEL-NAME-Q",
+      email: "SENTINEL-EMAIL-Q@example.test",
+      phone: "SENTINEL-PHONE-Q",
+      message: "SENTINEL-MESSAGE-Q",
+      extraFields: '{"k":"SENTINEL-EXTRA-Q"}',
+      sourceUrl: "https://SENTINEL-SOURCE-Q.example.test/",
+      utm: "SENTINEL-UTM-Q",
+    });
+    const v = overviewFromSnapshot(
+      snapshot({ sites: [healthy({ id: "recA", name: "Acme" })], submissions: [sub] }),
+      NOW,
+    );
+    expect(v.lately.lines.map((l) => l.text)).toEqual(["Lead delivered"]);
+    const json = JSON.stringify(v.lately.lines);
+    for (const sentinel of [
+      "SENTINEL-NAME-Q",
+      "SENTINEL-EMAIL-Q",
+      "SENTINEL-PHONE-Q",
+      "SENTINEL-MESSAGE-Q",
+      "SENTINEL-EXTRA-Q",
+      "SENTINEL-SOURCE-Q",
+      "SENTINEL-UTM-Q",
+    ])
+      expect(json).not.toContain(sentinel);
+  });
+
+  it("shows no fleet_swept row, even when the feed holds 30 of them", () => {
+    const sweeps = Array.from({ length: 30 }, (_, i) =>
+      event({
+        id: `sweep-${i}`,
+        type: "fleet_swept",
+        siteId: null,
+        siteName: null,
+        ts: `2026-10-27T11:${String(i).padStart(2, "0")}:00.000Z`,
+        summary: `Swept ${i}`,
+      }),
+    );
+    const others = [
+      event({ id: "o1", type: "pr_automerged", ts: "2026-10-27T09:00:00.000Z", summary: "a" }),
+      event({ id: "o2", type: "vuln_cleared", ts: "2026-10-27T08:00:00.000Z", summary: "b" }),
+      event({ id: "o3", type: "cert_renewed", ts: "2026-10-27T07:00:00.000Z", summary: "c" }),
+    ];
+    const v = overviewFromSnapshot(snapshot({ feedEvents: [...sweeps, ...others] }), NOW);
+    expect(v.lately.lines.map((l) => l.text)).toEqual([
+      "Dependency update merged",
+      "Vulnerability cleared",
+      "Certificate renewed",
+    ]);
+    const lone = overviewFromSnapshot(
+      snapshot({ feedEvents: [event({ type: "fleet_swept", siteId: null, siteName: null })] }),
+      NOW,
+    );
+    expect(lone.lately.lines).toEqual([]);
+  });
+
+  it("makes no line for a test send or a withdrawn report", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        reports: [
+          report({ id: "t", reportId: "REP-T", approvedBy: "Test send via Claude", sentAt: FRESH }),
+          report({
+            id: "w",
+            reportId: "REP-W",
+            sentAt: FRESH,
+            withdrawnAt: FRESH,
+            withdrawnBy: "op@example.com",
+          }),
+        ],
+      }),
+      NOW,
+    );
+    expect(v.lately.lines).toEqual([]);
+  });
+
+  it("makes one line for an override, without the reason typed on it", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [healthy({ id: "recA", name: "Acme" }), healthy({ id: "recB", name: "Bravo" })],
+        reports: [
+          report({
+            id: "o",
+            reportId: "REP-3",
+            siteId: "recA",
+            sentAt: "2026-10-26T20:00:00.000Z",
+            sendOverride: true,
+            overrideReason: "SECRET-REASON-Z",
+          }),
+          report({
+            id: "n",
+            reportId: "REP-4",
+            reportType: "Testing",
+            siteId: "recB",
+            sentAt: "2026-10-26T21:00:00.000Z",
+          }),
+        ],
+        feedEvents: [
+          event({
+            id: "ov",
+            type: "report_sent_with_override",
+            ts: "2026-10-26T20:00:00.000Z",
+            siteName: "Acme",
+            summary: "sent with override — SECRET-REASON-Z",
+            data: { reportId: "REP-3", reason: "SECRET-REASON-Z", failing: [] },
+          }),
+        ],
+      }),
+      NOW,
+    );
+    // The override's own report is said by its event alone; another report still shows.
+    expect(v.lately.lines.map((l) => [l.text, l.site])).toEqual([
+      ["Testing report sent", "Bravo"],
+      ["Report sent with an override", "Acme"],
+    ]);
+    expect(JSON.stringify(v.lately.lines)).not.toContain("SECRET-REASON-Z");
+  });
+
+  it("lists the newest 8 lines, newest first, and drops anything older than 7 days", () => {
+    const hourly = Array.from({ length: 10 }, (_, i) =>
+      event({
+        id: `h${i}`,
+        ts: new Date(NOW.getTime() - i * 3_600_000).toISOString(),
+        summary: `hour ${i}`,
+      }),
+    );
+    const v = overviewFromSnapshot(snapshot({ feedEvents: hourly }), NOW);
+    expect(v.lately.lines).toHaveLength(8);
+    expect(v.lately.lines.map((l) => l.atIso)).toEqual(hourly.slice(0, 8).map((e) => e.ts));
+    const old = event({ ts: new Date(NOW.getTime() - 8 * 86_400_000).toISOString() });
+    expect(overviewFromSnapshot(snapshot({ feedEvents: [old] }), NOW).lately.lines).toEqual([]);
+  });
+
+  it("takes the nightly's lines from the night expected by now, before 6am too", () => {
+    const nights = [
+      night("2026-10-26", {
+        steps: { "fleet-db-backup.yml": { outcome: "completed", runId: 2, conclusion: "failure" } },
+      }),
+      night("2026-10-25", {
+        steps: { "fleet-db-backup.yml": { outcome: "completed", runId: 1, conclusion: "success" } },
+      }),
+    ];
+    const early = new Date("2026-10-27T12:00:00.000Z"); // 5:00am PT: last night is the 25th
+    expect(
+      overviewFromSnapshot(snapshot({ nights }), early).lately.lines.map((l) => l.text),
+    ).toEqual(["Nightly run: 1 of 1 step ran to the end"]);
+    // From 6am the night of the 26th is expected: one line, naming its one step that failed.
+    expect(overviewFromSnapshot(snapshot({ nights }), NOW).lately.lines.map((l) => l.text)).toEqual(
+      ["Nightly run: 0 of 1 step ran to the end (Backup: failed)"],
+    );
+  });
+
+  it("makes one nightly line when every step ran to the end, and none for a step with no result", () => {
+    const all = overviewFromSnapshot(snapshot({ nights: [night("2026-10-26")] }), NOW).lately.lines;
+    expect(all.map((l) => l.text)).toEqual(["Nightly run: 8 of 8 steps ran to the end"]);
+    expect(all[0]!.site).toBeNull();
+    expect(all[0]!.when).toBe("Mon 11:07pm");
+    // A night with no step results says nothing: a step with no result never reads "ran".
+    expect(
+      overviewFromSnapshot(snapshot({ nights: [night("2026-10-26", { steps: {} })] }), NOW).lately
+        .lines,
+    ).toEqual([]);
+  });
+
+  describe("leads delivered (P1-87 PR 4, review round 1 C)", () => {
+    const lead = (over: Partial<Parameters<typeof makeSubmissionRow>[0]> = {}) =>
+      makeSubmissionRow({
+        siteId: "recA",
+        formType: "contact",
+        status: "new",
+        notifyStatus: "sent",
+        ...over,
+      });
+    const sites = [healthy({ id: "recA", name: "Acme" }), healthy({ id: "recB", name: "Bravo" })];
+
+    it("counts two leads on one site and one Pacific day as one line, and a second site apart", () => {
+      const v = overviewFromSnapshot(
+        snapshot({
+          sites,
+          submissions: [
+            lead({ id: "a1", submittedAt: "2026-10-26T18:00:00.000Z" }),
+            lead({ id: "a2", submittedAt: "2026-10-26T20:00:00.000Z" }),
+            lead({ id: "b1", siteId: "recB", submittedAt: "2026-10-26T19:00:00.000Z" }),
+          ],
+        }),
+        NOW,
+      );
+      expect(v.lately.lines.map((l) => [l.when, l.text, l.site])).toEqual([
+        ["Mon 1:00pm", "2 leads delivered", "Acme"],
+        ["Mon 12:00pm", "Lead delivered", "Bravo"],
+      ]);
+    });
+
+    it("joins a lead at 06:30Z on the next UTC day to the same Pacific day", () => {
+      const v = overviewFromSnapshot(
+        snapshot({
+          sites,
+          submissions: [
+            lead({ id: "a1", submittedAt: "2026-10-26T18:00:00.000Z" }),
+            lead({ id: "a2", submittedAt: "2026-10-26T20:00:00.000Z" }),
+            lead({ id: "a3", submittedAt: "2026-10-27T06:30:00.000Z" }),
+          ],
+        }),
+        NOW,
+      );
+      expect(v.lately.lines.map((l) => [l.when, l.text, l.site])).toEqual([
+        ["Mon 11:30pm", "3 leads delivered", "Acme"],
+      ]);
+    });
+
+    it("counts neither an RSVP, nor a lead not notified, nor a lead marked spam", () => {
+      const v = overviewFromSnapshot(
+        snapshot({
+          sites,
+          submissions: [
+            lead({ id: "r1", formType: "rsvp", submittedAt: "2026-10-26T18:00:00.000Z" }),
+            lead({
+              id: "n1",
+              notifyStatus: "skipped",
+              submittedAt: "2026-10-26T18:00:00.000Z",
+            }),
+            lead({ id: "s1", status: "spam", submittedAt: "2026-10-26T18:00:00.000Z" }),
+          ],
+        }),
+        NOW,
+      );
+      expect(v.lately.lines).toEqual([]);
+    });
+
+    it("drops a lead outside the window before it groups, so a stale one never joins a fresh line", () => {
+      // NOW is Tue Oct 27, 11am PT; the window opens Tue Oct 20 at 11am PT (18:00Z).
+      const v = overviewFromSnapshot(
+        snapshot({
+          sites: [healthy({ id: "recA", name: "A" })],
+          submissions: [
+            lead({ id: "early", submittedAt: "2026-10-20T17:00:00.000Z" }),
+            lead({ id: "inside", submittedAt: "2026-10-20T21:00:00.000Z" }),
+          ],
+        }),
+        NOW,
+      );
+      expect(v.lately.lines.map((l) => [l.text, l.site])).toEqual([["Lead delivered", "A"]]);
+    });
+
+    it("never groups a lead on the same month and day a year earlier with this one", () => {
+      const v = overviewFromSnapshot(
+        snapshot({
+          sites,
+          submissions: [
+            lead({ id: "old", submittedAt: "2025-10-26T18:00:00.000Z" }),
+            lead({ id: "now", submittedAt: "2026-10-26T18:00:00.000Z" }),
+          ],
+        }),
+        NOW,
+      );
+      expect(v.lately.lines.map((l) => [l.when, l.text, l.site])).toEqual([
+        ["Mon 11:00am", "Lead delivered", "Acme"],
+      ]);
+    });
+  });
+
+  it("says a site no longer listed for a report or a lead, and keeps an event's stored name", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [healthy({ id: "recA", name: "Acme" })],
+        feedEvents: [
+          event({
+            id: "old",
+            ts: "2026-10-27T09:00:00.000Z",
+            siteId: "recA",
+            siteName: "Acme (old)",
+          }),
+          event({
+            id: "gone",
+            ts: "2026-10-27T08:00:00.000Z",
+            siteId: "recX",
+            siteName: "Gone Co",
+          }),
+        ],
+        reports: [
+          report({
+            id: "rg",
+            reportId: "REP-G",
+            siteId: "recX",
+            sentAt: "2026-10-27T07:00:00.000Z",
+          }),
+        ],
+        submissions: [
+          makeSubmissionRow({
+            siteId: "recX",
+            formType: "contact",
+            status: "new",
+            notifyStatus: "sent",
+            submittedAt: "2026-10-27T06:00:00.000Z",
+          }),
+        ],
+      }),
+      NOW,
+    );
+    expect(v.lately.lines.map((l) => [l.text, l.site])).toEqual([
+      ["Dependency update merged", "Acme"],
+      ["Dependency update merged", "Gone Co"],
+      ["Maintenance report sent", "A site no longer listed"],
+      ["Lead delivered", "A site no longer listed"],
+    ]);
+    // With no sites list at all, every report and lead names its site as gone.
+    const nul = latelyView(
+      snapshot({
+        sites: null,
+        reports: [report({ id: "rn", reportId: "REP-N", sentAt: "2026-10-27T07:00:00.000Z" })],
+      }),
+      () => null,
+      NOW,
+    );
+    expect(nul.lines.map((l) => l.site)).toEqual(["A site no longer listed"]);
+  });
+
+  it("stamps a line six or more days old with its date, and a newer one with its weekday", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        feedEvents: [
+          event({ id: "d5", ts: "2026-10-22T19:00:00.000Z" }),
+          event({ id: "d6", ts: "2026-10-21T19:00:00.000Z" }),
+          event({ id: "d7", ts: "2026-10-20T19:00:00.000Z" }),
+        ],
+      }),
+      NOW,
+    );
+    expect(v.lately.lines.map((l) => l.when)).toEqual([
+      "Thu 12:00pm",
+      "Wed Oct 21, 12:00pm",
+      "Tue Oct 20, 12:00pm",
+    ]);
+  });
+
+  it("puts a tie in source order: an event before a report at the same moment", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        feedEvents: [event({ id: "tie", type: "vuln_cleared", ts: "2026-10-27T10:00:00.000Z" })],
+        reports: [report({ id: "tr", reportId: "REP-TIE", sentAt: "2026-10-27T10:00:00.000Z" })],
+      }),
+      NOW,
+    );
+    expect(v.lately.lines.map((l) => l.text)).toEqual([
+      "Vulnerability cleared",
+      "Maintenance report sent",
+    ]);
+  });
+
+  it("names every source whose read failed, and shows no 'Nothing recorded' over them", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        gaps: ["feed events"],
+        feedEvents: [],
+        reports: null,
+        submissions: null,
+        nights: null,
+      }),
+      NOW,
+    );
+    expect(v.lately).toEqual({
+      lines: [],
+      unreadable: ["events", "reports", "leads", "the nightly"],
+    });
+  });
+
+  it("shows the sources that did read beside the one that failed", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [healthy({ id: "recA", name: "Acme" })],
+        feedEvents: [event({ id: "pa", type: "pr_automerged", ts: "2026-10-27T10:00:00.000Z" })],
+        reports: null,
+      }),
+      NOW,
+    );
+    expect(v.lately).toEqual({
+      lines: [expect.objectContaining({ text: "Dependency update merged" })],
+      unreadable: ["reports"],
+    });
+  });
+
+  it("reads 'Nothing recorded' only when every source read and none has a line", () => {
+    expect(overviewFromSnapshot(snapshot(), NOW).lately).toEqual({ lines: [], unreadable: [] });
+  });
+
+  it("keeps the three reports and the event of a clean night beside its one nightly line", () => {
+    // The round-1 scenario: Tue 11am PT, a clean night, three reports and a vulnerability cleared on Monday.
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [healthy({ id: "recA", name: "Acme" })],
+        nights: [night("2026-10-26")],
+        reports: [
+          report({ id: "m1", reportId: "REP-M1", sentAt: "2026-10-26T20:00:00.000Z" }),
+          report({
+            id: "t1",
+            reportId: "REP-T1",
+            reportType: "Testing",
+            sentAt: "2026-10-26T21:00:00.000Z",
+          }),
+          report({ id: "m2", reportId: "REP-M2", sentAt: "2026-10-26T22:00:00.000Z" }),
+        ],
+        feedEvents: [
+          event({
+            id: "vc",
+            type: "vuln_cleared",
+            ts: "2026-10-26T17:00:00.000Z",
+            siteName: "Acme",
+          }),
+        ],
+      }),
+      NOW,
+    );
+    expect(v.lately.lines.map((l) => [l.when, l.text, l.site])).toEqual([
+      ["Mon 11:07pm", "Nightly run: 8 of 8 steps ran to the end", null],
+      ["Mon 3:00pm", "Maintenance report sent", "Acme"],
+      ["Mon 2:00pm", "Testing report sent", "Acme"],
+      ["Mon 1:00pm", "Maintenance report sent", "Acme"],
+      ["Mon 10:00am", "Vulnerability cleared", "Acme"],
+    ]);
+  });
+
+  it("makes a night with two failed steps one line naming both, in step order", () => {
+    const steps: Record<string, unknown> = Object.fromEntries(
+      NIGHTLIES.map((n: { file: string }) => [
+        n.file,
+        { outcome: "completed", runId: 1, conclusion: "success" },
+      ]),
+    );
+    steps["fleet-db-backup.yml"] = { outcome: "completed", runId: 9, conclusion: "failure" };
+    steps["fleet-form-e2e.yml"] = { outcome: "completed", runId: 9, conclusion: "failure" };
+    const v = overviewFromSnapshot(
+      snapshot({ nights: [night("2026-10-26", { steps: steps as never })] }),
+      NOW,
+    );
+    expect(v.lately.lines.map((l) => [l.when, l.text, l.site])).toEqual([
+      [
+        "Mon 11:07pm",
+        "Nightly run: 6 of 8 steps ran to the end (Backup: failed; Live forms: failed)",
+        null,
+      ],
+    ]);
+  });
+
+  it("makes the night one line naming its first two steps that did not finish, and counts the rest", () => {
+    const all: Record<string, unknown> = Object.fromEntries(
+      NIGHTLIES.map((n: { file: string }) => [
+        n.file,
+        { outcome: "completed", runId: 9, conclusion: "failure" },
+      ]),
+    );
+    const nights = [night("2026-10-26", { steps: all as never })];
+    const feedEvents = [
+      event({ id: "ev8", type: "pr_automerged", ts: "2026-10-27T08:00:00.000Z" }),
+    ];
+    const v = overviewFromSnapshot(snapshot({ nights, feedEvents }), NOW);
+    expect(v.lately.lines.map((l) => [l.when, l.text])).toEqual([
+      ["Tue 1:00am", "Dependency update merged"],
+      [
+        "Mon 11:07pm",
+        "Nightly run: 0 of 8 steps ran to the end (Backup: failed; CMS check: failed; 6 more did not)",
+      ],
+    ]);
+    // A report sent Monday at 1pm PT still shows: the night is one line, not one per step.
+    const withReport = overviewFromSnapshot(
+      snapshot({
+        nights,
+        feedEvents,
+        reports: [report({ id: "m", reportId: "REP-M", sentAt: "2026-10-26T20:00:00.000Z" })],
+      }),
+      NOW,
+    );
+    expect(withReport.lately.lines.map((l) => [l.when, l.text])).toEqual([
+      ["Tue 1:00am", "Dependency update merged"],
+      [
+        "Mon 11:07pm",
+        "Nightly run: 0 of 8 steps ran to the end (Backup: failed; CMS check: failed; 6 more did not)",
+      ],
+      ["Mon 1:00pm", "Maintenance report sent"],
+    ]);
+  });
+
+  it("pins each outcome's words on the night's line: ran out of time, still running, could not start", () => {
+    const steps = (over: Record<string, unknown>) =>
+      Object.fromEntries(
+        NIGHTLIES.map((n: { file: string }) => [
+          n.file,
+          over[n.file] ?? { outcome: "completed", runId: 1, conclusion: "success" },
+        ]),
+      );
+    const timedAndRunning = overviewFromSnapshot(
+      snapshot({
+        nights: [
+          night("2026-10-26", {
+            steps: steps({
+              "fleet-db-backup.yml": { outcome: "completed", runId: 9, conclusion: "timed_out" },
+              "fleet-form-e2e.yml": { outcome: "running", runId: 9, conclusion: null },
+            }) as never,
+          }),
+        ],
+      }),
+      NOW,
+    );
+    expect(timedAndRunning.lately.lines.map((l) => l.text)).toEqual([
+      "Nightly run: 6 of 8 steps ran to the end (Backup: ran out of time; Live forms: still running when the night was written)",
+    ]);
+    const notStarted = overviewFromSnapshot(
+      snapshot({
+        nights: [
+          night("2026-10-26", {
+            steps: steps({
+              "fleet-security.yml": {
+                outcome: "failed",
+                runId: null,
+                conclusion: "dispatch-failed",
+                error: "x",
+              },
+            }) as never,
+          }),
+        ],
+      }),
+      NOW,
+    );
+    expect(notStarted.lately.lines.map((l) => l.text)).toEqual([
+      "Nightly run: 7 of 8 steps ran to the end (Security: could not start)",
+    ]);
+  });
+
+  it("counts a step with no result in neither figure, and never names it", () => {
+    const some = Object.fromEntries(
+      NIGHTLIES.slice(0, 3).map((n: { file: string }) => [
+        n.file,
+        n.file === "fleet-prismic-drift.yml"
+          ? { outcome: "completed", runId: 9, conclusion: "failure" }
+          : { outcome: "completed", runId: 1, conclusion: "success" },
+      ]),
+    );
+    const v = overviewFromSnapshot(
+      snapshot({ nights: [night("2026-10-26", { steps: some as never })] }),
+      NOW,
+    );
+    expect(v.lately.lines.map((l) => l.text)).toEqual([
+      "Nightly run: 2 of 3 steps ran to the end (CMS check: failed)",
+    ]);
+  });
+
+  it("counts days by Pacific calendar days, so 11:30pm six days back is dated", () => {
+    // NOW is 11am PT on Oct 27; 6:30Z on Oct 22 is 11:30pm PT on Oct 21, which is six days back.
+    const v = overviewFromSnapshot(
+      snapshot({ feedEvents: [event({ id: "late", ts: "2026-10-22T06:30:00.000Z" })] }),
+      NOW,
+    );
+    expect(v.lately.lines.map((l) => l.when)).toEqual(["Wed Oct 21, 11:30pm"]);
+  });
+
+  it("says each recorded event in its plain words, whatever its own summary says", () => {
+    const cases = [
+      ["pr_automerged", "Dependency update merged"],
+      ["vuln_cleared", "Vulnerability cleared"],
+      ["cert_renewed", "Certificate renewed"],
+      ["ci_recovered", "Build + tests back to passing"],
+      ["site_launched", "Site launched, now in our care"],
+      ["report_sent_with_override", "Report sent with an override"],
+    ] as const;
+    const v = overviewFromSnapshot(
+      snapshot({
+        feedEvents: cases.map(([type], i) =>
+          event({
+            id: `pw${i}`,
+            type: type as never,
+            ts: new Date(NOW.getTime() - i * 60_000).toISOString(),
+            summary: "SUMMARY-PLAIN",
+          }),
+        ),
+      }),
+      NOW,
+    );
+    expect(v.lately.lines.map((l) => l.text)).toEqual(cases.map(([, words]) => words));
+  });
+
+  it("says a site no longer listed for an event whose site is gone and whose stored name is blank", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [healthy({ id: "recA", name: "Acme" })],
+        feedEvents: [
+          event({ id: "bn", ts: "2026-10-27T09:00:00.000Z", siteId: "recX", siteName: null }),
+          event({ id: "be", ts: "2026-10-27T08:00:00.000Z", siteId: "recX", siteName: "" }),
+        ],
+      }),
+      NOW,
+    );
+    expect(v.lately.lines.map((l) => [l.text, l.site])).toEqual([
+      ["Dependency update merged", "A site no longer listed"],
+      ["Dependency update merged", "A site no longer listed"],
+    ]);
+  });
+
+  it("reads a blank stored site name as no name, and a real one as the site", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [healthy({ id: "recA", name: "Acme" })],
+        feedEvents: [
+          event({ id: "g1", ts: "2026-10-27T09:00:00.000Z", siteId: "recGone", siteName: "   " }),
+          event({ id: "n1", ts: "2026-10-27T08:00:00.000Z", siteId: null, siteName: "   " }),
+          event({ id: "n2", ts: "2026-10-27T07:00:00.000Z", siteId: null, siteName: "Fleet" }),
+          event({ id: "n3", ts: "2026-10-27T06:00:00.000Z", siteId: null, siteName: null }),
+        ],
+      }),
+      NOW,
+    );
+    expect(v.lately.lines.map((l) => [l.text, l.site])).toEqual([
+      ["Dependency update merged", "A site no longer listed"],
+      ["Dependency update merged", null],
+      ["Dependency update merged", "Fleet"],
+      ["Dependency update merged", null],
+    ]);
+  });
+
+  it("names the first two steps that did not finish, and counts a third as one more", () => {
+    const steps: Record<string, unknown> = Object.fromEntries(
+      NIGHTLIES.map((n: { file: string }) => [
+        n.file,
+        { outcome: "completed", runId: 1, conclusion: "success" },
+      ]),
+    );
+    steps["fleet-db-backup.yml"] = { outcome: "completed", runId: 9, conclusion: "failure" };
+    steps["fleet-prismic-drift.yml"] = { outcome: "completed", runId: 9, conclusion: "failure" };
+    steps["fleet-form-e2e.yml"] = { outcome: "completed", runId: 9, conclusion: "failure" };
+    const v = overviewFromSnapshot(
+      snapshot({ nights: [night("2026-10-26", { steps: steps as never })] }),
+      NOW,
+    );
+    expect(v.lately.lines.map((l) => [l.when, l.text])).toEqual([
+      [
+        "Mon 11:07pm",
+        "Nightly run: 5 of 8 steps ran to the end (Backup: failed; CMS check: failed; 1 more did not)",
+      ],
+    ]);
+  });
+
+  it("makes no line from an event whose date does not parse, and the page holds no 'Invalid'", () => {
+    const v = overviewFromSnapshot(
+      snapshot({ feedEvents: [event({ id: "bad", ts: "not a date" })] }),
+      NOW,
+    );
+    expect(v.lately.lines).toEqual([]);
+    expect(JSON.stringify(v)).not.toContain("Invalid");
+  });
+
+  it("keeps a row at exactly seven days old, and drops one a second older", () => {
+    const edge = new Date(NOW.getTime() - 7 * 86_400_000).toISOString();
+    const older = new Date(NOW.getTime() - 7 * 86_400_000 - 1000).toISOString();
+    const v = overviewFromSnapshot(
+      snapshot({
+        feedEvents: [event({ id: "edge", ts: edge }), event({ id: "older", ts: older })],
+      }),
+      NOW,
+    );
+    expect(v.lately.lines.map((l) => l.text)).toEqual(["Dependency update merged"]);
   });
 });

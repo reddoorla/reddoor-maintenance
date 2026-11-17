@@ -26,6 +26,7 @@ function snapshot(over: Partial<CockpitSnapshot> = {}): CockpitSnapshot {
     digest: {},
     rollup: null,
     recentEvents: [],
+    feedEvents: [],
     deadLetters: new Map(),
     deadLetterOldest: new Map(),
     submissions: [],

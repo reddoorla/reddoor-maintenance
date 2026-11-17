@@ -1,8 +1,10 @@
 import type { CockpitSnapshot } from "../../../../src/dashboard/snapshot-views.js";
 import {
+  RECENT_EVENTS_DAYS,
   cockpitModelFromSnapshot,
   storedStatus,
 } from "../../../../src/dashboard/snapshot-views.js";
+import type { FleetEvent } from "../../../../src/db/fleet-events.js";
 import type { CockpitModel, SiteCard, Tier } from "../../../../src/dashboard/fleet-cockpit.js";
 import {
   buildNeedsYouFeed,
@@ -128,6 +130,10 @@ const PACIFIC_DAY = new Intl.DateTimeFormat("en-US", {
 
 /** "Nov 2", the Pacific calendar day of an instant. */
 const pacificDay = (d: Date): string => PACIFIC_DAY.format(d);
+
+/** "2026-11-02", the Pacific calendar day of an instant, with its year: for grouping. */
+const pacificYmd = (d: Date): string =>
+  d.toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
 
 // ---- section 1: the one-line status ----
 
@@ -2202,6 +2208,189 @@ export function sparkGeometry(
   return { lines, dots };
 }
 
+/** P1-87 PR 4: the Lately feed. One line: `text`, then the site when one is named. */
+export type LatelyLine = {
+  atIso: string;
+  /** The stamp whole: `whenDate` then `whenTime`, one space apart. */
+  when: string;
+  /** "Mon", or "Mon Oct 20," from six Pacific days back: the column's first line. */
+  whenDate: string;
+  /** "12:00pm", Pacific. */
+  whenTime: string;
+  text: string;
+  site: string | null;
+};
+
+/** The feed's cap: the newest this many lines (sketch 3). */
+export const LATELY_LINES = 8;
+
+/** The feed's plain words for a recorded event; any other type shows its own summary. */
+const PLAIN_EVENT: Partial<Record<FleetEvent["type"], string>> = {
+  pr_automerged: "Dependency update merged",
+  vuln_cleared: "Vulnerability cleared",
+  cert_renewed: "Certificate renewed",
+  ci_recovered: "Build + tests back to passing",
+  site_launched: "Site launched, now in our care",
+  report_sent_with_override: "Report sent with an override",
+};
+
+const LATELY_WHEN = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Los_Angeles",
+  weekday: "short",
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true,
+});
+
+/** "Nov 9", for a line old enough that its weekday alone would repeat within the feed. */
+const LATELY_DATE = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Los_Angeles",
+  month: "short",
+  day: "numeric",
+});
+
+/** Lines this many Pacific days old or more carry their date: a 7-day window holds two
+ *  days with each weekday, so "Mon" alone reads the same at both ends. */
+const LATELY_DATED_DAYS = 6;
+
+/** "Sun 11:45pm": the weekday and the time, Pacific, as the sketch has it; from
+ *  `LATELY_DATED_DAYS` before `now`, "Mon Nov 9, 6:07pm". Split into its date and its
+ *  time, so the page can wrap the column after the date. */
+function latelyWhen(iso: string, now: Date): { whenDate: string; whenTime: string } {
+  const at = new Date(iso);
+  const parts = LATELY_WHEN.formatToParts(at);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  const time = `${get("hour")}:${get("minute")}${get("dayPeriod").toLowerCase()}`;
+  const days = Math.round(
+    (Date.parse(`${pacificYmd(now)}T00:00:00Z`) - Date.parse(`${pacificYmd(at)}T00:00:00Z`)) /
+      DAY_MS,
+  );
+  if (days < LATELY_DATED_DAYS) return { whenDate: get("weekday"), whenTime: time };
+  const date = LATELY_DATE.formatToParts(at)
+    .map((p) => p.value)
+    .join("");
+  return { whenDate: `${get("weekday")} ${date},`, whenTime: time };
+}
+
+/** The `reportId` an event names in its detail, when it names one. */
+function eventReportId(e: FleetEvent): string | null {
+  const d = e.data as { reportId?: unknown } | null;
+  return d !== null && typeof d === "object" && typeof d.reportId === "string" ? d.reportId : null;
+}
+
+/** "a, b and c" for a short list of words. */
+export const listWords = (xs: readonly string[]): string =>
+  xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`;
+
+/** The Lately feed as the page reads it: the lines, and the sources whose read failed,
+ *  named in the order the page says them ("events", "reports", "leads", "the nightly"). */
+export type Lately = { lines: LatelyLine[]; unreadable: string[] };
+
+/** The site a feed line names when the site is no longer listed. */
+const GONE_SITE = "A site no longer listed";
+
+/** P1-87 PR 4: the Lately feed, the newest `LATELY_LINES` of the last
+ *  `RECENT_EVENTS_DAYS` days, from the events, the reports sent, the leads delivered
+ *  and the newest night's step results. A lead line names the site and counts; it
+ *  never reads a visitor's name, email, phone, message, extra fields, source or utm.
+ *  A sweep is not an event line: the nightly shows its steps. A failed read is named
+ *  in `unreadable`, never shown as nothing recorded. Pure. */
+export function latelyView(
+  s: CockpitSnapshot,
+  siteName: (id: string) => string | null,
+  now: Date,
+): Lately {
+  const unreadable: string[] = [];
+  if (s.gaps.includes("feed events")) unreadable.push("events");
+  if (s.reports === null) unreadable.push("reports");
+  if (s.submissions === null) unreadable.push("leads");
+  if (s.nights === null) unreadable.push("the nightly");
+  const since = now.getTime() - RECENT_EVENTS_DAYS * DAY_MS;
+  // A report or lead names its site as the leads panel does: a site no longer listed.
+  const siteOf = (id: string): string => siteName(id) ?? GONE_SITE;
+  const found: Array<{ t: number; rank: number; line: LatelyLine }> = [];
+  const push = (iso: string, text: string, site: string | null, rank: number) => {
+    const t = Date.parse(iso);
+    if (!Number.isFinite(t) || t < since) return;
+    const w = latelyWhen(iso, now);
+    found.push({
+      t,
+      rank,
+      line: { atIso: iso, when: `${w.whenDate} ${w.whenTime}`, ...w, text, site },
+    });
+  };
+  // Events (rank 0). An override's report is said by its event alone (rank 1 skips it).
+  const events = (s.feedEvents ?? []).filter((e) => e.type !== "fleet_swept");
+  // An event names its site as stored when the site is gone; a blank stored name reads as
+  // "A site no longer listed", as a report does. The stored name is trimmed before it is
+  // tested, so a name of spaces is no name.
+  const eventSite = (e: FleetEvent): string | null => {
+    const stored = e.siteName?.trim() || null;
+    return e.siteId === null ? stored : (siteName(e.siteId) ?? stored ?? GONE_SITE);
+  };
+  for (const e of events) push(e.ts, PLAIN_EVENT[e.type] ?? e.summary, eventSite(e), 0);
+  const named = new Set(events.map(eventReportId).filter((x): x is string => x !== null));
+  // Reports sent (rank 1): not a test send, not withdrawn.
+  for (const r of s.reports ?? []) {
+    if (r.sentAt === null || r.withdrawnAt !== null || isTestSend(r)) continue;
+    if (named.has(r.reportId)) continue;
+    push(r.sentAt, `${r.reportType} report sent`, siteOf(r.siteId), 1);
+  }
+  // Leads delivered (rank 2): one line per site per Pacific day, at its newest. A lead
+  // outside the window is dropped before it is grouped, and the day is dated, so a
+  // lead on the same day of an earlier year never joins this one's line.
+  const delivered = new Map<string, { siteId: string; n: number; newest: string }>();
+  for (const r of s.submissions ?? []) {
+    if (
+      r.submittedAt === null ||
+      Date.parse(r.submittedAt) < since ||
+      !isLeadFormType(r.formType) ||
+      !ACCEPTED.has(storedStatus(s, r)) ||
+      r.notifyStatus !== "sent"
+    )
+      continue;
+    const key = `${r.siteId}|${pacificYmd(new Date(r.submittedAt))}`;
+    const g = delivered.get(key) ?? { siteId: r.siteId, n: 0, newest: r.submittedAt };
+    g.n += 1;
+    if (Date.parse(r.submittedAt) > Date.parse(g.newest)) g.newest = r.submittedAt;
+    delivered.set(key, g);
+  }
+  for (const g of delivered.values())
+    push(g.newest, g.n === 1 ? "Lead delivered" : `${g.n} leads delivered`, siteOf(g.siteId), 2);
+  // The nightly (rank 3): the newest night expected by now, one line per step with a result.
+  const expected = expectedNight(now);
+  const night = (s.nights ?? []).find((n) => n.night <= expected);
+  if (night !== undefined) {
+    const at = night.counts.run?.startedAt;
+    // A step with no result is counted in neither figure and makes no line.
+    const results = NIGHTLY_STEPS.flatMap((step) => {
+      const r = night.counts.steps[step.file];
+      return r === undefined || r === null ? [] : [{ step, r }];
+    });
+    if (at !== undefined && results.length > 0) {
+      const ran = results.filter((x) => ranToEnd(x.r)).length;
+      // The night is always one line: its first two steps that did not run to the end,
+      // named in step order, and a count of any more. Never one line per step.
+      const notRan = results.filter((x) => !ranToEnd(x.r));
+      const named = notRan.slice(0, 2).map(({ step, r }) => `${step.short}: ${outcomeText(r)}`);
+      const more = notRan.length - named.length;
+      if (more > 0) named.push(`${more} more did not`);
+      const tail = named.length === 0 ? "" : ` (${named.join("; ")})`;
+      push(
+        at,
+        `Nightly run: ${ran} of ${count(results.length, "step", "steps")} ran to the end${tail}`,
+        null,
+        3,
+      );
+    }
+  }
+  const lines = found
+    .sort((a, b) => b.t - a.t || a.rank - b.rank)
+    .slice(0, LATELY_LINES)
+    .map((x) => x.line);
+  return { lines, unreadable };
+}
+
 export type OverviewView = {
   status: StatusView;
   /** P1-87 PR 3: the first screen's fleet health and number tiles. */
@@ -2216,6 +2405,8 @@ export type OverviewView = {
   prsMerged: string;
   /** Section 8: the charts from `fleet_daily`, or how many nights are collected. */
   trends: TrendsView;
+  /** P1-87 PR 4: the first screen's third panel, the Lately feed. */
+  lately: Lately;
   /** How many `fleet_daily` nights the page has, in words ("1 night", "at least 32
    *  nights" once the reader's cap is reached); null when they could not be read. */
   nightsCollected: string | null;
@@ -2242,6 +2433,7 @@ export function overviewFromSnapshot(s: CockpitSnapshot, now: Date): OverviewVie
     upkeep: upkeepView(model, s, now),
     prsMerged: overNights(s.nights, (c) => c.prsMerged.value, now),
     trends,
+    lately: latelyView(s, (id) => names.get(id) ?? null, now),
     // The reader takes the newest OVERVIEW_NIGHTS rows, so a full read is a floor.
     nightsCollected:
       s.nights === null
@@ -2407,5 +2599,9 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   {
     term: "Nights counted",
     text: `How many nights the nightly has written its counts for; the page reads the newest ${OVERVIEW_NIGHTS}, so past that it says "at least". The counts over a window (dependency updates merged, sites cleared, PRs merged) need two nights to subtract; the rest read one night.`,
+  },
+  {
+    term: "Lately",
+    text: "The newest 8 lines from the last 7 days, Pacific time: fleet events (a dependency update merged, a vulnerability cleared, a certificate renewed, and the like), reports sent, leads delivered, and the night the tiles count (before 6am, the night before last). A lead line names its site and how many, never who sent it. The nightly is one line saying how many of its steps ran to the end, naming up to two steps that did not run to the end and how many more did not; a sweep is shown only as those steps. A line from six Pacific calendar days back carries its date (Wed Oct 21, 12:00pm), so two days with the same weekday never read alike. A test send and a withdrawn report are not listed. When a source could not be read, the panel says so, and does not read as nothing recorded.",
   },
 ];

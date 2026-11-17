@@ -16,7 +16,7 @@ import { buildCockpitView } from "../../src/lib/cockpit/view.js";
 import { cockpitModelFromSnapshot } from "../../../src/dashboard/snapshot-views.js";
 import { makeSubmissionRow } from "../../../tests/_helpers/submission-row.js";
 import { withoutComments } from "../legacy/render.js";
-import { NOW, FRESH, STALE, healthy, night, report, snapshot } from "./fixtures.js";
+import { NOW, FRESH, STALE, event, healthy, night, report, snapshot } from "./fixtures.js";
 
 /**
  * P1-78g review round 1 (T1, T2, T6, T7): the overview page itself, rendered inside
@@ -64,6 +64,8 @@ const SNAP = snapshot({
   ],
   reports: [report({ id: "sent1" })],
   nights: [night("2026-10-26")],
+  // P1-87 PR 4: one fleet event, so the sentinel render covers the Lately feed's text.
+  feedEvents: [event({ id: "pr4-1", ts: FRESH, type: "pr_automerged", summary: "auto-merged x" })],
 });
 
 function pageHtml(view: OverviewView, email: string | null = null): string {
@@ -86,11 +88,12 @@ const pageText = (doc: HTMLElement) =>
     .join(" ");
 
 describe("the overview page, rendered from a real view (T1)", () => {
-  it("has the first screen's two panels, then the kept sections, each under its h2", () => {
+  it("has the first screen's three panels, then the kept sections, each under its h2", () => {
     expect(DOC.querySelectorAll("h2").map(text)).toEqual([
       "Status",
       "Fleet health · 3 sites",
       "How much is happening",
+      "Lately",
       "Leads",
       "Client reports",
       "Upkeep",
@@ -380,6 +383,8 @@ describe("the sentinel render: each leaf in its labelled element (T1, T2; round 
     const unrendered = (p: string) =>
       // Fields the page no longer renders (P1-87 PR 3): the model keeps them.
       /^(live|nightly)(\.|\[)/.test(p) ||
+      // The page shows a stamp's date and time apart (P1-87 PR 4, review round 2 B).
+      /^lately\.lines\[[a-z]+\]\.when$/.test(p) ||
       // The Upkeep section keeps only Open now and the major upgrades (the operator,
       // 11-16): the two counts on /how and the tiles are not shown here.
       p === "upkeep.automerged" ||
@@ -944,7 +949,7 @@ describe("the first screen (P1-87 PR 3)", () => {
 
   it("shows no site name in the panels on a quiet day", () => {
     const panels = parse(screen(quiet));
-    expect(panels.querySelectorAll("section").length).toBe(2);
+    expect(panels.querySelectorAll("section").length).toBe(3);
     for (const name of quietSites) expect(screen(quiet)).not.toContain(name);
     // Control: the same scan finds a name when a site is broken and listed in the strip.
     expect(text(DOC.querySelector("section.ov-status")!)).toContain("Bravo");
@@ -1457,6 +1462,170 @@ describe("review round 3: the check list names its How-we-count term (group G)",
   it("marks the check list with the term that defines the bars", () => {
     expect(DOC.querySelector(".ov-checks-list")!.getAttribute("data-term")).toBe(
       "Sites passing each check",
+    );
+  });
+});
+
+/** P1-87 PR 4: the Lately feed on the page, the third panel of the first screen. */
+describe("the Lately feed on the page (P1-87 PR 4)", () => {
+  it("is the third panel beside the first screen, headed Lately, with no All activity link", () => {
+    expect(
+      DOC.querySelectorAll(".ov-first > section").map((el) => el.getAttribute("class")),
+    ).toEqual(["ov-health", "ov-happening", "ov-lately"]);
+    expect(text(DOC.querySelector(".ov-lately > h2")!)).toBe("Lately");
+    expect(HTML).not.toMatch(/All activity/i);
+  });
+
+  it("shows each line with its time as a datetime, and the site after a dot", () => {
+    const lines = DOC.querySelectorAll(".ov-lately ol > li");
+    expect(lines).toHaveLength(VIEW.lately.lines.length);
+    expect(VIEW.lately.lines.length).toBeGreaterThan(0);
+    const times = DOC.querySelectorAll(".ov-lately li time").map((t) => t.getAttribute("datetime"));
+    expect(times).toEqual(VIEW.lately.lines.map((l) => l.atIso));
+    // The comma is for a screen reader only: the page's text reads it as a visually hidden ", ".
+    expect(text(lines[0]!)).toBe(
+      `${VIEW.lately.lines[0]!.when} ${VIEW.lately.lines[0]!.text} · , ${VIEW.lately.lines[0]!.site}`,
+    );
+  });
+
+  it("splits each stamp into its date and its time, each in a span, so the column wraps after the date", () => {
+    const html = pageHtml(
+      overviewFromSnapshot(
+        snapshot({
+          feedEvents: [
+            event({ id: "d6", ts: "2026-10-21T19:00:00.000Z" }),
+            event({ id: "d5", ts: "2026-10-22T19:00:00.000Z" }),
+          ],
+        }),
+        NOW,
+      ),
+    );
+    // Newest first: the Thursday line (five days old) leads, the Wednesday one (six) follows.
+    const [undated, dated] = [...parse(html).querySelectorAll(".ov-lately li time")];
+    expect([...dated!.children].map(text)).toEqual(["Wed Oct 21,", "12:00pm"]);
+    expect(text(dated!)).toBe("Wed Oct 21, 12:00pm");
+    expect([...undated!.children].map(text)).toEqual(["Thu", "12:00pm"]);
+    expect(text(undated!)).toBe("Thu 12:00pm");
+  });
+
+  it("renders a nightly line as its time and text, with no site and no '· null'", () => {
+    const html = pageHtml(overviewFromSnapshot(snapshot({ nights: [night("2026-10-26")] }), NOW));
+    const first = parse(html).querySelector(".ov-lately ol > li")!;
+    expect(text(first)).toBe("Mon 11:07pm Nightly run: 8 of 8 steps ran to the end");
+    expect(html).not.toContain("· null");
+  });
+
+  it("shows the separator to a reader as a dot, and to a screen reader as a comma", () => {
+    const sep = DOC.querySelector(".ov-lately li span[aria-hidden='true']")!;
+    expect(sep.textContent).toBe(" · ");
+    const comma = DOC.querySelector(".ov-lately li span.visually-hidden")!;
+    expect(comma.textContent).toBe(", ");
+  });
+
+  it("spans both columns from 60rem to 75rem, and sits in its own column from 75rem", () => {
+    const css = readFileSync(
+      new URL("../../src/lib/overview/overview.css", import.meta.url),
+      "utf8",
+    ).replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(css).toMatch(
+      /@media \(min-width: 60rem\)\s*\{[^@]*\.ov-lately\s*\{\s*grid-column:\s*1 \/ -1;/,
+    );
+  });
+
+  it("pins the panel's own rules: the feed does not stretch its row, and each line is ruled below", () => {
+    const css = readFileSync(
+      new URL("../../src/lib/overview/overview.css", import.meta.url),
+      "utf8",
+    ).replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(css).toMatch(/\.ov-lately\s*\{[^}]*align-self:\s*start/);
+    // From 75rem the three first-screen panels align to their own heights, not one row's.
+    expect(css).toMatch(
+      /@media \(min-width: 75rem\)\s*\{[^@]*\.ov-first\s*\{[^}]*align-items:\s*start/,
+    );
+    // The time is a fixed column that wraps; its date and time spans never break inside.
+    const timeRule = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].find(
+      ([, sel]) => sel!.trim() === ".ov-lately time",
+    )![2]!;
+    expect(timeRule).toMatch(/flex:\s*0 0 6rem/);
+    expect(timeRule).toMatch(/white-space:\s*normal/);
+    expect(timeRule).not.toMatch(/nowrap/);
+    expect(css).toMatch(/\.ov-lately time > span\s*\{[^}]*white-space:\s*nowrap/);
+    const liRule = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].find(
+      ([, sel]) => sel!.trim() === ".ov-lately li",
+    )![2]!;
+    expect(liRule).toMatch(/border-bottom:\s*1px solid var\(--rule\)/);
+    expect(liRule).not.toMatch(/border-top/);
+  });
+
+  it("makes no line from an event whose date does not parse, and the page holds no 'Invalid'", () => {
+    const bad = overviewFromSnapshot(
+      snapshot({ feedEvents: [event({ id: "bad", ts: "not a date" })] }),
+      NOW,
+    );
+    const html = pageHtml(bad);
+    expect(parse(html).querySelectorAll(".ov-lately ol > li")).toHaveLength(0);
+    expect(html).not.toContain("Invalid");
+  });
+
+  it("says which sources could not be read, and never 'Nothing recorded' over them", () => {
+    const failed = parse(
+      pageHtml(
+        overviewFromSnapshot(
+          snapshot({
+            gaps: ["feed events"],
+            feedEvents: [],
+            reports: null,
+            submissions: null,
+            nights: null,
+          }),
+          NOW,
+        ),
+      ),
+    );
+    const panel = text(failed.querySelector(".ov-lately")!);
+    expect(panel).toContain("Could not read events, reports, leads and the nightly just now.");
+    expect(panel).not.toContain("Nothing recorded");
+  });
+
+  it("reads two failed sources as one sentence", () => {
+    const html = pageHtml(overviewFromSnapshot({ ...SNAP, reports: null, submissions: null }, NOW));
+    expect(text(parse(html).querySelector(".ov-lately")!)).toContain(
+      "Could not read reports and leads just now.",
+    );
+  });
+
+  it("says a failed read first, in ink, and still shows the lines that did read", () => {
+    const html = pageHtml(overviewFromSnapshot({ ...SNAP, reports: null }, NOW));
+    const panel = parse(html).querySelector(".ov-lately")!;
+    const paragraph = [...panel.querySelectorAll("p")].find((p) =>
+      text(p).includes("Could not read reports just now."),
+    );
+    expect(paragraph).toBeDefined();
+    expect(paragraph!.hasAttribute("class")).toBe(false);
+    // Heading, then the sentence, then the list: a failed read is said before the lines.
+    expect([...panel.children].map((el) => el.tagName)).toEqual(["H2", "P", "OL"]);
+    expect(panel.querySelectorAll("ol > li").length).toBeGreaterThan(0);
+  });
+
+  it("never says 'Nothing recorded' over a render with lines", () => {
+    const html = pageHtml(overviewFromSnapshot(SNAP, NOW));
+    const panel = text(parse(html).querySelector(".ov-lately")!);
+    expect(parse(html).querySelectorAll(".ov-lately ol > li").length).toBeGreaterThan(0);
+    expect(panel).not.toContain("Nothing recorded");
+  });
+
+  it("names a failed source by its sentinel, so the sentence is over the rendered view", () => {
+    const US = sentinelize(overviewFromSnapshot({ ...SNAP, reports: null }, NOW));
+    const UDOC = parse(pageHtml(US.view));
+    expect(text(UDOC.querySelector(".ov-lately")!)).toContain(
+      `Could not read ${US.at.get("lately.unreadable[a]")} just now.`,
+    );
+  });
+
+  it("says nothing was recorded when the feed is empty", () => {
+    const empty = parse(pageHtml(overviewFromSnapshot(snapshot(), NOW)));
+    expect(text(empty.querySelector(".ov-lately")!)).toContain(
+      "Nothing recorded in the last 7 days.",
     );
   });
 });

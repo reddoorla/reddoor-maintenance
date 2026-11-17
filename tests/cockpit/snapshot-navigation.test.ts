@@ -7,6 +7,7 @@ import { extname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { chromium, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { openDb } from "../../src/db/client.js";
+import { recordFleetEvent } from "../../src/db/fleet-events.js";
 import { NIGHTLIES } from "../../scripts/nightly-conductor.mjs";
 import { expectedNight } from "../../cockpit/src/lib/overview/view.js";
 
@@ -30,6 +31,7 @@ const OUT = join(ROOT, "cockpit/.svelte-kit/output");
 const PASSWORD = "nav-test-password";
 
 let dir: string;
+let dbUrl: string;
 let http: HttpServer;
 let browser: Browser;
 let origin: string;
@@ -224,6 +226,25 @@ async function seed(url: string): Promise<void> {
       })
       .execute();
   }
+  // P1-87 PR 4: one event for the Lately feed, and a sweep newer than it, which the feed leaves out.
+  await recordFleetEvent(db, {
+    id: "pr4-merge",
+    ts: new Date(Date.now() - 3_600_000).toISOString(),
+    type: "pr_automerged",
+    siteId: "recA",
+    siteName: "Acme",
+    summary: "auto-merged Bump lodash",
+    data: null,
+  });
+  await recordFleetEvent(db, {
+    id: "pr4-sweep",
+    ts: new Date().toISOString(),
+    type: "fleet_swept",
+    siteId: null,
+    siteName: null,
+    summary: "Swept 2 sites",
+    data: null,
+  });
   await db.destroy();
 }
 
@@ -231,6 +252,7 @@ beforeAll(async () => {
   ensureBuilt();
   dir = mkdtempSync(join(tmpdir(), "cockpit-nav-"));
   const url = `file:${join(dir, "fleet.db")}`;
+  dbUrl = url;
   await seed(url);
   process.env.TURSO_DATABASE_URL = url;
   delete process.env.TURSO_AUTH_TOKEN;
@@ -366,6 +388,131 @@ describe("cockpit navigation, in a browser, against the built app", () => {
 
   // P1-87 PR 3, round 1: every check bar starts and ends in the same place, whatever
   // its count says, and the two panels sit side by side with one top at 1280px.
+  // P1-87 PR 4: the Lately column is the first screen's third panel: beside the two at
+  // 1280px, below them at 390px. It names the seeded merge and folds out the sweep.
+  it("Lately sits beside the first screen at 1280px and below it at 390px, with no sweeps and no overflow", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await expect.poll(() => page.locator(".ov-lately li").count()).toBeGreaterThan(0);
+    const lines = await page.locator(".ov-lately li").allTextContents();
+    expect(lines.some((t) => t.includes("Acme"))).toBe(true);
+    expect(lines.every((t) => !/swept/i.test(t))).toBe(true);
+    const wide = await page
+      .locator(".ov-health, .ov-happening, .ov-lately")
+      .evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
+    expect(wide).toHaveLength(3);
+    expect(new Set(wide).size).toBe(1);
+    await page.setViewportSize({ width: 390, height: 844 });
+    const narrow = await page.locator(".ov-happening, .ov-lately").evaluateAll((els) =>
+      els.map((e) => ({
+        top: Math.round(e.getBoundingClientRect().top),
+        bottom: Math.round(e.getBoundingClientRect().bottom),
+      })),
+    );
+    expect(narrow).toHaveLength(2);
+    expect(narrow[1]!.top).toBeGreaterThanOrEqual(narrow[0]!.bottom);
+    const overflows = await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    );
+    expect(overflows).toBe(false);
+  });
+
+  // P1-87 PR 4, review round 2 B: at 1280px the feed is the tallest first-screen panel, so
+  // without `align-items: start` on the row, Health and Happening stretch to its height. Its
+  // time column is fixed, so every line's text starts at one x.
+  it("at 1280px Lately is the tallest panel and Health keeps its own height; every line's text starts at one x", async () => {
+    const db = await openDb({ url: dbUrl });
+    try {
+      // Five more lines: one dated (6.5 days old) and four from today's hours. The dated line
+      // is the oldest, so the 8-line cap keeps it only while seven lines are newer: the seeds
+      // above and below add three, so four hour lines leave it the eighth.
+      for (let i = 0; i < 5; i++)
+        await recordFleetEvent(db, {
+          id: `pr4-fill-${i}`,
+          ts:
+            i === 0
+              ? new Date(Date.now() - 6.5 * 86_400_000).toISOString()
+              : new Date(Date.now() - i * 1_800_000).toISOString(),
+          type: "pr_automerged",
+          siteId: null,
+          siteName: "Hillcrest Veterinary Hospital and Dental Care of the Northern Valley",
+          summary: "renewed",
+          data: null,
+        });
+      const page = await signedIn();
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(`${origin}/`);
+      await expect.poll(() => page.locator(".ov-lately li").count()).toBeGreaterThan(6);
+      // Each panel's own content height: its last child's bottom plus its bottom padding.
+      const measured = await page.evaluate(() => {
+        const panels = ["ov-health", "ov-happening", "ov-lately"].map((c) =>
+          document.querySelector<HTMLElement>(`.${c}`),
+        );
+        if (panels.some((p) => p === null)) return null;
+        return (panels as HTMLElement[]).map((el) => {
+          const box = el.getBoundingClientRect();
+          const last = el.lastElementChild!.getBoundingClientRect();
+          const padBottom = parseFloat(getComputedStyle(el).paddingBottom);
+          return { height: box.height, content: last.bottom - box.top + padBottom };
+        });
+      });
+      // All three panels measured. Lately's own content is the tallest, so a row that
+      // stretches shows it in Health's box: Health's height must match its own content.
+      expect(measured).not.toBeNull();
+      expect(measured!).toHaveLength(3);
+      expect(measured!.every((m) => m.height > 0)).toBe(true);
+      const [health, , lately] = measured!;
+      expect(lately!.content).toBeGreaterThan(health!.content);
+      expect(Math.abs(health!.height - health!.content)).toBeLessThanOrEqual(2);
+      expect(Math.abs(measured![1]!.height - measured![1]!.content)).toBeLessThanOrEqual(2);
+      // Both kinds of stamp render: a dated one (its date ends in a comma) and an undated one.
+      const stamps = await page.$$eval(".ov-lately time", (ts) =>
+        ts.map((t) => t.textContent ?? ""),
+      );
+      expect(stamps.some((t) => t.includes(","))).toBe(true);
+      expect(stamps.some((t) => !t.includes(","))).toBe(true);
+      const starts = await page.$$eval(".ov-lately li", (lis) =>
+        lis.map((li) => (li.children[1] as HTMLElement).getBoundingClientRect().left),
+      );
+      expect(starts.length).toBeGreaterThan(6);
+      expect(Math.max(...starts) - Math.min(...starts)).toBeLessThanOrEqual(1);
+    } finally {
+      await db.deleteFrom("fleet_events").where("id", "like", "pr4-fill-%").execute();
+      await db.destroy();
+    }
+  });
+
+  // P1-87 PR 4, review round 1 F: between 60rem and 75rem Lately spans both columns, below them.
+  it("Lately spans the two panels' columns at 1100px, and its top is below both", async () => {
+    const page = await signedIn();
+    await page.goto(`${origin}/`);
+    for (const width of [1100]) {
+      await page.setViewportSize({ width, height: 900 });
+      const rects = await page.locator(".ov-health, .ov-happening, .ov-lately").evaluateAll((els) =>
+        els.map((e) => {
+          const r = e.getBoundingClientRect();
+          return { left: r.left, width: r.width, top: r.top, bottom: r.bottom };
+        }),
+      );
+      // It measured all three panels, each with a width.
+      expect(rects).toHaveLength(3);
+      expect(rects.every((r) => r.width > 0)).toBe(true);
+      const gap = await page.evaluate(() =>
+        parseFloat(getComputedStyle(document.querySelector(".ov-first")!).columnGap),
+      );
+      const [health, happening, lately] = rects as [
+        (typeof rects)[number],
+        (typeof rects)[number],
+        (typeof rects)[number],
+      ];
+      expect(
+        Math.abs(lately!.width - (health!.width + gap + happening!.width)),
+      ).toBeLessThanOrEqual(2);
+      expect(lately!.top).toBeGreaterThanOrEqual(Math.max(health!.bottom, happening!.bottom));
+    }
+  });
+
   it("the overview's check bars line up and its panels share a top at 1280px", async () => {
     const page = await signedIn();
     await page.setViewportSize({ width: 1280, height: 900 });
