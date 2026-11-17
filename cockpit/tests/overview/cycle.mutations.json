@@ -5,8 +5,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/cycle.ts",
-        "find": "  const nowMs = now.getTime();\n",
-        "replace": "  steps = [...steps].sort((a, b) => a.short.localeCompare(b.short));\n  const nowMs = now.getTime();\n"
+        "find": "  const nowMs = now.getTime();\n  const nextStart = nextDailyFiring(NIGHTLY_CRON, now);\n",
+        "replace": "  steps = [...steps].sort((a, b) => a.short.localeCompare(b.short));\n  const nowMs = now.getTime();\n  const nextStart = nextDailyFiring(NIGHTLY_CRON, now);\n"
       }
     ],
     "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
@@ -621,6 +621,71 @@
       }
     ],
     "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "jitter-threshold-back-to-reread",
+    "why": "(round 3, Group A) the re-read gap is the full 2 minutes again, so a jittered tick skips a re-read (the jitter test goes red)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle-clock.ts",
+        "find": "    if (lastStartedMs !== null && now - lastStartedMs < REREAD_MS - REREAD_JITTER_MS) return;",
+        "replace": "    if (lastStartedMs !== null && now - lastStartedMs < REREAD_MS) return;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle-clock.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "none-border-out-of-media-wrapper",
+    "why": "(round 3, Group B) the base none border is back outside @media not (forced-colors: active), so it beats the forced 2px dashed border",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "@media not (forced-colors: active) {\n  .ov-cycle-seg.none .ov-cycle-bar {\n    border: 1px dashed var(--ink-muted);\n  }\n}",
+        "replace": "  .ov-cycle-seg.none .ov-cycle-bar {\n    border: 1px dashed var(--ink-muted);\n  }"
+      }
+    ],
+    "test": ["tests/cockpit/snapshot-navigation.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "tonight-end-is-the-clock",
+    "why": "(round 3, Group D, x12) tonight's stamps run to the clock rather than the window's end, so a stamp after the window counts",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle.ts",
+        "find": "    const tonightEnd = Math.min(windowEndMs, nowMs);",
+        "replace": "    const tonightEnd = nowMs;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "settle-restarts-the-gap",
+    "why": "(round 3, Group E, x13) a settled read restarts the 2-minute gap from its settle, so a slow or late read pushes the next re-read back (the 90 s hung-then-late test goes red)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle-clock.ts",
+        "find": "    done.catch(() => undefined);",
+        "replace": "    done.catch(() => undefined).then(() => {\n      lastStartedMs = deps.nowMs();\n    });"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle-clock.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "run-night-row-not-seeded",
+    "why": "(round 3, Group C) the seed's run-night row is removed, so the bar is running or unrecorded from 10pm to 6am and the browser test depends on the hour (the hour test goes red)",
+    "edits": [
+      {
+        "file": "tests/_helpers/bar-nights.ts",
+        "find": "    { night: run, merged: 624, backupRan: false },",
+        "replace": ""
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
     "expect": "red"
   }
 ]
