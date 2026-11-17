@@ -1338,3 +1338,90 @@ describe("the built app's Netlify surface", () => {
     });
   });
 });
+
+// P1-87 PR 5b: the site ticker under the first screen, measured in the built app. It
+// moves as a marquee, stops on a press of its pause button or while it is pointed at,
+// and stands still under reduced motion, where its copy is gone and both sites read as
+// plain text.
+describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
+  const transform = (page: Page) =>
+    page.locator(".ov-ticker-run").evaluate((el) => getComputedStyle(el).transform);
+  const names = (page: Page) => page.locator(".ov-ticker-list:not(.copy) > li").allTextContents();
+
+  it("moves, with the seeded sites in its row", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await expect
+      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
+      .toBeGreaterThanOrEqual(2);
+    const all = (await names(page)).join(" | ");
+    expect(all).toContain("Acme");
+    expect(all).toContain("Beta");
+    expect(
+      await page.locator(".ov-ticker-run").evaluate((el) => getComputedStyle(el).animationName),
+    ).toBe("ov-ticker");
+    const before = await transform(page);
+    await page.waitForTimeout(1500);
+    expect(await transform(page)).not.toBe(before);
+  });
+
+  it("stops when its pause button is pressed", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await expect
+      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
+      .toBeGreaterThanOrEqual(2);
+    await page.locator(".ov-ticker-pause").click();
+    expect(await page.locator(".ov-ticker-pause").getAttribute("aria-pressed")).toBe("true");
+    const paused = await transform(page);
+    await page.waitForTimeout(1500);
+    expect(await transform(page)).toBe(paused);
+  });
+
+  it("stops while the pointer is over it", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await expect
+      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
+      .toBeGreaterThanOrEqual(2);
+    await page.locator(".ov-ticker-window").hover();
+    const hovered = await transform(page);
+    await page.waitForTimeout(1500);
+    expect(await transform(page)).toBe(hovered);
+  });
+
+  it("under reduced motion stands still: no animation, no copy, no button, both sites as text", async () => {
+    const page = await signedIn();
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto(`${origin}/`);
+    await expect
+      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
+      .toBeGreaterThanOrEqual(2);
+    expect(
+      await page.locator(".ov-ticker-run").evaluate((el) => getComputedStyle(el).animationName),
+    ).toBe("none");
+    expect(
+      await page.locator(".ov-ticker-list.copy").evaluate((el) => getComputedStyle(el).display),
+    ).toBe("none");
+    expect(await page.locator(".ov-ticker-pause").isVisible()).toBe(false);
+    const all = (await names(page)).join(" | ");
+    expect(all).toContain("Acme");
+    expect(all).toContain("Beta");
+  });
+
+  it("at 390px the ticker adds no sideways scroll to the page", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`${origin}/`);
+    await expect
+      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
+      .toBeGreaterThanOrEqual(2);
+    const overflows = await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    );
+    expect(overflows).toBe(false);
+  });
+});

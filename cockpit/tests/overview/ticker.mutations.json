@@ -1,0 +1,168 @@
+[
+  {
+    "id": "1-reduced-motion-keeps-moving",
+    "why": "(floor) The ticker keeps moving under prefers-reduced-motion: the media block's animation:none is dropped",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "  .ov-ticker-run {\n    animation: none;\n    width: auto;\n  }",
+        "replace": "  .ov-ticker-run {\n    width: auto;\n  }"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "2-copy-loses-aria-hidden",
+    "why": "The loop's copy is read aloud twice unless it is aria-hidden",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "<ul class=\"ov-ticker-list copy\" aria-hidden=\"true\" inert>",
+        "replace": "<ul class=\"ov-ticker-list copy\" inert>"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "3-copy-loses-inert",
+    "why": "The loop's copy takes focus and is reachable by keyboard unless it is inert",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "<ul class=\"ov-ticker-list copy\" aria-hidden=\"true\" inert>",
+        "replace": "<ul class=\"ov-ticker-list copy\" aria-hidden=\"true\">"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "4-fact-ignores-state",
+    "why": "The fact is always the speed score, whatever the tier",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "fact: tier === \"ok\" ? okFact(card) : notOkFact(card, now),",
+        "replace": "fact: `speed ${card.site.pScore} of 100`,"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "5-not-ok-no-reason",
+    "why": "A not-OK site shows no reason (empty fact)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "fact: tier === \"ok\" ? okFact(card) : notOkFact(card, now),",
+        "replace": "fact: tier === \"ok\" ? okFact(card) : \"\","
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "6-pscore-by-truthiness",
+    "why": "pScore read by truthiness, so a score of 0 is dropped",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "  if (pScore !== null) return `speed ${pScore} of 100`;",
+        "replace": "  if (pScore) return `speed ${pScore} of 100`;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "7-link-from-name",
+    "why": "The link is made from the site's name, not its stored slug",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "import { plainReasons } from \"./view.js\";",
+        "replace": "import { plainReasons } from \"./view.js\";\nimport { siteSlug } from \"../../../../src/fleet/site-row.js\";"
+      },
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "      href: slug === undefined ? null : `/s/${slug}`,",
+        "replace": "      href: `/s/${siteSlug(site.name)}`,"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "8-order-by-name-only",
+    "why": "The order is by name only, so a Broken site can sit after an OK one",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "rows.sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name));",
+        "replace": "rows.sort((a, b) => a.name.localeCompare(b.name));"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "9-launching-included",
+    "why": "A launching (pre-launch) site is included in the ticker",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "if (site.status !== \"maintained\") continue;",
+        "replace": "if (site.status !== \"maintained\" && false) continue;"
+      },
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "    if (tier === null) continue;",
+        "replace": "    if (tier === null && false) continue;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "10-pause-does-not-pause",
+    "why": "The pause button sets aria-pressed but the run never gets the paused class",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "<div class=\"ov-ticker-run\" class:paused style=",
+        "replace": "<div class=\"ov-ticker-run\" style="
+      }
+    ],
+    "test": ["tests/cockpit/snapshot-navigation.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "11-hover-pause-dropped",
+    "why": "The pause on hover is dropped from the stylesheet (browser-only)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-ticker-window:hover .ov-ticker-run,\n",
+        "replace": ""
+      }
+    ],
+    "test": ["tests/cockpit/snapshot-navigation.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "12-more-off-by-one",
+    "why": "'and N more' is shown from two candidates on, dropping the second one's count",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "return uniq.length > 1 ?",
+        "replace": "return uniq.length > 2 ?"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  }
+]
