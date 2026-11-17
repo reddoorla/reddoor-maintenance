@@ -1849,9 +1849,10 @@ export type HealthView = {
   tiers: { ok: number; watch: number; attention: number; broken: number };
   /** In the sketch's order; each counts over the maintained sites. */
   checks: HealthCheck[];
-  /** Site entries the status line counts at a level that the bar does not, one entry per
-   *  level and kind: `launching` (a site still launching) or `other` (a site not marked
-   *  maintained). Empty when the bar counts every entry the status line does. */
+  /** Entries the status line counts at a level that the bar does not (the field keeps its
+   *  name; it carries off-care entries too), one per level and kind: `launching` (a site
+   *  still launching) or `other` (a site not marked maintained). Empty when the bar counts
+   *  every entry the status line does. */
   launching: Array<{ level: "broken" | "attention" | "watch"; count: number; kind: keyof OffCare }>;
 };
 export type NumberTile = {
@@ -1979,8 +1980,10 @@ export function healthView(
   return { sites: sites.length, tiers, checks, launching };
 }
 
-/** The status line's launching sites the bar does not count, in words: "plus 1 launching
- *  site at Attention"; null when the bar and the status line agree. */
+/** The status line's off-care entries the bar does not count (its launching sites and its
+ *  sites not marked maintained, carried in `HealthView.launching`), in words: "plus 1
+ *  launching site at Attention" or "plus 2 sites not marked maintained at Watch"; null
+ *  when the bar and the status line agree. */
 export function launchingNote(launching: HealthView["launching"]): string | null {
   if (launching.length === 0) return null;
   const LEVEL_NAME = { broken: "Broken", attention: "Attention", watch: "Watch" } as const;
@@ -2051,8 +2054,7 @@ function checksOverWindow(
   const missing = span - summed.length;
   // One night with no gap is the value itself: a context that repeats it says nothing.
   if (span === 1 && missing === 0) return null;
-  const window = span === 1 ? "over 1 night" : `over the last ${span} nights`;
-  return `${total} ${window}${missing > 0 ? `; ${missing} with no count` : ""}`;
+  return `${total} over the last ${span} nights${missing > 0 ? `; ${missing} with no count` : ""}`;
 }
 
 export function numbersView(
@@ -2277,6 +2279,34 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   {
     term: "Forms",
     text: `The nightly live form test sends a real test entry through the form. ${STALE} reads "not tested lately", never "passed". The test itself is being fixed: until it is, a failure is shown but is not a verdict, and it does not change the site's level. "No result" means the test gave no verdict: the site has no form, or the test skipped it. "Last real lead" is the newest submission accepted as real; for an RSVP or signup form it says "submission", since those are not leads.`,
+  },
+  {
+    term: "Sites passing each check",
+    text: "On the first screen, each check's bar shows how many of the sites in our care pass it, out of how many. The dark part is the sites that pass. The grey part is the sites that neither pass nor fail: the sum of the three kinds below, test failed, no verdict and not checked. A site that fails is in neither part; the count says how many fail.",
+  },
+  {
+    term: "Failing",
+    text: "A site fails a check when a fresh result is a fault: an address or page not answering (Live), a certificate at Attention or Broken (Certificate), a latest deploy that failed (Deploy), a critical or high vulnerability in a fresh audit (Security), a failed build or smoke run (Build + tests), or violations in a complete accessibility scan (Accessibility). A failed form test is not failing; it is the next entry.",
+  },
+  {
+    term: "Test failed, not yet a verdict",
+    text: "The nightly form test failed on a fresh run. The test itself is being fixed, so the failure is shown but does not count as a site failing, and it does not change the site's level. Only the Contact form check has this kind.",
+  },
+  {
+    term: "No verdict",
+    text: "A fresh check ran and gave no answer, so it neither passes nor fails: no page sampled (Live); a deploy in progress or with no deploy recorded (Deploy); no form result, because the site has no form or the test skipped it (Contact form); a partial accessibility scan, or a scan with a count unread (Accessibility); an audit with both counts unread (Security); a smoke run with no result (Build + tests).",
+  },
+  {
+    term: "Not checked",
+    text: `A check older than its window, so it is not known now. ${STALE} reads "not checked lately" (or "not tested lately" for the form). A check that never ran is not checked too.`,
+  },
+  {
+    term: "Launching sites",
+    text: "Sites still launching are not in our care until they go live, so the bar does not count them. The status line counts them at the level they sit at, and the note under the bar says how many, for each level.",
+  },
+  {
+    term: "Sites not marked maintained",
+    text: "Sites whose plan status is not marked maintained (a misspelt status, say). They are not in our care, so the bar does not count them. The status line counts them at the level they sit at, and the note under the bar says how many, for each level.",
   },
   {
     term: "Level",

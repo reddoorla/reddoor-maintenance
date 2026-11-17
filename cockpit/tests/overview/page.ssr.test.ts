@@ -1375,3 +1375,11 @@ describe("review round 3: no zero-width parts on a check bar (group D, tests min
   });
 });
 
+describe("review round 3: the check list names its How-we-count term (group G)", () => {
+  it("marks the check list with the term that defines the bars", () => {
+    expect(DOC.querySelector(".ov-checks-list")!.getAttribute("data-term")).toBe(
+      "Sites passing each check",
+    );
+  });
+});
+

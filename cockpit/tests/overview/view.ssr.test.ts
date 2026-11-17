@@ -2514,6 +2514,53 @@ describe("review round 3: each unknown kind is named on its own check (group C, 
   });
 });
 
+describe("review round 3: the words the first screen prints are defined (group G, H)", () => {
+  const terms = () => new Set(HOW_WE_COUNT.map((h) => h.term));
+
+  it("pluralises an off-care note by its count (H)", () => {
+    expect(launchingNote([{ level: "watch", count: 2, kind: "other" }])).toBe(
+      "plus 2 sites not marked maintained at Watch",
+    );
+    expect(launchingNote([{ level: "watch", count: 1, kind: "other" }])).toBe(
+      "plus 1 site not marked maintained at Watch",
+    );
+  });
+
+  it("every status part the status view can produce has a How-we-count entry (G)", () => {
+    // One fixture per kind of part: a fleet-wide attention item, a Broken site, reports
+    // not read (a waiting part), and a quiet fleet with every site live.
+    const fixtures = [
+      snapshot({ sites: [healthy({ id: "recA", name: "Acme", urlCheckedAt: STALE })] }),
+      snapshot({ sites: [healthy({ id: "recB", name: "Bravo", reachableOk: "fail" })] }),
+      snapshot({ reports: null }),
+      snapshot({ sites: [healthy({ id: "recC", name: "Cal" })] }),
+    ];
+    const seen = new Set<string>();
+    for (const f of fixtures)
+      for (const p of overviewFromSnapshot(f, NOW).status.parts) {
+        seen.add(p.term);
+        expect([...terms()]).toContain(p.term);
+      }
+    expect(seen).toContain("Broken, attention, watch");
+    expect(seen).toContain("Waiting for your yes");
+    expect(seen).toContain("Live");
+    expect(seen).toContain("Sites in our care");
+  });
+
+  it("defines the check words and the note under the bar", () => {
+    for (const t of [
+      "Sites passing each check",
+      "Failing",
+      "Test failed, not yet a verdict",
+      "No verdict",
+      "Not checked",
+      "Launching sites",
+      "Sites not marked maintained",
+    ])
+      expect(terms()).toContain(t);
+  });
+});
+
 describe("review round 3: one set of nights for every tile (group A, correctness M1)", () => {
   const BEFORE_6AM = new Date("2026-10-27T12:00:00Z"); // 5am PDT: last night is Oct 25
   const counted = (date: string, checks: number, merged: number) =>

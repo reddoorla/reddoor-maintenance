@@ -71,9 +71,13 @@
       {v.health.tiers.ok} OK · {v.health.tiers.watch} watch · {v.health.tiers.attention} attention · {v
         .health.tiers.broken} broken
     </p>
-    {#if launching}<p class="ov-tier-counts">{launching}</p>{/if}
+    {#if launching}<p
+        class="ov-tier-counts"
+        data-term={v.health.launching.some((l) => l.kind === "launching")
+          ? "Launching sites"
+          : "Sites not marked maintained"}>{launching}</p>{/if}
     <h3>Sites passing each check</h3>
-    <ul class="ov-checks-list">
+    <ul class="ov-checks-list" data-term="Sites passing each check">
       {#each v.health.checks as c (c.name)}
         <li class="ov-check">
           <span class="ov-check-name">{c.name}</span>
