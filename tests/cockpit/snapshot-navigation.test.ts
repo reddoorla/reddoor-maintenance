@@ -2341,6 +2341,15 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     await expect
       .poll(() => animation(page), { message: "the row moves again once focus is nowhere" })
       .toBe("ov-ticker");
+    // Focus lost with no pointer at all (a script's blur): no release follows, so the focusout alone
+    // must restart the row.
+    await page.locator(".ov-ticker-pause").focus();
+    await page.keyboard.press("Tab");
+    await expect.poll(() => animation(page)).toBe("none");
+    await page.evaluate(() => (document.activeElement as HTMLElement).blur());
+    await expect
+      .poll(() => animation(page), { message: "a blur with no pointer restarts the row" })
+      .toBe("ov-ticker");
   });
 
   // P1-87 PR 5b review r5 nit 5: a pointercancel ends a press, so the next keyboard focus stills the row.
