@@ -364,6 +364,37 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     expect(tops[0]).toBe(tops[1]);
   });
 
+  // P1-87 PR 3, round 2: each fill lies inside its own track (the bar is its containing
+  // block), and on a phone every bar keeps its width, with the count under it.
+  it("each check's fill lies inside its own track at 1280px, and every bar keeps its width at 390px", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await expect.poll(() => page.locator(".ov-check-bar").count()).toBe(7);
+    const inside = await page.locator(".ov-check").evaluateAll((rows) =>
+      rows.map((row) => {
+        const bar = row.querySelector(".ov-check-bar")!.getBoundingClientRect();
+        const fill = row.querySelector(".ov-check-fill")!.getBoundingClientRect();
+        return (
+          fill.left >= bar.left - 0.5 &&
+          fill.right <= bar.right + 0.5 &&
+          fill.top >= bar.top - 0.5 &&
+          fill.bottom <= bar.bottom + 0.5
+        );
+      }),
+    );
+    expect(inside.every(Boolean)).toBe(true);
+    expect(inside).toHaveLength(7);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`${origin}/`);
+    await expect.poll(() => page.locator(".ov-check-bar").count()).toBe(7);
+    const widths = await page
+      .locator(".ov-check-bar")
+      .evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().width)));
+    for (const w of widths) expect(w).toBeGreaterThanOrEqual(100);
+  });
+
   // P1-87 PR 1, review round 2: on a small laptop (1000px) each flow stays one row,
   // so no arrow starts a wrapped row and the last step stays in the chain.
   it("How this works keeps each flow on one row at 1000px", async () => {
