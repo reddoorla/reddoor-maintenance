@@ -25,6 +25,22 @@ const markerLeft = (target: HTMLElement): number => {
   return Number.parseFloat(el!.style.left);
 };
 
+/**
+ * The browser's timers refuse a call on any object but the window ("Illegal invocation").
+ * The fake timers installed by the test do not, so the window's timers are wrapped to
+ * refuse a method call the same way: a `this` that is neither undefined nor the window
+ * throws. Installed after the fake timers, so the page's own wiring meets it.
+ */
+function refuseMethodCalls() {
+  for (const name of ["setInterval", "clearInterval"] as const) {
+    const real = window[name] as (...args: unknown[]) => unknown;
+    vi.spyOn(window, name).mockImplementation(function (this: unknown, ...args: unknown[]) {
+      if (this !== undefined && this !== window) throw new TypeError("Illegal invocation");
+      return real.apply(window, args);
+    } as never);
+  }
+}
+
 describe("the nightly bar's page clock (P1-87 PR 5a)", () => {
   let target: HTMLDivElement;
   let app: ReturnType<typeof mount> | null = null;
@@ -40,11 +56,13 @@ describe("the nightly bar's page clock (P1-87 PR 5a)", () => {
     if (app) await unmount(app);
     app = null;
     target.remove();
+    vi.restoreAllMocks();
     vi.useRealTimers();
   });
 
   /** Mount the real page for `view`, with the fake clock at `fakeNow`. */
   async function mountPage(view: ReturnType<typeof overviewFromSnapshot>) {
+    refuseMethodCalls();
     const { default: Page } = await import("../../src/routes/+page.svelte");
     app = mount(Page, { target, props: { data: { view } as never } });
     flushSync();
@@ -107,5 +125,38 @@ describe("the nightly bar's page clock (P1-87 PR 5a)", () => {
     await mountPage(view);
     expect(view.cycle.marker).not.toBeNull();
     expect(markerLeft(target)).toBeCloseTo(view.cycle.marker! * 100, 6);
+  });
+
+  /**
+   * P1-87 PR 5a, review round 2 (tests e1b, e10): the clock is called bare, a hidden tab
+   * re-reads nothing, and a recorded view before its stale time re-reads nothing.
+   */
+  it("a running view makes no re-read over 5 minutes while the tab is hidden, and reads at once when it is shown", async () => {
+    vi.useFakeTimers({ now: Date.parse("2026-10-27T07:30:00.000Z") });
+    setVisible("hidden");
+    const view = overviewFromSnapshot(
+      snapshot({ nights: [], sites: [] }),
+      new Date("2026-10-27T07:30:00.000Z"),
+    );
+    await mountPage(view);
+    await vi.advanceTimersByTimeAsync(5 * MIN);
+    expect(invalidate).not.toHaveBeenCalled();
+    // Control: the same page, shown, re-reads at once on the visibility change.
+    setVisible("visible");
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(invalidate).toHaveBeenCalledWith("cockpit:snapshot");
+  });
+
+  it("a recorded view before its stale time makes no re-read over 5 minutes", async () => {
+    vi.useFakeTimers({ now: Date.parse("2026-10-27T12:00:00.000Z") });
+    const view = overviewFromSnapshot(
+      snapshot({ nights: [night("2026-10-26")], sites: [] }),
+      new Date("2026-10-27T12:00:00.000Z"),
+    );
+    expect(view.cycle.mode).toBe("recorded");
+    expect(view.cycle.staleAfterIso).toBe("2026-10-28T06:07:00.000Z");
+    await mountPage(view);
+    await vi.advanceTimersByTimeAsync(5 * MIN);
+    expect(invalidate).not.toHaveBeenCalled();
   });
 });

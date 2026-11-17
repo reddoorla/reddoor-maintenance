@@ -519,7 +519,10 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       const el = document.querySelector<HTMLElement>(".ov-cycle-marker");
       return el === null ? null : Number.parseFloat(getComputedStyle(el).borderLeftWidth);
     });
-    if (marker !== null) expect(marker).toBeGreaterThan(0);
+    // The seeded newest night is recorded, so the bar has a marker to check (P1-87 PR 5a,
+    // review round 2): a bar that drops its marker under forced colours fails here.
+    expect(marker, "the marker is rendered").not.toBeNull();
+    expect(marker!).toBeGreaterThan(0);
   });
 
   // P1-87 PR 4, review round 2 B: at 1280px the feed is the tallest first-screen panel, so
