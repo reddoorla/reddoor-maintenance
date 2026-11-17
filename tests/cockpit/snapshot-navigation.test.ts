@@ -114,13 +114,17 @@ async function seed(url: string): Promise<void> {
   // count column and the phone layout are measured with one. Acme's form test failed on a
   // fresh run, Beta has a fresh stamp and no result, and Lee's site has no stamp (not
   // checked): "1 test failed, not yet a verdict · 1 no verdict · 1 not checked".
-  for (const [site_id, form_e2e_ok] of [
-    ["recA", "fail"],
-    ["recB", null],
+  // Review round 4 (tests M1): Acme also has a passing Live and Certificate, so at least
+  // one check bar draws a fill for the "fill inside track" browser test to measure.
+  const passing = { uptime_reachable: "pass", url_resolves: "pass", browser_checked_at: now,
+    url_checked_at: now, cert_days_remaining: 90, domain_checked_at: now };
+  for (const [site_id, extra] of [
+    ["recA", { form_e2e_ok: "fail", ...passing }],
+    ["recB", { form_e2e_ok: null }],
   ] as const)
     await db
       .insertInto("site_health")
-      .values({ site_id, form_e2e_ok, form_e2e_checked_at: now } as never)
+      .values({ site_id, ...extra, form_e2e_checked_at: now } as never)
       .execute();
   // Leads on it, so the per-site leads table carries its name too: an hour old, so
   // Pat's lead below stays the newest on /submissions.
@@ -383,23 +387,27 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`${origin}/`);
     await expect.poll(() => page.locator(".ov-check-bar").count()).toBe(7);
-    const inside = await page.locator(".ov-check").evaluateAll((rows) =>
-      rows.map((row) => {
+    // Review round 4 (tests M1): the seed gives Acme a passing check, so a fill is measured
+    // here, and every fill and every unknown part lies inside its own track.
+    const parts = await page.locator(".ov-check").evaluateAll((rows) =>
+      rows.flatMap((row) => {
         const bar = row.querySelector(".ov-check-bar")!.getBoundingClientRect();
-        // A row with no site passing draws no fill (review round 3, D): nothing to inside.
-        const fillEl = row.querySelector(".ov-check-fill");
-        if (fillEl === null) return true;
-        const fill = fillEl.getBoundingClientRect();
-        return (
-          fill.left >= bar.left - 0.5 &&
-          fill.right <= bar.right + 0.5 &&
-          fill.top >= bar.top - 0.5 &&
-          fill.bottom <= bar.bottom + 0.5
-        );
+        return [...row.querySelectorAll(".ov-check-fill, .ov-check-unknown")].map((el) => {
+          const r = el.getBoundingClientRect();
+          return {
+            kind: el.classList.contains("ov-check-fill") ? "fill" : "unknown",
+            inside:
+              r.left >= bar.left - 0.5 &&
+              r.right <= bar.right + 0.5 &&
+              r.top >= bar.top - 0.5 &&
+              r.bottom <= bar.bottom + 0.5,
+          };
+        });
       }),
     );
-    expect(inside.every(Boolean)).toBe(true);
-    expect(inside).toHaveLength(7);
+    expect(parts.filter((p) => p.kind === "fill").length).toBeGreaterThan(0);
+    expect(parts.filter((p) => p.kind === "unknown").length).toBeGreaterThan(0);
+    expect(parts.every((p) => p.inside)).toBe(true);
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${origin}/`);
