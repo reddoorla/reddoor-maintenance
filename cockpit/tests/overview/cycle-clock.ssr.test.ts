@@ -109,8 +109,10 @@ describe("the nightly bar's clock", () => {
   it("does not double a re-read that is still in flight", async () => {
     const r = rig({ invalidate: () => new Promise<void>(() => undefined) });
     await vi.advanceTimersByTimeAsync(3 * MIN + 30_000);
-    // The first read never settles, so the one at 3 minutes is not started.
-    expect(r.reads).toEqual([START + 1 * MIN]);
+    // The first read never settles. It times out at the 2-minute tick (30 s after it
+    // began), so it no longer blocks; the 2-minute gap from its start is met at the
+    // 3-minute tick, and the read there is started.
+    expect(r.reads).toEqual([START + 1 * MIN, START + 3 * MIN]);
     r.clock.stop();
   });
 
@@ -196,9 +198,10 @@ describe("the bar's clock re-reads a stale view, settles hung reads, and ticks o
       invalidate: () => new Promise<void>(() => undefined),
     });
     await vi.advanceTimersByTimeAsync(4 * MIN + 30_000);
-    // The first read at 1 minute never settles; it counts as settled at 1 minute 30 s,
-    // and the next comes once the 2-minute gap has passed, at the 4-minute tick.
-    expect(r.reads).toEqual([START + 1 * MIN, START + 4 * MIN]);
+    // The first read at 1 minute never settles and times out at the 2-minute tick. The
+    // 2-minute gap runs from its start, so the next read is at the 3-minute tick, and
+    // the one after at the 5-minute tick.
+    expect(r.reads).toEqual([START + 1 * MIN, START + 3 * MIN]);
     r.clock.stop();
   });
 
@@ -245,3 +248,42 @@ describe("the bar's clock re-reads a stale view, settles hung reads, and ticks o
     expect(r.reads).toEqual([]);
   });
 });
+
+/**
+ * P1-87 PR 5a, review round 2 (correctness major 1; tests e12, e17): the 2-minute gap runs
+ * from the start of the last read, not from its settle, and a late answer from a read that
+ * already timed out does not change the clock.
+ */
+describe("the bar's clock spaces re-reads from when a read began (P1-87 PR 5a, round 2)", () => {
+  it("a slow read (2 s) does not push the next re-read a tick later: reads land at 1, 3 and 5 minutes", async () => {
+    const r = rig({
+      refresh: NOT_DUE,
+      staleAfterIso: "2026-10-27T00:00:00.000Z",
+      invalidate: () => new Promise<void>((res) => setTimeout(res, 2000)),
+    });
+    await vi.advanceTimersByTimeAsync(5 * MIN);
+    expect(r.reads).toEqual([START + 1 * MIN, START + 3 * MIN, START + 5 * MIN]);
+    r.clock.stop();
+  });
+
+  it("a read that hangs and answers at 45 s does not change when the next read happens", async () => {
+    let calls = 0;
+    const r = rig({
+      refresh: NOT_DUE,
+      staleAfterIso: "2026-10-27T00:00:00.000Z",
+      // The first read answers at 45 s, after its 30 s timeout; later reads answer at once.
+      invalidate: () => {
+        calls += 1;
+        return calls === 1
+          ? new Promise<void>((res) => setTimeout(res, 45_000))
+          : Promise.resolve();
+      },
+    });
+    await vi.advanceTimersByTimeAsync(4 * MIN);
+    // Measured from the start (1 minute), the next read is at 3 minutes. Had the late
+    // answer settled the clock, the gap would run from 1 minute 45 s and push it to 4.
+    expect(r.reads).toEqual([START + 1 * MIN, START + 3 * MIN]);
+    r.clock.stop();
+  });
+});
+

@@ -33,20 +33,19 @@ export type CycleClockDeps = {
 
 /** Start the clock; `stop` removes its timer and its visibility listener. */
 export function startCycleClock(deps: CycleClockDeps): { stop: () => void } {
-  // The re-read in flight, by the time it began; and when the last one settled
-  // (resolved, rejected, or timed out), which starts the 2-minute gap.
-  let inFlight: { startedMs: number } | null = null;
-  let lastSettledMs: number | null = null;
-  const settle = (at: number) => {
-    inFlight = null;
-    lastSettledMs = at;
-  };
+  // The re-read in flight, with its id and when it began. The 2-minute gap runs from
+  // when the last read began (not when it settled), so a slow read does not push the
+  // next one back a whole tick. A read that times out only clears `inFlight`; its late
+  // answer is ignored, because it no longer matches the in-flight read's id.
+  let inFlight: { id: number; startedMs: number } | null = null;
+  let lastStartedMs: number | null = null;
+  let nextId = 0;
 
   const tick = () => {
     const now = deps.nowMs();
     deps.onTick(now);
     if (inFlight !== null && now - inFlight.startedMs >= READ_TIMEOUT_MS) {
-      settle(inFlight.startedMs + READ_TIMEOUT_MS);
+      inFlight = null;
     }
     const { refresh, staleAfterIso } = deps.getView();
     const from = Date.parse(refresh.fromIso);
@@ -54,9 +53,10 @@ export function startCycleClock(deps: CycleClockDeps): { stop: () => void } {
     const due = (from <= now && now < until) || now >= Date.parse(staleAfterIso);
     if (!due) return;
     if (!deps.isVisible() || inFlight !== null) return;
-    if (lastSettledMs !== null && now - lastSettledMs < REREAD_MS) return;
-    const read = { startedMs: now };
+    if (lastStartedMs !== null && now - lastStartedMs < REREAD_MS) return;
+    const read = { id: ++nextId, startedMs: now };
     inFlight = read;
+    lastStartedMs = now;
     // A synchronous throw is a rejection too: a re-read never throws out of the tick.
     let done: Promise<void>;
     try {
@@ -67,8 +67,9 @@ export function startCycleClock(deps: CycleClockDeps): { stop: () => void } {
     done
       .catch(() => undefined)
       .finally(() => {
-        // A read that already timed out has been settled; its late answer is ignored.
-        if (inFlight === read) settle(deps.nowMs());
+        // Only the read still holding the slot clears it; a timed-out read's late answer
+        // touches nothing.
+        if (inFlight !== null && inFlight.id === read.id) inFlight = null;
       });
   };
 
