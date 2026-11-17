@@ -70,8 +70,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/cycle.ts",
-        "find": "const tonight = steps.map((step) => newestStamp(maintained, step.stamps, lastStartMs));",
-        "replace": "const tonight = steps.map((step) => newestStamp(maintained, step.stamps, -Infinity));"
+        "find": "const hit = stampsIn(maintained, step.stamps, lastStartMs, tonightEnd);",
+        "replace": "const hit = stampsIn(maintained, step.stamps, -Infinity, tonightEnd);"
       }
     ],
     "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
@@ -187,8 +187,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/cycle-clock.ts",
-        "find": "    if (!(from <= now && now < until)) return;",
-        "replace": "    void from;\n    void until;"
+        "find": "    if (!due) return;",
+        "replace": "    if (!due && false) return;"
       }
     ],
     "test": ["cockpit/tests/overview/cycle-clock.ssr.test.ts"],
@@ -200,8 +200,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/cycle-clock.ts",
-        "find": "    if (!deps.isVisible() || inFlight) return;",
-        "replace": "    if (inFlight) return;"
+        "find": "    if (!deps.isVisible() || inFlight !== null) return;",
+        "replace": "    if (inFlight !== null) return;"
       }
     ],
     "test": ["cockpit/tests/overview/cycle-clock.ssr.test.ts"],
@@ -213,8 +213,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/cycle-clock.ts",
-        "find": "    if (lastReadMs !== null && now - lastReadMs < REREAD_MS) return;",
-        "replace": "    void lastReadMs;"
+        "find": "    if (lastSettledMs !== null && now - lastSettledMs < REREAD_MS) return;",
+        "replace": "    if (false && lastSettledMs !== null && now - lastSettledMs < REREAD_MS) return;"
       }
     ],
     "test": ["cockpit/tests/overview/cycle-clock.ssr.test.ts"],
@@ -257,6 +257,253 @@
       }
     ],
     "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "x1-k-from-first-counted",
+    "why": "k is taken from the first counted step, not the last",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle.ts",
+        "find": "      if (t !== null) k = i;",
+        "replace": "      if (t !== null && k === -1) k = i;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "x2-start-exclusive",
+    "why": "the window start is exclusive: a stamp exactly at the start does not count",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle.ts",
+        "find": "if (!Number.isFinite(ms) || ms < since || ms > until) continue;",
+        "replace": "if (!Number.isFinite(ms) || ms <= since || ms > until) continue;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "x3-stamp-1s-before-counts",
+    "why": "a stamp one second before the start counts as tonight's",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle.ts",
+        "find": "if (!Number.isFinite(ms) || ms < since || ms > until) continue;",
+        "replace": "if (!Number.isFinite(ms) || ms < since - 1000 || ms > until) continue;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "x7-hours-rounded-up",
+    "why": "the hours are rounded up",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle.ts",
+        "find": "const h = Math.floor(diff / (60 * 60_000));",
+        "replace": "const h = Math.ceil(diff / (60 * 60_000));"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "x8-minutes-rounded-up",
+    "why": "the minutes are rounded up",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle.ts",
+        "find": "const m = Math.max(1, Math.floor(diff / 60_000));",
+        "replace": "const m = Math.max(1, Math.ceil(diff / 60_000));"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "x12-layout-restarts-on-any-data",
+    "why": "the layout restarts its check on any data change, clearing the notice",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+layout.svelte",
+        "find": "      if (controller === null || version === controlledVersion) return;",
+        "replace": "      if (controller === null) return;"
+      }
+    ],
+    "test": ["cockpit/tests/snapshot/layout-reread.dom.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "x13-none-as-waiting",
+    "why": "a none step is rendered with the waiting class",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "<li class=\"ov-cycle-seg {step.state}\">",
+        "replace": "<li class=\"ov-cycle-seg {step.state === 'none' ? 'waiting' : step.state}\">"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "x15-page-never-stops-clock",
+    "why": "the page never stops its clock on unmount",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "    return () => cycle.stop();",
+        "replace": "    return () => undefined;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page-clock.dom.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "x17-marker-from-nowiso",
+    "why": "the client marker is measured from the view's nowIso, not the clock",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "        : markerAt(v.cycle, v.cycle.windowEndIso, clock),",
+        "replace": "        : markerAt(v.cycle, v.cycle.windowEndIso, Date.parse(v.cycle.nowIso)),"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page-clock.dom.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "x18-invalidate-noop",
+    "why": "the page's invalidate is replaced with a no-op",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      invalidate: () => invalidate(\"cockpit:snapshot\"),",
+        "replace": "      invalidate: () => Promise.resolve(),"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page-clock.dom.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "staleAfter-ignored-by-clock",
+    "why": "the clock ignores staleAfterIso",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle-clock.ts",
+        "find": "    const due = (from <= now && now < until) || now >= Date.parse(staleAfterIso);",
+        "replace": "    const due = from <= now && now < until;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle-clock.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "settle-timeout-removed",
+    "why": "a hung re-read never counts as settled (the 30 s timeout is removed)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle-clock.ts",
+        "find": "    if (inFlight !== null && now - inFlight.startedMs >= READ_TIMEOUT_MS) {",
+        "replace": "    if (false && inFlight !== null && now - inFlight.startedMs >= READ_TIMEOUT_MS) {"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle-clock.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "visibility-tick-removed",
+    "why": "becoming visible does not tick the clock at once",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle-clock.ts",
+        "find": "  const unlisten = deps.listenVisible(tick);",
+        "replace": "  const unlisten = deps.listenVisible(() => undefined);"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle-clock.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "offset-ignored",
+    "why": "the page ignores the offset between the view's instant and its own clock",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "    offsetMs = Date.parse(v.cycle.nowIso) - Date.now();",
+        "replace": "    offsetMs = 0;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page-clock.dom.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "upper-stamp-bound-removed",
+    "why": "a stamp after the window or the clock counts",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle.ts",
+        "find": "if (!Number.isFinite(ms) || ms < since || ms > until) continue;",
+        "replace": "if (!Number.isFinite(ms) || ms < since) continue;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "need-fixed-at-1",
+    "why": "a step counts on one site, whatever it reached last night",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle.ts",
+        "find": "    if (m && m.value !== null) return m.value === 1 ? 1 : 2;",
+        "replace": "    if (m && m.value !== null) return 1;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "step-time-not-aria-hidden",
+    "why": "a step's time is read twice: its visible time is not aria-hidden",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "<span class=\"ov-cycle-time\" aria-hidden=\"true\">{step.time ?? \"\"}</span>",
+        "replace": "<span class=\"ov-cycle-time\">{step.time ?? \"\"}</span>"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "browser-forced-bar-rules-removed",
+    "why": "the forced-colours rules for the bar are removed (the browser test takes the bar's fills)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "  /* P1-87 PR 5a: the nightly bar's fills are the page colour under forced colours, so each\n     state is a border: done a solid bar as thick as the bar, a problem dotted like Attention,\n     none dashed, and the waiting bars and the wait track a thin solid outline. */\n  .ov-cycle-bar {\n    box-sizing: border-box;\n  }\n  .ov-cycle-seg.done .ov-cycle-bar {\n    background: none;\n    border: 0;\n    border-top: 0.625rem solid;\n  }\n  .ov-cycle-seg.problem .ov-cycle-bar {\n    background: none;\n    box-shadow: none;\n    border: 2px dotted;\n  }\n  .ov-cycle-seg.none .ov-cycle-bar {\n    background: none;\n    box-shadow: none;\n    border: 2px dashed;\n  }\n  .ov-cycle-seg.waiting .ov-cycle-bar {\n    box-shadow: none;\n    border: 1px solid;\n  }\n  .ov-cycle-seg.wait .ov-cycle-bar {\n    box-shadow: none;\n    border: 1px solid;\n  }\n  .ov-cycle-marker {\n    background: none;\n    width: 0;\n    border-left: 2px solid;\n  }\n",
+        "replace": ""
+      }
+    ],
+    "test": ["tests/cockpit/snapshot-navigation.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "browser-next-run-one-line",
+    "why": "the next-run time is back on one nowrap line in a narrow column",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-cycle-time {\n  color: var(--ink-muted);\n  font-variant-numeric: tabular-nums;\n  white-space: normal;\n}\n.ov-cycle-when,\n.ov-cycle-until {\n  display: block;\n  white-space: nowrap;\n}",
+        "replace": ".ov-cycle-time {\n  color: var(--ink-muted);\n  font-variant-numeric: tabular-nums;\n  white-space: nowrap;\n}\n.ov-cycle-when,\n.ov-cycle-until {\n  display: inline;\n  white-space: nowrap;\n}"
+      }
+    ],
+    "test": ["tests/cockpit/snapshot-navigation.test.ts"],
     "expect": "red"
   }
 ]
