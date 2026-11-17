@@ -2326,7 +2326,7 @@ export function latelyView(
   // tested, so a name of spaces is no name.
   const eventSite = (e: FleetEvent): string | null => {
     const stored = e.siteName?.trim() || null;
-    return e.siteId === null ? stored : (siteName(e.siteId) ?? (stored ?? GONE_SITE));
+    return e.siteId === null ? stored : (siteName(e.siteId) ?? stored ?? GONE_SITE);
   };
   for (const e of events) push(e.ts, PLAIN_EVENT[e.type] ?? e.summary, eventSite(e), 0);
   const named = new Set(events.map(eventReportId).filter((x): x is string => x !== null));

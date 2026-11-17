@@ -309,7 +309,7 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "(siteName(e.siteId) ?? (stored ?? GONE_SITE))",
+        "find": "(siteName(e.siteId) ?? stored ?? GONE_SITE)",
         "replace": "(stored || siteName(e.siteId) || GONE_SITE)"
       }
     ],
@@ -520,7 +520,7 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "(siteName(e.siteId) ?? (stored ?? GONE_SITE))",
+        "find": "(siteName(e.siteId) ?? stored ?? GONE_SITE)",
         "replace": "(siteName(e.siteId) ?? stored)"
       }
     ],
@@ -756,7 +756,10 @@
         "replace": "  flex: 0 0 auto;"
       }
     ],
-    "test": ["tests/cockpit/snapshot-navigation.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
+    "test": [
+      "tests/cockpit/snapshot-navigation.test.ts",
+      "cockpit/tests/overview/page.ssr.test.ts"
+    ],
     "expect": "red"
   },
   {

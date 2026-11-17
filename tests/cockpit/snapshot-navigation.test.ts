@@ -467,7 +467,9 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       expect(Math.abs(health!.height - health!.content)).toBeLessThanOrEqual(2);
       expect(Math.abs(measured![1]!.height - measured![1]!.content)).toBeLessThanOrEqual(2);
       // Both kinds of stamp render: a dated one (its date ends in a comma) and an undated one.
-      const stamps = await page.$$eval(".ov-lately time", (ts) => ts.map((t) => t.textContent ?? ""));
+      const stamps = await page.$$eval(".ov-lately time", (ts) =>
+        ts.map((t) => t.textContent ?? ""),
+      );
       expect(stamps.some((t) => t.includes(","))).toBe(true);
       expect(stamps.some((t) => !t.includes(","))).toBe(true);
       const starts = await page.$$eval(".ov-lately li", (lis) =>
