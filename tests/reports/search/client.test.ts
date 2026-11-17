@@ -682,4 +682,56 @@ describe("fetchSearchDaily", () => {
       ),
     ).rejects.toThrow("socket hang up");
   });
+
+  // Group A (P1-87 PR 6, review round 1): the candidates are tried in order until one
+  // returns rows, as fetchSearchPresence does. An empty Domain property is not a true 0
+  // while a URL-prefix property holds the clicks.
+  it("reads the URL-prefix property when the Domain property answers with no rows", async () => {
+    request
+      .mockResolvedValueOnce(
+        ok({
+          siteEntry: [
+            { siteUrl: "https://www.x.com/" },
+            { siteUrl: "sc-domain:x.com" },
+          ],
+        }),
+      ) // sites.list
+      .mockResolvedValueOnce(ok({})) // sc-domain: answers {}
+      .mockResolvedValueOnce(
+        ok({ rows: [{ keys: ["2026-10-17"], clicks: 40, impressions: 900 }] }),
+      ); // url-prefix: the data
+    const out = await fetchSearchDaily(
+      { keyPath, subjects: ["s@x.com"], host: "x.com" },
+      range,
+    );
+    expect(out).toEqual(new Map([["2026-10-17", { clicks: 40, impressions: 900 }]]));
+    expect(request).toHaveBeenCalledTimes(3);
+    expect(request.mock.calls[2]![0].url).toContain(encodeURIComponent("https://www.x.com/"));
+  });
+
+  it("returns an empty map when every candidate answers with no rows (a true 0)", async () => {
+    request
+      .mockResolvedValueOnce(
+        ok({ siteEntry: [{ siteUrl: "sc-domain:x.com" }, { siteUrl: "https://www.x.com/" }] }),
+      )
+      .mockResolvedValueOnce(ok({ rows: [] }))
+      .mockResolvedValueOnce(ok({}));
+    const out = await fetchSearchDaily({ keyPath, subjects: ["s@x.com"], host: "x.com" }, range);
+    expect(out).toEqual(new Map());
+    expect(request).toHaveBeenCalledTimes(3);
+  });
+
+  it("throws on a 500 from the first candidate, without falling through to the next", async () => {
+    request
+      .mockResolvedValueOnce(
+        ok({ siteEntry: [{ siteUrl: "sc-domain:x.com" }, { siteUrl: "https://www.x.com/" }] }),
+      )
+      .mockRejectedValueOnce(
+        Object.assign(new Error("Internal error encountered."), { response: { status: 500 } }),
+      );
+    await expect(
+      fetchSearchDaily({ keyPath, subjects: ["s@x.com"], host: "x.com" }, range),
+    ).rejects.toThrow("Internal error encountered.");
+    expect(request).toHaveBeenCalledTimes(2); // sites.list and the first candidate only
+  });
 });

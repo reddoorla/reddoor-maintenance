@@ -244,7 +244,8 @@ export type SearchDailyQuery = Omit<SearchPresenceQuery, "query">;
  *
  * Property resolution and subject failover are {@link fetchSearchPresence}'s: an explicit
  * `property` is used alone, else every `sites.list` match is tried in order. The first
- * candidate that answers gives the map. Throws when no property resolves for any subject,
+ * candidate that returns rows gives the map; when every candidate answers with none, the map
+ * is empty (a true 0). Throws when no property resolves for any subject,
  * or when every candidate fails. It never returns an empty map for a failed read.
  */
 export async function fetchSearchDaily(
@@ -277,32 +278,33 @@ export async function fetchSearchDaily(
       if (candidates.length === 0) throw new NoPropertyForSubjectError(subject, q.host);
     }
 
-    let lastError: unknown;
+    // The candidates in order until one returns rows, as fetchSearchPresence does: an
+    // empty Domain property is not a true 0 while a URL-prefix property holds the data.
+    // A request that fails propagates, so a 5xx is not read as "no rows" (P1-87, PR 6).
     for (const property of candidates) {
-      try {
-        const res = await jwt.request<{
-          rows?: Array<{ keys?: string[]; clicks?: number; impressions?: number }>;
-        }>({
-          url: `${SC_BASE}/sites/${encodeURIComponent(property)}/searchAnalytics/query`,
-          method: "POST",
-          data: {
-            startDate: range.startDate,
-            endDate: range.endDate,
-            dimensions: ["date"],
-            rowLimit: 1000,
-          },
-        });
-        const days = new Map<string, { clicks: number; impressions: number }>();
-        for (const row of res.data.rows ?? []) {
-          const date = row.keys?.[0];
-          if (!date) continue;
-          days.set(date, { clicks: row.clicks ?? 0, impressions: row.impressions ?? 0 });
-        }
-        return days;
-      } catch (e) {
-        lastError = e;
+      const res = await jwt.request<{
+        rows?: Array<{ keys?: string[]; clicks?: number; impressions?: number }>;
+      }>({
+        url: `${SC_BASE}/sites/${encodeURIComponent(property)}/searchAnalytics/query`,
+        method: "POST",
+        data: {
+          startDate: range.startDate,
+          endDate: range.endDate,
+          dimensions: ["date"],
+          rowLimit: 1000,
+        },
+      });
+      const rows = res.data.rows ?? [];
+      if (rows.length === 0) continue;
+      const days = new Map<string, { clicks: number; impressions: number }>();
+      for (const row of rows) {
+        const date = row.keys?.[0];
+        if (!date) throw new Error(`Search Console returned a row with no date for ${property}`);
+        days.set(date, { clicks: row.clicks ?? 0, impressions: row.impressions ?? 0 });
       }
+      return days;
     }
-    throw lastError;
+    // Every candidate answered, and none had rows: each day is a true 0.
+    return new Map<string, { clicks: number; impressions: number }>();
   });
 }
