@@ -286,4 +286,3 @@ describe("the bar's clock spaces re-reads from when a read began (P1-87 PR 5a, r
     r.clock.stop();
   });
 });
-
