@@ -1757,6 +1757,12 @@ describe("the ticker's styles and speed (P1-87 PR 5b review r1 D)", () => {
     expect(pressed![1]).toMatch(/border-width:\s*3px/);
   });
 
+  it("gives the pressed pause button 2px less padding on each side, so its outer size stays put (r3 D)", () => {
+    const pressed = forced.match(/\.ov-ticker-pause\[aria-pressed="true"\]\s*\{([^}]*)\}/);
+    expect(pressed).not.toBeNull();
+    expect(pressed![1]).toMatch(/padding:\s*calc\(0\.2em - 2px\)\s+calc\(0\.7em - 2px\)/);
+  });
+
   it("shows the pause button pressed: an ink fill with on-ink text", () => {
     // Two rules name the pressed button now: this fill, and the forced-colours border (r2 C).
     // The fill is the one that carries a background.

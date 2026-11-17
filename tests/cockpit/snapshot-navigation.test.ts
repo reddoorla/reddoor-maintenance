@@ -1524,6 +1524,34 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     expect(all).toContain("Beta");
   });
 
+  // P1-87 PR 5b review r3 D: under forced colours the pressed pause button's thicker border must
+  // not make it taller, or the ticker below jumps on each press.
+  it("under forced colours the pressed pause button keeps its size, and the ticker below stays put", async () => {
+    const page = await signedIn();
+    await page.emulateMedia({ forcedColors: "active" });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await expect
+      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
+      .toBeGreaterThanOrEqual(2);
+    const button = page.locator(".ov-ticker-pause");
+    await button.scrollIntoViewIfNeeded();
+    const unpressed = (await button.boundingBox())!;
+    const windowBefore = (await page.locator(".ov-ticker-window").boundingBox())!;
+    await button.click();
+    expect(await button.getAttribute("aria-pressed")).toBe("true");
+    const pressed = (await button.boundingBox())!;
+    const windowAfter = (await page.locator(".ov-ticker-window").boundingBox())!;
+    expect(
+      Math.abs(pressed.height - unpressed.height),
+      `the pressed button is as tall as unpressed (${unpressed.height}px, pressed ${pressed.height}px)`,
+    ).toBeLessThanOrEqual(0.5);
+    expect(
+      Math.abs(windowAfter.y - windowBefore.y),
+      "the ticker below does not move on a press",
+    ).toBeLessThanOrEqual(0.5);
+  });
+
   it("at 390px the ticker adds no sideways scroll to the page", async () => {
     const page = await signedIn();
     await page.setViewportSize({ width: 390, height: 844 });

@@ -509,9 +509,12 @@ section {
   .ov-spark circle {
     fill: currentColor;
   }
-  /* The pressed pause button loses its ink fill here, so its border is what shows it is pressed. */
+  /* The pressed pause button loses its ink fill here, so its border is what shows it is pressed.
+     Its 3px border is 2px more on each side than the 1px base, so the padding gives those 2px
+     back: the button keeps its outer size, and the ticker below it does not jump (r3 D). */
   .ov-ticker-pause[aria-pressed="true"] {
     border-width: 3px;
+    padding: calc(0.2em - 2px) calc(0.7em - 2px);
   }
 }
 
