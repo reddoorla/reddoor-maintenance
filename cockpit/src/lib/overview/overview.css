@@ -181,8 +181,9 @@ section {
   font-size: 0.85rem;
 }
 
-/* P1-87 PR 3: the first screen, as sketch 3. Two cards side by side from 60rem (a third
-   column, Lately, comes later), stacked below. Tokens only; red is for Broken alone. */
+/* P1-87 PR 3, PR 4: the first screen, as sketch 3. Two cards side by side from 60rem, with
+   Lately (PR 4) across both below them; three columns from 75rem, stacked below 60rem.
+   Tokens only; red is for Broken alone. */
 .ov-first {
   display: grid;
   grid-template-columns: 1fr;
@@ -193,9 +194,40 @@ section {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: stretch;
   }
+  .ov-lately {
+    grid-column: 1 / -1;
+  }
+}
+@media (min-width: 75rem) {
+  .ov-first {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .ov-lately {
+    grid-column: auto;
+  }
+}
+/* Lately: the newest lines, the time first, tabular so the times line up. */
+.ov-lately ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ov-lately li {
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.3rem 0;
+  border-top: 1px solid var(--rule);
+  font-size: 0.9rem;
+}
+.ov-lately time {
+  flex: 0 0 auto;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .ov-health,
-.ov-happening {
+.ov-happening,
+.ov-lately {
   margin: 0;
   padding: 1rem 1.25rem;
   background: var(--surface);
