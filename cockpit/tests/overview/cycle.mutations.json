@@ -200,8 +200,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/cycle-clock.ts",
-        "find": "    if (!deps.isVisible() || inFlight !== null) return;",
-        "replace": "    if (inFlight !== null) return;"
+        "find": "    if (!deps.isVisible()) return;",
+        "replace": ""
       }
     ],
     "test": ["cockpit/tests/overview/cycle-clock.ssr.test.ts"],
@@ -213,8 +213,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/cycle-clock.ts",
-        "find": "    if (lastStartedMs !== null && now - lastStartedMs < REREAD_MS) return;",
-        "replace": "    if (false && lastStartedMs !== null && now - lastStartedMs < REREAD_MS) return;"
+        "find": "    if (lastStartedMs !== null && now - lastStartedMs < REREAD_MS - REREAD_JITTER_MS) return;",
+        "replace": "    if (false && lastStartedMs !== null && now - lastStartedMs < REREAD_MS - REREAD_JITTER_MS) return;"
       }
     ],
     "test": ["cockpit/tests/overview/cycle-clock.ssr.test.ts"],
@@ -403,19 +403,6 @@
     "expect": "red"
   },
   {
-    "id": "settle-timeout-removed",
-    "why": "a hung re-read never counts as settled (the 30 s timeout is removed)",
-    "edits": [
-      {
-        "file": "cockpit/src/lib/overview/cycle-clock.ts",
-        "find": "    if (inFlight !== null && now - inFlight.startedMs >= READ_TIMEOUT_MS) {",
-        "replace": "    if (false && inFlight !== null && now - inFlight.startedMs >= READ_TIMEOUT_MS) {"
-      }
-    ],
-    "test": ["cockpit/tests/overview/cycle-clock.ssr.test.ts"],
-    "expect": "red"
-  },
-  {
     "id": "visibility-tick-removed",
     "why": "becoming visible does not tick the clock at once",
     "edits": [
@@ -572,19 +559,6 @@
     "expect": "red"
   },
   {
-    "id": "e12-late-answer-settles",
-    "why": "(round 2, e12) a late answer from a timed-out read clears whichever read holds the slot. Expected to survive: it is equivalent under the round-2 rule. The slot is cleared by the 30 s timeout, and the next read waits 2 minutes from the last read's start, so clearing the slot early never lets a read through. Kept so a change that makes it observable shows up as a surprise.",
-    "edits": [
-      {
-        "file": "cockpit/src/lib/overview/cycle-clock.ts",
-        "find": "        if (inFlight !== null && inFlight.id === read.id) inFlight = null;",
-        "replace": "        inFlight = null;"
-      }
-    ],
-    "test": ["cockpit/tests/overview/cycle-clock.ssr.test.ts"],
-    "expect": "survives"
-  },
-  {
     "id": "e13-tonight-end-ignores-clock",
     "why": "(round 2, e13) tonight's stamps run to the window's end, so a stamp after now counts",
     "edits": [
@@ -608,19 +582,6 @@
       }
     ],
     "test": ["cockpit/tests/overview/page-clock.dom.test.ts"],
-    "expect": "red"
-  },
-  {
-    "id": "gap-measured-from-settle",
-    "why": "(round 2, Group A) the 2-minute gap runs from the settle, so a slow read pushes the next a tick later",
-    "edits": [
-      {
-        "file": "cockpit/src/lib/overview/cycle-clock.ts",
-        "find": "        if (inFlight !== null && inFlight.id === read.id) inFlight = null;",
-        "replace": "        if (inFlight !== null && inFlight.id === read.id) {\n          inFlight = null;\n          lastStartedMs = deps.nowMs();\n        }"
-      }
-    ],
-    "test": ["cockpit/tests/overview/cycle-clock.ssr.test.ts"],
     "expect": "red"
   },
   {
