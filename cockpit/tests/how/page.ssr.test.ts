@@ -743,3 +743,13 @@ describe("the separators are hidden, and the words keep their spaces", () => {
     for (const h of hidden) expect(text(h)).toBe("·");
   });
 });
+
+describe("How we count's Lately entry (P1-87 PR 4, review round 3 D)", () => {
+  it("says the night is one line naming up to two steps that did not run to the end, and that a line from six Pacific calendar days back is dated", () => {
+    const terms = DOC.querySelectorAll("details dl dt").map(text);
+    const entry = DOC.querySelectorAll("details dl dd")[terms.indexOf("Lately")]!;
+    expect(terms).toContain("Lately");
+    expect(text(entry)).toContain("naming up to two steps that did not run to the end");
+    expect(text(entry)).toContain("from six Pacific calendar days back carries its date");
+  });
+});

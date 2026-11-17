@@ -3519,6 +3519,37 @@ describe("the Lately feed (P1-87 PR 4)", () => {
     ]);
   });
 
+  it("names the first two steps that did not finish, and counts a third as one more", () => {
+    const steps: Record<string, unknown> = Object.fromEntries(
+      NIGHTLIES.map((n: { file: string }) => [
+        n.file,
+        { outcome: "completed", runId: 1, conclusion: "success" },
+      ]),
+    );
+    steps["fleet-db-backup.yml"] = { outcome: "completed", runId: 9, conclusion: "failure" };
+    steps["fleet-prismic-drift.yml"] = { outcome: "completed", runId: 9, conclusion: "failure" };
+    steps["fleet-form-e2e.yml"] = { outcome: "completed", runId: 9, conclusion: "failure" };
+    const v = overviewFromSnapshot(
+      snapshot({ nights: [night("2026-10-26", { steps: steps as never })] }),
+      NOW,
+    );
+    expect(v.lately.lines.map((l) => [l.when, l.text])).toEqual([
+      [
+        "Mon 11:07pm",
+        "Nightly run: 5 of 8 steps ran to the end (Backup: failed; CMS check: failed; 1 more did not)",
+      ],
+    ]);
+  });
+
+  it("makes no line from an event whose date does not parse, and the page holds no 'Invalid'", () => {
+    const v = overviewFromSnapshot(
+      snapshot({ feedEvents: [event({ id: "bad", ts: "not a date" })] }),
+      NOW,
+    );
+    expect(v.lately.lines).toEqual([]);
+    expect(JSON.stringify(v)).not.toContain("Invalid");
+  });
+
   it("keeps a row at exactly seven days old, and drops one a second older", () => {
     const edge = new Date(NOW.getTime() - 7 * 86_400_000).toISOString();
     const older = new Date(NOW.getTime() - 7 * 86_400_000 - 1000).toISOString();

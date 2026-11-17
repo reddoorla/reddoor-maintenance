@@ -1557,6 +1557,16 @@ describe("the Lately feed on the page (P1-87 PR 4)", () => {
     expect(liRule).not.toMatch(/border-top/);
   });
 
+  it("makes no line from an event whose date does not parse, and the page holds no 'Invalid'", () => {
+    const bad = overviewFromSnapshot(
+      snapshot({ feedEvents: [event({ id: "bad", ts: "not a date" })] }),
+      NOW,
+    );
+    const html = pageHtml(bad);
+    expect(parse(html).querySelectorAll(".ov-lately ol > li")).toHaveLength(0);
+    expect(html).not.toContain("Invalid");
+  });
+
   it("says which sources could not be read, and never 'Nothing recorded' over them", () => {
     const failed = parse(
       pageHtml(
