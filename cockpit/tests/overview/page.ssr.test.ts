@@ -1476,12 +1476,40 @@ describe("the Lately feed on the page (P1-87 PR 4)", () => {
 
   it("shows each line with its time as a datetime, and the site after a dot", () => {
     const lines = DOC.querySelectorAll(".ov-lately ol > li");
-    expect(lines).toHaveLength(VIEW.lately.length);
-    expect(VIEW.lately.length).toBeGreaterThan(0);
+    expect(lines).toHaveLength(VIEW.lately.lines.length);
+    expect(VIEW.lately.lines.length).toBeGreaterThan(0);
     const times = DOC.querySelectorAll(".ov-lately li time").map((t) => t.getAttribute("datetime"));
-    expect(times).toEqual(VIEW.lately.map((l) => l.atIso));
+    expect(times).toEqual(VIEW.lately.lines.map((l) => l.atIso));
     expect(text(lines[0]!)).toBe(
-      `${VIEW.lately[0]!.when} ${VIEW.lately[0]!.text} · ${VIEW.lately[0]!.site}`,
+      `${VIEW.lately.lines[0]!.when} ${VIEW.lately.lines[0]!.text} · ${VIEW.lately.lines[0]!.site}`,
+    );
+  });
+
+  it("says which sources could not be read, and never 'Nothing recorded' over them", () => {
+    const failed = parse(
+      pageHtml(
+        overviewFromSnapshot(
+          snapshot({
+            gaps: ["feed events"],
+            feedEvents: [],
+            reports: null,
+            submissions: null,
+            nights: null,
+          }),
+          NOW,
+        ),
+      ),
+    );
+    const panel = text(failed.querySelector(".ov-lately")!);
+    expect(panel).toContain("Could not read events, reports, leads and the nightly just now.");
+    expect(panel).not.toContain("Nothing recorded");
+  });
+
+  it("names a failed source by its sentinel, so the sentence is over the rendered view", () => {
+    const US = sentinelize(overviewFromSnapshot({ ...SNAP, reports: null }, NOW));
+    const UDOC = parse(pageHtml(US.view));
+    expect(text(UDOC.querySelector(".ov-lately")!)).toContain(
+      `Could not read ${US.at.get("lately.unreadable[a]")} just now.`,
     );
   });
 

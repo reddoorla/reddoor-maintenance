@@ -1,6 +1,11 @@
 <script lang="ts">
   import type { OverviewView } from "../lib/overview/view.js";
-  import { launchingClauses, sparkGeometry, trendGeometry } from "../lib/overview/view.js";
+  import {
+    launchingClauses,
+    listWords,
+    sparkGeometry,
+    trendGeometry,
+  } from "../lib/overview/view.js";
   import PageStyles from "../lib/PageStyles.svelte";
   import healthCss from "../lib/cockpit/health.css?inline";
   import overviewCss from "../lib/overview/overview.css?inline";
@@ -143,17 +148,20 @@
 
   <section class="ov-lately" aria-labelledby="ov-lately-h">
     <h2 id="ov-lately-h">Lately</h2>
-    {#if v.lately.length === 0}
-      <p class="muted">Nothing recorded in the last 7 days.</p>
-    {:else}
+    {#if v.lately.lines.length > 0}
       <ol data-term="Lately">
-        {#each v.lately as l, i (i)}
+        {#each v.lately.lines as l, i (i)}
           <li>
             <time datetime={l.atIso}>{l.when}</time>
             <span>{l.text}{l.site === null ? "" : ` · ${l.site}`}</span>
           </li>
         {/each}
       </ol>
+    {/if}
+    {#if v.lately.unreadable.length > 0}
+      <p class="muted">Could not read {listWords(v.lately.unreadable)} just now.</p>
+    {:else if v.lately.lines.length === 0}
+      <p class="muted">Nothing recorded in the last 7 days.</p>
     {/if}
   </section>
 </div>

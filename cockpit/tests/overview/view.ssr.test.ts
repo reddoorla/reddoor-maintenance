@@ -2888,12 +2888,12 @@ describe("the Lately feed (P1-87 PR 4)", () => {
       }),
       NOW,
     );
-    expect(v.lately.map((l) => [l.when, l.text, l.site])).toEqual([
+    expect(v.lately.lines.map((l) => [l.when, l.text, l.site])).toEqual([
       ["Tue 3:00am", "Dependency update merged", "Acme"],
       ["Mon 1:00pm", "Maintenance report sent", "Acme"],
       ["Mon 11:00am", "Lead delivered", "Acme"],
     ]);
-    expect(v.lately[0]!.atIso).toBe("2026-10-27T10:00:00.000Z");
+    expect(v.lately.lines[0]!.atIso).toBe("2026-10-27T10:00:00.000Z");
   });
 
   it("never carries a lead's name, email, phone, message, extra fields, source or utm", () => {
@@ -2915,8 +2915,8 @@ describe("the Lately feed (P1-87 PR 4)", () => {
       snapshot({ sites: [healthy({ id: "recA", name: "Acme" })], submissions: [sub] }),
       NOW,
     );
-    expect(v.lately.map((l) => l.text)).toEqual(["Lead delivered"]);
-    const json = JSON.stringify(v.lately);
+    expect(v.lately.lines.map((l) => l.text)).toEqual(["Lead delivered"]);
+    const json = JSON.stringify(v.lately.lines);
     for (const sentinel of [
       "SENTINEL-NAME-Q",
       "SENTINEL-EMAIL-Q",
@@ -2946,7 +2946,7 @@ describe("the Lately feed (P1-87 PR 4)", () => {
       event({ id: "o3", type: "cert_renewed", ts: "2026-10-27T07:00:00.000Z", summary: "c" }),
     ];
     const v = overviewFromSnapshot(snapshot({ feedEvents: [...sweeps, ...others] }), NOW);
-    expect(v.lately.map((l) => l.text)).toEqual([
+    expect(v.lately.lines.map((l) => l.text)).toEqual([
       "Dependency update merged",
       "Vulnerability cleared",
       "Certificate renewed",
@@ -2955,7 +2955,7 @@ describe("the Lately feed (P1-87 PR 4)", () => {
       snapshot({ feedEvents: [event({ type: "fleet_swept", siteId: null, siteName: null })] }),
       NOW,
     );
-    expect(lone.lately).toEqual([]);
+    expect(lone.lately.lines).toEqual([]);
   });
 
   it("makes no line for a test send or a withdrawn report", () => {
@@ -2974,7 +2974,7 @@ describe("the Lately feed (P1-87 PR 4)", () => {
       }),
       NOW,
     );
-    expect(v.lately).toEqual([]);
+    expect(v.lately.lines).toEqual([]);
   });
 
   it("makes one line for an override, without the reason typed on it", () => {
@@ -3004,10 +3004,10 @@ describe("the Lately feed (P1-87 PR 4)", () => {
       }),
       NOW,
     );
-    expect(v.lately.map((l) => [l.text, l.site])).toEqual([
+    expect(v.lately.lines.map((l) => [l.text, l.site])).toEqual([
       ["Report sent with an override", "Acme"],
     ]);
-    expect(JSON.stringify(v.lately)).not.toContain("SECRET-REASON-Z");
+    expect(JSON.stringify(v.lately.lines)).not.toContain("SECRET-REASON-Z");
   });
 
   it("lists the newest 8 lines, newest first, and drops anything older than 7 days", () => {
@@ -3019,10 +3019,10 @@ describe("the Lately feed (P1-87 PR 4)", () => {
       }),
     );
     const v = overviewFromSnapshot(snapshot({ feedEvents: hourly }), NOW);
-    expect(v.lately).toHaveLength(8);
-    expect(v.lately.map((l) => l.atIso)).toEqual(hourly.slice(0, 8).map((e) => e.ts));
+    expect(v.lately.lines).toHaveLength(8);
+    expect(v.lately.lines.map((l) => l.atIso)).toEqual(hourly.slice(0, 8).map((e) => e.ts));
     const old = event({ ts: new Date(NOW.getTime() - 8 * 86_400_000).toISOString() });
-    expect(overviewFromSnapshot(snapshot({ feedEvents: [old] }), NOW).lately).toEqual([]);
+    expect(overviewFromSnapshot(snapshot({ feedEvents: [old] }), NOW).lately.lines).toEqual([]);
   });
 
   it("takes the nightly's lines from the night expected by now, before 6am too", () => {
@@ -3035,25 +3035,61 @@ describe("the Lately feed (P1-87 PR 4)", () => {
       }),
     ];
     const early = new Date("2026-10-27T12:00:00.000Z"); // 5:00am PT: last night is the 25th
-    expect(overviewFromSnapshot(snapshot({ nights }), early).lately.map((l) => l.text)).toEqual([
-      "Nightly run: 1 of 1 steps ran to the end",
-    ]);
+    expect(
+      overviewFromSnapshot(snapshot({ nights }), early).lately.lines.map((l) => l.text),
+    ).toEqual(["Nightly run: 1 of 1 steps ran to the end"]);
     // From 6am the night of the 26th is expected: its summary, then its one failed step.
-    expect(overviewFromSnapshot(snapshot({ nights }), NOW).lately.map((l) => l.text)).toEqual([
-      "Nightly run: 0 of 1 steps ran to the end",
-      "Backup: failed",
-    ]);
+    expect(overviewFromSnapshot(snapshot({ nights }), NOW).lately.lines.map((l) => l.text)).toEqual(
+      ["Nightly run: 0 of 1 steps ran to the end", "Backup: failed"],
+    );
   });
 
   it("makes one nightly line when every step ran to the end, and none for a step with no result", () => {
-    const all = overviewFromSnapshot(snapshot({ nights: [night("2026-10-26")] }), NOW).lately;
+    const all = overviewFromSnapshot(snapshot({ nights: [night("2026-10-26")] }), NOW).lately.lines;
     expect(all.map((l) => l.text)).toEqual(["Nightly run: 8 of 8 steps ran to the end"]);
     expect(all[0]!.site).toBeNull();
     expect(all[0]!.when).toBe("Mon 11:07pm");
     // A night with no step results says nothing: a step with no result never reads "ran".
     expect(
-      overviewFromSnapshot(snapshot({ nights: [night("2026-10-26", { steps: {} })] }), NOW).lately,
+      overviewFromSnapshot(snapshot({ nights: [night("2026-10-26", { steps: {} })] }), NOW).lately
+        .lines,
     ).toEqual([]);
+  });
+
+  it("names every source whose read failed, and shows no 'Nothing recorded' over them", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        gaps: ["feed events"],
+        feedEvents: [],
+        reports: null,
+        submissions: null,
+        nights: null,
+      }),
+      NOW,
+    );
+    expect(v.lately).toEqual({
+      lines: [],
+      unreadable: ["events", "reports", "leads", "the nightly"],
+    });
+  });
+
+  it("shows the sources that did read beside the one that failed", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [healthy({ id: "recA", name: "Acme" })],
+        feedEvents: [event({ id: "pa", type: "pr_automerged", ts: "2026-10-27T10:00:00.000Z" })],
+        reports: null,
+      }),
+      NOW,
+    );
+    expect(v.lately).toEqual({
+      lines: [expect.objectContaining({ text: "Dependency update merged" })],
+      unreadable: ["reports"],
+    });
+  });
+
+  it("reads 'Nothing recorded' only when every source read and none has a line", () => {
+    expect(overviewFromSnapshot(snapshot(), NOW).lately).toEqual({ lines: [], unreadable: [] });
   });
 
   it("keeps the three reports and the event of a clean night beside its one nightly line", () => {
@@ -3083,7 +3119,7 @@ describe("the Lately feed (P1-87 PR 4)", () => {
       }),
       NOW,
     );
-    expect(v.lately.map((l) => [l.when, l.text, l.site])).toEqual([
+    expect(v.lately.lines.map((l) => [l.when, l.text, l.site])).toEqual([
       ["Mon 11:07pm", "Nightly run: 8 of 8 steps ran to the end", null],
       ["Mon 3:00pm", "Maintenance report sent", "Acme"],
       ["Mon 2:00pm", "Testing report sent", "Acme"],
@@ -3105,7 +3141,7 @@ describe("the Lately feed (P1-87 PR 4)", () => {
       snapshot({ nights: [night("2026-10-26", { steps: steps as never })] }),
       NOW,
     );
-    expect(v.lately.map((l) => [l.when, l.text, l.site])).toEqual([
+    expect(v.lately.lines.map((l) => [l.when, l.text, l.site])).toEqual([
       ["Mon 11:07pm", "Nightly run: 6 of 8 steps ran to the end", null],
       ["Mon 11:07pm", "Backup: failed", null],
       ["Mon 11:07pm", "Live forms: failed", null],
@@ -3117,13 +3153,10 @@ describe("the Lately feed (P1-87 PR 4)", () => {
     const older = new Date(NOW.getTime() - 7 * 86_400_000 - 1000).toISOString();
     const v = overviewFromSnapshot(
       snapshot({
-        feedEvents: [
-          event({ id: "edge", ts: edge }),
-          event({ id: "older", ts: older }),
-        ],
+        feedEvents: [event({ id: "edge", ts: edge }), event({ id: "older", ts: older })],
       }),
       NOW,
     );
-    expect(v.lately.map((l) => l.text)).toEqual(["Dependency update merged"]);
+    expect(v.lately.lines.map((l) => l.text)).toEqual(["Dependency update merged"]);
   });
 });

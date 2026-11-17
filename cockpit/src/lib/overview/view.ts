@@ -2241,16 +2241,30 @@ function eventReportId(e: FleetEvent): string | null {
   return d !== null && typeof d === "object" && typeof d.reportId === "string" ? d.reportId : null;
 }
 
+/** "a, b and c" for a short list of words. */
+export const listWords = (xs: readonly string[]): string =>
+  xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`;
+
+/** The Lately feed as the page reads it: the lines, and the sources whose read failed,
+ *  named in the order the page says them ("events", "reports", "leads", "the nightly"). */
+export type Lately = { lines: LatelyLine[]; unreadable: string[] };
+
 /** P1-87 PR 4: the Lately feed, the newest `LATELY_LINES` of the last
  *  `RECENT_EVENTS_DAYS` days, from the events, the reports sent, the leads delivered
  *  and the newest night's step results. A lead line names the site and counts; it
  *  never reads a visitor's name, email, phone, message, extra fields, source or utm.
- *  A sweep is not an event line: the nightly shows its steps. Pure. */
+ *  A sweep is not an event line: the nightly shows its steps. A failed read is named
+ *  in `unreadable`, never shown as nothing recorded. Pure. */
 export function latelyView(
   s: CockpitSnapshot,
   siteName: (id: string) => string | null,
   now: Date,
-): LatelyLine[] {
+): Lately {
+  const unreadable: string[] = [];
+  if (s.gaps.includes("feed events")) unreadable.push("events");
+  if (s.reports === null) unreadable.push("reports");
+  if (s.submissions === null) unreadable.push("leads");
+  if (s.nights === null) unreadable.push("the nightly");
   const since = now.getTime() - RECENT_EVENTS_DAYS * DAY_MS;
   const found: Array<{ t: number; rank: number; line: LatelyLine }> = [];
   const push = (iso: string, text: string, site: string | null, rank: number) => {
@@ -2310,10 +2324,11 @@ export function latelyView(
         if (!ranToEnd(r)) push(at, `${step.short}: ${outcomeText(r)}`, null, 3);
     }
   }
-  return found
+  const lines = found
     .sort((a, b) => b.t - a.t || a.rank - b.rank)
     .slice(0, LATELY_LINES)
     .map((x) => x.line);
+  return { lines, unreadable };
 }
 
 export type OverviewView = {
@@ -2331,7 +2346,7 @@ export type OverviewView = {
   /** Section 8: the charts from `fleet_daily`, or how many nights are collected. */
   trends: TrendsView;
   /** P1-87 PR 4: the first screen's third panel, the Lately feed. */
-  lately: LatelyLine[];
+  lately: Lately;
   /** How many `fleet_daily` nights the page has, in words ("1 night", "at least 32
    *  nights" once the reader's cap is reached); null when they could not be read. */
   nightsCollected: string | null;
@@ -2527,6 +2542,6 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Lately",
-    text: "The newest 8 lines from the last 7 days, Pacific time: fleet events (a dependency update merged, a vulnerability cleared, a certificate renewed, and the like), reports sent, leads delivered, and the newest night's steps. A lead line names its site and how many, never who sent it. A nightly step is one line each, and a sweep is shown only as those steps. A test send and a withdrawn report are not listed.",
+    text: "The newest 8 lines from the last 7 days, Pacific time: fleet events (a dependency update merged, a vulnerability cleared, a certificate renewed, and the like), reports sent, leads delivered, and the newest night's steps. A lead line names its site and how many, never who sent it. The nightly is one line saying how many of its steps ran to the end, and each step that did not has its own line after it; a sweep is shown only as those steps. A test send and a withdrawn report are not listed. When a source could not be read, the panel says so, and does not read as nothing recorded.",
   },
 ];
