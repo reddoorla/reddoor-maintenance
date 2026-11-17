@@ -213,8 +213,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/cycle-clock.ts",
-        "find": "    if (lastSettledMs !== null && now - lastSettledMs < REREAD_MS) return;",
-        "replace": "    if (false && lastSettledMs !== null && now - lastSettledMs < REREAD_MS) return;"
+        "find": "    if (lastStartedMs !== null && now - lastStartedMs < REREAD_MS) return;",
+        "replace": "    if (false && lastStartedMs !== null && now - lastStartedMs < REREAD_MS) return;"
       }
     ],
     "test": ["cockpit/tests/overview/cycle-clock.ssr.test.ts"],
@@ -504,6 +504,162 @@
       }
     ],
     "test": ["tests/cockpit/snapshot-navigation.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "e4-oldest-night-first",
+    "why": "(round 2, e4) needFor reads the oldest night's coverage first, not the newest",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle.ts",
+        "find": "  for (const n of nights ?? []) {",
+        "replace": "  for (const n of [...(nights ?? [])].reverse()) {"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "e5-counts-stamps-not-sites",
+    "why": "(round 2, e5) a site stamping two of a step's fields counts twice toward the need",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle.ts",
+        "find": "      carries = true;\n",
+        "replace": "      carries = true;\n      carrying++;\n"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "e8-running-stale-at-next-start",
+    "why": "(round 2, e8) a running view is stale from the next start, so a running page never re-reads",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle.ts",
+        "find": "    staleAfterIso: mode === \"running\" ? windowEndIso : next.startIso,",
+        "replace": "    staleAfterIso: next.startIso,"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "e9-recorded-stale-at-window-end",
+    "why": "(round 2, e9) a recorded view is stale from the window's end, so a recorded tab re-reads all day",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle.ts",
+        "find": "    staleAfterIso: mode === \"running\" ? windowEndIso : next.startIso,",
+        "replace": "    staleAfterIso: mode === \"running\" || mode === \"recorded\" ? windowEndIso : next.startIso,"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "e10-page-always-visible",
+    "why": "(round 2, e10) the page treats a hidden tab as visible, so a hidden tab re-reads",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      isVisible: () => document.visibilityState === \"visible\",",
+        "replace": "      isVisible: () => true,"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page-clock.dom.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "e12-late-answer-settles",
+    "why": "(round 2, e12) a late answer from a timed-out read clears whichever read holds the slot",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle-clock.ts",
+        "find": "        if (inFlight !== null && inFlight.id === read.id) inFlight = null;",
+        "replace": "        inFlight = null;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle-clock.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "e13-tonight-end-ignores-clock",
+    "why": "(round 2, e13) tonight's stamps run to the window's end, so a stamp after now counts",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle.ts",
+        "find": "    const tonightEnd = Math.min(windowEndMs, nowMs);",
+        "replace": "    const tonightEnd = windowEndMs;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "e1b-method-call-on-timers",
+    "why": "(round 2, e1b) the clock calls the timers as a method on its deps object, which a browser refuses",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle-clock.ts",
+        "find": "  const { setInterval: every, clearInterval: cancel } = deps;\n  const timer = every(tick, TICK_MS);",
+        "replace": "  const { clearInterval: cancel } = deps;\n  const timer = deps.setInterval(tick, TICK_MS);"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page-clock.dom.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "gap-measured-from-settle",
+    "why": "(round 2, Group A) the 2-minute gap runs from the settle, so a slow read pushes the next a tick later",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle-clock.ts",
+        "find": "        if (inFlight !== null && inFlight.id === read.id) inFlight = null;",
+        "replace": "        if (inFlight !== null && inFlight.id === read.id) {\n          inFlight = null;\n          lastStartedMs = deps.nowMs();\n        }"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle-clock.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "need-cap-removed",
+    "why": "(round 2, Group B) the need is not capped at the maintained sites, so a fleet of one never shows progress",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/cycle.ts",
+        "find": "  return Math.min(want, Math.max(1, maintained));",
+        "replace": "  return want;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/cycle.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "next-run-outline-removed",
+    "why": "(round 2, Group D) the Next-run track loses its inset outline, so it is invisible in dark mode while a run goes",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-cycle-seg.wait .ov-cycle-bar {\n  box-shadow: inset 0 0 0 1px var(--ink-muted);\n}",
+        "replace": ".ov-cycle-seg.wait .ov-cycle-bar {\n}"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "none-back-to-inset-outline",
+    "why": "(round 2, Group D) a none step's outline is the inset solid one again, so it looks like a waiting step",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "  border: 1px dashed var(--ink-muted);",
+        "replace": "  box-shadow: inset 0 0 0 1px var(--ink-muted);"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   }
 ]
