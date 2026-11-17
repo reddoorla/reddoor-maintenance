@@ -164,5 +164,18 @@
     ],
     "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
     "expect": "red"
+  },
+  {
+    "id": "13-still-ticker-does-not-wrap",
+    "why": "Under reduced motion the ticker stands still; a long name that cannot break pushes the page sideways at 390px.",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "    overflow-wrap: anywhere;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
   }
 ]

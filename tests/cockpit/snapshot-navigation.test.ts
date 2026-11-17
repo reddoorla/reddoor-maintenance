@@ -900,10 +900,21 @@ describe("cockpit navigation, in a browser, against the built app", () => {
         // pushes something sideways. Only the two boxes hidden on purpose (the visually
         // hidden heading and the phone's table heads), and all inside them, are left
         // out, by name: skipping every box under an `overflow: hidden` ancestor let
-        // clipped content count as fitting (review round 4, T1).
+        // clipped content count as fitting (review round 4, T1). P1-87 PR 5b: the
+        // moving ticker is clipped by design inside its own window, so that window is
+        // left out by name, only while its row is moving; the window itself must end
+        // inside the screen, and the reduced-motion pass below checks it unexempted.
+        tickerMoving:
+          getComputedStyle(document.querySelector(".ov-ticker-run")!).animationName !== "none",
+        tickerRight: document.querySelector(".ov-ticker-window")!.getBoundingClientRect().right,
         wide: [...document.body.querySelectorAll("*")]
           .filter((e) => {
             if (e.closest(".visually-hidden, .ov-table thead") !== null) return false;
+            if (
+              e.closest(".ov-ticker-window") !== null &&
+              getComputedStyle(document.querySelector(".ov-ticker-run")!).animationName !== "none"
+            )
+              return false;
             const d = getComputedStyle(e).display;
             return d !== "inline" && d !== "contents" && e.clientWidth > 0;
           })
@@ -914,6 +925,27 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       }));
       expect(fit.wide).toEqual([]);
       expect(fit.scroll).toBeLessThanOrEqual(fit.width);
+      expect(fit.tickerMoving).toBe(true);
+      expect(fit.tickerRight).toBeLessThanOrEqual(fit.width + 0.5);
+      // Under reduced motion the ticker stands still and wraps: the same check, with
+      // no box left out for it (P1-87 PR 5b).
+      await page.emulateMedia({ colorScheme: scheme, reducedMotion: "reduce" });
+      const still = await page.evaluate(() => ({
+        moving:
+          getComputedStyle(document.querySelector(".ov-ticker-run")!).animationName !== "none",
+        wide: [...document.querySelectorAll(".ov-ticker, .ov-ticker *")]
+          .filter((e) => {
+            const d = getComputedStyle(e).display;
+            return d !== "inline" && d !== "contents" && e.clientWidth > 0;
+          })
+          .filter((e) => e.scrollWidth > e.clientWidth + 1)
+          .map(
+            (e) => `${e.tagName.toLowerCase()}.${e.className}: ${e.scrollWidth} > ${e.clientWidth}`,
+          ),
+      }));
+      expect(still.moving).toBe(false);
+      expect(still.wide).toEqual([]);
+      await page.emulateMedia({ colorScheme: scheme, reducedMotion: "no-preference" });
       // And what the tables show ends inside the screen: a cell cut off by a
       // clipping box still reads as overflowing here (review round 4, T1).
       const cells = await page.evaluate(() =>

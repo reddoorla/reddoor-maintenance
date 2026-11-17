@@ -559,10 +559,19 @@ section {
 @media (prefers-reduced-motion: reduce) {
   .ov-ticker-run {
     animation: none;
+    display: block;
     width: auto;
   }
   .ov-ticker-list {
     flex-wrap: wrap;
+    row-gap: 0.5rem;
+    padding: 0;
+  }
+  .ov-ticker-list li {
+    flex-wrap: wrap;
+    white-space: normal;
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
   .ov-ticker-list.copy {
     display: none;
