@@ -2,6 +2,7 @@ import type { CockpitSnapshot } from "../../../../src/dashboard/snapshot-views.j
 import { NIGHTLY_CRON, nextDailyFiring } from "../../../../src/dashboard/nightly-schedule.js";
 import type { StepResult } from "../../../../src/fleet-daily/types.js";
 import type { WebsiteRow } from "../../../../src/fleet/site-row.js";
+import type { OverviewNight } from "../../../../src/fleet-daily/read.js";
 
 /**
  * P1-87 PR 5a: the nightly audit bar, the first screen's "The nightly audit" section
@@ -38,6 +39,9 @@ export type CycleStepSpec = {
   file: string;
   short: string;
   stamps: readonly (keyof WebsiteRow)[];
+  /** The `fleet_daily` coverage columns the step stamps; the first one says how many
+   *  sites the step reaches (see `needFor`). */
+  coverage?: readonly string[];
 };
 
 export type CycleView = {
@@ -93,23 +97,43 @@ const pacificDate = (d: Date): string =>
 /** "Oct 26": the Pacific calendar day of an instant. */
 const dayOf = (d: Date): string => PT_DAY.format(d);
 
-/** The newest of a step's stamps on the maintained sites, at or after `since`. */
-function newestStamp(
+/** A step's stamps on the maintained sites within [since, until]: the newest of them,
+ *  and how many distinct sites carry one. A stamp in the future is never a stamp of
+ *  this run, so `until` is the clock or the window's end, whichever is first. */
+function stampsIn(
   sites: readonly WebsiteRow[],
   fields: readonly (keyof WebsiteRow)[],
   since: number,
-): number | null {
-  let best: number | null = null;
+  until: number,
+): { newest: number | null; sites: number } {
+  let newest: number | null = null;
+  let carrying = 0;
   for (const site of sites) {
+    let carries = false;
     for (const field of fields) {
       const v = site[field];
       if (typeof v !== "string") continue;
       const ms = Date.parse(v);
-      if (!Number.isFinite(ms) || ms < since) continue;
-      if (best === null || ms > best) best = ms;
+      if (!Number.isFinite(ms) || ms < since || ms > until) continue;
+      carries = true;
+      if (newest === null || ms > newest) newest = ms;
     }
+    if (carries) carrying++;
   }
-  return best;
+  return { newest, sites: carrying };
+}
+
+/** How many maintained sites must carry a step's stamp before it counts as finished
+ *  mid-run: one when the step's newest measured coverage is exactly one site, else two.
+ *  A single-site re-test by hand therefore never moves the bar. */
+function needFor(step: CycleStepSpec, nights: OverviewNight[] | null): number {
+  const col = step.coverage?.[0];
+  if (col === undefined) return 2;
+  for (const n of nights ?? []) {
+    const m = n.counts.coverage?.value[col];
+    if (m && m.value !== null) return m.value === 1 ? 1 : 2;
+  }
+  return 2;
 }
 
 /** "in 11 hours", "in 40 minutes", "in 1 minute", "starting now": the time left to
@@ -171,6 +195,8 @@ export function cycleView(
 
   if (mode === "recorded") {
     const startedMs = row!.counts.run ? Date.parse(row!.counts.run.startedAt) : NaN;
+    // A recorded step's time is a stamp from this run's own window, never a later one.
+    const runEnd = Math.min(startedMs + RUN_WINDOW_MINUTES * 60_000, nowMs);
     built = steps.map((step) => {
       const r = row!.counts.steps[step.file];
       const ranToEnd = r?.outcome === "completed" && r.conclusion === "success";
@@ -180,7 +206,7 @@ export function cycleView(
       // The time is the step's own stamp from this run, when it has one.
       const stampMs =
         (state === "done" || state === "problem") && Number.isFinite(startedMs)
-          ? newestStamp(maintained, step.stamps, startedMs)
+          ? stampsIn(maintained, step.stamps, startedMs, runEnd).newest
           : null;
       const time = stampMs === null ? null : clockOf(new Date(stampMs));
       return {
@@ -194,8 +220,13 @@ export function cycleView(
     const done = built.filter((x) => x.state === "done").length;
     line = `Night of ${dayOf(new Date(`${runNight}T12:00:00Z`))}: ${done} of ${steps.length} steps ran to the end · next run starts ${startsAt}`;
   } else {
-    // Tonight's stamps: the newest on a maintained site, at or after the run's start.
-    const tonight = steps.map((step) => newestStamp(maintained, step.stamps, lastStartMs));
+    // Tonight's stamps: from the run's start to the clock (or the window's end), on
+    // enough maintained sites for the step to count as finished (see needFor).
+    const tonightEnd = Math.min(windowEndMs, nowMs);
+    const tonight = steps.map((step) => {
+      const hit = stampsIn(maintained, step.stamps, lastStartMs, tonightEnd);
+      return hit.newest !== null && hit.sites >= needFor(step, s.nights) ? hit.newest : null;
+    });
     // k: the last step with a stamp tonight, so the steps 0..k have finished.
     let k = -1;
     tonight.forEach((t, i) => {

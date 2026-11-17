@@ -1648,15 +1648,17 @@ describe("the nightly audit bar on the page (P1-87 PR 5a)", () => {
   const RUNNING = overviewFromSnapshot(
     snapshot({
       nights: [],
-      sites: [
+      // Two sites carry the CMS check's stamp: a step counts mid-run on two sites (P1-87
+      // PR 5a, review round 1, Group B).
+      sites: ["recA", "recB"].map((id) =>
         makeWebsiteRow({
-          id: "recA",
-          name: "Acme",
+          id,
+          name: id === "recA" ? "Acme" : "Beta",
           status: "maintained",
           urlCheckedAt: null,
           prismicModelsCheckedAt: "2026-10-27T06:10:00.000Z",
         }),
-      ],
+      ),
     }),
     RUN_NOW,
   );
