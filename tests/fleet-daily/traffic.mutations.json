@@ -135,8 +135,8 @@
     "edits": [
       {
         "file": "src/fleet-daily/read.ts",
-        "find": "traffic: overviewTraffic(rest.traffic, i === wholeTraffic),",
-        "replace": "traffic: undefined,"
+        "find": "        traffic: overviewTraffic(rest.traffic, {\n          visits: i === at.visitsAt,\n          search: i === at.searchAt,\n          sites: i === at.sitesAt,\n        }),",
+        "replace": "        traffic: undefined,"
       }
     ],
     "test": "tests/fleet-daily/read-overview.test.ts",
@@ -474,38 +474,25 @@
   },
   {
     "id": "37-older-rows-keep-daily",
-    "why": "An older overview row keeps the per-day series (Group F)",
+    "why": "An older overview row keeps the visits per-day series (the keepDaily check is ignored; Group F, repointed in review round 3)",
     "edits": [
       {
         "file": "src/fleet-daily/read.ts",
-        "find": "visits: withoutDaily(v.visits),",
-        "replace": "visits: v.visits,"
+        "find": "  if (keepDaily && Array.isArray(v.daily)) out.daily = v.daily;\n  return { value: out };\n}\n\n/** The search half",
+        "replace": "  if (Array.isArray(v.daily)) out.daily = v.daily;\n  return { value: out };\n}\n\n/** The search half"
       }
     ],
     "test": "tests/fleet-daily/read-overview.test.ts",
     "expect": "red"
   },
   {
-    "id": "38-withoutDaily-unguarded",
-    "why": "withoutDaily reads b.value with no guard, so a partial older row throws the overview (Group A)",
+    "id": "38-half-guard-removed",
+    "why": "The half guard is removed, so a block with no half (or a null one) throws reading its value, and the page with it (repointed in review round 3)",
     "edits": [
       {
         "file": "src/fleet-daily/read.ts",
-        "find": "  if (b === null || typeof b !== \"object\" || !(\"value\" in b)) return NOT_IN_ROW;\n  const v = (b as { value: unknown }).value;",
-        "replace": "  const v = (b as { value: unknown }).value;"
-      }
-    ],
-    "test": "tests/fleet-daily/read-overview.test.ts",
-    "expect": "red"
-  },
-  {
-    "id": "39-whole-row-is-first",
-    "why": "The traffic block kept whole is the newest row, not the newest with a value (Group A)",
-    "edits": [
-      {
-        "file": "src/fleet-daily/read.ts",
-        "find": "i === wholeTraffic",
-        "replace": "i === 0"
+        "find": "const isHalf = (h: unknown): h is Record<string, unknown> => isPlain(h) && \"value\" in h;",
+        "replace": "const isHalf = (h: unknown): h is Record<string, unknown> => true;"
       }
     ],
     "test": "tests/fleet-daily/read-overview.test.ts",
@@ -600,6 +587,136 @@
       }
     ],
     "test": "tests/build/fleet-daily-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-series-night-first-valued-row",
+    "why": "The series night is the first row whose block value is non-null, the round-2 rule, so a failed newest night takes the slot from the night before (Group A, the writer-shape test)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "  const find = (ok: (row: StoredRow) => boolean): number => rows.findIndex(ok);",
+        "replace": "  const find = (_ok: (row: StoredRow) => boolean): number =>\n    rows.findIndex(({ counts }) => measured(counts.traffic as Measured<TrafficCounts> | undefined).value !== null);"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-search-night-shares-visits-index",
+    "why": "The search series night is the newest row with either half read, so one index serves both halves and the per-half test goes red",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "    searchAt: find((row) => {\n      const h = halves(row).search.value;\n      return h !== null && \"daily\" in h;\n    }),",
+        "replace": "    searchAt: find((row) => halves(row).visits.value !== null || halves(row).search.value !== null),"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-visits-required-count-removed",
+    "why": "visitsHalf accepts a visits value with no previous (or current) count, so a partial newest row passes its half through",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "  if (!isPlain(v) || !isCount(v.current) || !isCount(v.previous)) return NOT_IN_ROW;",
+        "replace": "  if (!isPlain(v)) return NOT_IN_ROW;"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-stored-null-visits-half-not-in-row",
+    "why": "A stored visits half with value null is returned as not in the row, so its failure reason is lost (tests x3)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "  if (v === null) return unmeasuredHalf(h);\n  if (!isPlain(v) || !isCount(v.current)",
+        "replace": "  if (v === null) return NOT_IN_ROW;\n  if (!isPlain(v) || !isCount(v.current)"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-unknown-block-keys-copied",
+    "why": "The block's unknown keys are copied (...v), and a string value is spread into character keys (\"0\", ...), so the string-value test goes red",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "  if (!isPlain(m.value)) return NOT_IN_ROW;\n  const v = m.value;\n  return {\n    value: {\n      visits:",
+        "replace": "  const v = m.value as Record<string, unknown>;\n  return {\n    value: {\n      ...v,\n      visits:"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-mask-at-only",
+    "why": "The address mask is /@\\S+/g, so the mailbox name survives as john.smith<account> and the exact reason fails (x13)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": ".replace(/\\S+@\\S+/g, \"<account>\")",
+        "replace": ".replace(/@\\S+/g, \"<account>\")"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-mask-eats-host-after-dot",
+    "why": "The address mask is /\\S+@[^\\s.]+/g, so the host's tail (.com) is left behind as <account>.com (x12)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": ".replace(/\\S+@\\S+/g, \"<account>\")",
+        "replace": ".replace(/\\S+@[^\\s.]+/g, \"<account>\")"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-mask-eats-dotted-words",
+    "why": "The address mask is /\\S+@\\S+|\\S+\\.\\S+/g, so any dotted word (the host name b.com) is masked too (x14)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": ".replace(/\\S+@\\S+/g, \"<account>\")",
+        "replace": ".replace(/\\S+@\\S+|\\S+\\.\\S+/g, \"<account>\")"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-key-file-no-json-check",
+    "why": "Every SyntaxError maps to GA key file unreadable, so a SyntaxError that does not say JSON loses its message (x8)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "if (e instanceof SyntaxError && /JSON/.test(e.message)) return \"GA key file unreadable\";",
+        "replace": "if (e instanceof SyntaxError) return \"GA key file unreadable\";"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-key-file-instanceof-error",
+    "why": "Any Error whose message says JSON maps to GA key file unreadable, not only a SyntaxError, so a plain JSON error loses its message (x7)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "if (e instanceof SyntaxError && /JSON/.test(e.message)) return \"GA key file unreadable\";",
+        "replace": "if (e instanceof Error && /JSON/.test(e.message)) return \"GA key file unreadable\";"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
     "expect": "red"
   }
 ]
