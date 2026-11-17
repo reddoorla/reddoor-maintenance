@@ -125,6 +125,16 @@ describe("the ticker's facts, by tier", () => {
     expect(byName("Pacific", s).fact).toBe("last deployed Oct 20");
   });
 
+  // r2 E (R2-10): 06:00 UTC is 11pm the day before in Pacific time, and Oct 21 in New York.
+  it("reads 06:00 UTC by its Pacific day, so it is still Oct 20 (New York would say Oct 21)", () => {
+    const s = snapshot({
+      sites: [
+        healthy({ id: "recY", name: "Yonder", pScore: null, lastDeployAt: "2026-10-21T06:00:00Z" }),
+      ],
+    });
+    expect(byName("Yonder", s).fact).toBe("last deployed Oct 20");
+  });
+
   // P1-87 PR 5b review r2 B: Date.parse is lenient. "0" and "12" parse to a year 2000 or a
   // day in 2001, and "2026-02-30" rolls over into March, so each read as a believable date.
   // Only a real timestamp is a deploy date; anything else falls back.
@@ -235,6 +245,12 @@ describe("the ticker's speed", () => {
 
   it("runs 0.15 seconds a character once the text is long: 200 characters give 30", () => {
     expect(tickerSeconds([entry(100), entry(100)])).toBe(30);
+  });
+
+  // r2 E (R2-4): the name counts. A fixture named "A" hides a tickerSeconds that ignores it.
+  it("counts a long name in the row's text, so long names loop slower", () => {
+    const named = { ...entry(200), name: "N".repeat(100), fact: "f".repeat(97) };
+    expect(tickerSeconds([named, named])).toBe(60);
   });
 });
 

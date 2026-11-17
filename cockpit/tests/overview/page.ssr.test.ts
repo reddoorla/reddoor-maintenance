@@ -1815,17 +1815,38 @@ describe("the ticker's styles and speed (P1-87 PR 5b review r1 D)", () => {
       "--ov-ticker-s: 20s",
     );
   });
+
+  // r2 E (R2-6): the page takes its speed from tickerSeconds, not from its own count. Two
+  // entries of 100 characters each give 200 characters, so 30 seconds, above the floor.
+  it("takes its speed from the ticker's text, above the floor: two 100-character entries give 30s", () => {
+    const entry = (i: number) => ({
+      key: `k${i}`,
+      name: "A",
+      tier: "ok" as const,
+      tierWord: "OK" as const,
+      fact: "f".repeat(97),
+      href: null,
+    });
+    const view: OverviewView = { ...VIEW, ticker: [entry(1), entry(2)] };
+    const doc = parse(pageHtml(view));
+    expect(doc.querySelector("div.ov-ticker-run")!.getAttribute("style")).toContain(
+      "--ov-ticker-s: 30s",
+    );
+  });
 });
 
 describe("the overview renders with an unreadable deploy date (P1-87 PR 5b)", () => {
-  it("renders the page, and the ticker says no deploy is recorded, for a deploy date of 'garbage'", () => {
-    const s = snapshot({
-      sites: [healthy({ id: "recK", name: "Kiln", pScore: null, lastDeployAt: "garbage" })],
-    });
-    const html = pageHtml(overviewFromSnapshot(s, NOW));
-    const doc = parse(html);
-    const rows = doc.querySelectorAll("ul.ov-ticker-list:not(.copy) > li");
-    expect(rows).toHaveLength(1);
-    expect(text(rows[0]!)).toContain("no speed score or deploy recorded yet");
-  });
+  // r2 E nit: every bad date renders the page, not only "garbage".
+  it.each(["garbage", "", "2026-13-45"])(
+    "renders the page, and the ticker says no deploy is recorded, for a deploy date of %j",
+    (bad) => {
+      const s = snapshot({
+        sites: [healthy({ id: "recK", name: "Kiln", pScore: null, lastDeployAt: bad })],
+      });
+      const doc = parse(pageHtml(overviewFromSnapshot(s, NOW)));
+      const rows = doc.querySelectorAll("ul.ov-ticker-list:not(.copy) > li");
+      expect(rows).toHaveLength(1);
+      expect(text(rows[0]!)).toContain("no speed score or deploy recorded yet");
+    },
+  );
 });

@@ -1379,6 +1379,22 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
   const transform = (page: Page) =>
     page.locator(".ov-ticker-run").evaluate((el) => getComputedStyle(el).transform);
   const names = (page: Page) => page.locator(".ov-ticker-list:not(.copy) > li").allTextContents();
+  /** The row is still only once its animation reports paused and two frames have landed.
+   *  A computed style can flip before the animation itself does, so one more frame of motion
+   *  can read as a row that never stopped (r2 E: -21.0992px, then -22.0165px). */
+  const settledPaused = async (page: Page) => {
+    await page.waitForFunction(
+      () =>
+        (document.querySelector(".ov-ticker-run") as HTMLElement | null)?.getAnimations()[0]
+          ?.playState === "paused",
+    );
+    await page.evaluate(
+      () =>
+        new Promise<void>((done) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => done())),
+        ),
+    );
+  };
 
   it("moves, with the seeded sites in its row", async () => {
     const page = await signedIn();
@@ -1414,13 +1430,8 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     await page.locator(".ov-ticker-pause").click();
     expect(await page.locator(".ov-ticker-pause").getAttribute("aria-pressed")).toBe("true");
     // The paused class lands on Svelte's next update: take the baseline only once the
-    // browser reports the animation paused, or one more frame of motion reads as a
-    // row that never stopped (CI, f554677c: -13.76px then -14.68px).
-    await expect
-      .poll(() =>
-        page.locator(".ov-ticker-run").evaluate((e) => getComputedStyle(e).animationPlayState),
-      )
-      .toBe("paused");
+    // animation reports paused and two frames have landed (CI, f554677c: -13.76px then -14.68px).
+    await settledPaused(page);
     const paused = await transform(page);
     await page.waitForTimeout(1500);
     expect(await transform(page), "the row stands still once paused").toBe(paused);
@@ -1433,10 +1444,15 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     await expect
       .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
       .toBeGreaterThanOrEqual(2);
+    // The row must move before the pointer is on it: poll for a change, as the pause test does.
     const moving = await transform(page);
-    await page.waitForTimeout(1500);
-    expect(await transform(page)).not.toBe(moving);
+    await expect
+      .poll(() => transform(page), {
+        message: `the row moves before the pointer is on it (was ${moving})`,
+      })
+      .not.toBe(moving);
     await page.locator(".ov-ticker-window").hover();
+    await settledPaused(page);
     const hovered = await transform(page);
     await page.waitForTimeout(1500);
     expect(await transform(page)).toBe(hovered);
@@ -1535,6 +1551,11 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
         expect(g.link.b, `link ${n} bottom edge at ${width}px`).toBeLessThanOrEqual(g.window.b);
         expect(
           await page.locator(".ov-ticker-run").evaluate((el) => getComputedStyle(el).animationName),
+        ).toBe("none");
+        // The loop's copy is hidden meanwhile: a focused copy would be a second, inert row (r2 E, B3).
+        expect(
+          await page.locator(".ov-ticker-list.copy").evaluate((el) => getComputedStyle(el).display),
+          `the copy is hidden at ${width}px`,
         ).toBe("none");
         expect(await page.locator(".ov-ticker-window").evaluate((el) => el.scrollLeft)).toBe(0);
       }

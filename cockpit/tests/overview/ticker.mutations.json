@@ -401,5 +401,70 @@
     ],
     "test": ["cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
+  },
+  {
+    "id": "31-seconds-ignore-name",
+    "why": "r2 E (R2-4): the row's loop time counts the text without the names, so a row of long names loops at the speed of a short one. The unit fixture is named A, which hid it",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "  const chars = entries.reduce((n, e) => n + e.name.length + e.tierWord.length + e.fact.length, 0);",
+        "replace": "  const chars = entries.reduce((n, e) => n + e.tierWord.length + e.fact.length, 0);"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "32-page-computes-its-own-speed",
+    "why": "r2 E (R2-6): the page sets its loop time from its own count of entries, not from tickerSeconds, so a row of long text loops at the speed of a short one",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "{tickerSeconds(v.ticker)}s",
+        "replace": "{Math.max(20, v.ticker.length * 10)}s"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "33-copy-not-hidden-while-focused",
+    "why": "r2 E (B3): the loop's copy is not hidden while a focus is inside the window, so it shows as a second, inert row in the still layout",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-ticker-window:has(:focus-visible) .ov-ticker-list.copy {\n  display: none;\n}\n",
+        "replace": ""
+      }
+    ],
+    "test": ["tests/cockpit/snapshot-navigation.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "34-deploy-day-in-new-york",
+    "why": "r2 E (R2-10): the deploy day is read in New York time, so 06:00 UTC on Oct 21 reads Oct 21 when it fell on Oct 20 in Pacific time",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "pacificDay(deployed)",
+        "replace": "deployed.toLocaleDateString(\"en-US\", { timeZone: \"America/New_York\", month: \"short\", day: \"numeric\" })"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "35-pause-baseline-without-animation-wait",
+    "why": "r2 E (the race): the pause test takes its baseline with no wait for the animation to report paused, so a frame still in flight reads as a row that never stopped",
+    "edits": [
+      {
+        "file": "tests/cockpit/snapshot-navigation.test.ts",
+        "find": "    await settledPaused(page);\n    const paused = await transform(page);",
+        "replace": "    const paused = await transform(page);"
+      }
+    ],
+    "test": ["tests/cockpit/snapshot-navigation.test.ts"],
+    "expect": "red"
   }
 ]
