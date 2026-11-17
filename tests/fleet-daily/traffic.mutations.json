@@ -18,8 +18,8 @@
     "edits": [
       {
         "file": "src/reports/ga/client.ts",
-        "find": "      ...reportRequest(property, range, \"engagedSessions\", query.hostnames),\n      dimensions",
-        "replace": "      ...reportRequest(property, range, \"engagedSessions\", []),\n      dimensions"
+        "find": "...reportRequest(property, range, \"engagedSessions\", query.hostnames),\n        dimensions",
+        "replace": "...reportRequest(property, range, \"engagedSessions\", []),\n        dimensions"
       }
     ],
     "test": "tests/reports/ga/client.test.ts",
@@ -44,8 +44,8 @@
     "edits": [
       {
         "file": "src/fleet-daily/traffic.ts",
-        "find": "searchRead.set(s.id, { value: null, reason: NO_SEARCH_PROPERTY });",
-        "replace": "searchRead.set(s.id, { value: new Map(), reason: NO_SEARCH_PROPERTY });"
+        "find": "    } else {\n      searchRead.set(s.id, { value: null, reason: NO_SEARCH_PROPERTY });",
+        "replace": "    } else {\n      searchRead.set(s.id, { value: new Map(), reason: NO_SEARCH_PROPERTY });"
       }
     ],
     "test": "tests/fleet-daily/traffic.test.ts",
@@ -135,7 +135,7 @@
     "edits": [
       {
         "file": "src/fleet-daily/read.ts",
-        "find": "traffic: measured(rest.traffic),",
+        "find": "traffic: overviewTraffic(rest.traffic, i === 0),",
         "replace": "traffic: undefined,"
       }
     ],
@@ -174,11 +174,315 @@
     "edits": [
       {
         "file": "src/reports/ga/client.ts",
-        "find": "      ...reportRequest(property, range, \"engagedSessions\", query.hostnames),\n      dimensions: [{ name: \"date\" }],\n    });",
-        "replace": "      ...reportRequest(property, range, \"engagedSessions\", query.hostnames),\n      dimensions: [{ name: \"date\" }],\n    }).catch(() => [{}]);"
+        "find": "      { timeout: READ_TIMEOUT_MS },\n    );",
+        "replace": "      { timeout: READ_TIMEOUT_MS },\n    ).catch(() => [{}]);"
       }
     ],
     "test": "tests/reports/ga/client.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "15-search-first-candidate-when-empty",
+    "why": "Search returns the first candidate that answers, even when it has no rows (Group A)",
+    "edits": [
+      {
+        "file": "src/reports/search/client.ts",
+        "find": "      if (rows.length === 0) continue;",
+        "replace": "      if (false) continue;"
+      }
+    ],
+    "test": "tests/reports/search/client.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "16-search-5xx-falls-through",
+    "why": "A failed candidate read is read as no rows and falls through to the next property (Group A)",
+    "edits": [
+      {
+        "file": "src/reports/search/client.ts",
+        "find": "      });\n      const rows = res.data.rows ?? [];",
+        "replace": "      }).catch(() => ({ data: {} }));\n      const rows = res.data.rows ?? [];"
+      }
+    ],
+    "test": "tests/reports/search/client.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "17-no-property-counted-in-sitesWithProperty",
+    "why": "A site with no Search Console property is counted in search's sitesWithProperty (Group B)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "sitesWithProperty: sites.filter((s) => hasSearch(s) && !noSearchProperty.has(s.id))",
+        "replace": "sitesWithProperty: sites.filter(hasSearch)"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "18-reasonOf-does-not-mask-email",
+    "why": "reasonOf stores a subject's address unmasked (Group B)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "(msg.trim().replace(/\\S+@\\S+/g, \"<account>\") || \"read failed\")",
+        "replace": "(msg.trim() || \"read failed\")"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "19-search-query-no-timeout",
+    "why": "The Search Console query request has no timeout (Group C)",
+    "edits": [
+      {
+        "file": "src/reports/search/client.ts",
+        "find": "        timeout: READ_TIMEOUT_MS,\n      });\n      const rows = res.data.rows ?? [];",
+        "replace": "      });\n      const rows = res.data.rows ?? [];"
+      }
+    ],
+    "test": "tests/reports/search/client.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "20-search-sites-list-no-timeout",
+    "why": "The Search Console sites.list request has no timeout (Group C)",
+    "edits": [
+      {
+        "file": "src/reports/search/client.ts",
+        "find": "        method: \"GET\",\n        timeout: READ_TIMEOUT_MS,",
+        "replace": "        method: \"GET\","
+      }
+    ],
+    "test": "tests/reports/search/client.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "21-ga-runreport-no-timeout",
+    "why": "The GA runReport call has no timeout (Group C)",
+    "edits": [
+      {
+        "file": "src/reports/ga/client.ts",
+        "find": "      { timeout: READ_TIMEOUT_MS },",
+        "replace": "      {},"
+      }
+    ],
+    "test": "tests/reports/ga/client.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "22-trafficReaders-ignores-missing-key",
+    "why": "trafficReaders builds readers when the key file is missing (Group C)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic-wiring.ts",
+        "find": "if (!cfg || !deps.existsSync(cfg.keyPath)) return null;",
+        "replace": "if (!cfg) return null;"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "23-wiring-hostnames-empty",
+    "why": "The visits reader drops the site's hostname filter (E12)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic-wiring.ts",
+        "find": "hostnames: measuredHostnames(site.url),",
+        "replace": "hostnames: [],"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "24-wiring-host-is-url",
+    "why": "The search reader passes the URL as the host (E13)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic-wiring.ts",
+        "find": "host: hostnameOf(site.url),",
+        "replace": "host: site.url,"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "25-wiring-maintained-filter-removed",
+    "why": "The traffic sites include launching and archived sites (E14)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic-wiring.ts",
+        "find": ".filter((s) => s.status === \"maintained\")",
+        "replace": ".filter(() => true)"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "26-wiring-night-from-clock",
+    "why": "The night is taken from the UTC clock, not the run's creation time (E15)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic-wiring.ts",
+        "find": "return nightOf(env.RUN_CREATED_AT);",
+        "replace": "return new Date().toISOString().slice(0, 10);"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "27-wiring-readers-built-when-config-null",
+    "why": "Readers are built when GA is not configured (E16)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic-wiring.ts",
+        "find": "if (!cfg || !deps.existsSync(cfg.keyPath)) return null;",
+        "replace": "if (cfg && !deps.existsSync(cfg.keyPath)) return null;"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "28-visits-timeout-30ms",
+    "why": "The per-site timeout is 30 ms, not 30 s (E1)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "const DEFAULT_TIMEOUT_MS = 30_000;",
+        "replace": "const DEFAULT_TIMEOUT_MS = 30;"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "29-default-concurrency-2",
+    "why": "The default concurrency is 2, not 4 (E3)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "const DEFAULT_CONCURRENCY = 4;",
+        "replace": "const DEFAULT_CONCURRENCY = 2;"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "30-search-read-without-timeout",
+    "why": "The search read has no per-site timeout, so a hung read holds the block (E4)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "await withTimeout(\n            Promise.resolve().then(() => readers.search(s, windows.search)),\n            opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,\n          );",
+        "replace": "await (\n            Promise.resolve().then(() => readers.search(s, windows.search))\n          );"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "31-search-no-site-read-check-removed",
+    "why": "Search with every read failed is not 'no site read' (E5)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "readSearch.length === 0",
+        "replace": "false"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "32-search-daily-skips-empty-days",
+    "why": "The search daily series skips days with no rows, instead of writing 0 (E6)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "daily: datesOf(windows.search).map((date) => ({",
+        "replace": "daily: datesOf(windows.search).filter((d) => readSearch.some((m) => m.has(d))).map((date) => ({"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "33-ga-first-subject-only",
+    "why": "fetchDailyEngaged tries the first subject only (E8)",
+    "edits": [
+      {
+        "file": "src/reports/ga/client.ts",
+        "find": "  const key = readKey(query.keyPath);\n  const property = `properties/${query.propertyId.trim()}`;\n\n  return withSubjectFailover(query.subjects, \"GA\"",
+        "replace": "  const key = readKey(query.keyPath);\n  const property = `properties/${query.propertyId.trim()}`;\n\n  return withSubjectFailover([query.subjects[0]!], \"GA\""
+      }
+    ],
+    "test": "tests/reports/ga/client.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "34-search-first-subject-only",
+    "why": "fetchSearchDaily tries the first subject only (E11)",
+    "edits": [
+      {
+        "file": "src/reports/search/client.ts",
+        "find": "  return withSubjectFailover(q.subjects, \"Search Console\"",
+        "replace": "  return withSubjectFailover([q.subjects[0]!], \"Search Console\""
+      }
+    ],
+    "test": "tests/reports/search/client.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "35-workflow-key-guard-removed",
+    "why": "The key write is not guarded by a non-empty GA_SA_KEY_JSON (E17)",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-daily.yml",
+        "find": "          if [ -n \"$GA_SA_KEY_JSON\" ]; then",
+        "replace": "          if true; then"
+      }
+    ],
+    "test": "tests/build/fleet-daily-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "36-unparseable-metric-read-as-0",
+    "why": "A non-numeric GA metric is read as 0 instead of failing the read (E20)",
+    "edits": [
+      {
+        "file": "src/reports/ga/client.ts",
+        "find": "if (!/^\\d+$/.test(metric))",
+        "replace": "if (false)"
+      },
+      {
+        "file": "src/reports/ga/client.ts",
+        "find": "Number(metric));",
+        "replace": "Number(metric) || 0);"
+      }
+    ],
+    "test": "tests/reports/ga/client.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "37-older-rows-keep-daily",
+    "why": "An older overview row keeps the per-day series (Group F)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "visits: withoutDaily(v.visits),",
+        "replace": "visits: v.visits,"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
     "expect": "red"
   }
 ]
