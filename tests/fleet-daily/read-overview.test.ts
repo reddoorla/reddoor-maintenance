@@ -145,6 +145,40 @@ describe("readOverviewNights guards every block it reads", () => {
     expect(ot.search.value).not.toHaveProperty("daily");
     expect(ot.visits.value).toMatchObject({ current: 7, previous: 6 });
     expect(ot.search.value).toMatchObject({ clicks: 7, impressions: 70 });
+    // Review round 4, Group A (major 1): every key each half keeps is pinned, with `daily` only
+    // on the newest row.
+    expect(ot.visits.value).toEqual({
+      current: 7,
+      previous: 6,
+      currentWindow: window,
+      previousWindow: window,
+      sitesRead: 2,
+      sitesWithProperty: 2,
+    });
+    expect(ot.search.value).toEqual({
+      clicks: 7,
+      impressions: 70,
+      window,
+      sitesRead: 1,
+      sitesWithProperty: 1,
+    });
+    expect(nt.visits.value).toEqual({
+      current: 9,
+      previous: 8,
+      currentWindow: window,
+      previousWindow: window,
+      sitesRead: 2,
+      sitesWithProperty: 2,
+      daily: [{ date: "2026-11-16", visits: 9 }],
+    });
+    expect(nt.search.value).toEqual({
+      clicks: 9,
+      impressions: 90,
+      window,
+      sitesRead: 1,
+      sitesWithProperty: 1,
+      daily: [{ date: "2026-11-14", clicks: 9, impressions: 90 }],
+    });
   });
 });
 
@@ -327,17 +361,47 @@ describe("readOverviewNights normalises each half, and places each series on the
 
   it("each half's series is on the newest night that read that half", async () => {
     const failedSearch = { value: null, reason: "search read failed" };
+    // Review round 4, Group A (major 3): both rows carry sites, of different lengths.
+    const twoSites = [
+      { siteId: "acme", visits: { value: { current: 9, previous: 1 } } },
+      { siteId: "beta", visits: { value: { current: 4, previous: 0 } } },
+    ];
     await put("2026-11-16", {
-      traffic: { value: { visits: block(9).visits, search: failedSearch } },
+      traffic: { value: { visits: block(9).visits, search: failedSearch, sites: twoSites } },
     });
     await put("2026-11-15", { traffic: { value: block(7) } });
     const [newer, before] = await readOverviewNights(db);
     const nt = newer!.counts.traffic.value!;
     expect(nt.visits.value!.daily).toHaveLength(1);
     expect(nt.search).toEqual(failedSearch);
+    expect(nt.sites).toHaveLength(2);
     const bt = before!.counts.traffic.value!;
     expect(bt.visits.value).not.toHaveProperty("daily");
     expect(bt.search.value!.daily).toHaveLength(1);
+    expect(bt).not.toHaveProperty("sites");
+  });
+
+  // Review round 4, Group A (major 3), the mirror: the newest night read search and failed visits,
+  // so the sites are on it. The night before keeps the visits series, and loses the sites and search series.
+  it("a newest night that read search and failed visits holds the sites, and the night before does not", async () => {
+    const failedVisits = { value: null, reason: "GA not configured" };
+    const newestSites = [
+      { siteId: "acme", search: { value: { clicks: 3, impressions: 30 } } },
+      { siteId: "beta", search: { value: { clicks: 1, impressions: 5 } } },
+    ];
+    await put("2026-11-16", {
+      traffic: { value: { visits: failedVisits, search: block(9).search, sites: newestSites } },
+    });
+    await put("2026-11-15", { traffic: { value: block(7) } });
+    const [newer, before] = await readOverviewNights(db);
+    const nt = newer!.counts.traffic.value!;
+    expect(nt.visits).toEqual(failedVisits);
+    expect(nt.search.value!.daily).toHaveLength(1);
+    expect(nt.sites).toHaveLength(2);
+    const bt = before!.counts.traffic.value!;
+    expect(bt.visits.value!.daily).toHaveLength(1);
+    expect(bt.search.value).not.toHaveProperty("daily");
+    expect(bt).not.toHaveProperty("sites");
   });
 
   // Malformed newest blocks: each reads as not in the row, and the night before keeps both
@@ -361,6 +425,27 @@ describe("readOverviewNights normalises each half, and places each series on the
         expect(t.value.visits).toEqual(NOT_IN_ROW);
         expect(t.value.search).toEqual(NOT_IN_ROW);
       }
+      const bt = before!.counts.traffic.value!;
+      expect(bt.visits.value!.daily).toHaveLength(1);
+      expect(bt.search.value!.daily).toHaveLength(1);
+    },
+  );
+
+  // Review round 4, Group A (major 2): the search half's required counts and the visits half's
+  // `current` are each checked. Only the half that lacks one is not in the row; the other half
+  // is left alone, and the night before keeps both series.
+  it.each([
+    ["search {}", { search: { value: {} } }, "search"],
+    ["search with only clicks", { search: { value: { clicks: 1 } } }, "search"],
+    ["search with only impressions", { search: { value: { impressions: 1 } } }, "search"],
+    ["visits with only previous", { visits: { value: { previous: 1 } } }, "visits"],
+  ] as const)(
+    "a newest row whose %s is not in the row, and the night before keeps both series",
+    async (_name, halves, bad) => {
+      await put("2026-11-16", { traffic: { value: halves } });
+      await put("2026-11-15", { traffic: { value: block(7) } });
+      const [newer, before] = await readOverviewNights(db);
+      expect(newer!.counts.traffic.value![bad]).toEqual(NOT_IN_ROW);
       const bt = before!.counts.traffic.value!;
       expect(bt.visits.value!.daily).toHaveLength(1);
       expect(bt.search.value!.daily).toHaveLength(1);
