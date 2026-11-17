@@ -156,8 +156,14 @@ export type StatusView = {
     fleetAttention: number;
     watch: number;
     approval: number;
+    /** Each level's site entries that are not maintained sites, by what they are (the
+     *  bar counts only maintained sites, so these are the status line's excess). */
+    offCare: Record<"broken" | "attention" | "watch", OffCare>;
   };
 };
+/** Site entries the status line counts at a level that the bar does not: launching sites,
+ *  and any other site not marked maintained (a misspelt status, or no card at all). */
+export type OffCare = { launching: number; other: number };
 
 function ageOf(since: string | undefined | null, now: Date): string | null {
   if (!since) return null;
@@ -260,6 +266,15 @@ function statusView(
     model.cards.filter((c) => c.site.status === "maintained").map((c) => c.site.name),
   );
   const approval = model.pending.filter((p) => inCareNames.has(p.siteName)).length;
+  const siteStatus = (i: { siteName: string }) => cards.get(i.siteName)?.site.status;
+  const offCare = (g: "broken" | "attention" | "watch"): OffCare => {
+    const items = feed.filter((i) => i.group === g);
+    return {
+      launching: items.filter((i) => siteStatus(i) === "launching").length,
+      other: items.filter((i) => siteStatus(i) !== "launching" && siteStatus(i) !== "maintained")
+        .length,
+    };
+  };
 
   const inCare = inCareNames.size;
   const down = live.filter((r) => r.live.ok === false).length;
@@ -355,7 +370,15 @@ function statusView(
     parts,
     cls,
     broken,
-    counts: { broken: brokenSites, fleetBroken, attention, fleetAttention, watch, approval },
+    counts: {
+      broken: brokenSites,
+      fleetBroken,
+      attention,
+      fleetAttention,
+      watch,
+      approval,
+      offCare: { broken: offCare("broken"), attention: offCare("attention"), watch: offCare("watch") },
+    },
   };
 }
 
@@ -1804,9 +1827,10 @@ export type HealthView = {
   tiers: { ok: number; watch: number; attention: number; broken: number };
   /** In the sketch's order; each counts over the maintained sites. */
   checks: HealthCheck[];
-  /** Launching sites the status line counts at a level (a real alarm re-tiers them),
-   *  one entry per level that differs from the bar. Empty when the two agree. */
-  launching: Array<{ level: "broken" | "attention" | "watch"; count: number }>;
+  /** Site entries the status line counts at a level that the bar does not, one entry per
+   *  level and kind: `launching` (a site still launching) or `other` (a site not marked
+   *  maintained). Empty when the bar counts every entry the status line does. */
+  launching: Array<{ level: "broken" | "attention" | "watch"; count: number; kind: keyof OffCare }>;
 };
 export type NumberTile = {
   key: "leads" | "spam" | "checks" | "deps" | "reports" | "shipped";
@@ -1919,14 +1943,16 @@ export function healthView(
       noVerdict,
     };
   });
-  const launchingAt = (level: "broken" | "attention" | "watch", bar: number, line: number) =>
-    line > bar ? [{ level, count: line - bar }] : [];
+  // Built from the status line's own entries that are not maintained sites, so a misspelt
+  // status is never named "launching" (review round 2, M4).
   const launching = status
-    ? [
-        ...launchingAt("broken", tiers.broken, status.counts.broken),
-        ...launchingAt("attention", tiers.attention, status.counts.attention),
-        ...launchingAt("watch", tiers.watch, status.counts.watch),
-      ]
+    ? (["broken", "attention", "watch"] as const).flatMap((level) => {
+        const o = status.counts.offCare[level];
+        return [
+          ...(o.launching > 0 ? [{ level, count: o.launching, kind: "launching" as const }] : []),
+          ...(o.other > 0 ? [{ level, count: o.other, kind: "other" as const }] : []),
+        ];
+      })
     : [];
   return { sites: sites.length, tiers, checks, launching };
 }
@@ -1936,8 +1962,15 @@ export function healthView(
 export function launchingNote(launching: HealthView["launching"]): string | null {
   if (launching.length === 0) return null;
   const LEVEL_NAME = { broken: "Broken", attention: "Attention", watch: "Watch" } as const;
+  const KIND = {
+    launching: ["launching site", "launching sites"],
+    other: ["site not marked maintained", "sites not marked maintained"],
+  } as const;
   return `plus ${launching
-    .map((l) => `${count(l.count, "launching site", "launching sites")} at ${LEVEL_NAME[l.level]}`)
+    .map((l) => {
+      const [one, many] = KIND[l.kind];
+      return `${count(l.count, one, many)} at ${LEVEL_NAME[l.level]}`;
+    })
     .join(" and ")}`;
 }
 

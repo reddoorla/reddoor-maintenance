@@ -9,6 +9,7 @@ import {
   NOT_YET,
   UNREADABLE,
   expectedNight,
+  launchingNote,
   liveCell,
   outcomeText,
   pacificMonthStart,
@@ -433,6 +434,12 @@ describe("review round 1: the counts behind every shown number", () => {
       fleetAttention: 0,
       watch: 1,
       approval: 3,
+      // No launching or misspelt site among these: nothing off the bar (review round 2, D).
+      offCare: {
+        broken: { launching: 0, other: 0 },
+        attention: { launching: 0, other: 0 },
+        watch: { launching: 0, other: 0 },
+      },
     });
     expect(v.status.parts.map((p) => [p.text, p.href])).toEqual([
       ["3 sites in our care.", undefined],
@@ -1911,7 +1918,7 @@ describe("health and numbers (P1-87 PR 3)", () => {
   it("a launching site a real alarm pierces is said beside the bar, never counted in it", () => {
     // Echo, launching, fails its checks and its form, so the alarm re-tiers it Broken:
     // the status line counts it, the bar (maintained sites only) does not.
-    expect(HEALTH.launching).toEqual([{ level: "broken", count: 1 }]);
+    expect(HEALTH.launching).toEqual([{ level: "broken", count: 1, kind: "launching" }]);
     // Golf, launching, holds a critical vulnerability its auto-fix gave up on (99 tries):
     // Attention on the status line as well.
     const golf = overviewFromSnapshot(
@@ -1934,8 +1941,8 @@ describe("health and numbers (P1-87 PR 3)", () => {
       NOW,
     ).health;
     expect(golf.launching).toEqual([
-      { level: "broken", count: 1 },
-      { level: "attention", count: 1 },
+      { level: "broken", count: 1, kind: "launching" },
+      { level: "attention", count: 1, kind: "launching" },
     ]);
     expect(golf.tiers).toEqual(HEALTH.tiers);
   });
@@ -2471,5 +2478,49 @@ describe("review round 2: the checks sparkline and its geometry (group C)", () =
     expect(tile.spark!.filter((v) => v === null)).toHaveLength(1);
     expect(tile.spark![7]).toBeNull();
     expect(sparkGeometry(tile.spark!).lines).toHaveLength(2);
+  });
+});
+
+describe("review round 2: the launching note names what it counts (group D)", () => {
+  const TRANSITIVE = [
+    {
+      module: "x",
+      severity: "high" as const,
+      title: "t",
+      cves: [],
+      url: null,
+      relationship: "transitive" as const,
+    },
+  ];
+  it("a site with a misspelt status is not named launching, whatever its alarm", () => {
+    const H = overviewFromSnapshot(
+      snapshot({
+        sites: [
+          healthy({ id: "a", name: "Acme" }),
+          healthy({
+            id: "t",
+            name: "Typo",
+            status: "Maintaned",
+            urlResolves: "fail",
+            urlCheckedAt: FRESH,
+          }),
+        ],
+      }),
+      NOW,
+    );
+    // An unrecognised status is surfaced as Watch (HOW_WE_COUNT), and the bar does not count it.
+    expect(H.health.launching).toEqual([{ level: "watch", count: 1, kind: "other" }]);
+    expect(launchingNote(H.health.launching)).toBe("plus 1 site not marked maintained at Watch");
+    expect(launchingNote(H.health.launching)).not.toContain("launching");
+  });
+
+  it("joins the levels with 'and' and pluralises each count", () => {
+    expect(
+      launchingNote([
+        { level: "broken", count: 2, kind: "launching" },
+        { level: "attention", count: 1, kind: "launching" },
+      ]),
+    ).toBe("plus 2 launching sites at Broken and 1 launching site at Attention");
+    expect(launchingNote([])).toBeNull();
   });
 });
