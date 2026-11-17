@@ -26,12 +26,21 @@
   // it is set the keyboard still layout is off, so a mouse focus cannot still the row under the
   // pointer, even after a key press makes Chromium match :focus-visible on that link.
   let pointer = $state(false);
+  let windowEl: HTMLElement | undefined = $state();
   $effect(() => {
+    const el = windowEl;
     const clearOnTab = (e: KeyboardEvent) => {
       if (e.key === "Tab") pointer = false;
     };
+    const setOnPress = () => {
+      pointer = true;
+    };
     document.addEventListener("keydown", clearOnTab);
-    return () => document.removeEventListener("keydown", clearOnTab);
+    el?.addEventListener("pointerdown", setOnPress);
+    return () => {
+      document.removeEventListener("keydown", clearOnTab);
+      el?.removeEventListener("pointerdown", setOnPress);
+    };
   });
 </script>
 
@@ -195,11 +204,7 @@
       aria-pressed={paused}
       onclick={() => (paused = !paused)}>Pause the ticker</button
     >
-    <div
-      class="ov-ticker-window"
-      data-pointer={pointer ? "true" : null}
-      onpointerdown={() => (pointer = true)}
-    >
+    <div class="ov-ticker-window" bind:this={windowEl} data-pointer={pointer ? "true" : null}>
       <div class="ov-ticker-run" class:paused style="--ov-ticker-s: {tickerSeconds(v.ticker)}s">
         <ul class="ov-ticker-list">
           {#each v.ticker as t (t.key)}
