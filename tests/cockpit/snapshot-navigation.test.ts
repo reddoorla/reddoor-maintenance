@@ -176,9 +176,11 @@ async function seed(url: string): Promise<void> {
   const before = new Date(Date.parse(`${newest}T00:00:00Z`) - 86_400_000)
     .toISOString()
     .slice(0, 10);
-  for (const [night, merged] of [
-    [before, 600],
-    [newest, 612],
+  // P1-87 PR 5a, review round 3 (Group B): the newest night's backup did not run, so the bar
+  // renders a `none` step for the forced-colours check to measure.
+  for (const [night, merged, backupRan] of [
+    [before, 600, true],
+    [newest, 612, false],
   ] as const)
     await db
       .insertInto("fleet_daily")
@@ -188,7 +190,9 @@ async function seed(url: string): Promise<void> {
           steps: Object.fromEntries(
             NIGHTLIES.map((n: { file: string }) => [
               n.file,
-              { outcome: "completed", runId: 1, conclusion: "success" },
+              n.file === "fleet-db-backup.yml" && !backupRan
+                ? null
+                : { outcome: "completed", runId: 1, conclusion: "success" },
             ]),
           ),
           prsMerged: { value: merged },
@@ -523,6 +527,20 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     // review round 2): a bar that drops its marker under forced colours fails here.
     expect(marker, "the marker is rendered").not.toBeNull();
     expect(marker!).toBeGreaterThan(0);
+    // P1-87 PR 5a, review round 3 (correctness major 2): a `none` step is dashed at 2px
+    // under forced colours, as the forced block says. The base rule once beat it at 1px.
+    expect(
+      await page.locator(".ov-cycle-seg.none").count(),
+      "a none step rendered",
+    ).toBeGreaterThan(0);
+    const noneBorder = await page
+      .locator(".ov-cycle-seg.none .ov-cycle-bar")
+      .first()
+      .evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return { width: cs.borderTopWidth, style: cs.borderTopStyle };
+      });
+    expect(noneBorder).toEqual({ width: "2px", style: "dashed" });
   });
 
   // P1-87 PR 4, review round 2 B: at 1280px the feed is the tallest first-screen panel, so
