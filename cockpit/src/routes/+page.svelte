@@ -31,15 +31,21 @@
   let still = $state(false);
   let js = $state(false);
   let pressing = false;
+  // The last pointerup or pointercancel: a tap's focus arrives after its pointerup, when pressing
+  // is already false, so the tap is a press for 1000 ms unless it was a mouse release.
+  let lastRelease = { type: "", at: -Infinity };
+  const pressed = () =>
+    pressing || (lastRelease.type !== "mouse" && performance.now() - lastRelease.at < 1000);
   let windowEl: HTMLElement | undefined = $state();
   $effect(() => {
     const el = windowEl;
     js = true;
     // Still once the focus is a visible one inside the window, the pointer is not over the
     // window, and no press is in progress. Chromium updates :focus-visible after a key, so the
-    // key and pointer re-checks wait a frame.
+    // key re-check waits a frame. The pointer re-check (pointerleave) waits a frame only for
+    // symmetry with the key one.
     const recheck = () => {
-      if (!el || still || pressing) return;
+      if (!el || still || pressed()) return;
       const a = document.activeElement;
       if (!a || !el.contains(a) || !a.matches(":focus-visible") || el.matches(":hover")) return;
       still = true;
@@ -49,16 +55,30 @@
     };
     const onFocusIn = (e: FocusEvent) => {
       const from = e.relatedTarget;
-      if (!(from instanceof Node) || !el?.contains(from)) still = !pressing;
+      if (!(from instanceof Node) || !el?.contains(from)) still = !pressed();
     };
     const onFocusOut = (e: FocusEvent) => {
       const to = e.relatedTarget;
-      if (!(to instanceof Node) || !el?.contains(to)) still = false;
+      if (to instanceof Node && el?.contains(to)) return;
+      // A press on text in the still row takes focus to nowhere: the layout holds until the release.
+      if (pressing && !(to instanceof Node)) return;
+      still = false;
     };
     const onPress = () => {
       pressing = true;
     };
-    const onRelease = () => {
+    const onRelease = (e: PointerEvent) => {
+      pressing = false;
+      lastRelease = { type: e.pointerType, at: performance.now() };
+      // Focus that went nowhere during the press leaves the row moving, not stuck still.
+      if (
+        still &&
+        !(document.activeElement instanceof Node && el?.contains(document.activeElement))
+      )
+        still = false;
+    };
+    // A press with no release (a context menu, a window that loses focus) must not stick.
+    const onAbandon = () => {
       pressing = false;
     };
     const onLeave = () => {
@@ -71,6 +91,10 @@
     el?.addEventListener("focusout", onFocusOut);
     el?.addEventListener("pointerdown", onPress);
     el?.addEventListener("pointerleave", onLeave);
+    el?.addEventListener("contextmenu", onAbandon);
+    addEventListener("blur", onAbandon);
+    // A focus made before this script ran (keyboard, before hydration) gets the still layout.
+    requestAnimationFrame(recheck);
     return () => {
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("pointerup", onRelease);
@@ -79,6 +103,8 @@
       el?.removeEventListener("focusout", onFocusOut);
       el?.removeEventListener("pointerdown", onPress);
       el?.removeEventListener("pointerleave", onLeave);
+      el?.removeEventListener("contextmenu", onAbandon);
+      removeEventListener("blur", onAbandon);
     };
   });
 </script>
