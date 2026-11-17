@@ -180,5 +180,96 @@
     ],
     "test": ["cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
+  },
+  {
+    "id": "15-leads-grouped-by-utc-day",
+    "why": "Leads are grouped by the UTC day, so the 06:30Z lead splits off",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "const key = `${r.siteId}|${pacificYmd(new Date(r.submittedAt))}`;",
+        "replace": "const key = `${r.siteId}|${new Date(r.submittedAt).toISOString().slice(0, 10)}`;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "16-leads-not-per-site",
+    "why": "Leads are grouped by day alone, across sites",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "const key = `${r.siteId}|${pacificYmd(new Date(r.submittedAt))}`;",
+        "replace": "const key = `${pacificYmd(new Date(r.submittedAt))}`;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "17-leads-undated-day",
+    "why": "Leads are grouped by the day without its year, so a year-old lead joins",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "const key = `${r.siteId}|${pacificYmd(new Date(r.submittedAt))}`;",
+        "replace": "const key = `${r.siteId}|${pacificDay(new Date(r.submittedAt))}`;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "18-lead-count-always-one",
+    "why": "Every group counts one lead",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    g.n += 1;",
+        "replace": "    g.n = 1;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "19-lead-status-not-checked",
+    "why": "A lead's status is not checked (spam counted)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      !ACCEPTED.has(storedStatus(s, r)) ||",
+        "replace": "      false ||"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "20-lead-notify-not-checked",
+    "why": "A lead's notifyStatus is not checked (unsent counted)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      r.notifyStatus !== \"sent\"\n    )",
+        "replace": "      false\n    )"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "21-rsvp-counted",
+    "why": "RSVP sign-ups are counted as leads",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      !isLeadFormType(r.formType) ||",
+        "replace": "      false ||"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
   }
 ]

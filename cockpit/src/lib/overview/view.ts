@@ -131,6 +131,10 @@ const PACIFIC_DAY = new Intl.DateTimeFormat("en-US", {
 /** "Nov 2", the Pacific calendar day of an instant. */
 const pacificDay = (d: Date): string => PACIFIC_DAY.format(d);
 
+/** "2026-11-02", the Pacific calendar day of an instant, with its year: for grouping. */
+const pacificYmd = (d: Date): string =>
+  d.toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
+
 // ---- section 1: the one-line status ----
 
 export type BrokenRow = {
@@ -2288,17 +2292,20 @@ export function latelyView(
     if (named.has(r.reportId)) continue;
     push(r.sentAt, `${r.reportType} report sent`, siteName(r.siteId), 1);
   }
-  // Leads delivered (rank 2): one line per site per Pacific day, at its newest.
+  // Leads delivered (rank 2): one line per site per Pacific day, at its newest. A lead
+  // outside the window is dropped before it is grouped, and the day is dated, so a
+  // lead on the same day of an earlier year never joins this one's line.
   const delivered = new Map<string, { siteId: string; n: number; newest: string }>();
   for (const r of s.submissions ?? []) {
     if (
       r.submittedAt === null ||
+      Date.parse(r.submittedAt) < since ||
       !isLeadFormType(r.formType) ||
       !ACCEPTED.has(storedStatus(s, r)) ||
       r.notifyStatus !== "sent"
     )
       continue;
-    const key = `${r.siteId}|${pacificDay(new Date(r.submittedAt))}`;
+    const key = `${r.siteId}|${pacificYmd(new Date(r.submittedAt))}`;
     const g = delivered.get(key) ?? { siteId: r.siteId, n: 0, newest: r.submittedAt };
     g.n += 1;
     if (Date.parse(r.submittedAt) > Date.parse(g.newest)) g.newest = r.submittedAt;

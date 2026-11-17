@@ -3056,6 +3056,88 @@ describe("the Lately feed (P1-87 PR 4)", () => {
     ).toEqual([]);
   });
 
+  describe("leads delivered (P1-87 PR 4, review round 1 C)", () => {
+    const lead = (over: Partial<Parameters<typeof makeSubmissionRow>[0]> = {}) =>
+      makeSubmissionRow({
+        siteId: "recA",
+        formType: "contact",
+        status: "new",
+        notifyStatus: "sent",
+        ...over,
+      });
+    const sites = [healthy({ id: "recA", name: "Acme" }), healthy({ id: "recB", name: "Bravo" })];
+
+    it("counts two leads on one site and one Pacific day as one line, and a second site apart", () => {
+      const v = overviewFromSnapshot(
+        snapshot({
+          sites,
+          submissions: [
+            lead({ id: "a1", submittedAt: "2026-10-26T18:00:00.000Z" }),
+            lead({ id: "a2", submittedAt: "2026-10-26T20:00:00.000Z" }),
+            lead({ id: "b1", siteId: "recB", submittedAt: "2026-10-26T19:00:00.000Z" }),
+          ],
+        }),
+        NOW,
+      );
+      expect(v.lately.lines.map((l) => [l.when, l.text, l.site])).toEqual([
+        ["Mon 1:00pm", "2 leads delivered", "Acme"],
+        ["Mon 12:00pm", "Lead delivered", "Bravo"],
+      ]);
+    });
+
+    it("joins a lead at 06:30Z on the next UTC day to the same Pacific day", () => {
+      const v = overviewFromSnapshot(
+        snapshot({
+          sites,
+          submissions: [
+            lead({ id: "a1", submittedAt: "2026-10-26T18:00:00.000Z" }),
+            lead({ id: "a2", submittedAt: "2026-10-26T20:00:00.000Z" }),
+            lead({ id: "a3", submittedAt: "2026-10-27T06:30:00.000Z" }),
+          ],
+        }),
+        NOW,
+      );
+      expect(v.lately.lines.map((l) => [l.when, l.text, l.site])).toEqual([
+        ["Mon 11:30pm", "3 leads delivered", "Acme"],
+      ]);
+    });
+
+    it("counts neither an RSVP, nor a lead not notified, nor a lead marked spam", () => {
+      const v = overviewFromSnapshot(
+        snapshot({
+          sites,
+          submissions: [
+            lead({ id: "r1", formType: "rsvp", submittedAt: "2026-10-26T18:00:00.000Z" }),
+            lead({
+              id: "n1",
+              notifyStatus: "skipped",
+              submittedAt: "2026-10-26T18:00:00.000Z",
+            }),
+            lead({ id: "s1", status: "spam", submittedAt: "2026-10-26T18:00:00.000Z" }),
+          ],
+        }),
+        NOW,
+      );
+      expect(v.lately.lines).toEqual([]);
+    });
+
+    it("never groups a lead on the same month and day a year earlier with this one", () => {
+      const v = overviewFromSnapshot(
+        snapshot({
+          sites,
+          submissions: [
+            lead({ id: "old", submittedAt: "2025-10-26T18:00:00.000Z" }),
+            lead({ id: "now", submittedAt: "2026-10-26T18:00:00.000Z" }),
+          ],
+        }),
+        NOW,
+      );
+      expect(v.lately.lines.map((l) => [l.when, l.text, l.site])).toEqual([
+        ["Mon 11:00am", "Lead delivered", "Acme"],
+      ]);
+    });
+  });
+
   it("names every source whose read failed, and shows no 'Nothing recorded' over them", () => {
     const v = overviewFromSnapshot(
       snapshot({
