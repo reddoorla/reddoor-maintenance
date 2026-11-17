@@ -130,7 +130,7 @@ function needFor(step: CycleStepSpec, nights: OverviewNight[] | null): number {
   const col = step.coverage?.[0];
   if (col === undefined) return 2;
   for (const n of nights ?? []) {
-    const m = n.counts.coverage?.value[col];
+    const m = n.counts.coverage?.value?.[col];
     if (m && m.value !== null) return m.value === 1 ? 1 : 2;
   }
   return 2;
