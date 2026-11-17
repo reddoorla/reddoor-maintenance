@@ -115,6 +115,7 @@ export function night(date: string, over: Partial<OverviewNight["counts"]> = {})
       reportsSent: { value: 3 },
       events: { value: { pr_automerged: 100, vuln_cleared: 10 } },
       prsMerged: { value: 600 },
+      traffic: { value: null, reason: "not in this row" },
       ...over,
     },
   };

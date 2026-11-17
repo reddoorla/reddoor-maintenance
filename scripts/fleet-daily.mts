@@ -3,8 +3,19 @@
 // `workflow_run` of fleet-nightly; every decision is src/fleet-daily/write.ts's. This file
 // is only the IO: the GitHub REST reads (GITHUB_TOKEN, `actions: read` and `contents: read`)
 // and the Turso connection (the nightly steps' existing TURSO_* secrets).
-import { openDb, readDbConfig } from "../src/db/client.js";
+import { openDb, readDbConfig, type Db } from "../src/db/client.js";
+import { listSites } from "../src/db/fleet-state.js";
+import { nightOf } from "../src/fleet-daily/core.js";
+import {
+  readTraffic,
+  type TrafficReaders,
+  type TrafficSiteInput,
+} from "../src/fleet-daily/traffic.js";
 import { writeFleetDaily, type GitHubReads } from "../src/fleet-daily/write.js";
+import { fetchDailyEngaged, measuredHostnames } from "../src/reports/ga/client.js";
+import { readGaConfig, type GaConfig } from "../src/reports/ga/config.js";
+import { fetchSearchDaily } from "../src/reports/search/client.js";
+import { hostnameOf } from "../src/util/url.js";
 import { loadCredentialsIntoEnv } from "../src/util/credentials.js";
 import { isMain } from "./lib/cli.mjs";
 import { NIGHTLIES } from "./nightly-conductor.mjs";
@@ -96,6 +107,48 @@ export function countFirstParentMerges(
   return n;
 }
 
+/** The GA and Search Console readers for the traffic block, or null when GA is not
+ *  configured (the block then reads "GA not configured"). Each read takes the same
+ *  subjects and key file the reports use. */
+export function trafficReaders(cfg: GaConfig | null): TrafficReaders | null {
+  if (!cfg) return null;
+  return {
+    visits: (site, range) =>
+      fetchDailyEngaged(
+        {
+          propertyId: site.ga4PropertyId ?? "",
+          subjects: cfg.subjects,
+          keyPath: cfg.keyPath,
+          hostnames: measuredHostnames(site.url),
+        },
+        range,
+      ),
+    search: (site, range) =>
+      fetchSearchDaily(
+        {
+          keyPath: cfg.keyPath,
+          subjects: cfg.subjects,
+          property: site.searchConsoleProperty ?? undefined,
+          host: hostnameOf(site.url),
+        },
+        range,
+      ),
+  };
+}
+
+/** The sites the traffic block reads: the maintained ones, the same rule the deps
+ *  readings use (`status = 'maintained'`). */
+async function trafficSites(db: Db): Promise<TrafficSiteInput[]> {
+  return (await listSites(db))
+    .filter((s) => s.status === "maintained")
+    .map((s) => ({
+      id: s.id,
+      url: s.url,
+      ga4PropertyId: s.ga4PropertyId,
+      searchConsoleProperty: s.searchConsoleProperty,
+    }));
+}
+
 function need(name: string): string {
   const v = process.env[name];
   if (!v) throw new Error(`${name} must be set`);
@@ -127,6 +180,13 @@ async function main(): Promise<void> {
         // newest stored night's; tonight's row is still being written) are not dropped.
         return nightCockpit(db, now);
       },
+      // P1-87 PR 6: the same night the writer keys the row by.
+      traffic: async () =>
+        readTraffic(
+          await trafficSites(db),
+          nightOf(need("RUN_CREATED_AT")),
+          trafficReaders(readGaConfig()),
+        ),
       now,
       log: (l) => process.stdout.write(`${l}\n`),
     });
