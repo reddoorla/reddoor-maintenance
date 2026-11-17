@@ -596,29 +596,33 @@ section {
 }
 /* A keyboard focus inside the window: the same still layout as reduced motion, so a focused
    link is never scrolled out of the window, and the row stops while the focus is in it.
-   Keyed on :focus-visible, not :focus-within: Chromium focuses a link on mousedown, and a
-   mouse focus must not reflow the row under the pointer before the click lands (r2 A).
-   A press in the window sets data-pointer, and the keyboard layout waits for a Tab: a key press
-   after a mouse press makes Chromium match :focus-visible on the link the mouse focused, and
-   that must not still the row under the pointer (r3 A).
+   The component holds that state (data-still, set by script): it comes on for a keyboard focus
+   from outside the window and goes off only when focus leaves the window. The state is held,
+   not keyed on :focus-visible alone, because a mouse press inside the still list moves focus
+   without :focus-visible, and a pointer-focused link must go still once the pointer leaves
+   (r4 M2, M1). With no script (no data-js) the :focus-visible match alone keeps the layout.
    The values repeat the reduced-motion block above; keep the two in step. */
-.ov-ticker-window:has(:focus-visible):not([data-pointer]) .ov-ticker-run {
+.ov-ticker-window[data-still] .ov-ticker-run,
+.ov-ticker-window:not([data-js]):has(:focus-visible) .ov-ticker-run {
   animation: none;
   display: block;
   width: auto;
 }
-.ov-ticker-window:has(:focus-visible):not([data-pointer]) .ov-ticker-list {
+.ov-ticker-window[data-still] .ov-ticker-list,
+.ov-ticker-window:not([data-js]):has(:focus-visible) .ov-ticker-list {
   flex-direction: column;
   gap: 1rem;
   padding: 0;
 }
-.ov-ticker-window:has(:focus-visible):not([data-pointer]) .ov-ticker-list li {
+.ov-ticker-window[data-still] .ov-ticker-list li,
+.ov-ticker-window:not([data-js]):has(:focus-visible) .ov-ticker-list li {
   flex-wrap: wrap;
   row-gap: 0.25rem;
   white-space: normal;
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.ov-ticker-window:has(:focus-visible):not([data-pointer]) .ov-ticker-list.copy {
+.ov-ticker-window[data-still] .ov-ticker-list.copy,
+.ov-ticker-window:not([data-js]):has(:focus-visible) .ov-ticker-list.copy {
   display: none;
 }

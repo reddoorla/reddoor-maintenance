@@ -22,24 +22,63 @@
   const launching = $derived(launchingClauses(v.health.launching));
   // P1-87 PR 5b: the ticker moves until a visitor pauses it (or points at it, in CSS).
   let paused = $state(false);
-  // P1-87 PR 5b review r3 A: a press in the ticker's window sets this, and a Tab clears it. While
-  // it is set the keyboard still layout is off, so a mouse focus cannot still the row under the
-  // pointer, even after a key press makes Chromium match :focus-visible on that link.
-  let pointer = $state(false);
+  // P1-87 PR 5b review r4 A: the ticker's still layout is a state this component holds, not a
+  // CSS guess. `still` is on from a keyboard focus that arrives from outside the window until
+  // focus leaves the window, and also once a focused link is in view with the pointer gone.
+  // `pressing` is set by a press in the window and cleared by a release anywhere, so a mouse
+  // focus (which Chromium gives without :focus-visible) never stills the row under the pointer.
+  // `js` marks a page with script: the CSS's no-script fallback keys on its absence.
+  let still = $state(false);
+  let js = $state(false);
+  let pressing = false;
   let windowEl: HTMLElement | undefined = $state();
   $effect(() => {
     const el = windowEl;
-    const clearOnTab = (e: KeyboardEvent) => {
-      if (e.key === "Tab") pointer = false;
+    js = true;
+    // Still once the focus is a visible one inside the window, the pointer is not over the
+    // window, and no press is in progress. Chromium updates :focus-visible after a key, so the
+    // key and pointer re-checks wait a frame.
+    const recheck = () => {
+      if (!el || still || pressing) return;
+      const a = document.activeElement;
+      if (!a || !el.contains(a) || !a.matches(":focus-visible") || el.matches(":hover")) return;
+      still = true;
     };
-    const setOnPress = () => {
-      pointer = true;
+    const onKey = () => {
+      requestAnimationFrame(recheck);
     };
-    document.addEventListener("keydown", clearOnTab);
-    el?.addEventListener("pointerdown", setOnPress);
+    const onFocusIn = (e: FocusEvent) => {
+      const from = e.relatedTarget;
+      if (!(from instanceof Node) || !el?.contains(from)) still = !pressing;
+    };
+    const onFocusOut = (e: FocusEvent) => {
+      const to = e.relatedTarget;
+      if (!(to instanceof Node) || !el?.contains(to)) still = false;
+    };
+    const onPress = () => {
+      pressing = true;
+    };
+    const onRelease = () => {
+      pressing = false;
+    };
+    const onLeave = () => {
+      requestAnimationFrame(recheck);
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("pointerup", onRelease);
+    document.addEventListener("pointercancel", onRelease);
+    el?.addEventListener("focusin", onFocusIn);
+    el?.addEventListener("focusout", onFocusOut);
+    el?.addEventListener("pointerdown", onPress);
+    el?.addEventListener("pointerleave", onLeave);
     return () => {
-      document.removeEventListener("keydown", clearOnTab);
-      el?.removeEventListener("pointerdown", setOnPress);
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerup", onRelease);
+      document.removeEventListener("pointercancel", onRelease);
+      el?.removeEventListener("focusin", onFocusIn);
+      el?.removeEventListener("focusout", onFocusOut);
+      el?.removeEventListener("pointerdown", onPress);
+      el?.removeEventListener("pointerleave", onLeave);
     };
   });
 </script>
@@ -204,7 +243,12 @@
       aria-pressed={paused}
       onclick={() => (paused = !paused)}>Pause the ticker</button
     >
-    <div class="ov-ticker-window" bind:this={windowEl} data-pointer={pointer ? "true" : null}>
+    <div
+      class="ov-ticker-window"
+      bind:this={windowEl}
+      data-js={js ? "true" : null}
+      data-still={still ? "true" : null}
+    >
       <div class="ov-ticker-run" class:paused style="--ov-ticker-s: {tickerSeconds(v.ticker)}s">
         <ul class="ov-ticker-list">
           {#each v.ticker as t (t.key)}
