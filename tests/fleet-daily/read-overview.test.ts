@@ -139,3 +139,85 @@ describe("readOverviewNights guards every block it reads", () => {
     expect(ot.search.value).toMatchObject({ clicks: 7, impressions: 70 });
   });
 });
+
+// Review round 2, Group A: a partial older row never throws the page, and a failed newest
+// night keeps the series of the newest row that holds one.
+describe("readOverviewNights keeps the traffic series whole on the newest row with a value", () => {
+  let dir: string;
+  let db: Db;
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), "overview-traffic-"));
+    db = await openDb({ url: `file:${join(dir, "db.sqlite")}` });
+  });
+  afterEach(async () => {
+    await db.destroy();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const put = (night: string, counts: unknown) =>
+    db
+      .insertInto("fleet_daily")
+      .values({ night, counts: JSON.stringify(counts), written_at: `${night}T07:00:00.000Z` })
+      .execute();
+  const window = { startDate: "2026-10-18", endDate: "2026-11-16" };
+  const block = (n: number) => ({
+    visits: {
+      value: {
+        current: n,
+        previous: n - 1,
+        currentWindow: window,
+        previousWindow: window,
+        sitesRead: 2,
+        sitesWithProperty: 2,
+        daily: [{ date: "2026-11-16", visits: n }],
+      },
+    },
+    search: {
+      value: {
+        clicks: n,
+        impressions: n * 10,
+        window,
+        sitesRead: 1,
+        sitesWithProperty: 1,
+        daily: [{ date: "2026-11-14", clicks: n, impressions: n * 10 }],
+      },
+    },
+    sites: [{ siteId: "acme", visits: { value: { current: n, previous: 1 } } }],
+  });
+
+  it("an older row with a bare value and one with only visits never throw; the newest keeps its series", async () => {
+    await put("2026-11-16", { traffic: { value: block(9) } });
+    await put("2026-11-15", { traffic: { value: {} } });
+    await put("2026-11-14", {
+      traffic: { value: { visits: { value: { current: 3 } } } },
+    });
+    const nights = await readOverviewNights(db);
+    expect(nights).toHaveLength(3);
+    const [newer, bare, partial] = nights;
+    expect(newer!.counts.traffic.value!.visits.value!.daily).toHaveLength(1);
+    expect(newer!.counts.traffic.value!.sites).toHaveLength(1);
+    expect(bare!.counts.traffic.value!.visits).toEqual({ value: null, reason: "not in this row" });
+    expect(bare!.counts.traffic.value!.search).toEqual({ value: null, reason: "not in this row" });
+    expect(partial!.counts.traffic.value!.visits).toEqual({ value: { current: 3 } });
+    expect(partial!.counts.traffic.value!.search).toEqual({
+      value: null,
+      reason: "not in this row",
+    });
+  });
+
+  it("a failed newest traffic night keeps the series of the night before that holds one", async () => {
+    const failed = { value: null, reason: "GA not configured" };
+    await put("2026-11-16", { traffic: failed });
+    await put("2026-11-15", { traffic: { value: block(7) } });
+    await put("2026-11-14", { traffic: { value: block(5) } });
+    const [newer, before, twoBack] = await readOverviewNights(db);
+    expect(newer!.counts.traffic).toEqual(failed);
+    const bt = before!.counts.traffic.value!;
+    expect(bt.visits.value!.daily).toHaveLength(1);
+    expect(bt.search.value!.daily).toHaveLength(1);
+    expect(bt.sites).toHaveLength(1);
+    const tt = twoBack!.counts.traffic.value!;
+    expect(tt).not.toHaveProperty("sites");
+    expect(tt.visits.value).not.toHaveProperty("daily");
+    expect(tt.search.value).not.toHaveProperty("daily");
+  });
+});

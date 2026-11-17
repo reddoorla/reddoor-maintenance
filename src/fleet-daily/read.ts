@@ -109,20 +109,25 @@ function withoutKey<T extends object, K extends keyof T>(o: T, key: K): Omit<T, 
   return out;
 }
 
-/** A visits or search half with its per-day series dropped. */
-function withoutDaily<T extends { daily: unknown }>(
-  b: Measured<T>,
-): Measured<WithOptionalDaily<T>> {
-  return b.value === null ? b : { value: withoutKey(b.value, "daily") };
+/** A visits or search half with its per-day series dropped. A half that is not an object
+ *  holding `value` (missing, or hand-written) is unmeasured, and a null value passes through
+ *  as it is; only a stored value loses `daily` (review round 2, Group A). */
+function withoutDaily<T extends { daily: unknown }>(b: unknown): Measured<WithOptionalDaily<T>> {
+  if (b === null || typeof b !== "object" || !("value" in b)) return NOT_IN_ROW;
+  const v = (b as { value: unknown }).value;
+  if (v === null) return b as Measured<WithOptionalDaily<T>>;
+  if (typeof v !== "object") return NOT_IN_ROW;
+  return { value: withoutKey(v as T, "daily") };
 }
 
-/** The traffic block for the page: whole on the newest night, slimmed on the others. */
+/** The traffic block for the page: whole on the row `keepWhole` names, slimmed on the others.
+ *  A block that is not measured passes through as unmeasured (review round 2, Group A). */
 function overviewTraffic(
   block: Measured<TrafficCounts> | null | undefined,
-  newest: boolean,
+  keepWhole: boolean,
 ): OverviewTraffic {
   const m = measured(block);
-  if (m.value === null || newest) return m;
+  if (m.value === null || keepWhole) return m;
   const v = m.value;
   return {
     value: {
@@ -135,6 +140,11 @@ function overviewTraffic(
 
 export async function readOverviewNights(db: Db): Promise<OverviewNight[]> {
   const rows = await readRecentRows(db, OVERVIEW_NIGHTS);
+  // The newest row whose traffic holds a value keeps its series whole, so a failed newest
+  // night does not leave the overview with no series at all (review round 2, Group A).
+  const wholeTraffic = rows.findIndex(
+    ({ counts }) => measured(counts.traffic as Measured<TrafficCounts> | undefined).value !== null,
+  );
   return rows.map(({ night, counts }, i) => {
     const { deps, ...rest } = counts as Partial<FleetDailyCounts>;
     return {
@@ -151,7 +161,7 @@ export async function readOverviewNights(db: Db): Promise<OverviewNight[]> {
         screenouts: measured(rest.screenouts),
         events: measured(rest.events),
         prsMerged: measured(rest.prsMerged),
-        traffic: overviewTraffic(rest.traffic, i === 0),
+        traffic: overviewTraffic(rest.traffic, i === wholeTraffic),
         deps:
           deps?.value != null
             ? {
