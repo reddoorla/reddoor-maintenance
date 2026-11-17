@@ -47,6 +47,7 @@ import type { WebsiteRow } from "../../../../src/fleet/site-row.js";
 import { siteSlug } from "../../../../src/fleet/site-row.js";
 import type { OverviewNight } from "../../../../src/fleet-daily/read.js";
 import type { StepResult } from "../../../../src/fleet-daily/types.js";
+import { tickerView, type TickerEntry } from "./ticker.js";
 import { TRIAGE_PATH } from "../../../../src/dashboard/home-path.js";
 import { NETLIFY_SITE_NOT_FOUND } from "../../../../src/fleet/roster-url-probe.js";
 import { OVERVIEW_NIGHTS } from "../../../../src/fleet-daily/types.js";
@@ -215,7 +216,7 @@ function plainWords(it: AttentionItem, site: WebsiteRow | undefined, now: Date):
   return BROKEN_IN_PLAIN_WORDS[it.kind] ?? it.title;
 }
 
-function plainReasons(
+export function plainReasons(
   items: readonly AttentionItem[],
   site: WebsiteRow | undefined,
   now: Date,
@@ -2407,6 +2408,8 @@ export type OverviewView = {
   trends: TrendsView;
   /** P1-87 PR 4: the first screen's third panel, the Lately feed. */
   lately: Lately;
+  /** P1-87 PR 5b: the site ticker, one entry per maintained site, worst first. */
+  ticker: TickerEntry[];
   /** How many `fleet_daily` nights the page has, in words ("1 night", "at least 32
    *  nights" once the reader's cap is reached); null when they could not be read. */
   nightsCollected: string | null;
@@ -2434,6 +2437,7 @@ export function overviewFromSnapshot(s: CockpitSnapshot, now: Date): OverviewVie
     prsMerged: overNights(s.nights, (c) => c.prsMerged.value, now),
     trends,
     lately: latelyView(s, (id) => names.get(id) ?? null, now),
+    ticker: tickerView(model, s.slugById, now),
     // The reader takes the newest OVERVIEW_NIGHTS rows, so a full read is a floor.
     nightsCollected:
       s.nights === null
@@ -2603,5 +2607,9 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   {
     term: "Lately",
     text: "The newest 8 lines from the last 7 days, Pacific time: fleet events (a dependency update merged, a vulnerability cleared, a certificate renewed, and the like), reports sent, leads delivered, and the night the tiles count (before 6am, the night before last). A lead line names its site and how many, never who sent it. The nightly is one line saying how many of its steps ran to the end, naming up to two steps that did not run to the end and how many more did not; a sweep is shown only as those steps. A line from six Pacific calendar days back carries its date (Wed Oct 21, 12:00pm), so two days with the same weekday never read alike. A test send and a withdrawn report are not listed. When a source could not be read, the panel says so, and does not read as nothing recorded.",
+  },
+  {
+    term: "Every site (the ticker)",
+    text: "Every site in our care, worst first: a site that is not OK says why, and an OK site gives its Google Lighthouse performance score, or its last deploy when it has no score. It moves slowly, stops while you point at it, and has a pause button. For anyone whose device asks for less motion it stands still, and the sites are listed one after another.",
   },
 ];

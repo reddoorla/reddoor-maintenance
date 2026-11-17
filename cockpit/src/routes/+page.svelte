@@ -19,6 +19,8 @@
     v.health.tiers.watch + v.health.tiers.attention + v.health.tiers.broken === 0,
   );
   const launching = $derived(launchingClauses(v.health.launching));
+  // P1-87 PR 5b: the ticker moves until a visitor pauses it (or points at it, in CSS).
+  let paused = $state(false);
 </script>
 
 <svelte:head>
@@ -169,6 +171,42 @@
     {/if}
   </section>
 </div>
+
+<section class="ov-ticker" aria-labelledby="ov-ticker-h" data-term="Every site (the ticker)">
+  <h2 id="ov-ticker-h">Every site</h2>
+  {#if v.ticker.length === 0}
+    <p class="muted">No sites in our care yet.</p>
+  {:else}
+    <button
+      type="button"
+      class="ov-ticker-pause"
+      aria-pressed={paused}
+      onclick={() => (paused = !paused)}>Pause the ticker</button
+    >
+    <div class="ov-ticker-window">
+      <div class="ov-ticker-run" class:paused style="--ov-ticker-s: {v.ticker.length * 6}s">
+        <ul class="ov-ticker-list">
+          {#each v.ticker as t (t.key)}
+            <li>
+              {#if t.href}<a href={t.href}>{t.name}</a>{:else}<span>{t.name}</span>{/if}
+              <span class="pill {t.tier === 'ok' ? 'healthy' : t.tier}">{t.tierWord}</span>
+              <span class="ov-ticker-fact">{t.fact}</span>
+            </li>
+          {/each}
+        </ul>
+        <ul class="ov-ticker-list copy" aria-hidden="true" inert>
+          {#each v.ticker as t (t.key)}
+            <li>
+              <span>{t.name}</span>
+              <span class="pill {t.tier === 'ok' ? 'healthy' : t.tier}">{t.tierWord}</span>
+              <span class="ov-ticker-fact">{t.fact}</span>
+            </li>
+          {/each}
+        </ul>
+      </div>
+    </div>
+  {/if}
+</section>
 
 <section aria-labelledby="ov-leads">
   <h2 id="ov-leads">Leads</h2>

@@ -510,3 +510,64 @@ section {
     fill: currentColor;
   }
 }
+
+/* P1-87 PR 5b: the site ticker, one row of every maintained site. The copy after the
+   list is the loop's second half: hidden from readers and from the tab order, and gone
+   under reduced motion, where the row wraps as plain text. */
+.ov-ticker-pause {
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--control-border);
+  padding: 0.2em 0.7em;
+  margin-block-end: 0.5em;
+}
+.ov-ticker-window {
+  overflow: hidden;
+}
+.ov-ticker-run {
+  display: flex;
+  width: max-content;
+  animation: ov-ticker var(--ov-ticker-s) linear infinite;
+}
+.ov-ticker-run.paused,
+.ov-ticker-window:hover .ov-ticker-run,
+.ov-ticker-window:focus-within .ov-ticker-run {
+  animation-play-state: paused;
+}
+.ov-ticker-list {
+  display: flex;
+  gap: 2rem;
+  margin: 0;
+  padding: 0 2rem 0 0;
+  list-style: none;
+}
+.ov-ticker-list li {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  white-space: nowrap;
+}
+.ov-ticker-fact {
+  color: var(--ink-muted);
+}
+@keyframes ov-ticker {
+  to {
+    transform: translateX(-50%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ov-ticker-run {
+    animation: none;
+    width: auto;
+  }
+  .ov-ticker-list {
+    flex-wrap: wrap;
+  }
+  .ov-ticker-list.copy {
+    display: none;
+  }
+  .ov-ticker-pause {
+    display: none;
+  }
+}

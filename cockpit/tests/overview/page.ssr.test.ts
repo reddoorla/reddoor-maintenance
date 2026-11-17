@@ -94,6 +94,7 @@ describe("the overview page, rendered from a real view (T1)", () => {
       "Fleet health · 3 sites",
       "How much is happening",
       "Lately",
+      "Every site",
       "Leads",
       "Client reports",
       "Upkeep",
@@ -1627,5 +1628,75 @@ describe("the Lately feed on the page (P1-87 PR 4)", () => {
     expect(text(empty.querySelector(".ov-lately")!)).toContain(
       "Nothing recorded in the last 7 days.",
     );
+  });
+});
+
+describe("the site ticker on the overview (P1-87 PR 5b)", () => {
+  // The ticker is the first screen's fourth block: one row of every maintained site.
+  const section = (doc: HTMLElement) => doc.querySelector("section.ov-ticker")!;
+  const lists = (doc: HTMLElement) => section(doc).querySelectorAll("ul.ov-ticker-list");
+  const real = (doc: HTMLElement) => lists(doc).find((l) => !l.classList.contains("copy"))!;
+  const copy = (doc: HTMLElement) => lists(doc).find((l) => l.classList.contains("copy"))!;
+
+  it("has a heading, a pause button that is not pressed, and one row per site", () => {
+    const sec = section(DOC);
+    expect(text(sec.querySelector("h2")!)).toBe("Every site");
+    const btn = sec.querySelector("button.ov-ticker-pause")!;
+    expect(text(btn)).toBe("Pause the ticker");
+    expect(btn.getAttribute("aria-pressed")).toBe("false");
+    expect(real(DOC).querySelectorAll("li")).toHaveLength(VIEW.ticker.length);
+    expect(VIEW.ticker.length).toBe(3);
+  });
+
+  it("gives the copy that loops the row aria-hidden and inert", () => {
+    expect(copy(DOC).getAttribute("aria-hidden")).toBe("true");
+    expect(copy(DOC).hasAttribute("inert")).toBe(true);
+    expect(real(DOC).hasAttribute("aria-hidden")).toBe(false);
+    expect(copy(DOC).querySelectorAll("li")).toHaveLength(VIEW.ticker.length);
+  });
+
+  it("shows each site's tier word and fact, the broken site first", () => {
+    const rows = real(DOC)
+      .querySelectorAll("li")
+      .map((li) => text(li));
+    expect(rows[0]).toContain("Bravo");
+    expect(rows[0]).toContain("Broken");
+    expect(rows[0]).toContain(VIEW.ticker[0]!.fact);
+    expect(real(DOC).querySelectorAll("li .pill").map(text)).toEqual(
+      VIEW.ticker.map((t) => t.tierWord),
+    );
+  });
+
+  it("names a site with no link without an anchor", () => {
+    const view: OverviewView = {
+      ...VIEW,
+      ticker: [{ key: "x", name: "Nolink", tier: "ok", tierWord: "OK", fact: "f", href: null }],
+    };
+    const doc = parse(pageHtml(view));
+    const li = real(doc).querySelector("li")!;
+    expect(li.querySelector("a")).toBeNull();
+    expect(text(li)).toContain("Nolink");
+  });
+
+  it("says so when no site is in our care", () => {
+    const doc = parse(pageHtml({ ...VIEW, ticker: [] }));
+    expect(text(section(doc))).toContain("No sites in our care yet.");
+    expect(section(doc).querySelector("button")).toBeNull();
+    expect(lists(doc)).toHaveLength(0);
+  });
+
+  it("is a How-we-count term", () => {
+    expect(section(DOC).getAttribute("data-term")).toBe("Every site (the ticker)");
+    expect(HOW_WE_COUNT.find((h) => h.term === "Every site (the ticker)")).toBeDefined();
+  });
+
+  it("renders its sentinels: every leaf of the ticker is on the page", () => {
+    const sec = SDOC.querySelector("section.ov-ticker")!;
+    const shown = text(sec);
+    for (const [path, v] of S.at) {
+      if (!path.startsWith("ticker[")) continue;
+      if (/\.(key|href|tier)$/.test(path)) continue;
+      expect.soft(shown.includes(v), `${path} (${v}) is in the ticker`).toBe(true);
+    }
   });
 });
