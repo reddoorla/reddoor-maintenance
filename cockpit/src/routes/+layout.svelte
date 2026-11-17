@@ -1,10 +1,10 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { afterNavigate } from "$app/navigation";
   import Shell from "../lib/Shell.svelte";
   import { reloadOnNextNavigation, reloadsOnNextNavigation, setOwnWrite } from "../lib/post.js";
-  import { startFreshness } from "../lib/freshness.js";
+  import { startFreshness, type FreshnessController } from "../lib/freshness.js";
   import type { CockpitSnapshot } from "../../../src/dashboard/snapshot-views.js";
 
   let {
@@ -34,8 +34,12 @@
   // snapshot was read. If it has, say so; the page never changes under the
   // operator, and they reload when they choose (lib/freshness.ts).
   let newer = $state(false);
-  onMount(() => {
-    const controller = startFreshness(
+  let controller: FreshnessController | null = null;
+  // The snapshot version the current controller started with.
+  let controlledVersion: number | null = null;
+  const startController = () => {
+    controlledVersion = data.snapshot?.version ?? null;
+    controller = startFreshness(
       () => data.snapshot ?? null,
       {
         fetch: (input, init) => fetch(input, init),
@@ -57,10 +61,26 @@
     );
     // The page's own posts do not raise the notice (#1700).
     setOwnWrite(controller.aroundOwnWrite);
+  };
+  onMount(() => {
+    startController();
     return () => {
       setOwnWrite(null);
-      controller.stop();
+      controller?.stop();
+      controller = null;
     };
+  });
+  // P1-87 PR 5a, decision 5: the nightly bar re-reads the snapshot while a run is writing.
+  // Once the version it re-read has changed, the notice is about a snapshot no longer on
+  // the page: it is cleared, and the check starts again against the new version.
+  $effect(() => {
+    const version = data.snapshot?.version ?? null;
+    untrack(() => {
+      if (controller === null || version === controlledVersion) return;
+      newer = false;
+      controller.stop();
+      startController();
+    });
   });
 </script>
 
