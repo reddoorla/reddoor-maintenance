@@ -233,13 +233,17 @@ section {
   background: var(--ink);
   color: var(--on-ink);
 }
-/* Watch and attention carry a hatch as well as a tone, so no two segments differ by
-   colour alone (watch against broken is 1.03:1 in light). */
+/* Watch and attention differ by shape as well as tone, so no two segments differ by
+   colour alone (watch against broken is 1.03:1 in light, OK against attention 1.50:1 in
+   dark): watch is hollow, an outline on the panel; attention is solid inside a panel-
+   coloured frame. One token per colour: the style guide refuses gradients. */
 .ov-seg.watch {
-  background: repeating-linear-gradient(135deg, var(--ink-muted) 0 3px, var(--surface) 3px 6px);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 3px var(--ink-muted);
 }
 .ov-seg.attention {
-  background: repeating-linear-gradient(45deg, var(--ink-dark) 0 3px, var(--surface) 3px 6px);
+  background: var(--ink-dark);
+  box-shadow: inset 0 0 0 3px var(--surface);
 }
 .ov-seg.broken {
   background: var(--broken-fill);

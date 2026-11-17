@@ -1280,10 +1280,13 @@ describe("the first screen's layout and tones, pinned in the stylesheet (review 
     );
   });
 
-  it("tells watch and attention apart by a hatch as well as a tone (I, tier segments)", () => {
-    expect(ruleOf(".ov-seg.watch")).toMatch(/repeating-linear-gradient\(/);
-    expect(ruleOf(".ov-seg.watch")).toMatch(/var\(--surface\)/);
-    expect(ruleOf(".ov-seg.attention")).toMatch(/repeating-linear-gradient\(/);
+  it("tells watch and attention apart by shape as well as tone (I, tier segments)", () => {
+    // Watch is hollow: the panel colour inside an outline.
+    expect(ruleOf(".ov-seg.watch")).toMatch(/background:\s*var\(--surface\)/);
+    expect(ruleOf(".ov-seg.watch")).toMatch(/box-shadow:\s*inset 0 0 0 3px var\(--ink-muted\)/);
+    // Attention is solid inside a panel-coloured frame, so it never reads as OK's solid ink.
+    expect(ruleOf(".ov-seg.attention")).toMatch(/background:\s*var\(--ink-dark\)/);
+    expect(ruleOf(".ov-seg.attention")).toMatch(/box-shadow:\s*inset 0 0 0 3px var\(--surface\)/);
   });
 
   it("separates a dark pass fill from its not-checked part by a 2px gap (I, dark)", () => {
