@@ -24,6 +24,13 @@ const TIER_WORD: Record<TickerEntry["tier"], TickerEntry["tierWord"]> = {
   ok: "OK",
 };
 
+/** The row's loop time in seconds: 0.15 of a second a character of its text (name, tier
+ *  word and fact), and never under 20, so a short row does not race. */
+export function tickerSeconds(entries: readonly TickerEntry[]): number {
+  const chars = entries.reduce((n, e) => n + e.name.length + e.tierWord.length + e.fact.length, 0);
+  return Math.max(20, Math.round(chars * 0.15));
+}
+
 /** "and N more" after the first candidate; the first alone when there is one. */
 function summarise(candidates: readonly string[]): string {
   const uniq = [...new Set(candidates)];

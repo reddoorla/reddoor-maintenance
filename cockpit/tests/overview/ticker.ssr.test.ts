@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { overviewFromSnapshot } from "../../src/lib/overview/view.js";
-import { tickerView, type TickerEntry } from "../../src/lib/overview/ticker.js";
+import { tickerSeconds, tickerView, type TickerEntry } from "../../src/lib/overview/ticker.js";
 import type { CockpitModel, SiteCard } from "../../../src/dashboard/fleet-cockpit.js";
 import type { WebsiteRow } from "../../../src/fleet/site-row.js";
 import type { AttentionItem } from "../../../src/alerts/attention.js";
@@ -184,6 +184,26 @@ describe("the ticker's unit rules", () => {
       card({ id: "recM", name: "Maint" }, "healthy"),
     );
     expect(tickerView(m, new Map(), NOW).map((t) => t.name)).toEqual(["Maint"]);
+  });
+});
+
+describe("the ticker's speed", () => {
+  /** An entry of exactly `chars` characters across its name, tier word and fact. */
+  const entry = (chars: number): TickerEntry => ({
+    key: "k",
+    name: "A",
+    tier: "ok",
+    tierWord: "OK",
+    fact: "f".repeat(chars - 3),
+    href: null,
+  });
+
+  it("holds a floor of 20 seconds for a short row", () => {
+    expect(tickerSeconds([entry(40), entry(40), entry(40)])).toBe(20);
+  });
+
+  it("runs 0.15 seconds a character once the text is long: 200 characters give 30", () => {
+    expect(tickerSeconds([entry(100), entry(100)])).toBe(30);
   });
 });
 

@@ -1717,6 +1717,60 @@ describe("the site ticker on the overview (P1-87 PR 5b)", () => {
   });
 });
 
+describe("the ticker's styles and speed (P1-87 PR 5b review r1 D)", () => {
+  const css = readFileSync(
+    new URL("../../src/lib/overview/overview.css", import.meta.url),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  /** The declarations of the reduced-motion block, which holds the still layout. */
+  const reduced = (() => {
+    const at = css.indexOf("@media (prefers-reduced-motion: reduce)");
+    const open = css.indexOf("{", at);
+    let depth = 0;
+    for (let i = open; i < css.length; i++) {
+      if (css[i] === "{") depth++;
+      else if (css[i] === "}" && --depth === 0) return css.slice(open + 1, i);
+    }
+    return "";
+  })();
+
+  it("shows the pause button pressed: an ink fill with on-ink text", () => {
+    const pressed = css.match(/(?<=^|\})\s*\.ov-ticker-pause\[aria-pressed="true"\]\s*\{([^}]*)\}/);
+    expect(pressed).not.toBeNull();
+    expect(pressed![1]).toMatch(/background:\s*var\(--ink\)/);
+    expect(pressed![1]).toMatch(/color:\s*var\(--on-ink\)/);
+  });
+
+  it("lays the still entries one per line under reduced motion", () => {
+    const list = reduced.match(/(?<=^|\})\s*\.ov-ticker-list\s*\{([^}]*)\}/);
+    expect(list).not.toBeNull();
+    expect(list![1]).toMatch(/flex-direction:\s*column/);
+    expect(list![1]).toMatch(/gap:\s*0\.5rem/);
+  });
+
+  it("lays the still entries one per line while a focus is inside the window", () => {
+    const list = css.match(/\.ov-ticker-window:focus-within \.ov-ticker-list\s*\{([^}]*)\}/);
+    expect(list).not.toBeNull();
+    expect(list![1]).toMatch(/flex-direction:\s*column/);
+  });
+
+  it("sets the row's speed by its text, with a floor of 20 seconds", () => {
+    const entry = (i: number) => ({
+      key: `k${i}`,
+      name: "A",
+      tier: "ok" as const,
+      tierWord: "OK" as const,
+      fact: "f".repeat(37),
+      href: null,
+    });
+    const view: OverviewView = { ...VIEW, ticker: [entry(1), entry(2), entry(3)] };
+    const doc = parse(pageHtml(view));
+    expect(doc.querySelector("div.ov-ticker-run")!.getAttribute("style")).toContain(
+      "--ov-ticker-s: 20s",
+    );
+  });
+});
+
 describe("the overview renders with an unreadable deploy date (P1-87 PR 5b)", () => {
   it("renders the page, and the ticker says no deploy is recorded, for a deploy date of 'garbage'", () => {
     const s = snapshot({

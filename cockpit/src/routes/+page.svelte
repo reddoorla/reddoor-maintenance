@@ -6,6 +6,7 @@
     sparkGeometry,
     trendGeometry,
   } from "../lib/overview/view.js";
+  import { tickerSeconds } from "../lib/overview/ticker.js";
   import PageStyles from "../lib/PageStyles.svelte";
   import healthCss from "../lib/cockpit/health.css?inline";
   import overviewCss from "../lib/overview/overview.css?inline";
@@ -184,7 +185,7 @@
       onclick={() => (paused = !paused)}>Pause the ticker</button
     >
     <div class="ov-ticker-window">
-      <div class="ov-ticker-run" class:paused style="--ov-ticker-s: {v.ticker.length * 6}s">
+      <div class="ov-ticker-run" class:paused style="--ov-ticker-s: {tickerSeconds(v.ticker)}s">
         <ul class="ov-ticker-list">
           {#each v.ticker as t (t.key)}
             <li>
