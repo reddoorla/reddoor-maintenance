@@ -86,4 +86,13 @@ describe("readOverviewNights guards every block it reads", () => {
       ["2026-10-25", { value: { behind: 4, sitesRead: 1 } }],
     ]);
   });
+
+  it("traffic (P1-87 PR 6): an old row reads it unmeasured, a new row passes its block through", async () => {
+    const traffic = { value: { visits: { value: { current: 9 } } } };
+    await put("2026-11-16", { traffic });
+    await put("2026-11-15", {});
+    const [newer, older] = await readOverviewNights(db);
+    expect(newer!.counts.traffic).toEqual(traffic);
+    expect(older!.counts.traffic).toEqual({ value: null, reason: "not in this row" });
+  });
 });

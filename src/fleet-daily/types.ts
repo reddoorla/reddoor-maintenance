@@ -94,6 +94,8 @@ export type FleetDailyCounts = {
   events: Measured<Record<string, number>>;
   /** First-parent merges on reddoor-maintenance `main`: a running total. */
   prsMerged: Measured<number>;
+  /** GA4 engaged visits and Search Console clicks and impressions (P1-87, PR 6). */
+  traffic: Measured<TrafficCounts>;
 };
 
 /** A window of calendar dates (`YYYY-MM-DD`, Pacific), both ends inclusive. */

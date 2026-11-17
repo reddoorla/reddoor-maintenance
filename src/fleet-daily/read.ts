@@ -102,6 +102,7 @@ export async function readOverviewNights(db: Db): Promise<OverviewNight[]> {
         screenouts: measured(rest.screenouts),
         events: measured(rest.events),
         prsMerged: measured(rest.prsMerged),
+        traffic: measured(rest.traffic),
         deps:
           deps?.value != null
             ? {
