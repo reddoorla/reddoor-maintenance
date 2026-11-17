@@ -512,7 +512,7 @@ section {
   }
   /* P1-87 PR 5a: the nightly bar's fills are the page colour under forced colours, so each
      state is a border: done a solid bar as thick as the bar, a problem dotted like Attention,
-     none dashed, and the waiting bars and the wait track a thin solid outline. */
+     none dashed, the waiting bars a thin solid outline, and the wait track a double one. */
   .ov-cycle-bar {
     box-sizing: border-box;
   }
