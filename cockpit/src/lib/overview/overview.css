@@ -509,6 +509,10 @@ section {
   .ov-spark circle {
     fill: currentColor;
   }
+  /* The pressed pause button loses its ink fill here, so its border is what shows it is pressed. */
+  .ov-ticker-pause[aria-pressed="true"] {
+    border-width: 3px;
+  }
 }
 
 /* P1-87 PR 5b: the site ticker, one row of every maintained site. The copy after the
@@ -570,11 +574,12 @@ section {
   }
   .ov-ticker-list {
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 1rem;
     padding: 0;
   }
   .ov-ticker-list li {
     flex-wrap: wrap;
+    row-gap: 0.25rem;
     white-space: normal;
     min-width: 0;
     overflow-wrap: anywhere;
@@ -598,11 +603,12 @@ section {
 }
 .ov-ticker-window:has(:focus-visible) .ov-ticker-list {
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 1rem;
   padding: 0;
 }
 .ov-ticker-window:has(:focus-visible) .ov-ticker-list li {
   flex-wrap: wrap;
+  row-gap: 0.25rem;
   white-space: normal;
   min-width: 0;
   overflow-wrap: anywhere;

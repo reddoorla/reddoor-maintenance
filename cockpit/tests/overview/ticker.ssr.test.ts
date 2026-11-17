@@ -287,6 +287,14 @@ describe("the ticker's link", () => {
     });
     expect(byName("Nolink", s).href).toBeNull();
   });
+
+  it("names a site whose stored slug is empty without a link (r2 C)", () => {
+    const s = snapshot({
+      sites: [healthy({ id: "recE", name: "Blank", pScore: 90, lastLighthouseAuditAt: FRESH })],
+      slugById: new Map([["recE", ""]]),
+    });
+    expect(byName("Blank", s).href).toBeNull();
+  });
 });
 
 describe("the ticker and a lead's details", () => {

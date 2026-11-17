@@ -2610,6 +2610,6 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Every site (the ticker)",
-    text: "Every site in our care, worst first: a site that is not OK says why, and an OK site gives its Google Lighthouse performance score, or its last deploy when it has no score. It moves slowly, stops while you point at it, and has a pause button. For anyone whose device asks for less motion it stands still, and the sites are listed one after another.",
+    text: "Every site in our care, worst first: a site that is not OK says why, and an OK site gives its Google Lighthouse performance score, or its last deploy when it has no score. It moves slowly, stops while you point at it, and has a pause button. While you move through it with the keyboard it stands still as a list. For anyone whose device asks for less motion it stands still, and the sites are listed one after another.",
   },
 ];

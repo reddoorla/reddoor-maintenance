@@ -1703,7 +1703,12 @@ describe("the site ticker on the overview (P1-87 PR 5b)", () => {
 
   it("is a How-we-count term", () => {
     expect(section(DOC).getAttribute("data-term")).toBe("Every site (the ticker)");
-    expect(HOW_WE_COUNT.find((h) => h.term === "Every site (the ticker)")).toBeDefined();
+    const entry = HOW_WE_COUNT.find((h) => h.term === "Every site (the ticker)");
+    expect(entry).toBeDefined();
+    // r2 C: the entry says the row stands still as a list while a visitor moves through it by keyboard.
+    expect(entry!.text).toContain(
+      "While you move through it with the keyboard it stands still as a list.",
+    );
   });
 
   it("renders its sentinels: every leaf of the ticker is on the page", () => {
@@ -1734,9 +1739,31 @@ describe("the ticker's styles and speed (P1-87 PR 5b review r1 D)", () => {
     return "";
   })();
 
-  it("shows the pause button pressed: an ink fill with on-ink text", () => {
-    const pressed = css.match(/(?<=^|\})\s*\.ov-ticker-pause\[aria-pressed="true"\]\s*\{([^}]*)\}/);
+  /** The declarations of the forced-colours block, which holds the forced-colours rules. */
+  const forced = (() => {
+    const at = css.indexOf("@media (forced-colors: active)");
+    const open = css.indexOf("{", at);
+    let depth = 0;
+    for (let i = open; i < css.length; i++) {
+      if (css[i] === "{") depth++;
+      else if (css[i] === "}" && --depth === 0) return css.slice(open + 1, i);
+    }
+    return "";
+  })();
+
+  it("keeps the pressed pause button's border 3px under forced colours, where its ink fill is gone (r2 C)", () => {
+    const pressed = forced.match(/\.ov-ticker-pause\[aria-pressed="true"\]\s*\{([^}]*)\}/);
     expect(pressed).not.toBeNull();
+    expect(pressed![1]).toMatch(/border-width:\s*3px/);
+  });
+
+  it("shows the pause button pressed: an ink fill with on-ink text", () => {
+    // Two rules name the pressed button now: this fill, and the forced-colours border (r2 C).
+    // The fill is the one that carries a background.
+    const pressed = [
+      ...css.matchAll(/(?<=^|\})\s*\.ov-ticker-pause\[aria-pressed="true"\]\s*\{([^}]*)\}/g),
+    ].find((m) => /background:/.test(m[1]!));
+    expect(pressed).toBeDefined();
     expect(pressed![1]).toMatch(/background:\s*var\(--ink\)/);
     expect(pressed![1]).toMatch(/color:\s*var\(--on-ink\)/);
   });
@@ -1745,14 +1772,32 @@ describe("the ticker's styles and speed (P1-87 PR 5b review r1 D)", () => {
     const list = reduced.match(/(?<=^|\})\s*\.ov-ticker-list\s*\{([^}]*)\}/);
     expect(list).not.toBeNull();
     expect(list![1]).toMatch(/flex-direction:\s*column/);
-    expect(list![1]).toMatch(/gap:\s*0\.5rem/);
+    // Entries stand apart: a rem between them (r2 C). The focus block keeps the same values.
+    expect(list![1]).toMatch(/gap:\s*1rem/);
+  });
+
+  it("gives each entry's own lines 0.25rem between them under reduced motion (r2 C)", () => {
+    const li = reduced.match(/(?<=^|\})\s*\.ov-ticker-list li\s*\{([^}]*)\}/);
+    expect(li).not.toBeNull();
+    expect(li![1]).toMatch(/row-gap:\s*0\.25rem/);
   });
 
   it("lays the still entries one per line while a focus is inside the window", () => {
     // Keyed on a keyboard focus (:focus-visible), not any focus: r2 A.
-    const list = css.match(/\.ov-ticker-window:has\(:focus-visible\) \.ov-ticker-list\s*\{([^}]*)\}/);
+    const list = css.match(
+      /\.ov-ticker-window:has\(:focus-visible\) \.ov-ticker-list\s*\{([^}]*)\}/,
+    );
     expect(list).not.toBeNull();
     expect(list![1]).toMatch(/flex-direction:\s*column/);
+    expect(list![1]).toMatch(/gap:\s*1rem/);
+  });
+
+  it("gives each entry's own lines 0.25rem between them while a focus is inside the window (r2 C)", () => {
+    const li = css.match(
+      /\.ov-ticker-window:has\(:focus-visible\) \.ov-ticker-list li\s*\{([^}]*)\}/,
+    );
+    expect(li).not.toBeNull();
+    expect(li![1]).toMatch(/row-gap:\s*0\.25rem/);
   });
 
   it("sets the row's speed by its text, with a floor of 20 seconds", () => {

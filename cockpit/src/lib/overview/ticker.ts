@@ -93,7 +93,7 @@ export function tickerView(
       tier,
       tierWord: TIER_WORD[tier],
       fact: tier === "ok" ? okFact(card) : notOkFact(card, now),
-      href: slug === undefined ? null : `/s/${slug}`,
+      href: slug === undefined || slug === "" ? null : `/s/${slug}`,
       rank: TIER_RANK[tier],
     });
   }
