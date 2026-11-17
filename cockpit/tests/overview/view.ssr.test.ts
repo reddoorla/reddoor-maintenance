@@ -3498,6 +3498,27 @@ describe("the Lately feed (P1-87 PR 4)", () => {
     ]);
   });
 
+  it("reads a blank stored site name as no name, and a real one as the site", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [healthy({ id: "recA", name: "Acme" })],
+        feedEvents: [
+          event({ id: "g1", ts: "2026-10-27T09:00:00.000Z", siteId: "recGone", siteName: "   " }),
+          event({ id: "n1", ts: "2026-10-27T08:00:00.000Z", siteId: null, siteName: "   " }),
+          event({ id: "n2", ts: "2026-10-27T07:00:00.000Z", siteId: null, siteName: "Fleet" }),
+          event({ id: "n3", ts: "2026-10-27T06:00:00.000Z", siteId: null, siteName: null }),
+        ],
+      }),
+      NOW,
+    );
+    expect(v.lately.lines.map((l) => [l.text, l.site])).toEqual([
+      ["Dependency update merged", "A site no longer listed"],
+      ["Dependency update merged", null],
+      ["Dependency update merged", "Fleet"],
+      ["Dependency update merged", null],
+    ]);
+  });
+
   it("keeps a row at exactly seven days old, and drops one a second older", () => {
     const edge = new Date(NOW.getTime() - 7 * 86_400_000).toISOString();
     const older = new Date(NOW.getTime() - 7 * 86_400_000 - 1000).toISOString();

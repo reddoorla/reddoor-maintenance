@@ -2322,9 +2322,12 @@ export function latelyView(
   // Events (rank 0). An override's report is said by its event alone (rank 1 skips it).
   const events = (s.feedEvents ?? []).filter((e) => e.type !== "fleet_swept");
   // An event names its site as stored when the site is gone; a blank stored name reads as
-  // "A site no longer listed", as a report does.
-  const eventSite = (e: FleetEvent): string | null =>
-    e.siteId === null ? e.siteName || null : (siteName(e.siteId) ?? (e.siteName || GONE_SITE));
+  // "A site no longer listed", as a report does. The stored name is trimmed before it is
+  // tested, so a name of spaces is no name.
+  const eventSite = (e: FleetEvent): string | null => {
+    const stored = e.siteName?.trim() || null;
+    return e.siteId === null ? stored : (siteName(e.siteId) ?? (stored ?? GONE_SITE));
+  };
   for (const e of events) push(e.ts, PLAIN_EVENT[e.type] ?? e.summary, eventSite(e), 0);
   const named = new Set(events.map(eventReportId).filter((x): x is string => x !== null));
   // Reports sent (rank 1): not a test send, not withdrawn.
