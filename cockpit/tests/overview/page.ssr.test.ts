@@ -16,7 +16,7 @@ import { buildCockpitView } from "../../src/lib/cockpit/view.js";
 import { cockpitModelFromSnapshot } from "../../../src/dashboard/snapshot-views.js";
 import { makeSubmissionRow } from "../../../tests/_helpers/submission-row.js";
 import { withoutComments } from "../legacy/render.js";
-import { NOW, FRESH, healthy, night, report, snapshot } from "./fixtures.js";
+import { NOW, FRESH, STALE, healthy, night, report, snapshot } from "./fixtures.js";
 
 /**
  * P1-78g review round 1 (T1, T2, T6, T7): the overview page itself, rendered inside
@@ -86,15 +86,14 @@ const pageText = (doc: HTMLElement) =>
     .join(" ");
 
 describe("the overview page, rendered from a real view (T1)", () => {
-  it("has the eight sections, each under its h2", () => {
+  it("has the first screen's two panels, then the kept sections, each under its h2", () => {
     expect(DOC.querySelectorAll("h2").map(text)).toEqual([
       "Status",
-      "Is every site live?",
+      "Fleet health · 3 sites",
+      "How much is happening",
       "Leads",
       "Client reports",
-      "What runs every night",
       "Upkeep",
-      "How changes ship",
       "Trends",
     ]);
   });
@@ -135,23 +134,13 @@ describe("the overview page, rendered from a real view (T1)", () => {
     expect(pageText(DOC)).not.toMatch(new RegExp(`\\b${sum}\\b`));
   });
 
-  it("says how many checks a report carries from the model, not a typed word", () => {
-    expect(pageText(DOC)).toContain(
-      `Every maintenance report carries ${VIEW.reports.checks.length} checks.`,
-    );
-    const fewer = pageHtml({
-      ...VIEW,
-      reports: { ...VIEW.reports, checks: VIEW.reports.checks.slice(0, 5) },
-    });
-    expect(pageText(parse(fewer))).toContain("Every maintenance report carries 5 checks.");
-  });
-
-  it("shows the Live cell's check time", () => {
-    const acme = DOC.querySelectorAll(".ov-live tbody tr").find((tr) =>
-      text(tr).startsWith("Acme"),
+  it("the spam tile is the stopped count, with the screened count beside it", () => {
+    const tile = DOC.querySelectorAll(".ov-tile").find((t) =>
+      text(t).includes("spam submissions stopped before storage"),
     )!;
-    expect(text(acme.querySelector('td[data-label="Live"]')!)).toBe(
-      "Live, checked Oct 26, 11:30pm PT",
+    expect(text(tile.querySelector(".ov-num")!)).toBe("248");
+    expect(text(tile.querySelector(".ov-context")!)).toBe(
+      "as of Oct 26; 3 more screened after arriving",
     );
   });
 });
@@ -189,26 +178,6 @@ describe("no count is typed into the page (T2)", () => {
   });
 });
 
-describe("How we count (T6)", () => {
-  it("has one line for every label the page marks as a count, and no other", () => {
-    // From the rendered labels, not a typed list: each number's label carries data-term.
-    const marked = [
-      ...new Set(DOC.querySelectorAll("[data-term]").map((e) => e.getAttribute("data-term")!)),
-    ];
-    const terms = DOC.querySelectorAll(".ov-how dt").map(text);
-    expect(marked.length).toBeGreaterThan(20);
-    expect([...marked].sort()).toEqual([...terms].sort());
-    expect(terms).toEqual(HOW_WE_COUNT.map((h) => h.term));
-  });
-
-  it("covers the counts of a page with no Broken site and no biggest share too", () => {
-    const quiet = parse(pageHtml(overviewFromSnapshot(snapshot(), NOW)));
-    const terms = new Set(quiet.querySelectorAll(".ov-how dt").map(text));
-    for (const e of quiet.querySelectorAll("[data-term]"))
-      expect(terms).toContain(e.getAttribute("data-term"));
-  });
-});
-
 describe("everyone signed in sees the same page (T7)", () => {
   it("the operator, Erik and Tim get the same overview; only the header names them", () => {
     const below = (html: string) => html.slice(html.indexOf("</header>"));
@@ -219,7 +188,7 @@ describe("everyone signed in sees the same page (T7)", () => {
     expect(below(tim)).toBe(below(op));
     // Control: the header does differ, so the slice is not comparing nothing.
     expect(op).not.toBe(erik);
-    expect(below(op)).toContain("Is every site live?");
+    expect(below(op)).toContain("How much is happening");
   });
 });
 
@@ -271,6 +240,57 @@ describe("the overview's stylesheet (T5)", () => {
     expect(rule(".ov-dot.broken")).toMatch(/fill:\s*var\(--broken\)/);
     expect(rule(".ov-line-mark.broken")).toMatch(/stroke:\s*var\(--broken\)/);
     expect(rule(".ov-earlier")).toMatch(/fill:\s*var\(--band\)/);
+  });
+
+  it("draws each mark under forced colours with a border the browser forces, not a fill (round 1, item 8; round 2, I; round 3, E)", () => {
+    // The forced palette replaces fills, so the marks keep a border: a pass solid, the
+    // not-checked dotted, each tier its own border style, and the sparkline in the text
+    // colour. Only the forced block is read: a rule outside it is not a forced rule.
+    expect(css).not.toMatch(/forced-color-adjust:\s*none/);
+    const at = css.indexOf("@media (forced-colors: active)");
+    let depth = 0;
+    let end = css.indexOf("{", at);
+    for (let i = end; i < css.length; i++) {
+      if (css[i] === "{") depth++;
+      else if (css[i] === "}" && --depth === 0) {
+        end = i;
+        break;
+      }
+    }
+    const forced = css.slice(at, end + 1).replace(/\/\*[\s\S]*?\*\//g, "");
+    const block = (sel: string) =>
+      [...forced.matchAll(/([^{}]+)\{([^}]*)\}/g)].find(([, s]) => s!.trim() === sel)?.[2] ?? "";
+    expect(block(".ov-check-fill")).toMatch(/border:\s*0;\s*border-top:\s*8px solid/);
+    expect(block(".ov-check-unknown")).toMatch(/border:\s*2px dotted/);
+    expect(block(".ov-seg.ok")).toMatch(/border:\s*0;\s*border-top:\s*2\.25rem solid/);
+    expect(block(".ov-seg.watch")).toMatch(/border-style:\s*dashed/);
+    expect(block(".ov-seg.attention")).toMatch(/border-style:\s*dotted/);
+    expect(block(".ov-seg.broken")).toMatch(/border-width:\s*6px;\s*border-style:\s*double/);
+    expect(block(".ov-tier-inside")).toMatch(/display:\s*none/);
+    // Review round 4 (tests minor 4): the all-OK counts keep their size under forced colours,
+    // so a count is not a 1px clipped box, and the hidden copy reads as it did.
+    const hiddenCounts = block(".ov-tier-counts.visually-hidden");
+    expect(hiddenCounts).toMatch(/position:\s*static/);
+    expect(hiddenCounts).toMatch(/width:\s*auto/);
+    expect(hiddenCounts).toMatch(/height:\s*auto/);
+    expect(hiddenCounts).toMatch(/overflow:\s*visible/);
+    expect(hiddenCounts).toMatch(/clip:\s*auto/);
+    expect(hiddenCounts).toMatch(/white-space:\s*normal/);
+    expect(block(".ov-spark polyline")).toMatch(/stroke:\s*currentColor/);
+    expect(block(".ov-spark circle")).toMatch(/fill:\s*currentColor/);
+  });
+
+  it("holds no rule for the sections removed from the page (round 1, item 14)", () => {
+    for (const gone of [
+      /\.ov-how\b/,
+      /\.ov-checks(?![\w-])/,
+      /\.ov-steps\b/,
+      /\.ov-step-name\b/,
+      /td\.bad\b/,
+    ])
+      expect(css).not.toMatch(gone);
+    // The unknown cell style stays: the tables still use it.
+    expect(css).toMatch(/\.ov-table td\.unknown/);
   });
 
   it("paints red only on a .broken selector", () => {
@@ -358,10 +378,25 @@ describe("the sentinel render: each leaf in its labelled element (T1, T2; round 
     // month's submissions and the test sends are worked out but not shown, and ids,
     // links, classes, terms and raw stamps are attributes or keys.
     const unrendered = (p: string) =>
+      // Fields the page no longer renders (P1-87 PR 3): the model keeps them.
+      /^(live|nightly)(\.|\[)/.test(p) ||
+      // The Upkeep section keeps only Open now and the major upgrades (the operator,
+      // 11-16): the two counts on /how and the tiles are not shown here.
+      p === "upkeep.automerged" ||
+      p === "upkeep.vulnsCleared" ||
+      p === "prsMerged" ||
+      p === "nightsCollected" ||
+      p.startsWith("reports.checks") ||
+      /\.spark(\[|$)/.test(p) ||
+      // The sum of the three unknown kinds below, which the page reads as its parts.
+      /^health\.checks\[[a-z]+\]\.unknown$/.test(p) ||
       p.startsWith("status.counts.") ||
       p === "status.line" ||
       p === "status.cls" ||
       p === "leads.thisMonth.submissions" ||
+      // Feeds the leads tile's number and context, which numbersView computes before the
+      // page renders them as numbers[0] (round 1, fix 6); the page never reads the leaf.
+      p.startsWith("leads.leadsSent.") ||
       p === "reports.sent.testSends" ||
       /\.(siteId|key|url|href|term|tier|atIso)$/.test(p);
     let checked = 0;
@@ -371,7 +406,7 @@ describe("the sentinel render: each leaf in its labelled element (T1, T2; round 
       const on = v.startsWith("⟦") ? words.includes(v) : shown.has(v);
       expect.soft(on, `${path} (${v}) is on the page`).toBe(true);
     }
-    expect(checked).toBeGreaterThan(120);
+    expect(checked).toBeGreaterThan(100);
   });
 
   it("the status line and the Broken list read their own fields", () => {
@@ -383,21 +418,6 @@ describe("the sentinel render: each leaf in its labelled element (T1, T2; round 
         return `${sent(`${p}.siteName`)}${b.age ? ` (${sent(`${p}.age`)})` : ""}: ${sent(`${p}.reasons`)}`;
       }),
     );
-  });
-
-  it("each Live-table cell reads its own field", () => {
-    const rows = SDOC.querySelectorAll(".ov-live tbody tr");
-    expect(rows.length).toBe(SV.live.length);
-    rows.forEach((tr, i) => {
-      const p = `live[${letters(i)}]`;
-      const cell = (label: string) => text(tr.querySelector(`td[data-label="${label}"]`)!);
-      expect(text(tr.querySelector("th")!)).toBe(sent(`${p}.siteName`));
-      expect(cell("Live")).toBe(`${sent(`${p}.live.text`)}, checked ${sent(`${p}.live.at`)}`);
-      expect(cell("Certificate")).toBe(sent(`${p}.domain.text`));
-      expect(cell("Deploy")).toBe(sent(`${p}.deploy.text`));
-      expect(cell("Forms")).toBe(`${sent(`${p}.forms.text`)}; ${sent(`${p}.lastLead`)}`);
-      expect(cell("Level")).toBe(sent(`${p}.level.text`));
-    });
   });
 
   it("the leads headline reads each count from its own field", () => {
@@ -454,25 +474,39 @@ describe("the sentinel render: each leaf in its labelled element (T1, T2; round 
     });
   });
 
-  it("the reports section reads each field: checks, medians, sends, due and waiting", () => {
-    const dts = SDOC.querySelectorAll(".ov-checks dt").map(text);
-    const dds = SDOC.querySelectorAll(".ov-checks dd").map(text);
-    expect(dts).toEqual(
-      SV.reports.checks.map((_, i) => sent(`reports.checks[${letters(i)}].name`)),
+  it("the Upkeep section reads Open now and the major upgrades from their own fields (the operator, 11-16)", () => {
+    expect(
+      one('section[aria-labelledby="ov-upkeep"] p[data-term="Major-version upgrades waiting"]'),
+    ).toBe(`Major-version upgrades waiting: ${sent("upkeep.depsBehind")}.`);
+    expect(SDOC.querySelectorAll('ul[data-term="Open now"] li').map(text)).toEqual(
+      SV.upkeep.open.map(
+        (_, i) =>
+          `${sent(`upkeep.open[${letters(i)}].siteName`)} ${sent(`upkeep.open[${letters(i)}].text`)}.`,
+      ),
     );
-    expect(dds).toEqual(
-      SV.reports.checks.map((_, i) => sent(`reports.checks[${letters(i)}].proof`)),
+    expect(SDOC.querySelectorAll('section[aria-labelledby="ov-upkeep"] h3').map(text)).toEqual([
+      "Open now",
+    ]);
+    // The ladder stays on /how; it is not repeated here.
+    expect(text(SDOC.querySelector('section[aria-labelledby="ov-upkeep"]')!)).not.toContain(
+      "Broken:",
     );
+  });
+
+  it("the reports section reads each field: sends, due and waiting; the medians sit in Fleet health", () => {
     expect(one('p[data-term="Reports sent"]')).toBe(
       `${sent("reports.sent.real")} reports sent to clients: ${sent("reports.sent.approvedFirst")} approved by one of us before sending, and ${sent("reports.sent.aroundGate")} without that yes.`,
     );
-    const lh = one('p[data-term="Lighthouse"]');
-    SV.reports.lighthouse.forEach((_, i) =>
-      expect(lh).toContain(
-        `${sent(`reports.lighthouse[${letters(i)}].label`)} ${sent(`reports.lighthouse[${letters(i)}].median`)}`,
-      ),
+    const meds = SDOC.querySelectorAll(".ov-medians dt").map(text);
+    expect(meds).toEqual(
+      SV.reports.lighthouse.map((_, i) => sent(`reports.lighthouse[${letters(i)}].label`)),
     );
-    expect(lh).toContain(`, from audits as old as ${sent("reports.lighthouseAsOf")}.`);
+    expect(SDOC.querySelectorAll(".ov-medians dd").map(text)).toEqual(
+      SV.reports.lighthouse.map((_, i) => sent(`reports.lighthouse[${letters(i)}].median`)),
+    );
+    expect(one(".ov-lighthouse-line")).toContain(
+      `from audits as old as ${sent("reports.lighthouseAsOf")}.`,
+    );
     const rows = SDOC.querySelectorAll(".ov-due tbody tr");
     expect(rows.length).toBe(SV.reports.perSite.length);
     rows.forEach((tr, i) => {
@@ -481,51 +515,6 @@ describe("the sentinel render: each leaf in its labelled element (T1, T2; round 
       expect(text(tr.querySelector('td[data-label="Next due"]')!)).toBe(sent(`${p}.nextDue`));
       expect(text(tr.querySelector('td[data-label="Waiting"]')!)).toBe(sent(`${p}.waiting`));
     });
-  });
-
-  it("the nightly section reads its times, scale, reliability and each step's slots", () => {
-    const span = (term: string) =>
-      one(`section[aria-labelledby="ov-nightly"] span[data-term="${term}"]`);
-    expect(span("Times")).toBe(
-      `The nightly starts at ${sent("nightly.startsAt")}. Approved reports send at ${sent("nightly.sendsAt")}.`,
-    );
-    expect(span("Scale")).toBe(`Scale: ${sent("nightly.scale")}.`);
-    expect(span("Runs completed")).toBe(`Runs completed: ${sent("nightly.reliability")}.`);
-    const steps = SDOC.querySelectorAll(".ov-steps li");
-    expect(steps.length).toBe(SV.nightly.steps.length);
-    steps.forEach((li, i) => {
-      const p = `nightly.steps[${letters(i)}]`;
-      expect(text(li.querySelector(".ov-step-name")!)).toBe(sent(`${p}.label`));
-      expect(text(li.querySelector(".muted")!)).toBe(
-        `${sent("nightly.nightOf")}: ${sent(`${p}.outcome`)}. Last finished: ${sent(`${p}.lastFinished`)}. Reached: ${sent(`${p}.sites`)}.`,
-      );
-    });
-  });
-
-  it("the upkeep lines, the open vulnerabilities and the changes merged read their own fields", () => {
-    const li = (term: string) =>
-      one(`section[aria-labelledby="ov-upkeep"] li[data-term="${term}"]`);
-    expect(li("Dependency updates merged")).toBe(
-      `Dependency updates merged (opened by Renovate, our update bot): ${sent("upkeep.automerged")}.`,
-    );
-    expect(li("Sites cleared of vulnerabilities")).toBe(
-      `Sites cleared of every critical or high vulnerability: ${sent("upkeep.vulnsCleared")}.`,
-    );
-    expect(li("Major-version upgrades waiting")).toBe(
-      `Major-version upgrades waiting: ${sent("upkeep.depsBehind")}.`,
-    );
-    expect(SDOC.querySelectorAll('ul[data-term="Open now"] li').map(text)).toEqual(
-      SV.upkeep.open.map(
-        (_, i) =>
-          `${sent(`upkeep.open[${letters(i)}].siteName`)} ${sent(`upkeep.open[${letters(i)}].text`)}.`,
-      ),
-    );
-    expect(one('p[data-term="PRs merged"]')).toBe(
-      `PRs merged into the maintenance stack (the code that runs these checks and sends the reports): ${sent("prsMerged")}.`,
-    );
-    expect(one('.ov-how p[data-term="Nights counted"]')).toBe(
-      `The nightly has written ${sent("nightsCollected")} of counts so far.`,
-    );
   });
 });
 
@@ -548,7 +537,7 @@ describe("review round 3: the page reads right for one, and for a form test not 
     );
   });
 
-  it("a failed form test is in the unknown style, and says it is not yet a verdict (O1)", () => {
+  it("a failed form test is not a pass nor a fail in Fleet health: it is not yet a verdict (O1)", () => {
     const doc = parse(
       pageHtml(
         overviewFromSnapshot(
@@ -557,42 +546,37 @@ describe("review round 3: the page reads right for one, and for a form test not 
         ),
       ),
     );
-    const td = doc.querySelector('.ov-live td[data-label="Forms"]')!;
-    expect(td.getAttribute("class")).toBe("unknown");
-    expect(text(td)).toBe(
-      "Test failed, but the test itself is being fixed, so this is not yet a verdict; no real lead yet",
+    const row = doc.querySelectorAll(".ov-check").find((r) => text(r).startsWith("Contact form"))!;
+    // The screen reader's " of 1" is part of the count (round 1, item 13).
+    // A test that ran and failed is named as such, not "not checked" (review round 2, A).
+    expect(text(row.querySelector(".ov-check-count")!)).toBe(
+      "0 of 1 · 1 test failed, not yet a verdict",
     );
-    expect(text(doc.querySelector('.ov-live td[data-label="Level"]')!)).toBe("OK");
-  });
-});
-
-describe("every number on the page sits under a How-we-count label (T6)", () => {
-  /** Each text node holding a digit, below the shell (the How-we-count list itself
-   *  is the explanation, not a count), with the nearest `data-term` above it. */
-  function unlabelled(doc: HTMLElement): string[] {
-    const out: string[] = [];
-    const walk = (n: Node) => {
-      if (n instanceof TextNode) {
-        if (/\d/.test(n.text) && (n.parentNode as HTMLElement).closest("[data-term]") === null)
-          out.push(n.text.trim());
-      } else for (const c of n.childNodes) walk(c);
-    };
-    for (const el of doc.querySelectorAll("h1, section, .ov-how > p")) walk(el);
-    return out;
-  }
-
-  it("holds on the full fixture and the sentinel render", () => {
-    expect(shownNumbers(DOC).length).toBeGreaterThan(20);
-    expect(unlabelled(DOC)).toEqual([]);
-    expect(unlabelled(SDOC)).toEqual([]);
+    // The failed test changes no level: the site is counted in OK (round 1, restored).
+    expect(text(doc.querySelector(".ov-tier-counts")!)).toBe(
+      "1 OK · 0 watch · 0 attention · 0 broken",
+    );
   });
 
-  it("is an instrument that can fail: a number with no label is caught", () => {
-    const bare = HTML.replace(
-      "<h1>Overview</h1>",
-      "<h1>Overview</h1><section><p>42 things</p></section>",
+  it("reads a failed, a no-verdict and a not-checked Contact form apart (review round 2, A)", () => {
+    const doc = parse(
+      pageHtml(
+        overviewFromSnapshot(
+          snapshot({
+            sites: [
+              healthy({ id: "recA", name: "Acme", formE2eOk: "fail", formE2eCheckedAt: FRESH }),
+              healthy({ id: "recB", name: "Bravo", formE2eOk: null, formE2eCheckedAt: FRESH }),
+              healthy({ id: "recC", name: "Charlie", formE2eOk: "pass", formE2eCheckedAt: STALE }),
+            ],
+          }),
+          NOW,
+        ),
+      ),
     );
-    expect(unlabelled(parse(bare))).toEqual(["42 things"]);
+    const row = doc.querySelectorAll(".ov-check").find((r) => text(r).startsWith("Contact form"))!;
+    expect(text(row.querySelector(".ov-check-count")!)).toBe(
+      "0 of 3 · 1 test failed, not yet a verdict · 1 no verdict · 1 not checked",
+    );
   });
 });
 
@@ -674,21 +658,6 @@ describe("every link from the overview lands on an anchor that exists (review ro
 });
 
 describe("review round 4: emphasis, the none-open sentence, and the shipping copy", () => {
-  it("a failed cell is bold, and the status band is the Broken one (T4)", () => {
-    const bravo = DOC.querySelectorAll(".ov-live tbody tr").find((tr) =>
-      text(tr).startsWith("Bravo"),
-    )!;
-    expect(bravo.querySelector('td[data-label="Live"]')!.getAttribute("class")).toBe("bad");
-    const acme = DOC.querySelectorAll(".ov-live tbody tr").find((tr) =>
-      text(tr).startsWith("Acme"),
-    )!;
-    expect(acme.querySelector('td[data-label="Live"]')!.getAttribute("class")).toBe("ok");
-    expect(DOC.querySelector("section.ov-status")!.classList.contains("broken")).toBe(true);
-    // Control: a quiet page's band is not.
-    const quiet = parse(pageHtml(overviewFromSnapshot(snapshot(), NOW)));
-    expect(quiet.querySelector("section.ov-status")!.classList.contains("ok")).toBe(true);
-  });
-
   it("says none is open only when every site has a fresh security check (C2)", () => {
     const NONE = "No critical or high vulnerability is open.";
     expect(pageText(parse(pageHtml(overviewFromSnapshot(snapshot(), NOW))))).toContain(NONE);
@@ -711,11 +680,11 @@ describe("review round 4: emphasis, the none-open sentence, and the shipping cop
     );
   });
 
-  it("glosses a pull request, and says who promotes staging (O9, O10)", () => {
-    const ship = text(DOC.querySelector('section[aria-labelledby="ov-ship"]')!);
-    expect(ship).toContain("each as a pull request (PR)");
-    expect(ship).toContain("when one of us promotes staging");
-    expect(ship).not.toContain("when you promote");
+  it("the status band is the Broken one when a site is broken, and the quiet one otherwise (T4)", () => {
+    expect(DOC.querySelector("section.ov-status")!.classList.contains("broken")).toBe(true);
+    // Control: a quiet page's band is not.
+    const quiet = parse(pageHtml(overviewFromSnapshot(snapshot(), NOW)));
+    expect(quiet.querySelector("section.ov-status")!.classList.contains("ok")).toBe(true);
   });
 });
 
@@ -764,12 +733,13 @@ describe("no count is typed into the page, over the sentinel render (review roun
 
   it("is an instrument that can fail: a number typed into an existing element is caught", () => {
     const html = pageHtml(SV);
-    expect(html).toContain("Runs completed: ");
-    expect(stray(html.replace("Runs completed: ", "Runs completed: 30 nights, "))).toEqual(["30"]);
+    const leads = '<h2 id="ov-leads">Leads</h2>';
+    expect(html).toContain(leads);
+    expect(stray(html.replace(leads, '<h2 id="ov-leads">Leads 30 nights</h2>'))).toEqual(["30"]);
     // The page's own fixed values typed elsewhere are caught too.
-    expect(
-      stray(html.replace("Runs completed: ", `Runs completed: ${n} steps, 100 runs, `)),
-    ).toEqual([String(n), "100"]);
+    expect(stray(html.replace(leads, `<h2 id="ov-leads">Leads ${n} steps, 100 runs</h2>`))).toEqual(
+      [String(n), "100"],
+    );
     // And in an attribute.
     expect(stray(html.replace("<h1", '<h1 title="30 nights a month"'))).toEqual(["30"]);
   });
@@ -934,12 +904,9 @@ describe("P1-78h: section 8 drawn, once fleet_daily holds 14 nights", () => {
     expect(titles).toContain("Oct 20: no count that night");
   });
 
-  it("every number in the section came from the view, and has its How-we-count line", () => {
+  it("every number in the section came from the view", () => {
     const allowed = new Set([...(JSON.stringify({ TVIEW, HOW_WE_COUNT }).match(/\d+/g) ?? [])]);
     expect(shownNumbers(TDOC).filter((d) => !allowed.has(d))).toEqual([]);
-    const terms = new Set(TDOC.querySelectorAll(".ov-how dt").map(text));
-    for (const e of TDOC.querySelectorAll("[data-term]"))
-      expect(terms).toContain(e.getAttribute("data-term"));
   });
 
   it("over the sentinel render: each leaf is on the page, and no digit is typed in", () => {
@@ -959,5 +926,537 @@ describe("P1-78h: section 8 drawn, once fleet_daily holds 14 nights", () => {
     const allowed = new Set(ST.at.values());
     const n = ST.view.reports.checks.length;
     expect(boundNumbers(doc, n).filter((d) => !allowed.has(d))).toEqual([]);
+  });
+});
+
+/**
+ * P1-87 PR 3: the first screen. The strip and two panels above the kept sections, the
+ * removed sections gone, and a closing link to /how.
+ */
+describe("the first screen (P1-87 PR 3)", () => {
+  const quietSites = ["Acme", "Rsvp Site"];
+  const quiet = parse(pageHtml(overviewFromSnapshot(snapshot(), NOW)));
+  const screen = (doc: HTMLElement) =>
+    doc
+      .querySelectorAll(".ov-first")
+      .map((e) => e.toString())
+      .join("");
+
+  it("shows no site name in the panels on a quiet day", () => {
+    const panels = parse(screen(quiet));
+    expect(panels.querySelectorAll("section").length).toBe(2);
+    for (const name of quietSites) expect(screen(quiet)).not.toContain(name);
+    // Control: the same scan finds a name when a site is broken and listed in the strip.
+    expect(text(DOC.querySelector("section.ov-status")!)).toContain("Bravo");
+  });
+
+  it("the tier bar's counts read as text, in the order OK, watch, attention, broken", () => {
+    expect(text(DOC.querySelector(".ov-tier-counts")!)).toBe(
+      "2 OK · 0 watch · 0 attention · 1 broken",
+    );
+  });
+
+  it("the check rows come in the sketch's order, each with its counts", () => {
+    const rows = DOC.querySelectorAll(".ov-check").map((r) =>
+      text(r.querySelector(".ov-check-name")!),
+    );
+    expect(rows).toEqual([
+      "Live",
+      "Certificate",
+      "Deploy",
+      "Contact form",
+      "Security",
+      "Accessibility",
+      "Build + tests",
+    ]);
+    // Bravo's Live is failing: one failing, and the pass count first.
+    const live = DOC.querySelectorAll(".ov-check")[0]!;
+    expect(text(live.querySelector(".ov-check-count")!)).toBe("2 of 3 · 1 failing");
+  });
+
+  it("the broken fixture: the strip is red, names the site, and drops the quiet-day sentence", () => {
+    const strip = DOC.querySelector("section.ov-status")!;
+    expect(strip.classList.contains("broken")).toBe(true);
+    expect(text(strip.querySelector(".ov-list.broken")!)).toContain("Bravo");
+    expect(text(strip)).not.toContain("Nothing needs attention");
+    expect(text(strip)).not.toContain("All live");
+  });
+
+  it("the Lighthouse medians sit in the health panel, under a muted line", () => {
+    expect(one(".ov-lighthouse-line")).toContain(
+      "Google Lighthouse, the middle score across our sites",
+    );
+    expect(DOC.querySelectorAll(".ov-medians dt").map(text)).toEqual([
+      "Performance",
+      "Accessibility",
+      "Best practices",
+      "SEO",
+    ]);
+  });
+
+  it("the removed sections are gone from the page", () => {
+    const all = text(DOC.querySelector("body")!);
+    for (const gone of [
+      "Is every site live?",
+      "What runs every night",
+      "How changes ship",
+      "How we count",
+      "The ladder",
+      "Dependency updates merged (opened by Renovate",
+    ])
+      expect(all, gone).not.toContain(gone);
+  });
+
+  it("closes with a link to /how, after the trends", () => {
+    const link = DOC.querySelectorAll('a[href="/how"]').find((a) => text(a) === "How this works")!;
+    expect(link).toBeDefined();
+    // The shell's nav has its own /how link above the page; this one is the closing link.
+    expect(HTML.lastIndexOf('href="/how"')).toBeGreaterThan(HTML.indexOf('id="ov-trends"'));
+  });
+
+  it("an unmeasured tile reads its words, never 0", () => {
+    const none = parse(
+      pageHtml(
+        overviewFromSnapshot(
+          snapshot({ sites: snapshot().sites, submissions: null, nights: null, reports: null }),
+          NOW,
+        ),
+      ),
+    );
+    const nums = none.querySelectorAll(".ov-tile .ov-num").map(text);
+    expect(nums.length).toBe(6);
+    expect(nums).not.toContain("0");
+    expect(nums.every((n) => n === "not readable")).toBe(true);
+  });
+
+  it("each tile names its number, its label and its context; the sparkline is hidden from readers", () => {
+    const tiles = DOC.querySelectorAll(".ov-tile");
+    expect(tiles.length).toBe(6);
+    for (const t of tiles) {
+      expect(t.querySelector(".ov-label")).not.toBeNull();
+      const svg = t.querySelector("svg");
+      if (svg) expect(svg.getAttribute("aria-hidden")).toBe("true");
+    }
+  });
+
+  it("a night with no value is a gap in the sparkline, never a drop to 0", () => {
+    // Two-week fixture: the leads line breaks around its two empty nights.
+    const fourteen = Array.from({ length: 14 }, (_, i) =>
+      night(
+        new Date(Date.parse("2026-10-13T00:00:00Z") + i * 86_400_000).toISOString().slice(0, 10),
+        {
+          leads:
+            i === 5
+              ? { value: null, reason: "not read" }
+              : { value: { new: 0, read: 0, archived: 0, spamAuto: 0, spam: 0, notified: i } },
+          // The checks tile reads these: night 5 has no count (round 1, fix 6 test).
+          coverage: {
+            value: {
+              a: i === 5 ? { value: null, reason: "not read" } : { value: i + 1 },
+            },
+          },
+        },
+      ),
+    ).reverse();
+    const page = parse(pageHtml(overviewFromSnapshot(snapshot({ nights: fourteen }), NOW)));
+    // The checks tile is the third (round 1, fix 6 removed the leads sparkline): its
+    // sixth night has no count, so the line breaks there: a run of 5, then a run of 8.
+    const checks = page.querySelectorAll(".ov-tile")[2]!;
+    const runs = [...checks.querySelectorAll("polyline")];
+    expect(runs.length).toBe(2);
+    expect(runs[0]!.getAttribute("points")!.split(" ").length).toBe(5);
+    expect(runs[1]!.getAttribute("points")!.split(" ").length).toBe(8);
+  });
+});
+
+// P1-87 PR 3, review round 1: the tier bar's sizes and counts, the check bars, the
+// launching line, and what the panels name. Each fixture gives every count its own value.
+const TRANSITIVE_HIGH = [
+  {
+    module: "x",
+    severity: "high" as const,
+    title: "t",
+    cves: [],
+    url: null,
+    relationship: "transitive" as const,
+  },
+];
+const TIERED = snapshot({
+  sites: [
+    healthy({ id: "tA", name: "Ok One" }),
+    healthy({ id: "tB", name: "Ok Two" }),
+    healthy({ id: "tC", name: "Ok Three" }),
+    healthy({
+      id: "tW",
+      name: "Watch Site",
+      securityVulnsHigh: 2,
+      securityAdvisories: TRANSITIVE_HIGH,
+      lastSecurityAuditAt: FRESH,
+    }),
+    healthy({ id: "tT1", name: "Cert One", certDaysRemaining: 18 }),
+    healthy({ id: "tT2", name: "Cert Two", certDaysRemaining: 18 }),
+  ],
+  digest: { "vuln:tW": { metric: 2, firstFlaggedAt: "2026-10-01" } },
+});
+
+describe("the first screen's bars and launching line (P1-87 PR 3, round 1)", () => {
+  const tiered = parse(pageHtml(overviewFromSnapshot(TIERED, NOW)));
+  const seg = (k: string) => tiered.querySelector(`.ov-seg.${k}`)!.getAttribute("style");
+
+  it("sizes each tier segment by its count: OK 3, watch 1, attention 2", () => {
+    expect(seg("ok")).toBe("flex-grow: 3");
+    expect(seg("watch")).toBe("flex-grow: 1");
+    expect(seg("attention")).toBe("flex-grow: 2");
+    expect(tiered.querySelector(".ov-seg.broken")).toBeNull();
+    expect(text(tiered.querySelector(".ov-tier-counts")!)).toBe(
+      "3 OK · 1 watch · 2 attention · 0 broken",
+    );
+  });
+
+  it("prints the counts inside the bar when every site is OK, and not under it", () => {
+    const allOk = parse(
+      pageHtml(overviewFromSnapshot(snapshot({ sites: [healthy({ id: "z", name: "Zed" })] }), NOW)),
+    );
+    expect(text(allOk.querySelector(".ov-tierbar .ov-tier-inside")!)).toBe(
+      "1 OK · 0 watch · 0 attention · 0 broken",
+    );
+    expect(allOk.querySelector(".ov-tier-counts")!.classList.contains("visually-hidden")).toBe(
+      true,
+    );
+    // Not all OK: the counts are under the bar, and nothing is printed inside it.
+    expect(tiered.querySelector(".ov-tier-inside")).toBeNull();
+    expect(tiered.querySelector(".ov-tier-counts")!.classList.contains("visually-hidden")).toBe(
+      false,
+    );
+  });
+
+  it("fills each check's bar to its pass count, the unknown part grey beside it", () => {
+    // SNAP's Accessibility: no scan on any of its three sites, so none passes and all three
+    // are not checked: the pass fill is empty and the grey part spans the whole track.
+    const acc = DOC.querySelectorAll(".ov-check")[5]!;
+    expect(acc.querySelector(".ov-check-fill")).toBeNull();
+    expect(acc.querySelector(".ov-check-unknown")!.getAttribute("style")).toBe(
+      "left: 0%; width: 100%",
+    );
+    expect(text(acc.querySelector(".ov-check-count")!)).toBe("0 of 3 · 3 not checked");
+  });
+
+  it("names a launching site the status line counts at a level the bar does not", () => {
+    const base = snapshot({ sites: [healthy({ id: "z", name: "Zed" })] });
+    const golf = parse(
+      pageHtml(
+        overviewFromSnapshot(
+          snapshot({
+            ...base,
+            sites: [
+              ...base.sites!,
+              healthy({
+                id: "recG",
+                name: "Golf",
+                status: "launching",
+                securityVulnsCritical: 1,
+                securityAutoFixAttempts: 99,
+                lastSecurityAuditAt: FRESH,
+                securityAdvisories: [],
+              }),
+            ],
+            digest: { "vuln:recG": { metric: 1, firstFlaggedAt: "2026-10-25" } },
+          }),
+          NOW,
+        ),
+      ),
+    );
+    const notes = golf.querySelectorAll(".ov-health .ov-tier-counts").map(text);
+    expect(notes).toContain("plus 1 launching site at Attention");
+    // The note's term is the one for its kind (review round 4, tests minor 6).
+    const note = golf
+      .querySelectorAll(".ov-health .ov-tier-counts")
+      .find((e) => text(e).startsWith("plus"))!;
+    expect(note.querySelectorAll("[data-term]").map((e) => e.getAttribute("data-term"))).toEqual([
+      "Launching sites",
+    ]);
+  });
+
+  it("a note that carries both kinds marks each clause with its own term (review round 4, correctness n1)", () => {
+    const v = overviewFromSnapshot(snapshot({ sites: [healthy({ id: "z", name: "Zed" })] }), NOW);
+    v.health.launching = [
+      { level: "attention", count: 1, kind: "launching" },
+      { level: "watch", count: 2, kind: "other" },
+    ];
+    const note = parse(pageHtml(v))
+      .querySelectorAll(".ov-health .ov-tier-counts")
+      .find((e) => text(e).startsWith("plus"))!;
+    expect(text(note)).toBe(
+      "plus 1 launching site at Attention and 2 sites not marked maintained at Watch",
+    );
+    expect(note.querySelectorAll("[data-term]").map((e) => e.getAttribute("data-term"))).toEqual([
+      "Launching sites",
+      "Sites not marked maintained",
+    ]);
+  });
+
+  it("the broken fixture: the panels name no site, though the strip names the broken one", () => {
+    expect(text(DOC.querySelector("section.ov-status")!)).toContain("Bravo");
+    const panels = DOC.querySelectorAll(".ov-first")
+      .map((e) => e.toString())
+      .join("");
+    expect(panels).not.toContain("Bravo");
+  });
+
+  it("an unmeasured tile's number carries the unknown class, a measured one does not", () => {
+    const none = parse(
+      pageHtml(
+        overviewFromSnapshot(
+          snapshot({ sites: snapshot().sites, submissions: null, nights: null, reports: null }),
+          NOW,
+        ),
+      ),
+    );
+    expect(none.querySelectorAll(".ov-tile .ov-num.unknown").length).toBe(6);
+    // On the page fixture, exactly the numbers that are words (not digits) carry the class.
+    const nums = DOC.querySelectorAll(".ov-tile .ov-num");
+    const words = nums.filter((n) => !/^\d+$/.test(text(n)));
+    expect(words.length).toBeGreaterThan(0);
+    expect(nums.filter((n) => n.classList.contains("unknown")).length).toBe(words.length);
+  });
+});
+
+describe("every data-term on the overview is a How-we-count term (review round 2, F)", () => {
+  // The T6 check was deleted with the overview's How-we-count block; this restores it. A
+  // term on / with no entry in HOW_WE_COUNT is a label a visitor cannot look up.
+  const unknownTerms = (html: string): string[] => {
+    const known = new Set(HOW_WE_COUNT.map((h) => h.term));
+    const terms = parse(html)
+      .querySelectorAll("[data-term]")
+      .map((el) => el.getAttribute("data-term")!);
+    return [...new Set(terms)].filter((t) => !known.has(t));
+  };
+
+  it("every data-term rendered on / has an entry in HOW_WE_COUNT", () => {
+    expect(unknownTerms(HTML)).toEqual([]);
+  });
+
+  it("is an instrument that can fail: a made-up data-term on / is reported", () => {
+    // Control: one term on the page changed to a made-up one.
+    const changed = HTML.replace('data-term="Trends"', 'data-term="Made up term"');
+    expect(changed).not.toBe(HTML);
+    expect(unknownTerms(changed)).toEqual(["Made up term"]);
+  });
+});
+
+describe("the first screen's page structure (review round 2, G and H)", () => {
+  // Comments are cut first: a rule's selector would otherwise carry the comment above it.
+  const cssText = readFileSync(
+    new URL("../../src/lib/overview/overview.css", import.meta.url),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  const cssRule = (sel: string) =>
+    [...cssText.matchAll(/([^{}]+)\{([^}]*)\}/g)].find(([, s]) => s!.trim() === sel)?.[2] ?? "";
+  const rowOf = (doc: HTMLElement, name: string) =>
+    doc.querySelectorAll(".ov-check").find((r) => text(r).startsWith(name))!;
+
+  it("a broken-only day is not all OK: no counts inside the bar, the line under it shown (G)", () => {
+    // SNAP is two OK and one broken: the all-OK style must not apply.
+    expect(DOC.querySelector(".ov-tier-inside")).toBeNull();
+    expect(DOC.querySelector(".ov-tier-counts")!.classList.contains("visually-hidden")).toBe(false);
+  });
+
+  it("names one maintained site in the singular (G)", () => {
+    const one = parse(
+      pageHtml(overviewFromSnapshot(snapshot({ sites: [healthy({ id: "z", name: "Zed" })] }), NOW)),
+    );
+    expect(text(one.querySelector("#ov-health")!)).toBe("Fleet health · 1 site");
+  });
+
+  it("the grey not-checked part starts where the pass fill ends, and its width is the rest (H)", () => {
+    const five = parse(
+      pageHtml(
+        overviewFromSnapshot(
+          snapshot({
+            sites: [
+              healthy({ id: "a", name: "A" }),
+              healthy({ id: "b", name: "B" }),
+              healthy({ id: "c", name: "C" }),
+              healthy({ id: "d", name: "D" }),
+              healthy({ id: "e", name: "E", formE2eOk: null, formE2eCheckedAt: null }),
+            ],
+          }),
+          NOW,
+        ),
+      ),
+    );
+    const form = rowOf(five, "Contact form");
+    expect(form.querySelector(".ov-check-fill")!.getAttribute("style")).toBe("width: 80%");
+    expect(form.querySelector(".ov-check-unknown")!.getAttribute("style")).toBe(
+      "left: 80%; width: 20%",
+    );
+  });
+
+  it("every aria-labelledby on the overview names an element that exists (H)", () => {
+    const ids = DOC.querySelectorAll("[aria-labelledby]").map((el) =>
+      el.getAttribute("aria-labelledby")!,
+    );
+    expect(ids.length).toBeGreaterThan(0);
+    for (const id of ids) expect(DOC.querySelector(`#${id}`), id).not.toBeNull();
+  });
+
+  it("the tier bar and each check bar are positioned, so their parts stay inside them (H)", () => {
+    expect(cssRule(".ov-tierbar")).toMatch(/position:\s*relative/);
+    expect(cssRule(".ov-check-bar")).toMatch(/position:\s*relative/);
+  });
+});
+
+describe("the first screen's layout and tones, pinned in the stylesheet (review round 2, I)", () => {
+  // Comments are cut first, so a selector never carries the comment above it.
+  const css = readFileSync(
+    new URL("../../src/lib/overview/overview.css", import.meta.url),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  const ruleOf = (sel: string) =>
+    [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].find(([, s]) => s!.trim() === sel)?.[2] ?? "";
+
+  it("gives a watch or attention segment a floor of 1.25rem, so one site in 40 keeps its shape (review round 4, a11y minor 1)", () => {
+    expect(ruleOf(".ov-seg:not(.ok)")).toMatch(/min-width:\s*1\.25rem/);
+    expect(ruleOf(".ov-seg")).toMatch(/min-width:\s*0/);
+  });
+
+  it("keeps a phone's check bars wide: the count goes under the bar below 30rem (I, phone)", () => {
+    // The phone block's own declaration, not only its opening selector (review round 3, F).
+    expect(css).toMatch(
+      /@media \(max-width: 30rem\)\s*\{\s*\.ov-checks-list\s*\{\s*grid-template-columns:\s*minmax\(0, 1fr\);/,
+    );
+    expect(ruleOf(".ov-checks-list")).toMatch(
+      /grid-template-columns:\s*minmax\(6rem, 8\.5rem\) minmax\(4rem, 1fr\) fit-content\(9rem\)/,
+    );
+  });
+
+  it("lays the Lighthouse medians two by two on a phone, all four in a row above 30rem (I, nit 8)", () => {
+    expect(ruleOf(".ov-medians")).toMatch(/grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/);
+    expect(css).toMatch(
+      /@media \(min-width: 30rem\)\s*\{\s*\.ov-medians\s*\{\s*grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\)/,
+    );
+  });
+
+  it("tells watch and attention apart by shape as well as tone (I, tier segments)", () => {
+    // Watch is hollow: the panel colour inside an outline.
+    expect(ruleOf(".ov-seg.watch")).toMatch(/background:\s*var\(--surface\)/);
+    expect(ruleOf(".ov-seg.watch")).toMatch(/box-shadow:\s*inset 0 0 0 3px var\(--ink-muted\)/);
+    // Attention is solid inside a panel-coloured frame, so it never reads as OK's solid ink.
+    expect(ruleOf(".ov-seg.attention")).toMatch(/background:\s*var\(--ink-dark\)/);
+    expect(ruleOf(".ov-seg.attention")).toMatch(/box-shadow:\s*inset 0 0 0 3px var\(--surface\)/);
+  });
+
+  it("separates a dark pass fill from its not-checked part by a 2px gap (I, dark)", () => {
+    expect(ruleOf(".ov-check-unknown")).toMatch(/box-shadow:\s*inset 2px 0 0 var\(--surface\)/);
+  });
+
+  it("gives the status strip the panel surface, and an ink bar when all is well (I, nit 7)", () => {
+    expect(ruleOf(".ov-status")).toMatch(/background:\s*var\(--surface\)/);
+    expect(ruleOf(".ov-status.ok")).toMatch(/border-left-color:\s*var\(--ink\)/);
+  });
+
+  it("lines an unmeasured tile's label up with its neighbours: the measured line box (I, nit 10)", () => {
+    expect(ruleOf(".ov-num.unknown")).toMatch(/min-height:\s*calc\(1\.9rem \* 1\.1\)/);
+  });
+});
+
+describe("review round 3: the grey part covers all three unknown kinds (group C, tests M1)", () => {
+  // A failed fresh form test, a fresh form with no result, and a stale pass: the grey
+  // part is the sum of all three, so the whole track is grey (review round 3, tests M1).
+  const trio = parse(
+    pageHtml(
+      overviewFromSnapshot(
+        snapshot({
+          sites: [
+            healthy({ id: "recA", name: "Ann", formE2eOk: "fail", formE2eCheckedAt: FRESH }),
+            healthy({ id: "recB", name: "Ben", formE2eOk: null, formE2eCheckedAt: FRESH }),
+            healthy({ id: "recC", name: "Cal", formE2eOk: "pass", formE2eCheckedAt: STALE }),
+          ],
+        }),
+        NOW,
+      ),
+    ),
+  );
+  const form = trio.querySelectorAll(".ov-check").find((r) => text(r).startsWith("Contact form"))!;
+
+  it("the grey part spans the whole track when a test failed, no verdict and not checked", () => {
+    expect(form.querySelector(".ov-check-unknown")!.getAttribute("style")).toBe(
+      "left: 0%; width: 100%",
+    );
+    expect(text(form.querySelector(".ov-check-count")!)).toBe(
+      "0 of 3 · 1 test failed, not yet a verdict · 1 no verdict · 1 not checked",
+    );
+  });
+});
+
+describe("review round 4: the grey part's condition, and the deploy verdict (group C, tests minors 2, 3)", () => {
+  const rowIn = (doc: HTMLElement, name: string) =>
+    doc.querySelectorAll(".ov-check").find((r) => text(r).startsWith(name))!;
+
+  it("a fresh failed test and a fresh no-result, with no stale site, still grey the whole track", () => {
+    const two = parse(
+      pageHtml(
+        overviewFromSnapshot(
+          snapshot({
+            sites: [
+              healthy({ id: "recA", name: "Ann", formE2eOk: "fail", formE2eCheckedAt: FRESH }),
+              healthy({ id: "recB", name: "Ben", formE2eOk: null, formE2eCheckedAt: FRESH }),
+            ],
+          }),
+          NOW,
+        ),
+      ),
+    );
+    const form = rowIn(two, "Contact form");
+    expect(form.querySelector(".ov-check-unknown")!.getAttribute("style")).toBe(
+      "left: 0%; width: 100%",
+    );
+    expect(form.querySelector(".ov-check-fill")).toBeNull();
+  });
+
+  it("a Live row with only a failing site draws neither a fill nor a grey part", () => {
+    const failing = parse(
+      pageHtml(
+        overviewFromSnapshot(
+          snapshot({ sites: [healthy({ id: "z", name: "Zed", reachableOk: "fail" })] }),
+          NOW,
+        ),
+      ),
+    );
+    const live = rowIn(failing, "Live");
+    expect(live.querySelector(".ov-check-unknown")).toBeNull();
+    expect(live.querySelector(".ov-check-fill")).toBeNull();
+  });
+});
+
+describe("review round 3: no zero-width parts on a check bar (group D, tests minor 6)", () => {
+  // Under forced colours a 0%-wide bordered span still draws a 4px mark, so a part with no
+  // sites is not rendered at all (review round 3, correctness and tests minor 6).
+  const healthyOnly = parse(
+    pageHtml(overviewFromSnapshot(snapshot({ sites: [healthy({ id: "z", name: "Zed" })] }), NOW)),
+  );
+  const rowNamed = (doc: HTMLElement, name: string) =>
+    doc.querySelectorAll(".ov-check").find((r) => text(r).startsWith(name))!;
+
+  it("a row with no site passing has no fill span: the accessibility row of DOC", () => {
+    const acc = DOC.querySelectorAll(".ov-check")[5]!;
+    expect(text(acc)).toMatch(/^Accessibility 0 of 3/);
+    expect(acc.querySelector(".ov-check-fill")).toBeNull();
+    expect(acc.querySelector(".ov-check-unknown")).not.toBeNull();
+  });
+
+  it("a row with every site passing has no grey part", () => {
+    const live = rowNamed(healthyOnly, "Live");
+    expect(text(live)).toMatch(/^Live 1 of 1/);
+    expect(live.querySelector(".ov-check-fill")!.getAttribute("style")).toBe("width: 100%");
+    expect(live.querySelector(".ov-check-unknown")).toBeNull();
+  });
+});
+
+describe("review round 3: the check list names its How-we-count term (group G)", () => {
+  it("marks the check list with the term that defines the bars", () => {
+    expect(DOC.querySelector(".ov-checks-list")!.getAttribute("data-term")).toBe(
+      "Sites passing each check",
+    );
   });
 });

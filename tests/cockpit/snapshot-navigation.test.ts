@@ -110,6 +110,28 @@ async function seed(url: string): Promise<void> {
       deploy_checked_at: now,
     } as never)
     .execute();
+  // Review round 3 (tests M2, a11y m3): the Contact form row carries a long count, so the
+  // count column and the phone layout are measured with one. Acme's form test failed on a
+  // fresh run, Beta has a fresh stamp and no result, and Lee's site has no stamp (not
+  // checked): "1 test failed, not yet a verdict · 1 no verdict · 1 not checked".
+  // Review round 4 (tests M1): Acme also has a passing Live and Certificate, so at least
+  // one check bar draws a fill for the "fill inside track" browser test to measure.
+  const passing = {
+    uptime_reachable: "pass",
+    url_resolves: "pass",
+    browser_checked_at: now,
+    url_checked_at: now,
+    cert_days_remaining: 90,
+    domain_checked_at: now,
+  };
+  for (const [site_id, extra] of [
+    ["recA", { form_e2e_ok: "fail", ...passing }],
+    ["recB", { form_e2e_ok: null }],
+  ] as const)
+    await db
+      .insertInto("site_health")
+      .values({ site_id, ...extra, form_e2e_checked_at: now } as never)
+      .execute();
   // Leads on it, so the per-site leads table carries its name too: an hour old, so
   // Pat's lead below stays the newest on /submissions.
   const anHourAgo = new Date(Date.now() - 3_600_000).toISOString();
@@ -333,12 +355,108 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     await expect.poll(() => page.locator("h1").first().textContent()).toContain("Overview");
     expect(new URL(page.url()).pathname).toBe("/");
     expect(hops).toEqual([["/", 200]]);
-    // fleet_daily reached the page through the real loader (review round 5, R5-8).
-    await expect
-      .poll(() => page.locator("body").textContent())
-      .toContain(
-        `${NIGHTLIES.length * 2} of ${NIGHTLIES.length * 2} nightly steps ran to the end over the last 2 nights`,
-      );
+    // fleet_daily reached the page through the real loader (review round 5, R5-8): the
+    // changes-shipped tile is the newest seeded night's prsMerged (612) less the one
+    // before (600), over the one night between them (P1-87 PR 3 moved the nightly
+    // steps line to /how, so this reads a first-screen tile instead).
+    const shipped = page.locator(".ov-tile", { hasText: "changes shipped" });
+    await expect.poll(() => shipped.locator(".ov-num").textContent()).toBe("12");
+    await expect.poll(() => shipped.textContent()).toContain("over the last night");
+  });
+
+  // P1-87 PR 3, round 1: every check bar starts and ends in the same place, whatever
+  // its count says, and the two panels sit side by side with one top at 1280px.
+  it("the overview's check bars line up and its panels share a top at 1280px", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await expect.poll(() => page.locator(".ov-check-bar").count()).toBe(7);
+    const bars = await page.locator(".ov-check-bar").evaluateAll((els) =>
+      els.map((e) => {
+        const r = e.getBoundingClientRect();
+        return [Math.round(r.left), Math.round(r.width)];
+      }),
+    );
+    expect(new Set(bars.map((b) => b.join(","))).size).toBe(1);
+    expect(bars[0]![1]).toBeGreaterThan(100);
+    const tops = await page
+      .locator(".ov-health, .ov-happening")
+      .evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
+    expect(tops).toHaveLength(2);
+    expect(tops[0]).toBe(tops[1]);
+  });
+
+  // P1-87 PR 3, round 2: each fill lies inside its own track (the bar is its containing
+  // block), and on a phone every bar keeps its width, with the count under it.
+  it("each check's fill lies inside its own track at 1280px, and every bar keeps its width at 390px", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await expect.poll(() => page.locator(".ov-check-bar").count()).toBe(7);
+    // Review round 4 (tests M1): the seed gives Acme a passing check, so a fill is measured
+    // here, and every fill and every unknown part lies inside its own track.
+    const parts = await page.locator(".ov-check").evaluateAll((rows) =>
+      rows.flatMap((row) => {
+        const bar = row.querySelector(".ov-check-bar")!.getBoundingClientRect();
+        return [...row.querySelectorAll(".ov-check-fill, .ov-check-unknown")].map((el) => {
+          const r = el.getBoundingClientRect();
+          return {
+            kind: el.classList.contains("ov-check-fill") ? "fill" : "unknown",
+            inside:
+              r.left >= bar.left - 0.5 &&
+              r.right <= bar.right + 0.5 &&
+              r.top >= bar.top - 0.5 &&
+              r.bottom <= bar.bottom + 0.5,
+          };
+        });
+      }),
+    );
+    expect(parts.filter((p) => p.kind === "fill").length).toBeGreaterThan(0);
+    expect(parts.filter((p) => p.kind === "unknown").length).toBeGreaterThan(0);
+    expect(parts.every((p) => p.inside)).toBe(true);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`${origin}/`);
+    await expect.poll(() => page.locator(".ov-check-bar").count()).toBe(7);
+    const widths = await page
+      .locator(".ov-check-bar")
+      .evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().width)));
+    for (const w of widths) expect(w).toBeGreaterThanOrEqual(100);
+  });
+
+  // P1-87 PR 3, review round 3 (a11y m3, tests M2): with a long count on a row, the bars
+  // keep their width. The count column is 9rem wide, so 1000px keeps every bar at 140px or
+  // more; on a phone every bar is at least 100px wide, and its count sits under it.
+  it("a long count keeps every bar wide: 140px at 1000px, and under the bar at 390px", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1000, height: 800 });
+    await page.goto(`${origin}/`);
+    await expect.poll(() => page.locator(".ov-check-bar").count()).toBe(7);
+    const long = await page
+      .locator(".ov-check", { hasText: "Contact form" })
+      .locator(".ov-check-count")
+      .textContent();
+    expect(long).toContain("1 test failed, not yet a verdict · 1 no verdict · 1 not checked");
+    const wide = await page
+      .locator(".ov-check-bar")
+      .evaluateAll((els) => els.map((e) => e.getBoundingClientRect().width));
+    for (const w of wide) expect(w).toBeGreaterThanOrEqual(140);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`${origin}/`);
+    await expect.poll(() => page.locator(".ov-check-bar").count()).toBe(7);
+    const phone = await page.locator(".ov-check").evaluateAll((rows) =>
+      rows.map((row) => {
+        const bar = row.querySelector(".ov-check-bar")!.getBoundingClientRect();
+        const count = row.querySelector(".ov-check-count")!.getBoundingClientRect();
+        return { width: bar.width, below: count.top >= bar.bottom - 0.5 };
+      }),
+    );
+    expect(phone).toHaveLength(7);
+    for (const row of phone) {
+      expect(row.width).toBeGreaterThanOrEqual(100);
+      expect(row.below).toBe(true);
+    }
   });
 
   // P1-87 PR 1, review round 2: on a small laptop (1000px) each flow stays one row,
@@ -618,14 +736,15 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       await expect.poll(() => page.locator("h1").first().textContent()).toContain("Overview");
       // The content the check needs is on the page: the long name, in section 1 and both tables.
       expect(await page.locator(".ov-list.broken li", { hasText: LONG_NAME }).count()).toBe(1);
-      expect(await page.locator(".ov-live tbody th", { hasText: LONG_NAME }).count()).toBe(1);
+      // The first screen's health panel and its six number tiles (P1-87 PR 3).
+      expect(await page.locator(".ov-health").count()).toBe(1);
+      expect(await page.locator(".ov-tile").count()).toBe(6);
       expect(await page.locator(".ov-leads-sites tbody th", { hasText: LONG_NAME }).count()).toBe(
         1,
       );
       // P1-78h: section 8 draws its four charts, so they are laid out here too.
       expect(await page.locator("figure.ov-trend svg.ov-chart").count()).toBe(4);
       await page.locator(".ov-trend-table summary").first().click();
-      await page.locator(".ov-how summary").click();
       const fit = await page.evaluate(() => ({
         scroll: document.documentElement.scrollWidth,
         width: window.innerWidth,

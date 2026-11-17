@@ -1,16 +1,19 @@
 <script lang="ts">
   import type { OverviewView } from "../lib/overview/view.js";
-  import { HOW_WE_COUNT, LADDER_LINES, trendGeometry } from "../lib/overview/view.js";
+  import { launchingClauses, sparkGeometry, trendGeometry } from "../lib/overview/view.js";
   import PageStyles from "../lib/PageStyles.svelte";
   import healthCss from "../lib/cockpit/health.css?inline";
   import overviewCss from "../lib/overview/overview.css?inline";
 
-  // P1-78g: the overview, top to bottom in the questions Erik and Tim ask. Every
-  // string and number comes decided from lib/overview/view.ts; no count is typed
-  // here. Each number's label carries `data-term`, its line in "How we count".
+  // P1-78g, P1-87 PR 3: the overview. The first screen is the status strip and two
+  // panels (fleet health, and how much is happening); the leads, client reports and
+  // trends follow. Every string and number comes decided from lib/overview/view.ts.
   let { data }: { data: { view: OverviewView } } = $props();
   const v = $derived(data.view);
-  const okClass = (ok: boolean | null) => (ok === true ? "ok" : ok === false ? "bad" : "unknown");
+  const allOk = $derived(
+    v.health.tiers.watch + v.health.tiers.attention + v.health.tiers.broken === 0,
+  );
+  const launching = $derived(launchingClauses(v.health.launching));
 </script>
 
 <svelte:head>
@@ -38,39 +41,106 @@
   {/if}
 </section>
 
-<section aria-labelledby="ov-live">
-  <h2 id="ov-live">Is every site live?</h2>
-  <table class="ov-table ov-live">
-    <thead>
-      <tr
-        ><th>Site</th><th data-term="Live">Live</th><th data-term="Certificate">Certificate</th><th
-          data-term="Deploy">Deploy</th
-        ><th data-term="Forms">Forms</th><th data-term="Level"><a href="#ov-ladder">Level</a></th
-        ></tr
-      >
-    </thead>
-    <tbody>
-      {#each v.live as r (r.siteId)}
-        <tr>
-          <th scope="row"><a href={r.url}>{r.siteName}</a></th>
-          <td data-label="Live" data-term="Live" class={okClass(r.live.ok)}
-            >{r.live.text}{#if r.live.at}<span class="muted">, checked {r.live.at}</span>{/if}</td
+<div class="ov-first">
+  <section class="ov-health" aria-labelledby="ov-health">
+    <h2 id="ov-health">
+      Fleet health · {v.health.sites}
+      {v.health.sites === 1 ? "site" : "sites"}
+    </h2>
+    <div class="ov-tierbar" aria-hidden="true">
+      {#if v.health.tiers.ok > 0}<span class="ov-seg ok" style="flex-grow: {v.health.tiers.ok}"
+          >{#if allOk}<span class="ov-tier-inside"
+              >{v.health.tiers.ok} OK · {v.health.tiers.watch} watch · {v.health.tiers.attention} attention
+              · {v.health.tiers.broken} broken</span
+            >{/if}</span
+        >{/if}
+      {#if v.health.tiers.watch > 0}<span
+          class="ov-seg watch"
+          style="flex-grow: {v.health.tiers.watch}"
+        ></span>{/if}
+      {#if v.health.tiers.attention > 0}<span
+          class="ov-seg attention"
+          style="flex-grow: {v.health.tiers.attention}"
+        ></span>{/if}
+      {#if v.health.tiers.broken > 0}<span
+          class="ov-seg broken"
+          style="flex-grow: {v.health.tiers.broken}"
+        ></span>{/if}
+    </div>
+    <p class="ov-tier-counts" class:visually-hidden={allOk}>
+      {v.health.tiers.ok} OK · {v.health.tiers.watch} watch · {v.health.tiers.attention} attention · {v
+        .health.tiers.broken} broken
+    </p>
+    {#if launching.length > 0}<p class="ov-tier-counts">
+        plus {#each launching as c, i (i)}{i > 0 ? " and " : ""}<span data-term={c.term}
+            >{c.text}</span
+          >{/each}
+      </p>{/if}
+    <h3>Sites passing each check</h3>
+    <ul class="ov-checks-list" data-term="Sites passing each check">
+      {#each v.health.checks as c (c.name)}
+        <li class="ov-check">
+          <span class="ov-check-name">{c.name}</span>
+          <span class="ov-check-bar" aria-hidden="true"
+            >{#if c.pass > 0}<span class="ov-check-fill" style="width: {(100 * c.pass) / c.total}%"
+              ></span>{/if}{#if c.unknown > 0}<span
+                class="ov-check-unknown"
+                style="left: {c.total === 0 ? 0 : (100 * c.pass) / c.total}%; width: {(100 *
+                  c.unknown) /
+                  c.total}%"
+              ></span>{/if}</span
           >
-          <td data-label="Certificate" data-term="Certificate" class={okClass(r.domain.ok)}
-            >{r.domain.text}</td
+          <span class="ov-check-count"
+            >{c.pass}{" "}<span class="visually-hidden">of {c.total}</span>{c.fail > 0
+              ? ` · ${c.fail} failing`
+              : ""}{c.testFailed > 0
+              ? ` · ${c.testFailed} test failed, not yet a verdict`
+              : ""}{c.noVerdict > 0 ? ` · ${c.noVerdict} no verdict` : ""}{c.notChecked > 0
+              ? ` · ${c.notChecked} not checked`
+              : ""}</span
           >
-          <td data-label="Deploy" data-term="Deploy" class={okClass(r.deploy.ok)}
-            >{r.deploy.text}</td
-          >
-          <td data-label="Forms" data-term="Forms" class={okClass(r.forms.ok)}
-            >{r.forms.text}<span class="muted">; {r.lastLead}</span></td
-          >
-          <td data-label="Level"><span class="pill {r.level.tier}">{r.level.text}</span></td>
-        </tr>
+        </li>
       {/each}
-    </tbody>
-  </table>
-</section>
+    </ul>
+    <dl class="ov-medians">
+      {#each v.reports.lighthouse as l (l.label)}
+        <div>
+          <dt>{l.label}</dt>
+          <dd>{l.median}</dd>
+        </div>
+      {/each}
+    </dl>
+    <p class="muted ov-lighthouse-line">
+      Google Lighthouse, the middle score across our sites{#if v.reports.lighthouseAsOf}, from
+        audits as old as {v.reports.lighthouseAsOf}{/if}.
+    </p>
+  </section>
+
+  <section class="ov-happening" aria-labelledby="ov-happening-h">
+    <h2 id="ov-happening-h">How much is happening</h2>
+    <div class="ov-tiles">
+      {#each v.numbers as n (n.key)}
+        <div class="ov-tile">
+          <p class="ov-num{n.measured ? '' : ' unknown'}">{n.value}</p>
+          <p class="ov-label">{n.label}</p>
+          {#if n.context}<p class="muted ov-context">{n.context}</p>{/if}
+          {#if n.spark}
+            {@const g = sparkGeometry(n.spark)}
+            <svg class="ov-spark" viewBox="0 0 120 24" preserveAspectRatio="none" aria-hidden="true"
+              >{#each g.lines as l, li (li)}<polyline
+                  points={l}
+                />{/each}{#each g.dots as d, di (di)}<circle
+                  cx={d.x}
+                  cy={d.y}
+                  r="1.5"
+                />{/each}</svg
+            >
+          {/if}
+        </div>
+      {/each}
+    </div>
+  </section>
+</div>
 
 <section aria-labelledby="ov-leads">
   <h2 id="ov-leads">Leads</h2>
@@ -160,24 +230,6 @@
 
 <section aria-labelledby="ov-reports">
   <h2 id="ov-reports">Client reports</h2>
-  <p data-term="Checks per report">
-    Every maintenance report carries {v.reports.checks.length} checks. Each one is proven by a step of
-    the nightly run below.
-  </p>
-  <dl class="ov-checks" data-term="Checks per report">
-    {#each v.reports.checks as c (c.name)}
-      <dt>{c.name}</dt>
-      <dd>{c.proof}</dd>
-    {/each}
-  </dl>
-  <p data-term="Lighthouse">
-    Lighthouse (Google's audit of each site, scored out of 100), the middle score across our sites
-    for each area on its own:
-    {#each v.reports.lighthouse as l, i (l.label)}{i > 0 ? " · " : ""}{l.label}
-      {l.median}{/each}{#if v.reports.lighthouseAsOf}<span class="muted"
-        >, from audits as old as {v.reports.lighthouseAsOf}</span
-      >{/if}.
-  </p>
   {#if v.reports.sent === null}
     <p class="muted">The reports could not be read just now. Reload to try again.</p>
   {:else}
@@ -208,41 +260,14 @@
   </table>
 </section>
 
-<section aria-labelledby="ov-nightly">
-  <h2 id="ov-nightly">What runs every night</h2>
-  <p>
-    <span data-term="Times"
-      >The nightly starts at {v.nightly.startsAt}. Approved reports send at {v.nightly
-        .sendsAt}.</span
-    >
-    <span data-term="Scale">Scale: {v.nightly.scale}.</span>
-    <span data-term="Runs completed">Runs completed: {v.nightly.reliability}.</span>
-  </p>
-  <ol class="ov-steps" data-term="Steps">
-    {#each v.nightly.steps as s (s.label)}
-      <li>
-        <span class="ov-step-name">{s.label}</span>
-        <span class="muted"
-          >{v.nightly.nightOf}: {s.outcome}. Last finished: {s.lastFinished}. Reached: {s.sites}.</span
-        >
-      </li>
-    {/each}
-  </ol>
-</section>
-
+<!-- Kept below the first screen on the operator's word (11-16, the workspace's
+     decisions/2026-11-16-2301-p1-87-pr3-upkeep-open-now.md): the two facts no other
+     page shows. The ladder and the counts on the first screen's tiles are not repeated. -->
 <section aria-labelledby="ov-upkeep">
   <h2 id="ov-upkeep">Upkeep</h2>
-  <ul>
-    <li data-term="Dependency updates merged">
-      Dependency updates merged (opened by Renovate, our update bot): {v.upkeep.automerged}.
-    </li>
-    <li data-term="Sites cleared of vulnerabilities">
-      Sites cleared of every critical or high vulnerability: {v.upkeep.vulnsCleared}.
-    </li>
-    <li data-term="Major-version upgrades waiting">
-      Major-version upgrades waiting: {v.upkeep.depsBehind}.
-    </li>
-  </ul>
+  <p data-term="Major-version upgrades waiting">
+    Major-version upgrades waiting: {v.upkeep.depsBehind}.
+  </p>
   <h3 data-term="Open now">Open now</h3>
   {#if v.upkeep.open.length > 0}
     <ul data-term="Open now">
@@ -255,28 +280,6 @@
          a stale or missing check is listed above (review round 4, C2). -->
     <p>No critical or high vulnerability is open.</p>
   {/if}
-  <h3 id="ov-ladder">The ladder</h3>
-  <ul>
-    {#each LADDER_LINES as line, i (i)}
-      <li>{line}</li>
-    {/each}
-  </ul>
-</section>
-
-<section aria-labelledby="ov-ship">
-  <h2 id="ov-ship">How changes ship</h2>
-  <p>
-    A change is tested first, then reviewed by fresh AI agents, usually over about three rounds, and
-    landed one small change at a time, each as a pull request (PR). A person merges every published
-    release.
-  </p>
-  <p>
-    On a client site, a change goes from its own branch to staging, then to the live site when one
-    of us promotes staging.
-  </p>
-  <p data-term="PRs merged">
-    PRs merged into the maintenance stack (the code that runs these checks and sends the reports): {v.prsMerged}.
-  </p>
 </section>
 
 <section aria-labelledby="ov-trends" data-term="Trends">
@@ -402,19 +405,4 @@
   {/if}
 </section>
 
-<details class="ov-how">
-  <summary>How we count</summary>
-  <p class="muted" data-term="Nights counted">
-    {#if v.nightsCollected === null}
-      The nightly counts could not be read just now.
-    {:else}
-      The nightly has written {v.nightsCollected} of counts so far.
-    {/if}
-  </p>
-  <dl>
-    {#each HOW_WE_COUNT as h (h.term)}
-      <dt>{h.term}</dt>
-      <dd>{h.text}</dd>
-    {/each}
-  </dl>
-</details>
+<p class="ov-closing"><a href="/how">How this works</a></p>

@@ -40,7 +40,9 @@
           ></strong
         >
         <span class="how-step-what">{s.label}</span>
-        <span class="how-step-last">{v.nightly.nightOf}: {s.outcome}</span>
+        <span class="how-step-last"
+          >{v.nightly.nightOf}: {s.outcome}. Last finished: {s.lastFinished}. Reached: {s.sites}.</span
+        >
       </li>
     {/each}
   </ol>
@@ -204,6 +206,13 @@
 
 <details class="how-count" id="how-we-count">
   <summary>How we count</summary>
+  <p class="muted" data-term="Nights counted">
+    {#if v.nightsCollected === null}
+      The nightly counts could not be read just now.
+    {:else}
+      The nightly has written {v.nightsCollected} of counts so far.
+    {/if}
+  </p>
   <dl>
     {#each HOW_WE_COUNT as h (h.term)}
       <dt>{h.term}</dt>

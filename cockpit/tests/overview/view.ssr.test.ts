@@ -9,9 +9,11 @@ import {
   NOT_YET,
   UNREADABLE,
   expectedNight,
+  launchingNote,
   liveCell,
   outcomeText,
   pacificMonthStart,
+  sparkGeometry,
   stepNumber,
   urlStatusText,
   windowed,
@@ -21,7 +23,7 @@ import type { WebsiteRow } from "../../../src/fleet/site-row.js";
 import { NIGHTLIES } from "../../../scripts/nightly-conductor.mjs";
 import { DEFAULT_COPY } from "../../../src/reports/copy.js";
 import { makeSubmissionRow } from "../../../tests/_helpers/submission-row.js";
-import { PRODUCTION_STALE_DAYS } from "../../../src/alerts/production-signals.js";
+import { A11Y_STALE_DAYS, PRODUCTION_STALE_DAYS } from "../../../src/alerts/production-signals.js";
 
 /**
  * P1-78g: the overview's model (workspace briefs/2026-10-26-p1-78g-overview.md).
@@ -29,6 +31,7 @@ import { PRODUCTION_STALE_DAYS } from "../../../src/alerts/production-signals.js
  */
 
 import { NOW, FRESH, STALE, healthy, report, night, snapshot } from "./fixtures.js";
+import type { CockpitSnapshot } from "../../../src/dashboard/snapshot-views.js";
 
 describe("section 1: the one-line status", () => {
   it("counts the sites in our care and says all are live", () => {
@@ -118,7 +121,12 @@ describe("section 2: is every site live?", () => {
       snapshot({ sites: [healthy({ id: "recA", name: "Acme", formE2eCheckedAt: STALE })] }),
       NOW,
     );
-    expect(v.live[0]!.forms).toEqual({ ok: null, text: "Not tested lately" });
+    expect(v.live[0]!.forms).toEqual({
+      ok: null,
+      text: "Not tested lately",
+      fresh: false,
+      testFailed: false,
+    });
   });
 
   it("names the newest real lead, not spam", () => {
@@ -431,6 +439,12 @@ describe("review round 1: the counts behind every shown number", () => {
       fleetAttention: 0,
       watch: 1,
       approval: 3,
+      // No launching or misspelt site among these: nothing off the bar (review round 2, D).
+      offCare: {
+        broken: { launching: 0, other: 0 },
+        attention: { launching: 0, other: 0 },
+        watch: { launching: 0, other: 0 },
+      },
     });
     expect(v.status.parts.map((p) => [p.text, p.href])).toEqual([
       ["3 sites in our care.", undefined],
@@ -466,13 +480,22 @@ describe("review round 1: the counts behind every shown number", () => {
         snapshot({ sites: [healthy({ id: "recA", name: "Acme", ...over })] }),
         NOW,
       ).live[0]!.deploy;
-    expect(at({})).toEqual({ ok: true, text: "Published 2 days ago" });
-    expect(at({ deployCheckedAt: STALE })).toEqual({ ok: null, text: "Not checked lately" });
-    expect(at({ deployStatus: "error" })).toEqual({ ok: false, text: "Latest deploy failed" });
+    expect(at({})).toEqual({ ok: true, text: "Published 2 days ago", fresh: true });
+    expect(at({ deployCheckedAt: STALE })).toEqual({
+      ok: null,
+      text: "Not checked lately",
+      fresh: false,
+    });
+    expect(at({ deployStatus: "error" })).toEqual({
+      ok: false,
+      text: "Latest deploy failed",
+      fresh: true,
+    });
     // No raw Netlify status in the cell.
     expect(at({ deployStatus: "building" })).toEqual({
       ok: null,
       text: "A deploy was in progress",
+      fresh: true,
     });
   });
 
@@ -652,6 +675,8 @@ describe("review round 1: the counts behind every shown number", () => {
     expect(v.live[0]!.forms).toEqual({
       ok: null,
       text: "No result (no form, or the test skipped it)",
+      fresh: true,
+      testFailed: false,
     });
   });
 
@@ -888,11 +913,11 @@ describe("review round 2", () => {
       Array.from({ length: n }, (_, i) =>
         night(new Date(Date.UTC(2026, 9, 26) - i * 86_400_000).toISOString().slice(0, 10)),
       );
-    expect(overviewFromSnapshot(snapshot({ nights: days(30) }), NOW).nightsCollected).toBe(
-      "30 nights",
-    );
     expect(overviewFromSnapshot(snapshot({ nights: days(31) }), NOW).nightsCollected).toBe(
-      "at least 31 nights",
+      "31 nights",
+    );
+    expect(overviewFromSnapshot(snapshot({ nights: days(32) }), NOW).nightsCollected).toBe(
+      "at least 32 nights",
     );
     expect(
       overviewFromSnapshot(snapshot({ nights: [night("2026-10-26")] }), NOW).nightsCollected,
@@ -1225,7 +1250,12 @@ describe("review round 3", () => {
       snapshot({ sites: [healthy({ id: "recA", name: "Acme", formE2eOk: "fail" })] }),
       NOW,
     );
-    expect(v.live[0]!.forms).toEqual({ ok: null, text: FORM_TEST_FAILED });
+    expect(v.live[0]!.forms).toEqual({
+      ok: null,
+      text: FORM_TEST_FAILED,
+      fresh: true,
+      testFailed: true,
+    });
     expect(FORM_TEST_FAILED).toBe(
       "Test failed, but the test itself is being fixed, so this is not yet a verdict",
     );
@@ -1353,7 +1383,7 @@ describe("review round 4", () => {
   it("a ready deploy with no date says the date was not recorded (C3, O8)", () => {
     expect(
       sites(healthy({ id: "recA", name: "Acme", lastDeployAt: null })).live[0]!.deploy,
-    ).toEqual({ ok: true, text: "Published (date not recorded)" });
+    ).toEqual({ ok: true, text: "Published (date not recorded)", fresh: true });
   });
 
   it("reliability counts only the steps that finished (T2)", () => {
@@ -1785,5 +1815,1044 @@ describe("review round 7 (on the round-6 fix)", () => {
       NOW,
     );
     expect(v.status.broken[0]!.reasons).toBe("the latest deploy failed");
+  });
+});
+
+/**
+ * P1-87 PR 3: the first screen's model. Every fixture value is chosen so that a
+ * mutant swapping one count for another gives a different number (3, 2, 1 and 4, 2,
+ * 1, never equal), and the sites a mutant could wrongly count are present: a launching
+ * site that would fail every check, a maintained site with no form test, one with a
+ * stale security audit and one with a stale accessibility scan, and a broken site.
+ */
+describe("health and numbers (P1-87 PR 3)", () => {
+  const TRANSITIVE = [
+    {
+      module: "x",
+      severity: "high" as const,
+      title: "t",
+      cves: [],
+      url: null,
+      relationship: "transitive" as const,
+    },
+  ];
+  const FIRST = { healthy: FRESH, stale: STALE };
+  const fleet = () =>
+    snapshot({
+      sites: [
+        // Acme: every check passes but accessibility, whose scan reached 2 of its 10
+        // routes: a partial scan is unknown, however clean (round 1, fix 5).
+        healthy({
+          id: "recA",
+          name: "Acme",
+          smokeOk: "pass",
+          lastSmokeAt: FRESH,
+          a11yViolations: 0,
+          a11yRoutesScanned: 2,
+          a11yRoutesTotal: 10,
+          a11yCheckedAt: FRESH,
+        }),
+        // Bravo: Broken (its pages do not answer), its build and tests fail, no accessibility scan.
+        healthy({
+          id: "recB",
+          name: "Bravo",
+          reachableOk: "fail",
+          smokeOk: "fail",
+          lastSmokeAt: FRESH,
+        }),
+        // Charlie: Attention (certificate 18 days), no form test, a stale security audit,
+        // three accessibility violations freshly scanned.
+        healthy({
+          id: "recC",
+          name: "Charlie",
+          certDaysRemaining: 18,
+          formE2eOk: null,
+          formE2eCheckedAt: null,
+          lastSecurityAuditAt: FIRST.stale,
+          a11yViolations: 3,
+          a11yRoutesScanned: 10,
+          a11yRoutesTotal: 10,
+          a11yCheckedAt: FRESH,
+          smokeOk: "pass",
+          lastSmokeAt: FRESH,
+        }),
+        // Delta and Foxtrot: Watch (a transitive high vulnerability, past its window).
+        healthy({
+          id: "recD",
+          name: "Delta",
+          securityVulnsHigh: 2,
+          securityAdvisories: TRANSITIVE,
+          // An accessibility scan older than its 8-day window, with none found: unknown.
+          a11yViolations: 0,
+          a11yRoutesScanned: 10,
+          a11yRoutesTotal: 10,
+          a11yCheckedAt: "2026-10-10T06:30:00.000Z",
+          smokeOk: "pass",
+          lastSmokeAt: FIRST.stale,
+        }),
+        healthy({
+          id: "recF",
+          name: "Foxtrot",
+          securityVulnsHigh: 2,
+          securityAdvisories: TRANSITIVE,
+          a11yViolations: 0,
+          a11yRoutesScanned: 10,
+          a11yRoutesTotal: 10,
+          a11yCheckedAt: FRESH,
+          smokeOk: "pass",
+          lastSmokeAt: FIRST.stale,
+        }),
+        // Echo is launching: it would fail every check, and none of it may count.
+        healthy({
+          id: "recE",
+          name: "Echo",
+          status: "launching",
+          urlResolves: "fail",
+          urlCheckedAt: FRESH,
+          deployStatus: "error",
+          deployCheckedAt: FRESH,
+          formE2eOk: "fail",
+          smokeOk: "fail",
+          lastSmokeAt: FRESH,
+          lastSecurityAuditAt: STALE,
+        }),
+      ],
+      digest: {
+        "uptime:recB": { metric: 1, firstFlaggedAt: "2026-10-25" },
+        "vuln:recD": { metric: 2, firstFlaggedAt: "2026-10-01" },
+        "vuln:recF": { metric: 2, firstFlaggedAt: "2026-10-01" },
+      },
+    });
+  const HEALTH = overviewFromSnapshot(fleet(), NOW).health;
+  const check = (name: string) => HEALTH.checks.find((c) => c.name === name)!;
+
+  it("counts maintained sites only, and tiers them as the model does", () => {
+    expect(HEALTH.sites).toBe(5);
+    // Acme's partial accessibility scan (2 of 10 routes) raises the alarm's coverage
+    // item, so Acme is Attention, not OK (round 1, fix 5).
+    expect(HEALTH.tiers).toEqual({ ok: 0, watch: 2, attention: 2, broken: 1 });
+    expect(
+      HEALTH.tiers.ok + HEALTH.tiers.watch + HEALTH.tiers.attention + HEALTH.tiers.broken,
+    ).toBe(HEALTH.sites);
+  });
+
+  it("a launching site a real alarm pierces is said beside the bar, never counted in it", () => {
+    // Echo, launching, fails its checks and its form, so the alarm re-tiers it Broken:
+    // the status line counts it, the bar (maintained sites only) does not.
+    expect(HEALTH.launching).toEqual([{ level: "broken", count: 1, kind: "launching" }]);
+    // Golf, launching, holds a critical vulnerability its auto-fix gave up on (99 tries):
+    // Attention on the status line as well.
+    const golf = overviewFromSnapshot(
+      snapshot({
+        ...fleet(),
+        sites: [
+          ...fleet().sites!,
+          healthy({
+            id: "recG",
+            name: "Golf",
+            status: "launching",
+            securityVulnsCritical: 1,
+            securityAutoFixAttempts: 99,
+            lastSecurityAuditAt: FRESH,
+            securityAdvisories: [],
+          }),
+        ],
+        digest: { ...fleet().digest, "vuln:recG": { metric: 1, firstFlaggedAt: "2026-10-25" } },
+      }),
+      NOW,
+    ).health;
+    expect(golf.launching).toEqual([
+      { level: "broken", count: 1, kind: "launching" },
+      { level: "attention", count: 1, kind: "launching" },
+    ]);
+    expect(golf.tiers).toEqual(HEALTH.tiers);
+  });
+
+  it("lists the seven checks in the sketch's order", () => {
+    expect(HEALTH.checks.map((c) => c.name)).toEqual([
+      "Live",
+      "Certificate",
+      "Deploy",
+      "Contact form",
+      "Security",
+      "Accessibility",
+      "Build + tests",
+    ]);
+  });
+
+  it("gives each check its pass, fail and unknown counts, a site's unknown never a pass", () => {
+    // Each unknown is one of three kinds: notChecked (stale or never stamped),
+    // testFailed (the Contact form test ran fresh and failed), noVerdict (checked fresh,
+    // no verdict). `unknown` is their sum (review round 2, group A).
+    const kinds = (c: Partial<Record<"notChecked" | "testFailed" | "noVerdict", number>>) => ({
+      notChecked: c.notChecked ?? 0,
+      testFailed: c.testFailed ?? 0,
+      noVerdict: c.noVerdict ?? 0,
+    });
+    expect(check("Live")).toEqual({
+      name: "Live",
+      pass: 4,
+      fail: 1,
+      unknown: 0,
+      total: 5,
+      ...kinds({}),
+    });
+    expect(check("Certificate")).toEqual({
+      name: "Certificate",
+      pass: 4,
+      fail: 1,
+      unknown: 0,
+      total: 5,
+      ...kinds({}),
+    });
+    expect(check("Deploy")).toEqual({
+      name: "Deploy",
+      pass: 5,
+      fail: 0,
+      unknown: 0,
+      total: 5,
+      ...kinds({}),
+    });
+    // Charlie has no form test stamp: not checked, and not a pass.
+    expect(check("Contact form")).toEqual({
+      name: "Contact form",
+      pass: 4,
+      fail: 0,
+      unknown: 1,
+      total: 5,
+      ...kinds({ notChecked: 1 }),
+    });
+    // Charlie's security audit is stale: unknown. Delta and Foxtrot each hold a high one.
+    expect(check("Security")).toEqual({
+      name: "Security",
+      pass: 2,
+      fail: 2,
+      unknown: 1,
+      total: 5,
+      ...kinds({ notChecked: 1 }),
+    });
+    // Stale, absent or partial scans are unknown (Acme, 2 of 10 routes; Bravo, none;
+    // Delta, stale); Charlie's three violations on a complete scan are a fail, and
+    // Foxtrot's complete clean scan is the one pass. Acme's partial scan was checked
+    // fresh, so it has no verdict; Bravo's and Delta's are not checked.
+    expect(check("Accessibility")).toEqual({
+      name: "Accessibility",
+      pass: 1,
+      fail: 1,
+      unknown: 3,
+      total: 5,
+      ...kinds({ notChecked: 2, noVerdict: 1 }),
+    });
+    expect(check("Build + tests")).toEqual({
+      name: "Build + tests",
+      pass: 2,
+      fail: 1,
+      unknown: 2,
+      total: 5,
+      ...kinds({ notChecked: 2 }),
+    });
+  });
+
+  it("names a failed Contact form test apart from one not checked, and a fresh check with no verdict", () => {
+    const H = overviewFromSnapshot(
+      snapshot({
+        sites: [
+          healthy({ id: "recA", name: "Acme" }),
+          healthy({ id: "recB", name: "Bravo", formE2eOk: "fail", formE2eCheckedAt: FRESH }),
+          healthy({ id: "recC", name: "Charlie", formE2eOk: null, formE2eCheckedAt: FRESH }),
+          healthy({ id: "recD", name: "Delta", formE2eOk: "fail", formE2eCheckedAt: STALE }),
+        ],
+      }),
+      NOW,
+    ).health;
+    const form = H.checks.find((c) => c.name === "Contact form")!;
+    // Bravo's fresh failed test is "test failed"; Charlie's fresh stamp with no result is
+    // no verdict; Delta's stale result is not checked, whatever it says.
+    expect(form).toEqual({
+      name: "Contact form",
+      pass: 1,
+      fail: 0,
+      unknown: 3,
+      total: 4,
+      notChecked: 1,
+      testFailed: 1,
+      noVerdict: 1,
+    });
+  });
+
+  it("is an instrument that can fail: a stale security audit is not a pass", () => {
+    // Control: with a fresh audit Charlie passes Security, so the stale one changed the count.
+    const fresh = overviewFromSnapshot(
+      snapshot({
+        sites: fleet().sites!.map((x) =>
+          x.id === "recC" ? { ...x, lastSecurityAuditAt: FIRST.healthy } : x,
+        ),
+        digest: fleet().digest,
+      }),
+      NOW,
+    ).health;
+    expect(fresh.checks.find((c) => c.name === "Security")!.pass).toBe(3);
+  });
+
+  it("the tile numbers for the nightly-driven and lead counts, from their own fields", () => {
+    const N = overviewFromSnapshot(numbersFleet(), NOW).numbers;
+    expect(N.map((t) => t.key)).toEqual(["leads", "spam", "checks", "deps", "reports", "shipped"]);
+    const tile = (k: string) => N.find((t) => t.key === k)!;
+    expect(tile("leads")).toMatchObject({
+      value: "3",
+      measured: true,
+      label: "leads sent to clients this month",
+      context: "4 since Jul 2, 2026",
+    });
+    expect(tile("spam")).toMatchObject({
+      value: "248",
+      measured: true,
+      label: "spam submissions stopped before storage, all time",
+      context: "as of Oct 26; 2 more screened after arriving",
+      spark: null,
+    });
+    expect(tile("checks")).toMatchObject({
+      value: "15",
+      measured: true,
+      // Calendar nights (round 1, fix 2): 14 nights from Oct 13 to Oct 26, the night
+      // with no count (Oct 16, index 3) is said, and the 13 counted nights sum to 114.
+      context: "114 over the last 14 nights; 1 with no count",
+    });
+    expect(tile("deps")).toMatchObject({
+      value: "22",
+      measured: true,
+      context: "over the last 11 nights",
+      spark: null,
+    });
+    expect(tile("reports")).toMatchObject({
+      value: "3",
+      measured: true,
+      context: "2 approved by one of us first",
+    });
+    expect(tile("shipped")).toMatchObject({
+      value: "39",
+      measured: true,
+      context: "over the last 13 nights",
+    });
+  });
+
+  it("the sparklines: one point a night, oldest first, and a missing night is a gap", () => {
+    const N = overviewFromSnapshot(numbersFleet(), NOW).numbers;
+    const tile = (k: string) => N.find((t) => t.key === k)!;
+    // The leads tile has no sparkline (round 1, fix 6: the Client notified series counts RSVPs).
+    expect(tile("leads").spark).toBeNull();
+    expect(tile("checks").spark).toEqual([2, 3, 4, null, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
+    expect(tile("checks").spark!.filter((x) => x === 0)).toEqual([]);
+  });
+
+  it("an unmeasured tile reads the model's words, never 0", () => {
+    const nothing = overviewFromSnapshot(
+      snapshot({ sites: fleet().sites, submissions: null, nights: null, reports: null }),
+      NOW,
+    ).numbers;
+    for (const t of nothing) {
+      expect(t.measured, t.key).toBe(false);
+      expect(t.value, t.key).not.toBe("0");
+    }
+    expect(nothing.find((t) => t.key === "leads")!.value).toBe(UNREADABLE);
+    expect(nothing.find((t) => t.key === "checks")!.value).toBe(UNREADABLE);
+    const empty = overviewFromSnapshot(
+      snapshot({ sites: fleet().sites, submissions: [], nights: [], reports: [] }),
+      NOW,
+    ).numbers;
+    expect(empty.find((t) => t.key === "checks")!.value).toBe(NOT_YET);
+    expect(empty.find((t) => t.key === "shipped")!.value).toBe(NOT_YET);
+    expect(empty.find((t) => t.key === "deps")!.value).toBe(NOT_YET);
+    expect(empty.find((t) => t.key === "spam")!.value).toBe(NOT_YET);
+  });
+});
+
+/** The numbers fixture: a 14-night window (one night with no leads count, one with no
+ *  coverage, cumulative totals that climb), this month's and older submissions, and a
+ *  test send beside three real reports, two of them approved first. */
+function numbersFleet() {
+  const dates = Array.from({ length: 14 }, (_, i) =>
+    new Date(Date.parse("2026-10-13T00:00:00Z") + i * 86_400_000).toISOString().slice(0, 10),
+  );
+  const nights = dates
+    .map((d, i) =>
+      night(d, {
+        leads:
+          i === 5
+            ? { value: null, reason: "not read" }
+            : { value: { new: 0, read: 0, archived: 0, spamAuto: 0, spam: 0, notified: i } },
+        coverage: {
+          value: {
+            a: i === 3 ? { value: null, reason: "not read" } : { value: i },
+            b: { value: 2 },
+          },
+        },
+        // The two oldest nights have no merge count, so deps' window is 11 nights and
+        // shipped's is 13 (round 1 test: a swapped window must show).
+        events:
+          i < 2
+            ? { value: null, reason: "not read" }
+            : { value: { pr_automerged: 100 + 2 * i, vuln_cleared: 10 } },
+        prsMerged: { value: 600 + 3 * i },
+      }),
+    )
+    .reverse();
+  return snapshot({
+    sites: [healthy({ id: "recA", name: "Acme" })],
+    submissions: [
+      makeSubmissionRow({
+        id: "m1",
+        siteId: "recA",
+        status: "read",
+        notifyStatus: "sent",
+        submittedAt: "2026-10-10T12:00:00.000Z",
+      }),
+      makeSubmissionRow({
+        id: "m2",
+        siteId: "recA",
+        status: "read",
+        notifyStatus: "sent",
+        submittedAt: "2026-10-12T12:00:00.000Z",
+      }),
+      makeSubmissionRow({
+        id: "m3",
+        siteId: "recA",
+        status: "read",
+        notifyStatus: "sent",
+        submittedAt: "2026-10-20T12:00:00.000Z",
+      }),
+      // Accepted but not notified (the client was not told): not a lead sent (review round 2, G).
+      makeSubmissionRow({
+        id: "m4",
+        siteId: "recA",
+        status: "read",
+        notifyStatus: "failed",
+        submittedAt: "2026-10-21T12:00:00.000Z",
+      }),
+      makeSubmissionRow({
+        id: "o1",
+        siteId: "recA",
+        status: "read",
+        notifyStatus: "sent",
+        submittedAt: "2026-07-02T12:00:00.000Z",
+      }),
+      makeSubmissionRow({
+        id: "s1",
+        siteId: "recA",
+        status: "spam_auto",
+        submittedAt: "2026-07-03T12:00:00.000Z",
+      }),
+      makeSubmissionRow({
+        id: "s2",
+        siteId: "recA",
+        status: "spam_auto",
+        submittedAt: "2026-07-04T12:00:00.000Z",
+      }),
+    ],
+    reports: [
+      report({
+        id: "r1",
+        sentAt: "2026-09-02T16:07:00.000Z",
+        approvedAt: "2026-09-01T20:00:00.000Z",
+      }),
+      report({
+        id: "r2",
+        sentAt: "2026-09-03T16:07:00.000Z",
+        approvedAt: "2026-09-04T20:00:00.000Z",
+      }),
+      report({
+        id: "r3",
+        sentAt: "2026-09-06T16:07:00.000Z",
+        approvedAt: "2026-09-05T20:00:00.000Z",
+      }),
+      report({
+        id: "r4",
+        sentAt: "2026-09-07T16:07:00.000Z",
+        approvedAt: "2026-09-06T20:00:00.000Z",
+        approvedBy: "test send via Claude",
+      }),
+    ],
+    nights,
+  });
+}
+
+// P1-87 PR 3, review round 1: the first screen's checks and leads tiles and the
+// stale-nightly lag. Each fixture shows the bug the fix removes.
+describe("round 1 fixes (P1-87 PR 3)", () => {
+  const countedNight = (date: string, value: number) =>
+    night(date, { coverage: { value: { a: { value } } } });
+  const tileOf = (s: CockpitSnapshot, key: string) =>
+    overviewFromSnapshot(s, NOW).numbers.find((t) => t.key === key)!;
+
+  it("fix 1: checks run last night is never an older night's count", () => {
+    // Expected night is Oct 26; the newest count is Oct 21, five nights older.
+    const older = snapshot({
+      nights: [countedNight("2026-10-21", 15), countedNight("2026-10-20", 9)],
+    });
+    expect(tileOf(older, "checks")).toMatchObject({
+      value: "no count for last night",
+      measured: false,
+      context: "15 on the night of Oct 21",
+    });
+  });
+
+  it("fix 1: a last night whose count is unread says the same words, not the older night", () => {
+    const unread = snapshot({
+      nights: [
+        night("2026-10-26", { coverage: { value: { a: { value: null, reason: "not read" } } } }),
+        countedNight("2026-10-25", 12),
+      ],
+    });
+    expect(tileOf(unread, "checks")).toMatchObject({
+      value: "no count for last night",
+      measured: false,
+      context: "12 on the night of Oct 25",
+    });
+  });
+
+  it("fix 2: the checks context counts calendar nights and says the missing ones", () => {
+    // Counted: Oct 26, Oct 25 and Oct 22 (10 each); Oct 23 and Oct 24 have no count.
+    const gappy = snapshot({
+      nights: [
+        countedNight("2026-10-26", 10),
+        countedNight("2026-10-25", 10),
+        countedNight("2026-10-22", 10),
+      ],
+    });
+    expect(tileOf(gappy, "checks")).toMatchObject({
+      value: "10",
+      measured: true,
+      context: "30 over the last 5 nights; 2 with no count",
+    });
+  });
+
+  it("fix 2: one night with no gap has no context: it would only repeat the value (review round 2, n1)", () => {
+    const one = snapshot({ nights: [countedNight("2026-10-26", 10)] });
+    expect(tileOf(one, "checks")).toMatchObject({ value: "10", context: null });
+  });
+
+  it("fix 2: one night with a gap still says its window, never '1 nights'", () => {
+    const gap = snapshot({
+      nights: [countedNight("2026-10-26", 10), countedNight("2026-10-24", 10)],
+    });
+    expect(tileOf(gap, "checks")).toMatchObject({
+      value: "10",
+      context: "20 over the last 3 nights; 1 with no count",
+    });
+  });
+
+  it("fix 3: a dependency window dated by its newest night, with the nights since", () => {
+    // Newest count Oct 20, six nights before the expected Oct 26.
+    const stale = snapshot({
+      nights: Array.from({ length: 11 }, (_, i) => {
+        const d = new Date(Date.parse("2026-10-10T00:00:00Z") + i * 86_400_000)
+          .toISOString()
+          .slice(0, 10);
+        return night(d, { events: { value: { pr_automerged: i } } });
+      }).reverse(),
+    });
+    expect(tileOf(stale, "deps")).toMatchObject({
+      value: "10",
+      measured: true,
+      context: "over the 10 nights to the night of Oct 20; no count in the 6 nights since",
+    });
+  });
+
+  it("fix 6: the leads tile counts notified lead forms only, not RSVPs or signups", () => {
+    const leadRow = (
+      id: string,
+      formType: "contact" | "rsvp" | "newsletter",
+      submittedAt: string,
+    ) =>
+      makeSubmissionRow({
+        id,
+        siteId: "recA",
+        formType,
+        status: "read",
+        notifyStatus: "sent",
+        submittedAt,
+      });
+    const mixed = snapshot({
+      submissions: [
+        leadRow("a", "contact", "2026-10-20T12:00:00.000Z"),
+        leadRow("b", "rsvp", "2026-10-21T12:00:00.000Z"),
+        leadRow("c", "newsletter", "2026-10-22T12:00:00.000Z"),
+        leadRow("d", "contact", "2026-07-02T12:00:00.000Z"),
+      ],
+    });
+    expect(tileOf(mixed, "leads")).toMatchObject({
+      value: "1",
+      measured: true,
+      context: "2 since Jul 2, 2026",
+      spark: null,
+    });
+  });
+});
+
+describe("round 1: the remaining model fixes (P1-87 PR 3)", () => {
+  it("fix 5: an accessibility scan 5 days old, complete and clean, passes (inside the 8-day window)", () => {
+    const fiveDays = new Date(NOW.getTime() - 5 * 86_400_000).toISOString();
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [
+          healthy({
+            id: "aged",
+            name: "Aged",
+            a11yViolations: 0,
+            a11yRoutesScanned: 10,
+            a11yRoutesTotal: 10,
+            a11yCheckedAt: fiveDays,
+          }),
+        ],
+      }),
+      NOW,
+    );
+    expect(v.health.checks.find((c) => c.name === "Accessibility")).toMatchObject({
+      pass: 1,
+      fail: 0,
+      unknown: 0,
+    });
+  });
+
+  it("fix 17: a fresh audit with only a critical vulnerability fails Security", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [
+          healthy({
+            id: "crit",
+            name: "Crit",
+            securityVulnsCritical: 1,
+            securityVulnsHigh: 0,
+            lastSecurityAuditAt: FRESH,
+          }),
+        ],
+      }),
+      NOW,
+    );
+    expect(v.health.checks.find((c) => c.name === "Security")).toMatchObject({
+      pass: 0,
+      fail: 1,
+      unknown: 0,
+    });
+  });
+
+  it("the sparkline's geometry: the oldest night on the left, a larger value higher", () => {
+    const g = sparkGeometry([1, null, 4], 120, 24);
+    // Two runs of one night each: two dots, the first at x 0 (oldest), the last at x 120.
+    expect(g.lines).toEqual([]);
+    expect(g.dots.map((d) => d.x)).toEqual([0, 120]);
+    // The value 4 is the top of the scale (y 0); 1 is a quarter of the way down.
+    expect(g.dots.map((d) => d.y)).toEqual([18, 0]);
+    const line = sparkGeometry([1, 2, 4], 120, 24);
+    expect(line.lines).toEqual(["0,18 60,12 120,0"]);
+  });
+});
+
+describe("review round 2: the checks tile's window (group B)", () => {
+  const countedNight = (date: string, value: number) =>
+    night(date, { coverage: { value: { a: { value } } } });
+  const tileOf = (s: CockpitSnapshot, key: string, now: Date = NOW) =>
+    overviewFromSnapshot(s, now).numbers.find((t) => t.key === key)!;
+  // Before 6am Pacific on Oct 27 the nightly has written Oct 27's row, but last night is Oct 25.
+  const BEFORE_6AM = new Date("2026-10-27T12:00:00Z");
+
+  it("before 6am Pacific a night newer than last night is not summed into the window", () => {
+    const s = snapshot({
+      nights: [
+        countedNight("2026-10-26", 7),
+        countedNight("2026-10-25", 10),
+        countedNight("2026-10-24", 10),
+      ],
+    });
+    expect(tileOf(s, "checks", BEFORE_6AM)).toMatchObject({
+      value: "10",
+      measured: true,
+      context: "20 over the last 2 nights",
+    });
+  });
+
+  it("the window is 30 calendar nights: a 31st night back is left out", () => {
+    // 31 contiguous nights of 1, ending at the expected night (Oct 26): Sep 26 is the 31st.
+    const nights = Array.from({ length: 31 }, (_, i) => {
+      const d = new Date(Date.UTC(2026, 9, 26 - i));
+      return countedNight(d.toISOString().slice(0, 10), 1);
+    });
+    expect(tileOf(snapshot({ nights }), "checks")).toMatchObject({
+      value: "1",
+      context: "30 over the last 30 nights",
+    });
+  });
+});
+
+describe("review round 3: each unknown kind is named on its own check (group C, tests minor 3, nit)", () => {
+  const healthOf = (over: Partial<WebsiteRow>) =>
+    overviewFromSnapshot(snapshot({ sites: [healthy({ id: "recX", name: "Xan", ...over })] }), NOW)
+      .health.checks;
+  const kinds = (checks: ReturnType<typeof healthOf>, name: string) => {
+    const c = checks.find((x) => x.name === name)!;
+    return { noVerdict: c.noVerdict, notChecked: c.notChecked };
+  };
+
+  it("an unsampled Live, a fresh deploy with no verdict, a fresh smoke and a fresh audit with no counts are no verdict", () => {
+    const checks = healthOf({
+      reachableOk: null,
+      deployStatus: "building",
+      deployCheckedAt: FRESH,
+      lastSmokeAt: FRESH,
+      smokeOk: null,
+      lastSecurityAuditAt: FRESH,
+      securityVulnsCritical: null,
+      securityVulnsHigh: null,
+    });
+    for (const name of ["Live", "Deploy", "Build + tests", "Security"]) {
+      expect(kinds(checks, name)).toEqual({ noVerdict: 1, notChecked: 0 });
+    }
+  });
+
+  it("a stale deploy reading is not checked, and a fresh one with no deploy recorded is no verdict (tests minors 2, 3)", () => {
+    expect(kinds(healthOf({ deployCheckedAt: STALE }), "Deploy")).toEqual({
+      noVerdict: 0,
+      notChecked: 1,
+    });
+    expect(kinds(healthOf({ deployStatus: null, deployCheckedAt: FRESH }), "Deploy")).toEqual({
+      noVerdict: 1,
+      notChecked: 0,
+    });
+  });
+
+  it("a fresh audit with no critical and a null high count is a pass when critical is 0 (tests minor 4)", () => {
+    const security = healthOf({
+      securityVulnsCritical: 0,
+      securityVulnsHigh: null,
+      lastSecurityAuditAt: FRESH,
+    }).find((x) => x.name === "Security")!;
+    expect(security).toMatchObject({ pass: 1, fail: 0, unknown: 0 });
+  });
+});
+
+describe("review round 3: the words the first screen prints are defined (group G, H)", () => {
+  const terms = () => new Set(HOW_WE_COUNT.map((h) => h.term));
+
+  it("pluralises an off-care note by its count (H)", () => {
+    expect(launchingNote([{ level: "watch", count: 2, kind: "other" }])).toBe(
+      "plus 2 sites not marked maintained at Watch",
+    );
+    expect(launchingNote([{ level: "watch", count: 1, kind: "other" }])).toBe(
+      "plus 1 site not marked maintained at Watch",
+    );
+  });
+
+  it("every status part the status view can produce has a How-we-count entry (G)", () => {
+    // One fixture per kind of part: a fleet-wide attention item, a Broken site, reports
+    // not read (a waiting part), and a quiet fleet with every site live.
+    // Review round 4 (tests minor 5): also the watch, approval and unsampled branches, and
+    // a fleet-wide Broken item, each of which the fixtures above never reach.
+    const draftFor = (id: string, siteId: string) =>
+      report({ id, siteId, approvedToSend: false, sentAt: null, approvedAt: null });
+    const fixtures = [
+      snapshot({ sites: [healthy({ id: "recA", name: "Acme", urlCheckedAt: STALE })] }),
+      snapshot({ sites: [healthy({ id: "recB", name: "Bravo", reachableOk: "fail" })] }),
+      snapshot({ reports: null }),
+      snapshot({ sites: [healthy({ id: "recC", name: "Cal" })] }),
+      // A watch site, and a draft waiting for a yes.
+      snapshot({
+        sites: [
+          healthy({ id: "recA", name: "Acme" }),
+          healthy({ id: "recW", name: "Wren", pScore: 80 }),
+        ],
+        reports: [draftFor("p1", "recA")],
+      }),
+      // A fresh check that sampled no page.
+      snapshot({ sites: [healthy({ id: "recA", name: "Acme", reachableOk: null })] }),
+      snapshot({ deadLetters: new Map([["ghost-site", 2]]) }),
+    ];
+    const seen = new Set<string>();
+    for (const f of fixtures)
+      for (const p of overviewFromSnapshot(f, NOW).status.parts) {
+        seen.add(p.term);
+        expect([...terms()]).toContain(p.term);
+      }
+    expect(seen).toContain("Broken, attention, watch");
+    expect(seen).toContain("Waiting for your yes");
+    expect(seen).toContain("Live");
+    expect(seen).toContain("Sites in our care");
+    expect(seen).toContain("Waiting for your yes");
+  });
+
+  it("defines the check words and the note under the bar", () => {
+    for (const t of [
+      "Sites passing each check",
+      "Failing",
+      "Test failed, not yet a verdict",
+      "No verdict",
+      "Not checked",
+      "Launching sites",
+      "Sites not marked maintained",
+    ])
+      expect(terms()).toContain(t);
+  });
+});
+
+describe("review round 3: one set of nights for every tile (group A, correctness M1)", () => {
+  const BEFORE_6AM = new Date("2026-10-27T12:00:00Z"); // 5am PDT: last night is Oct 25
+  const counted = (date: string, checks: number, merged: number) =>
+    night(date, {
+      coverage: { value: { a: { value: checks } } },
+      events: { value: { pr_automerged: merged } },
+      prsMerged: { value: merged },
+    });
+  const tileOf = (s: CockpitSnapshot, key: string, now: Date = BEFORE_6AM) =>
+    overviewFromSnapshot(s, now).numbers.find((t) => t.key === key)!;
+
+  it("no tile reads the night of Oct 26 before 6am: checks sums two nights, deps and shipped take one difference", () => {
+    // Oct 26 is written before 6am but is not last night, so no tile may count it.
+    const s = snapshot({
+      nights: [
+        counted("2026-10-26", 7, 130),
+        counted("2026-10-25", 10, 110),
+        counted("2026-10-24", 10, 100),
+      ],
+    });
+    expect(tileOf(s, "checks")).toMatchObject({
+      value: "10",
+      context: "20 over the last 2 nights",
+      // Ends at last night, not at the newest row (review round 3, tests minor 5).
+      spark: expect.any(Array),
+    });
+    expect(tileOf(s, "checks").spark).toHaveLength(14);
+    expect(tileOf(s, "checks").spark![13]).toBe(10);
+    expect(tileOf(s, "checks").spark![12]).toBe(10);
+    expect(tileOf(s, "deps")).toMatchObject({ value: "10", context: "over the last night" });
+    expect(tileOf(s, "shipped")).toMatchObject({ value: "10", context: "over the last night" });
+  });
+
+  it("fixture B: last night is unread, so the checks tile never cites the newer night's 7", () => {
+    // No row for Oct 25: last night has no count, and the newest counted night is Oct 24.
+    const s = snapshot({
+      nights: [counted("2026-10-26", 7, 130), counted("2026-10-24", 10, 100)],
+    });
+    expect(tileOf(s, "checks")).toMatchObject({
+      value: "no count for last night",
+      measured: false,
+      context: "10 on the night of Oct 24",
+    });
+    expect(JSON.stringify(tileOf(s, "checks"))).not.toContain("7");
+  });
+});
+
+describe("review round 4: the night bound belongs to the first screen's tiles (group A, correctness M1, M2)", () => {
+  const BEFORE_6AM = new Date("2026-10-27T12:00:00Z"); // 5am PDT: tonight's row is written
+  const DAY = 86_400_000;
+  const counted = (date: string, checks: number, merged: number) =>
+    night(date, {
+      coverage: { value: { a: { value: checks } } },
+      events: { value: { pr_automerged: merged, vuln_cleared: merged } },
+      prsMerged: { value: merged },
+    });
+  // The reader's rows, newest first, from Oct 26 back `n` nights: 10 checks a night,
+  // and running totals of 1000 - 10 * i (correctness round 4, M1).
+  const readerRows = (n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      counted(
+        new Date(Date.UTC(2026, 9, 26) - i * DAY).toISOString().slice(0, 10),
+        10,
+        1000 - 10 * i,
+      ),
+    );
+  const tiles = (s: CockpitSnapshot) => {
+    const v = overviewFromSnapshot(s, BEFORE_6AM);
+    const tile = (key: string) => v.numbers.find((t) => t.key === key)!;
+    return {
+      checks: tile("checks"),
+      deps: tile("deps"),
+      shipped: tile("shipped"),
+      how: { ...v.upkeep, prsMerged: v.prsMerged },
+    };
+  };
+
+  it("at 5am with the reader's 32 rows, checks, deps and shipped all say over the last 30 nights", () => {
+    const t = tiles(snapshot({ nights: readerRows(32) }));
+    expect(t.checks).toMatchObject({ value: "10", context: "300 over the last 30 nights" });
+    expect(t.deps).toMatchObject({ value: "300", context: "over the last 30 nights" });
+    expect(t.shipped).toMatchObject({ value: "300", context: "over the last 30 nights" });
+  });
+
+  it("at 5am with only 31 rows, the tiles say what the rows cover: checks 30 nights, deps and shipped 29", () => {
+    const t = tiles(snapshot({ nights: readerRows(31) }));
+    expect(t.checks).toMatchObject({ value: "10", context: "300 over the last 30 nights" });
+    expect(t.deps).toMatchObject({ value: "290", context: "over the last 29 nights" });
+    expect(t.shipped).toMatchObject({ value: "290", context: "over the last 29 nights" });
+  });
+
+  it("at 5am, /how's windows still end on tonight's night, as at c2200488", () => {
+    const t = tiles(snapshot({ nights: readerRows(31) }));
+    expect(t.how.automerged).toBe("300 over the last 30 nights");
+    expect(t.how.vulnsCleared).toBe("300 over the last 30 nights");
+    expect(t.how.prsMerged).toBe("300 over the last 30 nights");
+  });
+
+  it("at 5am, a missing last night is said by the deps and shipped tiles over one night", () => {
+    // Oct 25 is missing: the newest counted night is Oct 24, and Oct 23 is its base.
+    const t = tiles(
+      snapshot({
+        nights: [
+          counted("2026-10-26", 7, 130),
+          counted("2026-10-24", 10, 100),
+          counted("2026-10-23", 10, 90),
+        ],
+      }),
+    );
+    expect(t.deps).toMatchObject({
+      value: "10",
+      context: "over the night of Oct 24; no count in the 1 night since",
+    });
+    expect(t.shipped).toMatchObject({
+      value: "10",
+      context: "over the night of Oct 24; no count in the 1 night since",
+    });
+  });
+});
+
+describe("review round 4: How we count names both windows and keeps the column's order (group D)", () => {
+  it("'Not checked' names the accessibility scan's window as well as the 3-day one (correctness n2)", () => {
+    const text = HOW_WE_COUNT.find((h) => h.term === "Not checked")!.text;
+    expect(text).toContain(`${PRODUCTION_STALE_DAYS} days for most checks`);
+    expect(text).toContain(`${A11Y_STALE_DAYS} days for the accessibility scan`);
+  });
+
+  it("describes the bar's parts by position and strength, not tone, so it reads right in dark mode (a11y minor 2)", () => {
+    const text = HOW_WE_COUNT.find((h) => h.term === "Sites passing each check")!.text;
+    expect(text).not.toContain("dark part");
+    expect(text).toContain("The solid part, from the left, is the sites that pass.");
+    expect(text).toContain("The grey part after it");
+    expect(text).not.toContain("paler");
+  });
+
+  it("says the first screen's tiles stop at the night expected by 6am, where /how's windows do not (round 5, correctness minor 1)", () => {
+    const text = HOW_WE_COUNT.find((h) => h.term === "Runs completed")!.text;
+    expect(text).toContain(
+      "The first screen's tiles end on the night expected by now, so before 6am Pacific they leave out last night's row if it is already written; the windows on this page count it, so the two can differ until 6am.",
+    );
+  });
+
+  it("the seven status-kind entries follow Level, so the /fleet column's entries stay together (correctness n3)", () => {
+    const terms = HOW_WE_COUNT.map((h) => h.term);
+    const at = terms.indexOf("Level");
+    expect(at).toBeGreaterThan(terms.indexOf("Forms"));
+    expect(terms.slice(at + 1, at + 8)).toEqual([
+      "Sites passing each check",
+      "Failing",
+      "Test failed, not yet a verdict",
+      "No verdict",
+      "Not checked",
+      "Launching sites",
+      "Sites not marked maintained",
+    ]);
+    expect(terms[at + 8]).toBe("Submissions");
+  });
+});
+
+describe("review round 2: the checks sparkline and its geometry (group C)", () => {
+  const countedNight = (date: string, value: number) =>
+    night(date, { coverage: { value: { a: { value } } } });
+
+  it("pins a flat sparkline at the middle, and the default width of 120", () => {
+    // A flat series reads as an underline at the top, so it sits at the middle (y = 12).
+    expect(sparkGeometry([0, 0, 0]).lines).toEqual(["0,12 60,12 120,12"]);
+    expect(sparkGeometry([3, 3]).lines).toEqual(["0,12 120,12"]);
+    // The default width is the page's viewBox width, 120.
+    expect(sparkGeometry([1, 2]).lines).toEqual(["0,12 120,0"]);
+  });
+
+  it("builds the checks sparkline from the nights, so one missing night is a gap, not no line", () => {
+    // Oct 13 to Oct 26 is 14 calendar nights; Oct 20 (index 7) has no row.
+    const days = Array.from({ length: 14 }, (_, i) => `2026-10-${String(13 + i).padStart(2, "0")}`);
+    const nights = days.filter((d) => d !== "2026-10-20").map((d) => countedNight(d, 5));
+    const tile = overviewFromSnapshot(snapshot({ nights }), NOW).numbers.find(
+      (t) => t.key === "checks",
+    )!;
+    expect(tile.spark).toHaveLength(14);
+    expect(tile.spark!.filter((v) => v === null)).toHaveLength(1);
+    expect(tile.spark![7]).toBeNull();
+    expect(sparkGeometry(tile.spark!).lines).toHaveLength(2);
+  });
+});
+
+describe("review round 2: the launching note names what it counts (group D)", () => {
+  it("a site with a misspelt status is not named launching, whatever its alarm", () => {
+    const H = overviewFromSnapshot(
+      snapshot({
+        sites: [
+          healthy({ id: "a", name: "Acme" }),
+          healthy({
+            id: "t",
+            name: "Typo",
+            // A status outside the four the schema allows: the fixture is typed loosely here.
+            status: "Maintaned" as unknown as "maintained",
+            urlResolves: "fail",
+            urlCheckedAt: FRESH,
+          }),
+        ],
+      }),
+      NOW,
+    );
+    // An unrecognised status is surfaced as Watch (HOW_WE_COUNT), and the bar does not count it.
+    expect(H.health.launching).toEqual([{ level: "watch", count: 1, kind: "other" }]);
+    expect(launchingNote(H.health.launching)).toBe("plus 1 site not marked maintained at Watch");
+    expect(launchingNote(H.health.launching)).not.toContain("launching");
+  });
+
+  it("joins the levels with 'and' and pluralises each count", () => {
+    expect(
+      launchingNote([
+        { level: "broken", count: 2, kind: "launching" },
+        { level: "attention", count: 1, kind: "launching" },
+      ]),
+    ).toBe("plus 2 launching sites at Broken and 1 launching site at Attention");
+    expect(launchingNote([])).toBeNull();
+  });
+});
+
+describe("review round 2: the leads tile, the tier bar and the security count (group G)", () => {
+  it("the leads tile counts only the leads notified to the client", () => {
+    // m4 is accepted but its notification failed: the value and context stay as they were.
+    const N = overviewFromSnapshot(numbersFleet(), NOW).numbers;
+    expect(N.find((t) => t.key === "leads")).toMatchObject({
+      value: "3",
+      context: "4 since Jul 2, 2026",
+    });
+  });
+
+  it("a fresh security audit with only a critical count fails, and is not unknown", () => {
+    const h = overviewFromSnapshot(
+      snapshot({
+        sites: [
+          healthy({
+            id: "recA",
+            name: "Acme",
+            securityVulnsCritical: 1,
+            securityVulnsHigh: null,
+            lastSecurityAuditAt: FRESH,
+          }),
+        ],
+      }),
+      NOW,
+    ).health;
+    expect(h.checks.find((c) => c.name === "Security")).toMatchObject({
+      pass: 0,
+      fail: 1,
+      unknown: 0,
+    });
+  });
+});
+
+describe("review round 2: the spam tile's context when the stopped count is unmeasured (group J)", () => {
+  it("drops 'more screened' when there is no stopped count to add to", () => {
+    const spam = overviewFromSnapshot(
+      snapshot({ ...numbersFleet(), nights: null }),
+      NOW,
+    ).numbers.find((t) => t.key === "spam")!;
+    expect(spam.measured).toBe(false);
+    expect(spam.context ?? "").not.toContain("more screened");
   });
 });

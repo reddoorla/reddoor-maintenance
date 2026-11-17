@@ -22,6 +22,7 @@ import {
 } from "../../../../src/alerts/waiting.js";
 import { daysFlagged, levelOf } from "../../../../src/alerts/ladder.js";
 import {
+  A11Y_STALE_DAYS,
   CERT_ATTENTION_DAYS,
   CERT_BROKEN_DAYS,
   certDaysNow,
@@ -155,8 +156,14 @@ export type StatusView = {
     fleetAttention: number;
     watch: number;
     approval: number;
+    /** Each level's site entries that are not maintained sites, by what they are (the
+     *  bar counts only maintained sites, so these are the status line's excess). */
+    offCare: Record<"broken" | "attention" | "watch", OffCare>;
   };
 };
+/** Site entries the status line counts at a level that the bar does not: launching sites,
+ *  and any other site not marked maintained (a misspelt status, or no card at all). */
+export type OffCare = { launching: number; other: number };
 
 function ageOf(since: string | undefined | null, now: Date): string | null {
   if (!since) return null;
@@ -259,6 +266,15 @@ function statusView(
     model.cards.filter((c) => c.site.status === "maintained").map((c) => c.site.name),
   );
   const approval = model.pending.filter((p) => inCareNames.has(p.siteName)).length;
+  const siteStatus = (i: { siteName: string }) => cards.get(i.siteName)?.site.status;
+  const offCare = (g: "broken" | "attention" | "watch"): OffCare => {
+    const items = feed.filter((i) => i.group === g);
+    return {
+      launching: items.filter((i) => siteStatus(i) === "launching").length,
+      other: items.filter((i) => siteStatus(i) !== "launching" && siteStatus(i) !== "maintained")
+        .length,
+    };
+  };
 
   const inCare = inCareNames.size;
   const down = live.filter((r) => r.live.ok === false).length;
@@ -354,13 +370,31 @@ function statusView(
     parts,
     cls,
     broken,
-    counts: { broken: brokenSites, fleetBroken, attention, fleetAttention, watch, approval },
+    counts: {
+      broken: brokenSites,
+      fleetBroken,
+      attention,
+      fleetAttention,
+      watch,
+      approval,
+      offCare: {
+        broken: offCare("broken"),
+        attention: offCare("attention"),
+        watch: offCare("watch"),
+      },
+    },
   };
 }
 
 // ---- section 2: is every site live? ----
 
 export type Cell = { ok: boolean | null; text: string };
+
+/** A deploy or form cell also says whether its check was fresh: a cell with no verdict
+ *  is "no verdict" beside a fresh check and "not checked" beside a stale one, decided
+ *  here, where the freshness is (review round 3, correctness m1). */
+export type DeployCell = Cell & { fresh: boolean };
+export type FormsCell = Cell & { fresh: boolean; testFailed: boolean };
 
 /** The Live cell also says when it was read: the older of its two checks.
  *  `unsampled`: the address answers and the browser check ran, but it sampled no
@@ -373,8 +407,8 @@ export type LiveRow = {
   url: string;
   live: LiveCell;
   domain: Cell;
-  deploy: Cell;
-  forms: Cell;
+  deploy: DeployCell;
+  forms: FormsCell;
   lastLead: string;
   level: { tier: Tier; text: string };
 };
@@ -479,17 +513,19 @@ export function domainCell(site: WebsiteRow, now: Date): Cell {
 
 /** The latest production deploy, as the nightly deploy check last read it. A reading
  *  older than the freshness window is unknown, never a green "published". */
-export function deployCell(site: WebsiteRow, now: Date): Cell {
-  if (!freshWithin(site.deployCheckedAt, PRODUCTION_STALE_DAYS, now))
-    return { ok: null, text: "Not checked lately" };
-  if (site.deployStatus === null) return { ok: null, text: "No deploy recorded" };
-  if (isFailedDeployStatus(site.deployStatus)) return { ok: false, text: "Latest deploy failed" };
+export function deployCell(site: WebsiteRow, now: Date): DeployCell {
+  const fresh = freshWithin(site.deployCheckedAt, PRODUCTION_STALE_DAYS, now);
+  if (!fresh) return { ok: null, text: "Not checked lately", fresh };
+  if (site.deployStatus === null) return { ok: null, text: "No deploy recorded", fresh };
+  if (isFailedDeployStatus(site.deployStatus))
+    return { ok: false, text: "Latest deploy failed", fresh };
   if (isReadyDeployStatus(site.deployStatus))
     return {
       ok: true,
       text: `Published ${agoInWords(site.lastDeployAt, now) ?? "(date not recorded)"}`,
+      fresh,
     };
-  return { ok: null, text: "A deploy was in progress" };
+  return { ok: null, text: "A deploy was in progress", fresh };
 }
 
 export const FORM_TEST_FAILED =
@@ -497,15 +533,21 @@ export const FORM_TEST_FAILED =
 
 /** The nightly live form test. A verdict counts only beside a fresh stamp: a stale
  *  pass is "not tested lately", never "working". */
-export function formsCell(site: WebsiteRow, now: Date): Cell {
-  if (!freshWithin(site.formE2eCheckedAt, PRODUCTION_STALE_DAYS, now))
-    return { ok: null, text: "Not tested lately" };
+export function formsCell(site: WebsiteRow, now: Date): FormsCell {
+  const fresh = freshWithin(site.formE2eCheckedAt, PRODUCTION_STALE_DAYS, now);
+  if (!fresh) return { ok: null, text: "Not tested lately", fresh, testFailed: false };
   // Not a verdict yet: the test's failures on 10-26 were all false, so it does not
   // place a site on the ladder until it is fixed (src/dashboard/fleet-cockpit.ts,
   // collectFormTestAlerts is not registered). Shown in the unknown style, and said.
-  if (site.formE2eOk === "fail") return { ok: null, text: FORM_TEST_FAILED };
-  if (site.formE2eOk === "pass") return { ok: true, text: "Test passed" };
-  return { ok: null, text: "No result (no form, or the test skipped it)" };
+  if (site.formE2eOk === "fail")
+    return { ok: null, text: FORM_TEST_FAILED, fresh, testFailed: true };
+  if (site.formE2eOk === "pass") return { ok: true, text: "Test passed", fresh, testFailed: false };
+  return {
+    ok: null,
+    text: "No result (no form, or the test skipped it)",
+    fresh,
+    testFailed: false,
+  };
 }
 
 /** What the live checks last said about one site: the four cells "Is every site
@@ -514,8 +556,8 @@ export function formsCell(site: WebsiteRow, now: Date): Cell {
 export type SiteFacts = {
   live: LiveCell;
   domain: Cell;
-  deploy: Cell;
-  forms: Cell;
+  deploy: DeployCell;
+  forms: FormsCell;
   lastLead: string;
 };
 
@@ -626,6 +668,9 @@ export type LeadsView = {
   stoppedThisMonth: string;
   /** Every site with a submission, biggest first: per-site counts beside the total. */
   perSite: Array<{ siteId: string; siteName: string } & LeadCounts>;
+  /** Notified leads only (a lead form, never an RSVP or a signup), this month and all
+   *  time: the first screen's "leads sent to clients" tile reads these. */
+  leadsSent: { thisMonth: number | null; allTime: number | null };
 };
 
 /** `status` is the stored value: one the code does not know is no kind of lead. */
@@ -709,7 +754,17 @@ function leadsView(
     const [kind] = [...kinds].sort((a, b) => b[1] - a[1])[0] ?? [];
     return kind === undefined ? "its forms" : (FORM_KIND[kind] ?? `its ${kind} form`);
   })();
+  const inMonth = (r: SubmissionRow) =>
+    r.submittedAt !== null && Date.parse(r.submittedAt) >= month.at;
+  const notifiedLeads = (rows: SubmissionRow[]) =>
+    rows.filter(
+      (r) => isLeadFormType(r.formType) && ACCEPTED.has(status(r)) && r.notifyStatus === "sent",
+    ).length;
   return {
+    leadsSent:
+      subs === null
+        ? { thisMonth: null, allTime: null }
+        : { thisMonth: notifiedLeads(subs.filter(inMonth)), allTime: notifiedLeads(subs) },
     allTime: subs === null ? null : tally(subs, status),
     thisMonth:
       subs === null
@@ -927,23 +982,55 @@ function overNights(
   pick: (c: Counts) => number | null | undefined,
   now: Date,
 ): string {
-  if (nights === null) return UNREADABLE;
-  const measured = nights.filter((n) => typeof pick(n.counts) === "number");
+  // The page's windows are unbounded: /how counts back from the newest night (review round
+  // 4, M2), as the first screen's tiles do not.
+  const f = windowFigure(nights, pick, now);
+  if (f.context === null) return f.value;
+  return f.value === NOT_YET ? f.context : `${f.value} ${f.context}`;
+}
+
+/** A window's figure and its context, shared by the page's windows and the first
+ *  screen's tiles: the value is digits, or NOT_YET / UNREADABLE with the context (if
+ *  any) saying why. When the newest count is older than the night expected by now,
+ *  the context dates the window by its newest night and says the nights since.
+ *  `lastNight`, when given, bounds the nights: the first screen passes the night
+ *  expected by now, so a row written before 6am is outside its tiles (review round 3,
+ *  M1; round 4, M2). Without it, the window counts back from the newest row. */
+function windowFigure(
+  nights: OverviewNight[] | null,
+  pick: (c: Counts) => number | null | undefined,
+  now: Date,
+  lastNight?: string,
+): { value: string; context: string | null } {
+  if (nights === null) return { value: UNREADABLE, context: null };
+  const dated = lastNight === undefined ? nights : nights.filter((n) => n.night <= lastNight);
+  const measured = dated.filter((n) => typeof pick(n.counts) === "number");
   const newest = measured[0];
-  if (newest === undefined) return NOT_YET;
+  if (newest === undefined) return { value: NOT_YET, context: null };
   const lag = nightsSince(newest.night, now);
   const since = lag > 0 ? `; no count in the ${count(lag, "night", "nights")} since` : "";
-  const w = windowed(nights, pick);
+  const w = windowed(dated, pick);
+  // One night has nothing to subtract: say when counting started (review round 3, O4).
   if (w === null)
-    // One night has nothing to subtract: say when counting started (review round 3, O4).
-    return measured.length === 1
-      ? `counting started on the night of ${nightLabel(newest.night)}; the first figure comes after a second night${since}`
-      : NOT_YET;
-  return lag > 0
-    ? w.nights === 1
-      ? `${w.value} over the night of ${nightLabel(newest.night)}${since}`
-      : `${w.value} over the ${w.nights} nights to the night of ${nightLabel(newest.night)}${since}`
-    : `${w.value} over the last ${w.nights === 1 ? "night" : `${w.nights} nights`}`;
+    return {
+      value: NOT_YET,
+      context:
+        measured.length === 1
+          ? `counting started on the night of ${nightLabel(newest.night)}; the first figure comes after a second night${since}`
+          : null,
+    };
+  if (lag > 0)
+    return {
+      value: String(w.value),
+      context:
+        w.nights === 1
+          ? `over the night of ${nightLabel(newest.night)}${since}`
+          : `over the ${w.nights} nights to the night of ${nightLabel(newest.night)}${since}`,
+    };
+  return {
+    value: String(w.value),
+    context: `over the last ${w.nights === 1 ? "night" : `${w.nights} nights`}`,
+  };
 }
 
 /** A running total of one event type. A type missing from a measured total did not
@@ -1437,6 +1524,15 @@ const point = (r: Reading, earlier = false): TrendPoint => ({
   earlier,
 });
 
+/** Every check's sites on one night, summed over the checks; unread if any one check's
+ *  count is. Shared by the trends' "Checks run" chart and the first screen's tile. */
+export function checksRun(c: Counts): number | null {
+  const columns = keyed(c.coverage.value);
+  if (columns === null) return null;
+  const all = Object.values(columns).map((m) => finite(keyed(m)?.["value"]));
+  return all.some((v) => v === null) ? null : all.reduce<number>((a, v) => a + v!, 0);
+}
+
 /** Section 8 from the `fleet_daily` nights (newest first, as the reader returns them).
  *  Every night of the window is a slot: a night with no row, or a count that could
  *  not be read, is a gap with its reason, never 0. A running total's night is its
@@ -1498,13 +1594,7 @@ export function trendsFromDaily(nights: OverviewNight[] | null, now: Date): Tren
     });
 
   const tier = (t: Tier) => (c: Counts) => keyOf(keyed(c.sites.value)?.["tiers"], t);
-  // Every check's sites that night; unread if any one check's count is.
-  const checks = (c: Counts): number | null => {
-    const columns = keyed(c.coverage.value);
-    if (columns === null) return null;
-    const all = Object.values(columns).map((m) => finite(keyed(m)?.["value"]));
-    return all.some((v) => v === null) ? null : all.reduce<number>((a, v) => a + v!, 0);
-  };
+  const checks = checksRun;
   const sentOn = (c: Counts) => keyed(c.leads.value)?.["notified"];
   const cleared = (c: Counts) => keyOf(c.events.value, "vuln_cleared");
   const vulnOpen = (c: Counts) => keyOf(c.signals.value, "vuln");
@@ -1743,8 +1833,380 @@ export function trendGeometry(chart: TrendChart, width = 320, height = 132): Tre
 
 // ---- the page ----
 
+// ---- P1-87 PR 3: the first screen ----
+
+export type HealthCheck = {
+  name: string;
+  pass: number;
+  fail: number;
+  /** The three kinds of unknown below, summed (the grey part of the bar). */
+  unknown: number;
+  notChecked: number;
+  testFailed: number;
+  noVerdict: number;
+  total: number;
+};
+export type HealthView = {
+  /** Maintained sites: the only ones the first screen counts. */
+  sites: number;
+  tiers: { ok: number; watch: number; attention: number; broken: number };
+  /** In the sketch's order; each counts over the maintained sites. */
+  checks: HealthCheck[];
+  /** Entries the status line counts at a level that the bar does not (the field keeps its
+   *  name; it carries off-care entries too), one per level and kind: `launching` (a site
+   *  still launching) or `other` (a site not marked maintained). Empty when the bar counts
+   *  every entry the status line does. */
+  launching: Array<{ level: "broken" | "attention" | "watch"; count: number; kind: keyof OffCare }>;
+};
+export type NumberTile = {
+  key: "leads" | "spam" | "checks" | "deps" | "reports" | "shipped";
+  /** Digits, or the model's NOT_YET / UNREADABLE words; never a 0 for a missing count. */
+  value: string;
+  measured: boolean;
+  label: string;
+  context: string | null;
+  /** One point per night, oldest first; null is a night with no value (a gap). */
+  spark: Array<number | null> | null;
+};
+
+/** Three kinds of unknown, never a pass: not checked lately (a stale or unstamped check),
+ *  the Contact form test ran fresh and failed (not yet a verdict), and checked fresh with
+ *  no verdict (no form, a partial scan, a deploy in progress, no deploy recorded...). */
+export type UnknownKind = "notChecked" | "testFailed" | "noVerdict";
+/** A check's verdict for one site: pass (true), fail (false), or the kind of unknown. */
+type Verdict = boolean | UnknownKind;
+
+/** Maintained sites only (launching, pre-launch and archived sites never count). Live,
+ *  Certificate, Deploy and Contact form read the cells the Live columns showed; the
+ *  rest read the same fields and freshness rules their own alarms read. */
+export function healthView(
+  model: CockpitModel,
+  live: LiveRow[],
+  now: Date,
+  status?: StatusView,
+): HealthView {
+  const maintained = model.cards.filter((c) => c.site.status === "maintained");
+  const tiers = { ok: 0, watch: 0, attention: 0, broken: 0 };
+  for (const c of maintained) {
+    if (c.tier === "healthy") tiers.ok++;
+    else if (c.tier === "watch") tiers.watch++;
+    else if (c.tier === "attention") tiers.attention++;
+    else if (c.tier === "broken") tiers.broken++;
+  }
+  const sites = maintained.map((c) => c.site);
+  const row = (s: WebsiteRow) => live.find((r) => r.siteId === s.id);
+  // Security: a fresh audit with a count; none of critical or high is a pass.
+  const security = (s: WebsiteRow): Verdict => {
+    if (!freshWithin(s.lastSecurityAuditAt, PRODUCTION_STALE_DAYS, now)) return "notChecked";
+    if (s.securityVulnsCritical === null && s.securityVulnsHigh === null) return "noVerdict";
+    return (s.securityVulnsCritical ?? 0) + (s.securityVulnsHigh ?? 0) === 0;
+  };
+  // Accessibility: a pass needs a complete fresh scan (the alarm's rule, production-
+  // signals.ts): every route scanned, both counts read, and the scan inside A11Y_STALE_DAYS.
+  // A partial scan is unknown, whatever its count (the alarm raises coverage instead).
+  const a11y = (s: WebsiteRow): Verdict => {
+    if (!freshWithin(s.a11yCheckedAt, A11Y_STALE_DAYS, now)) return "notChecked";
+    if (
+      s.a11yViolations === null ||
+      s.a11yRoutesScanned === null ||
+      s.a11yRoutesTotal === null ||
+      s.a11yRoutesScanned < s.a11yRoutesTotal
+    )
+      return "noVerdict";
+    return s.a11yViolations === 0;
+  };
+  // Build and tests: the nightly smoke run, read within the production window.
+  const build = (s: WebsiteRow): Verdict => {
+    if (!freshWithin(s.lastSmokeAt, PRODUCTION_STALE_DAYS, now)) return "notChecked";
+    if (s.smokeOk === null) return "noVerdict";
+    return s.smokeOk === "pass";
+  };
+  // The Live, Certificate, Deploy and Contact form cells carry the same verdict; a
+  // cell with no verdict is "not checked" unless its check was fresh (then "no verdict").
+  const liveV = (s: WebsiteRow): Verdict => {
+    const c = row(s)?.live;
+    if (c === undefined) return "notChecked";
+    if (c.ok !== null) return c.ok;
+    return c.unsampled ? "noVerdict" : "notChecked";
+  };
+  const domain = (s: WebsiteRow): Verdict => row(s)?.domain.ok ?? "notChecked";
+  const deploy = (s: WebsiteRow): Verdict => {
+    const c = row(s)?.deploy;
+    if (c === undefined) return "notChecked";
+    if (c.ok !== null) return c.ok;
+    return c.fresh ? "noVerdict" : "notChecked";
+  };
+  const form = (s: WebsiteRow): Verdict => {
+    const c = row(s)?.forms;
+    if (c === undefined) return "notChecked";
+    if (c.ok !== null) return c.ok;
+    if (!c.fresh) return "notChecked";
+    return c.testFailed ? "testFailed" : "noVerdict";
+  };
+  const verdicts: Record<string, (s: WebsiteRow) => Verdict> = {
+    Live: liveV,
+    Certificate: domain,
+    Deploy: deploy,
+    "Contact form": form,
+    Security: security,
+    Accessibility: a11y,
+    "Build + tests": build,
+  };
+  const checks = HEALTH_CHECK_NAMES.map((name) => {
+    const v = sites.map(verdicts[name]!);
+    const count = (k: UnknownKind) => v.filter((x) => x === k).length;
+    const notChecked = count("notChecked");
+    const testFailed = count("testFailed");
+    const noVerdict = count("noVerdict");
+    return {
+      name,
+      total: v.length,
+      pass: v.filter((x) => x === true).length,
+      fail: v.filter((x) => x === false).length,
+      unknown: notChecked + testFailed + noVerdict,
+      notChecked,
+      testFailed,
+      noVerdict,
+    };
+  });
+  // Built from the status line's own entries that are not maintained sites, so a misspelt
+  // status is never named "launching" (review round 2, M4).
+  const launching = status
+    ? (["broken", "attention", "watch"] as const).flatMap((level) => {
+        const o = status.counts.offCare[level];
+        return [
+          ...(o.launching > 0 ? [{ level, count: o.launching, kind: "launching" as const }] : []),
+          ...(o.other > 0 ? [{ level, count: o.other, kind: "other" as const }] : []),
+        ];
+      })
+    : [];
+  return { sites: sites.length, tiers, checks, launching };
+}
+
+/** The status line's off-care entries the bar does not count (its launching sites and its
+ *  sites not marked maintained, carried in `HealthView.launching`), in words: "plus 1
+ *  launching site at Attention" or "plus 2 sites not marked maintained at Watch"; null
+ *  when the bar and the status line agree. */
+export function launchingClauses(
+  launching: HealthView["launching"],
+): Array<{ text: string; term: string }> {
+  const LEVEL_NAME = { broken: "Broken", attention: "Attention", watch: "Watch" } as const;
+  const KIND = {
+    launching: { words: ["launching site", "launching sites"], term: "Launching sites" },
+    other: {
+      words: ["site not marked maintained", "sites not marked maintained"],
+      term: "Sites not marked maintained",
+    },
+  } as const;
+  // Each clause carries the How-we-count term for its own kind (review round 4, correctness n1).
+  return launching.map((l) => {
+    const { words, term } = KIND[l.kind];
+    return { text: `${count(l.count, words[0], words[1])} at ${LEVEL_NAME[l.level]}`, term };
+  });
+}
+
+export function launchingNote(launching: HealthView["launching"]): string | null {
+  if (launching.length === 0) return null;
+  return `plus ${launchingClauses(launching)
+    .map((c) => c.text)
+    .join(" and ")}`;
+}
+
+/** The first screen's checks, in the sketch's order. */
+export const HEALTH_CHECK_NAMES = [
+  "Live",
+  "Certificate",
+  "Deploy",
+  "Contact form",
+  "Security",
+  "Accessibility",
+  "Build + tests",
+] as const;
+
+/** The six number tiles: this month's leads, the spam stopped, last night's checks, the
+ *  dependency updates merged, the client reports sent, and the changes shipped. Each
+ *  unmeasured tile reads its model words; a sparkline is a gap for a night with no value. */
+/** The checks tile's words when last night has no count (its value is never an older night's). */
+const NO_LAST_NIGHT_COUNT = "no count for last night";
+
+/** The checks tile's sparkline: the last 14 calendar nights ending at `end`, oldest first,
+ *  built from the nights themselves (not the trends charts, which wait for all 14), with
+ *  null for a night that has no row or no count (a gap, never 0). Null when no night in
+ *  the 14 has a count at all. */
+function nightSpark(
+  counted: Array<{ night: string; v: number | null }>,
+  end: string,
+): Array<number | null> | null {
+  const days = Array.from({ length: TREND_NIGHTS }, (_, i) => {
+    const d = new Date(`${end}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - (TREND_NIGHTS - 1 - i));
+    return d.toISOString().slice(0, 10);
+  });
+  const series = days.map((day) => counted.find((x) => x.night === day)?.v ?? null);
+  return series.some((v) => v !== null) ? series : null;
+}
+
+/** The checks summed over the last `WINDOW_NIGHTS` calendar nights ending at `end`:
+ *  K is calendar nights from the oldest summed row to `end`, and a night inside that
+ *  span with no count is said, never counted as 0. */
+function checksOverWindow(
+  counted: Array<{ night: string; v: number | null }>,
+  end: string,
+): string | null {
+  // A night newer than `end` (a row written before 6am Pacific, while `end` is still
+  // yesterday) is outside the window, so it is neither summed nor counted in the span.
+  const summed = counted.filter(
+    (x): x is { night: string; v: number } =>
+      x.v !== null &&
+      nightsBetween(x.night, end) >= 0 &&
+      nightsBetween(x.night, end) < WINDOW_NIGHTS,
+  );
+  const total = summed.reduce((a, x) => a + x.v, 0);
+  const oldest = summed.reduce((a, x) => (x.night < a ? x.night : a), end);
+  const span = nightsBetween(oldest, end) + 1;
+  const missing = span - summed.length;
+  // One night with no gap is the value itself: a context that repeats it says nothing.
+  if (span === 1 && missing === 0) return null;
+  return `${total} over the last ${span} nights${missing > 0 ? `; ${missing} with no count` : ""}`;
+}
+
+export function numbersView(
+  s: CockpitSnapshot,
+  leads: LeadsView,
+  reports: ReportsView,
+  now: Date,
+): NumberTile[] {
+  const leadsTile: NumberTile = {
+    key: "leads",
+    label: "leads sent to clients this month",
+    measured: leads.leadsSent.thisMonth !== null,
+    value: leads.leadsSent.thisMonth === null ? UNREADABLE : String(leads.leadsSent.thisMonth),
+    context:
+      leads.leadsSent.allTime === null
+        ? null
+        : leads.since === null
+          ? `${leads.leadsSent.allTime} all time`
+          : `${leads.leadsSent.allTime} since ${leads.since}`,
+    spark: null,
+  };
+  // Never added to the screened count (How we count, "Stopped before storage"): the
+  // stopped count is as of the newest night and the screened count is live, so a sum
+  // would mix two clocks. The tile is the stopped count; screened is said beside it.
+  const stopped = leads.stoppedAllTime;
+  const stoppedMeasured = /^\d+$/.test(stopped);
+  const spamTile: NumberTile = {
+    key: "spam",
+    label: "spam submissions stopped before storage, all time",
+    measured: stoppedMeasured,
+    value: stopped,
+    context:
+      [
+        ...(stoppedMeasured && leads.stoppedAsOf !== null ? [`as of ${leads.stoppedAsOf}`] : []),
+        // "More" needs a stopped count to add to: unmeasured, the clause is left out.
+        ...(stoppedMeasured && leads.allTime !== null
+          ? [`${leads.allTime.screened} more screened after arriving`]
+          : []),
+      ].join("; ") || null,
+    spark: null,
+  };
+  // "Last night" is the expected night only: an older night's count never stands in
+  // for it (the newest counted night is said in the context instead).
+  const lastNight = expectedNight(now);
+  const counted = (s.nights ?? []).map((n) => ({ night: n.night, v: checksRun(n.counts) }));
+  const lastValue = counted.find((x) => x.night === lastNight)?.v ?? null;
+  // Only a night up to last night: a newer row (before 6am Pacific) is not "the newest
+  // counted" in one tile while the others leave it out (review round 3, M1).
+  const newestCounted = counted.find(
+    (x): x is { night: string; v: number } => x.v !== null && x.night <= lastNight,
+  );
+  const checksTile: NumberTile = {
+    key: "checks",
+    label: "checks run last night",
+    measured: lastValue !== null,
+    value:
+      s.nights === null
+        ? UNREADABLE
+        : lastValue !== null
+          ? String(lastValue)
+          : newestCounted === undefined
+            ? NOT_YET
+            : NO_LAST_NIGHT_COUNT,
+    context:
+      lastValue !== null
+        ? checksOverWindow(counted, lastNight)
+        : newestCounted === undefined
+          ? null
+          : `${newestCounted.v} on the night of ${nightLabel(newestCounted.night)}`,
+    spark: nightSpark(counted, lastNight),
+  };
+  const deps = windowFigure(s.nights, eventTotal("pr_automerged"), now, lastNight);
+  const depsTile: NumberTile = {
+    key: "deps",
+    label: "dependency updates merged",
+    measured: deps.value !== NOT_YET && deps.value !== UNREADABLE,
+    value: deps.value,
+    context: deps.context,
+    spark: null,
+  };
+  const reportsTile: NumberTile = {
+    key: "reports",
+    label: "client reports sent",
+    measured: reports.sent !== null,
+    value: reports.sent === null ? UNREADABLE : String(reports.sent.real),
+    context:
+      reports.sent === null ? null : `${reports.sent.approvedFirst} approved by one of us first`,
+    spark: null,
+  };
+  const shipped = windowFigure(s.nights, (c) => c.prsMerged.value, now, lastNight);
+  const shippedTile: NumberTile = {
+    key: "shipped",
+    label: "changes shipped to the maintenance stack",
+    measured: shipped.value !== NOT_YET && shipped.value !== UNREADABLE,
+    value: shipped.value,
+    context: shipped.context,
+    spark: null,
+  };
+  return [leadsTile, spamTile, checksTile, depsTile, reportsTile, shippedTile];
+}
+
+/** A sparkline's marks, in its own viewBox units: one polyline per run of nights with a
+ *  value, a dot for a lone night, and nothing for a gap. Zero is the axis. */
+export function sparkGeometry(
+  spark: Array<number | null>,
+  width = 120,
+  height = 24,
+): { lines: string[]; dots: Array<{ x: number; y: number }> } {
+  const values = spark.filter((v): v is number => v !== null);
+  const top = Math.max(1, ...values);
+  // A flat series (every value equal, zero included) is drawn at the middle: at the top
+  // it reads as an underline on the text above it (review round 2, nit 9).
+  const flat = values.every((v) => v === values[0]);
+  const step = spark.length > 1 ? width / (spark.length - 1) : 0;
+  const lines: string[] = [];
+  const dots: Array<{ x: number; y: number }> = [];
+  let run: Array<{ x: number; y: number }> = [];
+  const flush = () => {
+    if (run.length === 1) dots.push(run[0]!);
+    else if (run.length > 1) lines.push(run.map((p) => `${p.x},${p.y}`).join(" "));
+    run = [];
+  };
+  spark.forEach((v, i) => {
+    if (v === null) return flush();
+    const p = {
+      x: Math.round(i * step * 10) / 10,
+      y: flat ? height / 2 : Math.round((height - (v / top) * height) * 10) / 10,
+    };
+    run.push(p);
+  });
+  flush();
+  return { lines, dots };
+}
+
 export type OverviewView = {
   status: StatusView;
+  /** P1-87 PR 3: the first screen's fleet health and number tiles. */
+  health: HealthView;
+  numbers: NumberTile[];
   live: LiveRow[];
   leads: LeadsView;
   reports: ReportsView;
@@ -1754,7 +2216,7 @@ export type OverviewView = {
   prsMerged: string;
   /** Section 8: the charts from `fleet_daily`, or how many nights are collected. */
   trends: TrendsView;
-  /** How many `fleet_daily` nights the page has, in words ("1 night", "at least 31
+  /** How many `fleet_daily` nights the page has, in words ("1 night", "at least 32
    *  nights" once the reader's cap is reached); null when they could not be read. */
   nightsCollected: string | null;
 };
@@ -1765,15 +2227,21 @@ export function overviewFromSnapshot(s: CockpitSnapshot, now: Date): OverviewVie
   const names = new Map((s.sites ?? []).map((x) => [x.id, x.name]));
   const status = (r: SubmissionRow) => storedStatus(s, r);
   const live = liveRows(model, s.submissions, status, now);
+  const leads = leadsView(s, (id) => names.get(id) ?? "A site no longer listed", status, now);
+  const reports = reportsView(model, s.reports, now);
+  const trends = trendsFromDaily(s.nights, now);
+  const statusV = statusView(model, live, s.reports !== null, now);
   return {
-    status: statusView(model, live, s.reports !== null, now),
+    status: statusV,
+    health: healthView(model, live, now, statusV),
+    numbers: numbersView(s, leads, reports, now),
     live,
-    leads: leadsView(s, (id) => names.get(id) ?? "A site no longer listed", status, now),
-    reports: reportsView(model, s.reports, now),
+    leads,
+    reports,
     nightly: nightlyView(s, now),
     upkeep: upkeepView(model, s, now),
     prsMerged: overNights(s.nights, (c) => c.prsMerged.value, now),
-    trends: trendsFromDaily(s.nights, now),
+    trends,
     // The reader takes the newest OVERVIEW_NIGHTS rows, so a full read is a floor.
     nightsCollected:
       s.nights === null
@@ -1830,6 +2298,34 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
     text: "The site's place on the ladder, explained on How this works.",
   },
   {
+    term: "Sites passing each check",
+    text: "On the first screen, each check's bar shows how many of the sites in our care pass it, out of how many. The solid part, from the left, is the sites that pass. The grey part after it (dotted in high-contrast mode) is the sites that neither pass nor fail: the sum of the three kinds below, test failed, no verdict and not checked. A site that fails is in neither part; the count says how many fail.",
+  },
+  {
+    term: "Failing",
+    text: "A site fails a check when a fresh result is a fault: an address or page not answering (Live), a certificate at Attention or Broken (Certificate), a latest deploy that failed (Deploy), a critical or high vulnerability in a fresh audit (Security), a failed build or smoke run (Build + tests), or violations in a complete accessibility scan (Accessibility). A failed form test is not failing; it is the next entry.",
+  },
+  {
+    term: "Test failed, not yet a verdict",
+    text: "The nightly form test failed on a fresh run. The test itself is being fixed, so the failure is shown but does not count as a site failing, and it does not change the site's level. Only the Contact form check has this kind.",
+  },
+  {
+    term: "No verdict",
+    text: "A fresh check ran and gave no answer, so it neither passes nor fails: no page sampled (Live); a deploy in progress or with no deploy recorded (Deploy); no form result, because the site has no form or the test skipped it (Contact form); a partial accessibility scan, or a scan with a count unread (Accessibility); an audit with both counts unread (Security); a smoke run with no result (Build + tests).",
+  },
+  {
+    term: "Not checked",
+    text: `A check older than its window, so it is not known now: ${count(PRODUCTION_STALE_DAYS, "day", "days")} for most checks, and ${count(A11Y_STALE_DAYS, "day", "days")} for the accessibility scan. A result older than that reads "not checked lately" (or "not tested lately" for the form). A check that never ran is not checked too.`,
+  },
+  {
+    term: "Launching sites",
+    text: "Sites still launching are not in our care until they go live, so the bar does not count them. The status line counts them at the level they sit at, and the note under the bar says how many, for each level.",
+  },
+  {
+    term: "Sites not marked maintained",
+    text: "Sites whose plan status is not marked maintained (a misspelt status, say). They are not in our care, so the bar does not count them. The status line counts them at the level they sit at, and the note under the bar says how many, for each level.",
+  },
+  {
     term: "Submissions",
     text: "Everything a site's forms received and stored. This month counts from the 1st, Pacific time.",
   },
@@ -1882,7 +2378,7 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Runs completed",
-    text: `Of the nightly steps that finished on the nights we have counted within the last ${WINDOW_NIGHTS}, how many ran to the end. A step that runs to the end can still find problems; what it found is in the overview's tables. "The last K nights" counts calendar nights back from the newest, here and in every window on these pages; a night with no count, or a row with no step result, is said as not recorded, and a night written while every step was still running is said as such. Last night's count is expected from 6am Pacific: when the newest count is older than that, this line counts the nights since as not recorded, and each window is dated by the night it ends on.`,
+    text: `Of the nightly steps that finished on the nights we have counted within the last ${WINDOW_NIGHTS}, how many ran to the end. A step that runs to the end can still find problems; what it found is in the overview's tables. "The last K nights" counts calendar nights back from the newest, here and in every window on these pages; a night with no count, or a row with no step result, is said as not recorded, and a night written while every step was still running is said as such. Last night's count is expected from 6am Pacific: when the newest count is older than that, this line counts the nights since as not recorded, and each window is dated by the night it ends on. The first screen's tiles end on the night expected by now, so before 6am Pacific they leave out last night's row if it is already written; the windows on this page count it, so the two can differ until 6am.`,
   },
   {
     term: "Dependency updates merged",
