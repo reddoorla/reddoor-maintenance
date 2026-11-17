@@ -50,6 +50,7 @@ import type { StepResult } from "../../../../src/fleet-daily/types.js";
 import { TRIAGE_PATH } from "../../../../src/dashboard/home-path.js";
 import { NETLIFY_SITE_NOT_FOUND } from "../../../../src/fleet/roster-url-probe.js";
 import { OVERVIEW_NIGHTS } from "../../../../src/fleet-daily/types.js";
+import { cycleView, type CycleView } from "./cycle.js";
 
 /**
  * P1-78g: the overview at `/` as render-ready data (workspace
@@ -1068,6 +1069,9 @@ type StampField = keyof Pick<
  *  stamps no site says what it reaches in `reach` instead. */
 export const NIGHTLY_STEPS: ReadonlyArray<{
   file: string;
+  /** How long the conductor waits for the step before it moves on (its NIGHTLIES
+   *  `waitMinutes`; P1-87 PR 5a, the nightly audit bar). */
+  waitMinutes: number;
   /** The step's name in two words, for a diagram (P1-87, How this works). */
   short: string;
   label: string;
@@ -1077,6 +1081,7 @@ export const NIGHTLY_STEPS: ReadonlyArray<{
 }> = [
   {
     file: "fleet-db-backup.yml",
+    waitMinutes: 15,
     short: "Backup",
     label: "Backup, with a restore rehearsal (the copy is restored to prove it works)",
     coverage: [],
@@ -1085,6 +1090,7 @@ export const NIGHTLY_STEPS: ReadonlyArray<{
   },
   {
     file: "fleet-prismic-drift.yml",
+    waitMinutes: 20,
     short: "CMS check",
     label: "Prismic (the CMS, where content is edited) check: its content models match the code",
     coverage: ["prismic_models_checked_at"],
@@ -1092,6 +1098,7 @@ export const NIGHTLY_STEPS: ReadonlyArray<{
   },
   {
     file: "fleet-prismic-sync.yml",
+    waitMinutes: 20,
     short: "CMS sync",
     label: "Prismic (the CMS) sync: a change made there comes back to the site's code for review",
     coverage: [],
@@ -1100,6 +1107,7 @@ export const NIGHTLY_STEPS: ReadonlyArray<{
   },
   {
     file: "fleet-security.yml",
+    waitMinutes: 30,
     short: "Security",
     label: "Security (known vulnerabilities, and packages behind)",
     coverage: ["security_audit_at", "deps_behind_packages_at"],
@@ -1107,6 +1115,7 @@ export const NIGHTLY_STEPS: ReadonlyArray<{
   },
   {
     file: "fleet-lighthouse.yml",
+    waitMinutes: 50,
     short: "Site checks",
     label:
       "Site checks: Lighthouse (Google's speed and quality audit), the domain and certificate, browsers (each site opened in a real browser), the deploy, server functions, and the URL probe (does the address answer)",
@@ -1129,6 +1138,7 @@ export const NIGHTLY_STEPS: ReadonlyArray<{
   },
   {
     file: "fleet-smoke.yml",
+    waitMinutes: 50,
     short: "Build and tests",
     label: "Smoke (the site's own tests on a fresh build)",
     coverage: ["last_smoke_at"],
@@ -1136,6 +1146,7 @@ export const NIGHTLY_STEPS: ReadonlyArray<{
   },
   {
     file: "fleet-form-e2e.yml",
+    waitMinutes: 40,
     short: "Live forms",
     label: "The live form test",
     coverage: ["form_e2e_checked_at"],
@@ -1143,6 +1154,7 @@ export const NIGHTLY_STEPS: ReadonlyArray<{
   },
   {
     file: "daily-reports.yml",
+    waitMinutes: 30,
     short: "Report drafts",
     label: "Report drafts",
     coverage: [],
@@ -2407,6 +2419,8 @@ export type OverviewView = {
   trends: TrendsView;
   /** P1-87 PR 4: the first screen's third panel, the Lately feed. */
   lately: Lately;
+  /** P1-87 PR 5a: the first screen's "The nightly audit" bar (cycle.ts). */
+  cycle: CycleView;
   /** How many `fleet_daily` nights the page has, in words ("1 night", "at least 32
    *  nights" once the reader's cap is reached); null when they could not be read. */
   nightsCollected: string | null;
@@ -2434,6 +2448,7 @@ export function overviewFromSnapshot(s: CockpitSnapshot, now: Date): OverviewVie
     prsMerged: overNights(s.nights, (c) => c.prsMerged.value, now),
     trends,
     lately: latelyView(s, (id) => names.get(id) ?? null, now),
+    cycle: cycleView(s, now, NIGHTLY_STEPS, outcomeText),
     // The reader takes the newest OVERVIEW_NIGHTS rows, so a full read is a floor.
     nightsCollected:
       s.nights === null
