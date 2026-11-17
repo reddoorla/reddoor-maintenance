@@ -424,8 +424,10 @@ describe("cockpit navigation, in a browser, against the built app", () => {
   it("at 1280px Lately is the tallest panel and Health keeps its own height; every line's text starts at one x", async () => {
     const db = await openDb({ url: dbUrl });
     try {
-      // Seven more lines: one dated (6.5 days old), six from today's hours.
-      for (let i = 0; i < 7; i++)
+      // Five more lines: one dated (6.5 days old) and four from today's hours. The dated line
+      // is the oldest, so the 8-line cap keeps it only while seven lines are newer: the seeds
+      // above and below add three, so four hour lines leave it the eighth.
+      for (let i = 0; i < 5; i++)
         await recordFleetEvent(db, {
           id: `pr4-fill-${i}`,
           ts:
@@ -463,6 +465,11 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       const [health, , lately] = measured!;
       expect(lately!.content).toBeGreaterThan(health!.content);
       expect(Math.abs(health!.height - health!.content)).toBeLessThanOrEqual(2);
+      expect(Math.abs(measured![1]!.height - measured![1]!.content)).toBeLessThanOrEqual(2);
+      // Both kinds of stamp render: a dated one (its date ends in a comma) and an undated one.
+      const stamps = await page.$$eval(".ov-lately time", (ts) => ts.map((t) => t.textContent ?? ""));
+      expect(stamps.some((t) => t.includes(","))).toBe(true);
+      expect(stamps.some((t) => !t.includes(","))).toBe(true);
       const starts = await page.$$eval(".ov-lately li", (lis) =>
         lis.map((li) => (li.children[1] as HTMLElement).getBoundingClientRect().left),
       );
