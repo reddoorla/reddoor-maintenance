@@ -189,3 +189,45 @@ export async function fetchPeriodUsers(
     return { current, previous };
   });
 }
+
+/**
+ * GA4 `engagedSessions` for each day of `range`, on the site's own hosts: the
+ * per-day series the traffic block stores (P1-87, PR 6). Keys are `YYYY-MM-DD`.
+ *
+ * Days GA omits are absent from the map, not 0: the caller reads a missing day as 0,
+ * because GA leaves out empty days. Takes the range as given, so it does not read the
+ * property's timezone from the Admin API. Throws on any error, or once every subject
+ * has failed auth, and never returns an empty map for a failed read.
+ */
+export async function fetchDailyEngaged(
+  query: GaQuery,
+  range: GaDateRange,
+): Promise<Map<string, number>> {
+  const key = readKey(query.keyPath);
+  const property = `properties/${query.propertyId.trim()}`;
+
+  return withSubjectFailover(query.subjects, "GA", async (subject) => {
+    const authClient = new JWT({
+      email: key.client_email,
+      key: key.private_key,
+      scopes: [ANALYTICS_READONLY],
+      subject,
+    });
+    const client = new BetaAnalyticsDataClient({ authClient });
+    const [resp] = await client.runReport({
+      ...reportRequest(property, range, "engagedSessions", query.hostnames),
+      dimensions: [{ name: "date" }],
+    });
+    const days = new Map<string, number>();
+    for (const row of resp.rows ?? []) {
+      const raw = row.dimensionValues?.[0]?.value ?? "";
+      const n = Number.parseInt(row.metricValues?.[0]?.value ?? "0", 10);
+      if (!/^\d{8}$/.test(raw)) throw new Error(`GA returned a non-date row: ${raw}`);
+      days.set(
+        `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`,
+        Number.isFinite(n) ? n : 0,
+      );
+    }
+    return days;
+  });
+}
