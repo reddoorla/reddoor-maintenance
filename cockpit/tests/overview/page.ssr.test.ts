@@ -1546,7 +1546,7 @@ describe("the Lately feed on the page (P1-87 PR 4)", () => {
     const timeRule = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].find(
       ([, sel]) => sel!.trim() === ".ov-lately time",
     )![2]!;
-    expect(timeRule).toMatch(/flex:\s*0 0 5\.5rem/);
+    expect(timeRule).toMatch(/flex:\s*0 0 6rem/);
     expect(timeRule).toMatch(/white-space:\s*normal/);
     expect(timeRule).not.toMatch(/nowrap/);
     expect(css).toMatch(/\.ov-lately time > span\s*\{[^}]*white-space:\s*nowrap/);

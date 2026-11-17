@@ -229,7 +229,7 @@ section {
 }
 /* The time is a fixed column that wraps after the date; each span keeps its own words whole. */
 .ov-lately time {
-  flex: 0 0 5.5rem;
+  flex: 0 0 6rem;
   color: var(--ink-muted);
   font-variant-numeric: tabular-nums;
   white-space: normal;
