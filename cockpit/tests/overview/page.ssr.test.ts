@@ -380,9 +380,6 @@ describe("the sentinel render: each leaf in its labelled element (T1, T2; round 
       p === "nightsCollected" ||
       p.startsWith("reports.checks") ||
       /\.spark(\[|$)/.test(p) ||
-      // Only the check bars' totals: the sites in each check, which the page reads as
-      // "of N" in a visually hidden span, not a sentinel-checked leaf (round 1, item 24).
-      /^health\.checks\.\d+\.total$/.test(p) ||
       // The sum of the three unknown kinds below, which the page reads as its parts.
       /^health\.checks\[[a-z]+\]\.unknown$/.test(p) ||
       p.startsWith("status.counts.") ||
@@ -1286,9 +1283,12 @@ describe("the first screen's layout and tones, pinned in the stylesheet (review 
     [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].find(([, s]) => s!.trim() === sel)?.[2] ?? "";
 
   it("keeps a phone's check bars wide: the count goes under the bar below 30rem (I, phone)", () => {
-    expect(css).toMatch(/@media \(max-width: 30rem\)\s*\{[^}]*\n?\s*\.ov-checks-list\s*\{/);
+    // The phone block's own declaration, not only its opening selector (review round 3, F).
+    expect(css).toMatch(
+      /@media \(max-width: 30rem\)\s*\{\s*\.ov-checks-list\s*\{\s*grid-template-columns:\s*minmax\(0, 1fr\);/,
+    );
     expect(ruleOf(".ov-checks-list")).toMatch(
-      /grid-template-columns:\s*minmax\(6rem, 8\.5rem\) minmax\(4rem, 1fr\) fit-content\(12rem\)/,
+      /grid-template-columns:\s*minmax\(6rem, 8\.5rem\) minmax\(4rem, 1fr\) fit-content\(9rem\)/,
     );
   });
 

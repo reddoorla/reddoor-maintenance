@@ -110,6 +110,18 @@ async function seed(url: string): Promise<void> {
       deploy_checked_at: now,
     } as never)
     .execute();
+  // Review round 3 (tests M2, a11y m3): the Contact form row carries a long count, so the
+  // count column and the phone layout are measured with one. Acme's form test failed on a
+  // fresh run, Beta has a fresh stamp and no result, and Lee's site has no stamp (not
+  // checked): "1 test failed, not yet a verdict · 1 no verdict · 1 not checked".
+  for (const [site_id, form_e2e_ok] of [
+    ["recA", "fail"],
+    ["recB", null],
+  ] as const)
+    await db
+      .insertInto("site_health")
+      .values({ site_id, form_e2e_ok, form_e2e_checked_at: now } as never)
+      .execute();
   // Leads on it, so the per-site leads table carries its name too: an hour old, so
   // Pat's lead below stays the newest on /submissions.
   const anHourAgo = new Date(Date.now() - 3_600_000).toISOString();
@@ -374,7 +386,10 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     const inside = await page.locator(".ov-check").evaluateAll((rows) =>
       rows.map((row) => {
         const bar = row.querySelector(".ov-check-bar")!.getBoundingClientRect();
-        const fill = row.querySelector(".ov-check-fill")!.getBoundingClientRect();
+        // A row with no site passing draws no fill (review round 3, D): nothing to inside.
+        const fillEl = row.querySelector(".ov-check-fill");
+        if (fillEl === null) return true;
+        const fill = fillEl.getBoundingClientRect();
         return (
           fill.left >= bar.left - 0.5 &&
           fill.right <= bar.right + 0.5 &&
@@ -393,6 +408,41 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       .locator(".ov-check-bar")
       .evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().width)));
     for (const w of widths) expect(w).toBeGreaterThanOrEqual(100);
+  });
+
+  // P1-87 PR 3, review round 3 (a11y m3, tests M2): with a long count on a row, the bars
+  // keep their width. The count column is 9rem wide, so 1000px keeps every bar at 140px or
+  // more; on a phone every bar is at least 100px wide, and its count sits under it.
+  it("a long count keeps every bar wide: 140px at 1000px, and under the bar at 390px", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1000, height: 800 });
+    await page.goto(`${origin}/`);
+    await expect.poll(() => page.locator(".ov-check-bar").count()).toBe(7);
+    const long = await page
+      .locator(".ov-check", { hasText: "Contact form" })
+      .locator(".ov-check-count")
+      .textContent();
+    expect(long).toContain("1 test failed, not yet a verdict · 1 no verdict · 1 not checked");
+    const wide = await page
+      .locator(".ov-check-bar")
+      .evaluateAll((els) => els.map((e) => e.getBoundingClientRect().width));
+    for (const w of wide) expect(w).toBeGreaterThanOrEqual(140);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`${origin}/`);
+    await expect.poll(() => page.locator(".ov-check-bar").count()).toBe(7);
+    const phone = await page.locator(".ov-check").evaluateAll((rows) =>
+      rows.map((row) => {
+        const bar = row.querySelector(".ov-check-bar")!.getBoundingClientRect();
+        const count = row.querySelector(".ov-check-count")!.getBoundingClientRect();
+        return { width: bar.width, below: count.top >= bar.bottom - 0.5 };
+      }),
+    );
+    expect(phone).toHaveLength(7);
+    for (const row of phone) {
+      expect(row.width).toBeGreaterThanOrEqual(100);
+      expect(row.below).toBe(true);
+    }
   });
 
   // P1-87 PR 1, review round 2: on a small laptop (1000px) each flow stays one row,

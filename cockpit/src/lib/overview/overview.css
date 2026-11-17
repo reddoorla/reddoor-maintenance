@@ -272,16 +272,13 @@ section {
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: minmax(6rem, 8.5rem) minmax(4rem, 1fr) fit-content(12rem);
+  grid-template-columns: minmax(6rem, 8.5rem) minmax(4rem, 1fr) fit-content(9rem);
   column-gap: 0.5rem;
 }
 /* On a phone the count goes under the bar: a long count would otherwise take the whole row
    and leave every bar 0px wide. */
 @media (max-width: 30rem) {
   .ov-checks-list {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .ov-check {
     grid-template-columns: minmax(0, 1fr);
   }
 }
