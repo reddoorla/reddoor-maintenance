@@ -2200,6 +2200,14 @@ function numbersFleet() {
         notifyStatus: "sent",
         submittedAt: "2026-10-20T12:00:00.000Z",
       }),
+      // Accepted but not notified (the client was not told): not a lead sent (review round 2, G).
+      makeSubmissionRow({
+        id: "m4",
+        siteId: "recA",
+        status: "read",
+        notifyStatus: "failed",
+        submittedAt: "2026-10-21T12:00:00.000Z",
+      }),
       makeSubmissionRow({
         id: "o1",
         siteId: "recA",
@@ -2522,5 +2530,30 @@ describe("review round 2: the launching note names what it counts (group D)", ()
       ]),
     ).toBe("plus 2 launching sites at Broken and 1 launching site at Attention");
     expect(launchingNote([])).toBeNull();
+  });
+});
+
+describe("review round 2: the leads tile, the tier bar and the security count (group G)", () => {
+  it("the leads tile counts only the leads notified to the client", () => {
+    // m4 is accepted but its notification failed: the value and context stay as they were.
+    const N = overviewFromSnapshot(numbersFleet(), NOW).numbers;
+    expect(N.find((t) => t.key === "leads")).toMatchObject({
+      value: "3",
+      context: "4 since Jul 2, 2026",
+    });
+  });
+
+  it("a fresh security audit with only a critical count fails, and is not unknown", () => {
+    const h = overviewFromSnapshot(
+      snapshot({
+        sites: [healthy({ id: "recA", name: "Acme", securityVulnsCritical: 1, securityVulnsHigh: null, lastSecurityAuditAt: FRESH })],
+      }),
+      NOW,
+    ).health;
+    expect(h.checks.find((c) => c.name === "Security")).toMatchObject({
+      pass: 0,
+      fail: 1,
+      unknown: 0,
+    });
   });
 });

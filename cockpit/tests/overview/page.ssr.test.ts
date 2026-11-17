@@ -1189,3 +1189,67 @@ describe("every data-term on the overview is a How-we-count term (review round 2
     expect(unknownTerms(changed)).toEqual(["Made up term"]);
   });
 });
+
+describe("the first screen's page structure (review round 2, G and H)", () => {
+  // Comments are cut first: a rule's selector would otherwise carry the comment above it.
+  const cssText = readFileSync(
+    new URL("../../src/lib/overview/overview.css", import.meta.url),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  const cssRule = (sel: string) =>
+    [...cssText.matchAll(/([^{}]+)\{([^}]*)\}/g)].find(([, s]) => s!.trim() === sel)?.[2] ?? "";
+  const rowOf = (doc: HTMLElement, name: string) =>
+    doc.querySelectorAll(".ov-check").find((r) => text(r).startsWith(name))!;
+
+  it("a broken-only day is not all OK: no counts inside the bar, the line under it shown (G)", () => {
+    // SNAP is two OK and one broken: the all-OK style must not apply.
+    expect(DOC.querySelector(".ov-tier-inside")).toBeNull();
+    expect(DOC.querySelector(".ov-tier-counts")!.classList.contains("visually-hidden")).toBe(
+      false,
+    );
+  });
+
+  it("names one maintained site in the singular (G)", () => {
+    const one = parse(
+      pageHtml(overviewFromSnapshot(snapshot({ sites: [healthy({ id: "z", name: "Zed" })] }), NOW)),
+    );
+    expect(text(one.querySelector("#ov-health")!)).toBe("Fleet health · 1 site");
+  });
+
+  it("the grey not-checked part starts where the pass fill ends, and its width is the rest (H)", () => {
+    const five = parse(
+      pageHtml(
+        overviewFromSnapshot(
+          snapshot({
+            sites: [
+              healthy({ id: "a", name: "A" }),
+              healthy({ id: "b", name: "B" }),
+              healthy({ id: "c", name: "C" }),
+              healthy({ id: "d", name: "D" }),
+              healthy({ id: "e", name: "E", formE2eOk: null, formE2eCheckedAt: null }),
+            ],
+          }),
+          NOW,
+        ),
+      ),
+    );
+    const form = rowOf(five, "Contact form");
+    expect(form.querySelector(".ov-check-fill")!.getAttribute("style")).toBe("width: 80%");
+    expect(form.querySelector(".ov-check-unknown")!.getAttribute("style")).toBe(
+      "left: 80%; width: 20%",
+    );
+  });
+
+  it("every aria-labelledby on the overview names an element that exists (H)", () => {
+    const ids = DOC.querySelectorAll("[aria-labelledby]").map((el) =>
+      el.getAttribute("aria-labelledby")!,
+    );
+    expect(ids.length).toBeGreaterThan(0);
+    for (const id of ids) expect(DOC.querySelector(`#${id}`), id).not.toBeNull();
+  });
+
+  it("the tier bar and each check bar are positioned, so their parts stay inside them (H)", () => {
+    expect(cssRule(".ov-tierbar")).toMatch(/position:\s*relative/);
+    expect(cssRule(".ov-check-bar")).toMatch(/position:\s*relative/);
+  });
+});
