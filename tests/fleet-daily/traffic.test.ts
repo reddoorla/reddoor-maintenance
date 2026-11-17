@@ -275,8 +275,6 @@ describe("readTraffic", () => {
     expect(out.search.reason ?? "").not.toContain("FAKE");
   });
 
-  // Review round 2, Group B (X5): two addresses in one message are each masked, and neither
-  // the local part nor the domain of either is stored.
   // Review round 3, Group B (minors 3 and 5): only a SyntaxError whose message says JSON is the
   // key file's. Any other error keeps its message, so a real reason is never replaced.
   it("a plain error that mentions JSON keeps its message", async () => {
@@ -311,6 +309,8 @@ describe("readTraffic", () => {
     });
   });
 
+  // Review round 2, Group B (X5): two addresses in one message are each masked, and neither
+  // the local part nor the domain of either is stored.
   it("a reader error that names two addresses stores <account> for each, and neither address", async () => {
     const out = await readTraffic(
       [site("alpha")],

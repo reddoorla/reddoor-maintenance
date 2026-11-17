@@ -88,7 +88,7 @@ describe("readOverviewNights guards every block it reads", () => {
     ]);
   });
 
-  it("traffic (P1-87 PR 6): an old row reads it unmeasured, a new row passes its block through", async () => {
+  it("traffic (P1-87 PR 6): an old row reads it unmeasured, and a visits half with no previous count is not in the row", async () => {
     const traffic = { value: { visits: { value: { current: 9 } } } };
     await put("2026-11-16", { traffic });
     await put("2026-11-15", {});
