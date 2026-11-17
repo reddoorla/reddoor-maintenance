@@ -109,13 +109,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "      if (r === undefined || r === null || at === undefined) continue;",
-        "replace": "      if (at === undefined) continue;"
-      },
-      {
-        "file": "cockpit/src/lib/overview/view.ts",
-        "find": "push(at, `${step.short}: ${outcomeText(r)}`, null, 3);",
-        "replace": "push(at, `${step.short}: ${r == null ? \"ran to the end\" : outcomeText(r)}`, null, 3);"
+        "find": "      return r === undefined || r === null ? [] : [{ step, r }];",
+        "replace": "      return [{ step, r: r ?? { outcome: \"completed\", runId: 0, conclusion: \"success\" } }];"
       }
     ],
     "test": ["cockpit/tests/overview/view.ssr.test.ts"],

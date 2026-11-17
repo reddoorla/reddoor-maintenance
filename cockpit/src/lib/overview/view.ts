@@ -2297,10 +2297,17 @@ export function latelyView(
   const night = (s.nights ?? []).find((n) => n.night <= expected);
   if (night !== undefined) {
     const at = night.counts.run?.startedAt;
-    for (const step of NIGHTLY_STEPS) {
+    // A step with no result is counted in neither figure and makes no line.
+    const results = NIGHTLY_STEPS.flatMap((step) => {
       const r = night.counts.steps[step.file];
-      if (r === undefined || r === null || at === undefined) continue;
-      push(at, `${step.short}: ${outcomeText(r)}`, null, 3);
+      return r === undefined || r === null ? [] : [{ step, r }];
+    });
+    if (at !== undefined && results.length > 0) {
+      const ran = results.filter((x) => ranToEnd(x.r)).length;
+      // The night is one summary line; only a step that did not run to the end gets its own.
+      push(at, `Nightly run: ${ran} of ${results.length} steps ran to the end`, null, 3);
+      for (const { step, r } of results)
+        if (!ranToEnd(r)) push(at, `${step.short}: ${outcomeText(r)}`, null, 3);
     }
   }
   return found

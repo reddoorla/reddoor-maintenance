@@ -3036,23 +3036,94 @@ describe("the Lately feed (P1-87 PR 4)", () => {
     ];
     const early = new Date("2026-10-27T12:00:00.000Z"); // 5:00am PT: last night is the 25th
     expect(overviewFromSnapshot(snapshot({ nights }), early).lately.map((l) => l.text)).toEqual([
-      "Backup: ran to the end",
+      "Nightly run: 1 of 1 steps ran to the end",
     ]);
-    // From 6am the night of the 26th is expected, and its one step result is the line.
+    // From 6am the night of the 26th is expected: its summary, then its one failed step.
     expect(overviewFromSnapshot(snapshot({ nights }), NOW).lately.map((l) => l.text)).toEqual([
+      "Nightly run: 0 of 1 steps ran to the end",
       "Backup: failed",
     ]);
   });
 
-  it("gives each nightly step with a result one line, and none for a step with no result", () => {
+  it("makes one nightly line when every step ran to the end, and none for a step with no result", () => {
     const all = overviewFromSnapshot(snapshot({ nights: [night("2026-10-26")] }), NOW).lately;
-    expect(all).toHaveLength(8);
-    expect(all.every((l) => l.text.endsWith(": ran to the end"))).toBe(true);
-    expect(all.every((l) => l.site === null)).toBe(true);
+    expect(all.map((l) => l.text)).toEqual(["Nightly run: 8 of 8 steps ran to the end"]);
+    expect(all[0]!.site).toBeNull();
     expect(all[0]!.when).toBe("Mon 11:07pm");
     // A night with no step results says nothing: a step with no result never reads "ran".
     expect(
       overviewFromSnapshot(snapshot({ nights: [night("2026-10-26", { steps: {} })] }), NOW).lately,
     ).toEqual([]);
+  });
+
+  it("keeps the three reports and the event of a clean night beside its one nightly line", () => {
+    // The round-1 scenario: Tue 11am PT, a clean night, three reports and a vulnerability cleared on Monday.
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [healthy({ id: "recA", name: "Acme" })],
+        nights: [night("2026-10-26")],
+        reports: [
+          report({ id: "m1", reportId: "REP-M1", sentAt: "2026-10-26T20:00:00.000Z" }),
+          report({
+            id: "t1",
+            reportId: "REP-T1",
+            reportType: "Testing",
+            sentAt: "2026-10-26T21:00:00.000Z",
+          }),
+          report({ id: "m2", reportId: "REP-M2", sentAt: "2026-10-26T22:00:00.000Z" }),
+        ],
+        feedEvents: [
+          event({
+            id: "vc",
+            type: "vuln_cleared",
+            ts: "2026-10-26T17:00:00.000Z",
+            siteName: "Acme",
+          }),
+        ],
+      }),
+      NOW,
+    );
+    expect(v.lately.map((l) => [l.when, l.text, l.site])).toEqual([
+      ["Mon 11:07pm", "Nightly run: 8 of 8 steps ran to the end", null],
+      ["Mon 3:00pm", "Maintenance report sent", "Acme"],
+      ["Mon 2:00pm", "Testing report sent", "Acme"],
+      ["Mon 1:00pm", "Maintenance report sent", "Acme"],
+      ["Mon 10:00am", "Vulnerability cleared", "Acme"],
+    ]);
+  });
+
+  it("summarises a night with two failed steps as 6 of 8, then those steps in step order", () => {
+    const steps: Record<string, unknown> = Object.fromEntries(
+      NIGHTLIES.map((n: { file: string }) => [
+        n.file,
+        { outcome: "completed", runId: 1, conclusion: "success" },
+      ]),
+    );
+    steps["fleet-db-backup.yml"] = { outcome: "completed", runId: 9, conclusion: "failure" };
+    steps["fleet-form-e2e.yml"] = { outcome: "completed", runId: 9, conclusion: "failure" };
+    const v = overviewFromSnapshot(
+      snapshot({ nights: [night("2026-10-26", { steps: steps as never })] }),
+      NOW,
+    );
+    expect(v.lately.map((l) => [l.when, l.text, l.site])).toEqual([
+      ["Mon 11:07pm", "Nightly run: 6 of 8 steps ran to the end", null],
+      ["Mon 11:07pm", "Backup: failed", null],
+      ["Mon 11:07pm", "Live forms: failed", null],
+    ]);
+  });
+
+  it("keeps a row at exactly seven days old, and drops one a second older", () => {
+    const edge = new Date(NOW.getTime() - 7 * 86_400_000).toISOString();
+    const older = new Date(NOW.getTime() - 7 * 86_400_000 - 1000).toISOString();
+    const v = overviewFromSnapshot(
+      snapshot({
+        feedEvents: [
+          event({ id: "edge", ts: edge }),
+          event({ id: "older", ts: older }),
+        ],
+      }),
+      NOW,
+    );
+    expect(v.lately.map((l) => l.text)).toEqual(["Dependency update merged"]);
   });
 });
