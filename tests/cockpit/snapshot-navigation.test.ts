@@ -416,6 +416,36 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     expect(overflows).toBe(false);
   });
 
+  // P1-87 PR 4, review round 1 F: between 60rem and 75rem Lately spans both columns, below them.
+  it("Lately spans the two panels' columns at 1100px, and its top is below both", async () => {
+    const page = await signedIn();
+    await page.goto(`${origin}/`);
+    for (const width of [1100]) {
+      await page.setViewportSize({ width, height: 900 });
+      const rects = await page.locator(".ov-health, .ov-happening, .ov-lately").evaluateAll((els) =>
+        els.map((e) => {
+          const r = e.getBoundingClientRect();
+          return { left: r.left, width: r.width, top: r.top, bottom: r.bottom };
+        }),
+      );
+      // It measured all three panels, each with a width.
+      expect(rects).toHaveLength(3);
+      expect(rects.every((r) => r.width > 0)).toBe(true);
+      const gap = await page.evaluate(() =>
+        parseFloat(getComputedStyle(document.querySelector(".ov-first")!).columnGap),
+      );
+      const [health, happening, lately] = rects as [
+        (typeof rects)[number],
+        (typeof rects)[number],
+        (typeof rects)[number],
+      ];
+      expect(
+        Math.abs(lately!.width - (health!.width + gap + happening!.width)),
+      ).toBeLessThanOrEqual(2);
+      expect(lately!.top).toBeGreaterThanOrEqual(Math.max(health!.bottom, happening!.bottom));
+    }
+  });
+
   it("the overview's check bars line up and its panels share a top at 1280px", async () => {
     const page = await signedIn();
     await page.setViewportSize({ width: 1280, height: 900 });

@@ -375,5 +375,73 @@
     ],
     "test": ["cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
+  },
+  {
+    "id": "30-failed-step-no-line",
+    "why": "A nightly step that did not run to the end gets no line of its own",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "        if (!ranToEnd(r)) push(at,",
+        "replace": "        if (false) push(at,"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "31-steps-reversed",
+    "why": "The nightly's failing steps are listed in reverse step order",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  const results = NIGHTLY_STEPS.flatMap((step) => {",
+        "replace": "  const results = [...NIGHTLY_STEPS].reverse().flatMap((step) => {"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "32-ranks-reversed",
+    "why": "A tie between an event and a report reads report first",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": ".sort((a, b) => b.t - a.t || a.rank - b.rank)",
+        "replace": ".sort((a, b) => b.t - a.t || b.rank - a.rank)"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "33-seven-day-edge-dropped",
+    "why": "A row at exactly seven days old is dropped",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "if (!Number.isFinite(t) || t < since) return;",
+        "replace": "if (!Number.isFinite(t) || t <= since) return;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "34-lately-not-spanning-at-60rem",
+    "why": "Lately's own column at 60rem to 75rem: the spanning rule is deleted, so it sits in one column",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "  .ov-lately {\n    grid-column: 1 / -1;\n  }",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/cockpit/snapshot-navigation.test.ts",
+      "cockpit/tests/overview/page.ssr.test.ts"
+    ],
+    "expect": "red"
   }
 ]

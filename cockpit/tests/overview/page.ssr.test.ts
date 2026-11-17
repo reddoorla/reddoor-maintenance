@@ -1500,6 +1500,16 @@ describe("the Lately feed on the page (P1-87 PR 4)", () => {
     expect(comma.textContent).toBe(", ");
   });
 
+  it("spans both columns from 60rem to 75rem, and sits in its own column from 75rem", () => {
+    const css = readFileSync(
+      new URL("../../src/lib/overview/overview.css", import.meta.url),
+      "utf8",
+    ).replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(css).toMatch(
+      /@media \(min-width: 60rem\)\s*\{[^@]*\.ov-lately\s*\{\s*grid-column:\s*1 \/ -1;/,
+    );
+  });
+
   it("pins the panel's own rules: the feed does not stretch its row, and each line is ruled below", () => {
     const css = readFileSync(
       new URL("../../src/lib/overview/overview.css", import.meta.url),

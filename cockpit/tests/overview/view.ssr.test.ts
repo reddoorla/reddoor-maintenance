@@ -3222,6 +3222,20 @@ describe("the Lately feed (P1-87 PR 4)", () => {
     ]);
   });
 
+  it("puts a tie in source order: an event before a report at the same moment", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        feedEvents: [event({ id: "tie", type: "vuln_cleared", ts: "2026-10-27T10:00:00.000Z" })],
+        reports: [report({ id: "tr", reportId: "REP-TIE", sentAt: "2026-10-27T10:00:00.000Z" })],
+      }),
+      NOW,
+    );
+    expect(v.lately.lines.map((l) => l.text)).toEqual([
+      "Vulnerability cleared",
+      "Maintenance report sent",
+    ]);
+  });
+
   it("names every source whose read failed, and shows no 'Nothing recorded' over them", () => {
     const v = overviewFromSnapshot(
       snapshot({
