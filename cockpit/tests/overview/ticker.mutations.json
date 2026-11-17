@@ -83,8 +83,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/ticker.ts",
-        "find": "import { plainReasons } from \"./view.js\";",
-        "replace": "import { plainReasons } from \"./view.js\";\nimport { siteSlug } from \"../../../../src/fleet/site-row.js\";"
+        "find": "import { pacificDay, plainReasons } from \"./view.js\";",
+        "replace": "import { pacificDay, plainReasons } from \"./view.js\";\nimport { siteSlug } from \"../../../../src/fleet/site-row.js\";"
       },
       {
         "file": "cockpit/src/lib/overview/ticker.ts",
@@ -176,6 +176,152 @@
       }
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "14-deploy-guard-removed",
+    "why": "The deploy date is formatted without checking it parses, so a garbage date throws RangeError and takes the overview down",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "  if (lastDeployAt !== null && Number.isFinite(Date.parse(lastDeployAt)))",
+        "replace": "  if (lastDeployAt !== null)"
+      }
+    ],
+    "test": [
+      "cockpit/tests/overview/ticker.ssr.test.ts",
+      "cockpit/tests/overview/page.ssr.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "15-deploy-day-utc",
+    "why": "The deploy day is read in UTC, so a deploy at 03:00 UTC reads as the next day, not the Pacific day it fell on",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "pacificDay(new Date(lastDeployAt))",
+        "replace": "new Date(lastDeployAt).toLocaleDateString(\"en-US\", { timeZone: \"UTC\", month: \"short\", day: \"numeric\" })"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "16-sort-deleted",
+    "why": "The rows are not sorted, so the ticker shows the cards in the order the model gave them, not Broken first",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "  rows.sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name));",
+        "replace": "  void rows;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "17-tie-break-by-key",
+    "why": "Sites of one tier are ordered by their record id, not their name",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "a.rank - b.rank || a.name.localeCompare(b.name)",
+        "replace": "a.rank - b.rank || a.key.localeCompare(b.key)"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "18-maintained-filter-dropped",
+    "why": "A launching site is listed in the ticker when its tier is broken, a piercing alarm the pre-launch site must not raise",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "    if (site.status !== \"maintained\") continue;",
+        "replace": "    if (site.status !== \"maintained\" && false) continue;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "19-watch-items-dropped",
+    "why": "A Watch site's fact names only its watch reasons, not the watch-level item a reader can act on first",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "  return summarise([...at(\"watch\").map((it) => it.title), ...card.watchReasons]);",
+        "replace": "  return summarise([...card.watchReasons]);"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "20-ok-pill-class",
+    "why": "The OK pill takes the class ok, which the stylesheet does not style, so the OK pill loses its healthy look",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "{:else}<span>{t.name}</span>{/if}\n              <span class=\"pill {t.tier === 'ok' ? 'healthy' : t.tier}\">",
+        "replace": "{:else}<span>{t.name}</span>{/if}\n              <span class=\"pill {t.tier === 'ok' ? 'ok' : t.tier}\">"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "21-focus-still-layout-removed",
+    "why": "A focus inside the window no longer stops the row, so a focused link moves out of the window (the Group B control: hand-checked by this run)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-ticker-window:focus-within .ov-ticker-run {\n  animation: none;\n  display: block;\n  width: auto;\n}\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "22-window-padding-block-removed",
+    "why": "The window has no vertical padding, so a focus ring at the top or bottom of a link is clipped by the window",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "  padding-block: 0.25rem;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "23-pressed-style-removed",
+    "why": "The pause button shows no pressed state, so a paused ticker looks the same as a moving one",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-ticker-pause[aria-pressed=\"true\"] {\n  background: var(--ink);\n  color: var(--on-ink);\n}\n",
+        "replace": ""
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "24-speed-floor-removed",
+    "why": "A short row loops faster than 20 seconds, too fast to read",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "  return Math.max(20, Math.round(chars * 0.15));",
+        "replace": "  return Math.round(chars * 0.15);"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
     "expect": "red"
   }
 ]
