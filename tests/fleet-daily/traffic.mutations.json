@@ -1,0 +1,184 @@
+[
+  {
+    "id": "1-visits-throw-writes-zero",
+    "why": "A site whose GA read threw writes 0 visits (an empty map, so 0 on both windows) instead of null",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "visitsRead.set(s.id, { value: null, reason: reasonOf(e) });",
+        "replace": "visitsRead.set(s.id, { value: new Map() });"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2-hostname-filter-dropped",
+    "why": "fetchDailyEngaged drops the site's hostname filter, so localhost and preview hosts are counted",
+    "edits": [
+      {
+        "file": "src/reports/ga/client.ts",
+        "find": "      ...reportRequest(property, range, \"engagedSessions\", query.hostnames),\n      dimensions",
+        "replace": "      ...reportRequest(property, range, \"engagedSessions\", []),\n      dimensions"
+      }
+    ],
+    "test": "tests/reports/ga/client.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "3-no-property-counted-in-sitesRead",
+    "why": "A site with no GA4 property is counted as read, with an empty map",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "visitsRead.set(s.id, { value: null, reason: NO_GA_PROPERTY });",
+        "replace": "visitsRead.set(s.id, { value: new Map(), reason: NO_GA_PROPERTY });"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "4-no-search-property-counted-in-sitesRead",
+    "why": "A site with no Search Console property is counted in search's sitesRead",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "searchRead.set(s.id, { value: null, reason: NO_SEARCH_PROPERTY });",
+        "replace": "searchRead.set(s.id, { value: new Map(), reason: NO_SEARCH_PROPERTY });"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "5-search-throw-writes-zero",
+    "why": "A search read that threw writes 0 clicks and 0 impressions instead of null",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "searchRead.set(s.id, { value: null, reason: reasonOf(e) });",
+        "replace": "searchRead.set(s.id, { value: new Map() });"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "6-windows-read-clock",
+    "why": "trafficWindows reads the clock's date rather than the night",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "return new Date(Date.parse(`${night}T00:00:00Z`) + offset * MS_PER_DAY)",
+        "replace": "return new Date(Date.now() + offset * MS_PER_DAY)"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "7-previous-overlaps-current",
+    "why": "previous ends one day late, so 2026-10-18 counts in both windows",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "    previous: window(-59, -30),",
+        "replace": "    previous: window(-59, -29),"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "8-search-ignores-lag",
+    "why": "The search window ends on the night instead of 3 days before it",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "    search: window(-30, -3),",
+        "replace": "    search: window(-30, 0),"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "9-no-timeout",
+    "why": "The per-read timeout is removed, so a read that never resolves blocks its site forever",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "    const timer = setTimeout(() => reject(new Error(`read timed out after ${ms / 1000} s`)), ms);",
+        "replace": "    const timer = setTimeout(() => {}, ms);"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "10-one-throw-fails-block",
+    "why": "The visits catch rethrows, so one site's failed read fails the whole block instead of being null",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "visitsRead.set(s.id, { value: null, reason: reasonOf(e) });",
+        "replace": "throw e;"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "11-traffic-not-whitelisted",
+    "why": "readOverviewNights drops the traffic block, so the overview cannot read it",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "traffic: measured(rest.traffic),",
+        "replace": "traffic: undefined,"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "12-daily-skips-empty-days",
+    "why": "The daily visits series keeps only days some read site reported, so it is not 60 entries",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "            daily: datesOf(visitRange).map((date) => ({",
+        "replace": "            daily: datesOf(visitRange).filter((d) => readVisits.some((m) => m.has(d))).map((date) => ({"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "13-key-written-with-echo",
+    "why": "The workflow writes the GA key with echo, which can reach the log",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-daily.yml",
+        "find": "printf '%s' \"$GA_SA_KEY_JSON\" > \"$GA_SA_KEY_PATH\"",
+        "replace": "echo \"$GA_SA_KEY_JSON\" > \"$GA_SA_KEY_PATH\""
+      }
+    ],
+    "test": "tests/build/fleet-daily-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "14-runreport-failure-empty-map",
+    "why": "fetchDailyEngaged returns an empty map when runReport rejects, so a failed read reads as 0 visits",
+    "edits": [
+      {
+        "file": "src/reports/ga/client.ts",
+        "find": "      ...reportRequest(property, range, \"engagedSessions\", query.hostnames),\n      dimensions: [{ name: \"date\" }],\n    });",
+        "replace": "      ...reportRequest(property, range, \"engagedSessions\", query.hostnames),\n      dimensions: [{ name: \"date\" }],\n    }).catch(() => [{}]);"
+      }
+    ],
+    "test": "tests/reports/ga/client.test.ts",
+    "expect": "red"
+  }
+]
