@@ -484,7 +484,7 @@
   },
   {
     "id": "35-pause-baseline-without-animation-wait",
-    "why": "r2 E (the race): the pause test takes its baseline with no wait for the animation to report paused, so a frame still in flight reads as a row that never stopped. Expected to survive here: the one-frame race failed in CI once at f554677c but did not reproduce in this container in 3 runs, so this mutant cannot be red on demand. The wait stays as the fix; a surprise red here means the race reproduces.",
+    "why": "r2 E (the race): the pause test takes its baseline with no wait for the animation to report paused, so a frame still in flight reads as a row that never stopped. Expected to survive, but it is a race: the one-frame race failed in CI once at f554677c, red 3 of 3 in the round-4 fixer's runs and red 1 of 7 in round 5's, so the full run's exit can flip on it. The wait stays as the fix; a red here is the race reproducing.",
     "edits": [
       {
         "file": "tests/cockpit/snapshot-navigation.test.ts",
@@ -540,7 +540,7 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "      if (!(from instanceof Node) || !el?.contains(from)) still = !pressing;",
+        "find": "      if (!(from instanceof Node) || !el?.contains(from)) still = !pressed();",
         "replace": "      if (!(from instanceof Node) || !el?.contains(from)) still = true;"
       }
     ],
@@ -553,8 +553,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "      if (!(to instanceof Node) || !el?.contains(to)) still = false;",
-        "replace": "      still = false;"
+        "find": "      if (to instanceof Node && el?.contains(to)) return;\n",
+        "replace": ""
       }
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
@@ -579,8 +579,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "    const onRelease = () => {\n      pressing = false;\n    };",
-        "replace": "    const onRelease = () => {};"
+        "find": "      pressing = false;\n      lastRelease = { type: e.pointerType, at: performance.now() };",
+        "replace": "      lastRelease = { type: e.pointerType, at: performance.now() };"
       }
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
@@ -648,6 +648,123 @@
         "file": "cockpit/src/routes/+page.svelte",
         "find": "      document.removeEventListener(\"keydown\", onKey);\n      document.removeEventListener(\"pointerup\", onRelease);\n      document.removeEventListener(\"pointercancel\", onRelease);\n",
         "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "49-touch-tap-window-removed",
+    "why": "r5 A: the touch and pen window is removed from the press test (only pressing counts), so a tap's focus, which arrives after its pointerup, stills the row and the tap is lost (the touch-tap test goes red)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "pressing || (lastRelease.type !== \"mouse\" && performance.now() - lastRelease.at < 1000)",
+        "replace": "pressing"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "50-mount-recheck-removed",
+    "why": "r5 correctness major 1: the re-check on mount is removed, so a keyboard focus made before the script ran never stills the row (the hydration test goes red)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "    requestAnimationFrame(recheck);\n    return () => {\n",
+        "replace": "    return () => {\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "51-contextmenu-listener-removed",
+    "why": "r5 accessibility major: the contextmenu listener on the window is removed, so a right press with no release holds the row moving (the right-press case of the no-release test goes red; Chromium on Linux fires a native contextmenu for it)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "    el?.addEventListener(\"contextmenu\", onAbandon);\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "52-blur-listener-removed",
+    "why": "r5 accessibility major: the window blur listener is removed, so a left press with no release holds the row moving (the left case of the no-release test goes red)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "    addEventListener(\"blur\", onAbandon);\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "53-focusout-ignores-pressing",
+    "why": "r5 correctness major 3: the focusout ignores the press, so a press on non-link text in the still list snaps the row back (the non-link press test goes red)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      if (pressing && !(to instanceof Node)) return;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "54-release-keeps-still-outside",
+    "why": "r5 correctness major 3: the release does not clear the still state when focus has gone outside the window, so the row stays still after a press on text beside it (the non-link press test's end state goes red)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      if (\n        still &&\n        !(document.activeElement instanceof Node && el?.contains(document.activeElement))\n      )\n        still = false;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "55-onkey-noop",
+    "why": "r5 tests major 1: the key re-check is a no-op, so a key press after a mouse-focused link and the pointer leaving does not still the row (the keydown re-check test goes red)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "    const onKey = () => {\n      requestAnimationFrame(recheck);\n    };\n",
+        "replace": "    const onKey = () => {};\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "56-focusout-ignores-null-target",
+    "why": "r5 tests major 2: the focusout ignores a null related target, so focus leaving to nowhere (a click on the page background) never restarts the row (the nowhere test goes red)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      if (pressing && !(to instanceof Node)) return;\n      still = false;\n",
+        "replace": "      if (!(to instanceof Node)) return;\n      still = false;\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "57-pointercancel-keeps-pressing",
+    "why": "r5 nit 5: pointercancel does not clear the press, so a cancelled press in the window's padding holds the row moving (the pointercancel test goes red)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "    document.addEventListener(\"pointercancel\", onRelease);\n    el?.",
+        "replace": "    document.addEventListener(\"pointercancel\", () => {});\n    el?."
       }
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
