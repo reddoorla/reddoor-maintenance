@@ -309,8 +309,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "(e.siteId === null ? null : siteName(e.siteId)) ?? e.siteName,",
-        "replace": "e.siteName ?? (e.siteId === null ? null : siteName(e.siteId)),"
+        "find": "(siteName(e.siteId) ?? (e.siteName || GONE_SITE))",
+        "replace": "(e.siteName || siteName(e.siteId) || GONE_SITE)"
       }
     ],
     "test": ["cockpit/tests/overview/view.ssr.test.ts"],
@@ -387,8 +387,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "        if (!ranToEnd(r)) push(at,",
-        "replace": "        if (false) push(at,"
+        "find": "const named = notRan.slice(0, 2).map(({ step, r }) => `${step.short}: ${outcomeText(r)}`);",
+        "replace": "const named: string[] = [];"
       }
     ],
     "test": ["cockpit/tests/overview/view.ssr.test.ts"],
@@ -447,6 +447,238 @@
       "tests/cockpit/snapshot-navigation.test.ts",
       "cockpit/tests/overview/page.ssr.test.ts"
     ],
+    "expect": "red"
+  },
+  {
+    "id": "35-window-after-grouping",
+    "why": "A lead outside the window is grouped before the window drops it (the window filter removed)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      Date.parse(r.submittedAt) < since ||\n",
+        "replace": ""
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "36-pacific-days-elapsed",
+    "why": "Days back counted in elapsed time, so 11:30pm six Pacific days back reads undated",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "(Date.parse(`${pacificYmd(now)}T00:00:00Z`) - Date.parse(`${pacificYmd(at)}T00:00:00Z`)) /",
+        "replace": "(now.getTime() - at.getTime()) /"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "37-two-unreadable-with-comma",
+    "why": "Two unreadable sources read 'reports, leads' with a comma",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  xs.length < 2 ? xs.join(\"\") :",
+        "replace": "  xs.length < 2 ? xs.join(\"\") : xs.length === 2 ? xs.join(\", \") :"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "38-ci-recovered-words-dropped",
+    "why": "The ci_recovered event falls back to its own summary (its plain words dropped)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  ci_recovered: \"Build + tests back to passing\",",
+        "replace": ""
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "39-site-launched-words-dropped",
+    "why": "The site_launched event falls back to its own summary (its plain words dropped)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  site_launched: \"Site launched, now in our care\",",
+        "replace": ""
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "40-gone-site-null-name",
+    "why": "An event whose site is gone and whose stored name is blank reads as no site",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "(siteName(e.siteId) ?? (e.siteName || GONE_SITE))",
+        "replace": "(siteName(e.siteId) ?? e.siteName)"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "41-night-two-step-limit-lifted",
+    "why": "The night names every step that did not finish, not the first two",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "notRan.slice(0, 2)",
+        "replace": "notRan.slice(0, 1e9)"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "42-more-did-not-tail-dropped",
+    "why": "The night's tail, 'K more did not', is dropped",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      if (more > 0) named.push(`${more} more did not`);",
+        "replace": ""
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "43-step-count-not-pluralised",
+    "why": "The night's step count is '${M} steps' whatever M is ('1 steps')",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "count(results.length, \"step\", \"steps\")",
+        "replace": "`${results.length} steps`"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "44-outcome-text-hard-coded",
+    "why": "The night's named steps all read 'failed', whatever their outcome",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "`${step.short}: ${outcomeText(r)}`",
+        "replace": "`${step.short}: failed`"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "45-feed-row-stretches-at-75rem",
+    "why": "The first-screen row stretches its panels to the tallest (align-items start deleted)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "    align-items: start;\n  }\n  .ov-lately {\n    grid-column: auto;",
+        "replace": "  }\n  .ov-lately {\n    grid-column: auto;"
+      }
+    ],
+    "test": [
+      "tests/cockpit/snapshot-navigation.test.ts",
+      "cockpit/tests/overview/page.ssr.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "46-time-column-width-deleted",
+    "why": "The time column is as wide as its text, not a fixed 5.5rem, so the text column is ragged",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "  flex: 0 0 5.5rem;",
+        "replace": "  flex: 0 0 auto;"
+      }
+    ],
+    "test": [
+      "tests/cockpit/snapshot-navigation.test.ts",
+      "cockpit/tests/overview/page.ssr.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "47-stamp-not-split",
+    "why": "The page renders the whole stamp as one run of text, not its date and time as two spans",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "<time datetime={l.atIso}><span>{l.whenDate}</span> <span>{l.whenTime}</span></time>",
+        "replace": "<time datetime={l.atIso}>{l.when}</time>"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "48-failed-read-after-the-list",
+    "why": "The failed-read sentence comes after the list, as in round 1",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "    {#if v.lately.unreadable.length > 0}\n      <p>Could not read {listWords(v.lately.unreadable)} just now.</p>\n    {:else if v.lately.lines.length === 0}",
+        "replace": "    {#if v.lately.lines.length === 0}"
+      },
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      </ol>\n    {/if}\n",
+        "replace": "      </ol>\n    {/if}\n    {#if v.lately.unreadable.length > 0}\n      <p>Could not read {listWords(v.lately.unreadable)} just now.</p>\n    {/if}\n"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "49-lines-hidden-when-source-failed",
+    "why": "The lines are hidden whenever a source failed, so a failed read reads as the only news",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "    {#if v.lately.lines.length > 0}\n      <ol data-term=\"Lately\">",
+        "replace": "    {#if v.lately.lines.length > 0 && v.lately.unreadable.length === 0}\n      <ol data-term=\"Lately\">"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "50-nothing-recorded-over-lines",
+    "why": "'Nothing recorded' shows over a feed that has lines",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "    {:else if v.lately.lines.length === 0}",
+        "replace": "    {:else}"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "51-failed-read-muted-again",
+    "why": "The failed-read sentence is muted grey again",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      <p>Could not read {listWords",
+        "replace": "      <p class=\"muted\">Could not read {listWords"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   }
 ]
