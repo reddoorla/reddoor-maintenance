@@ -2,6 +2,7 @@ import type { CockpitSnapshot } from "../../../src/dashboard/snapshot-views.js";
 import type { OverviewNight } from "../../../src/fleet-daily/read.js";
 import type { ReportRow } from "../../../src/reports/report-row.js";
 import type { WebsiteRow } from "../../../src/fleet/site-row.js";
+import type { FleetEvent } from "../../../src/db/fleet-events.js";
 import { NIGHTLIES } from "../../../scripts/nightly-conductor.mjs";
 import { makeWebsiteRow } from "../../../tests/_helpers/website-row.js";
 
@@ -119,6 +120,20 @@ export function night(date: string, over: Partial<OverviewNight["counts"]> = {})
   };
 }
 
+/** P1-87 PR 4: one recorded fleet event, for the Lately feed. */
+export function event(over: Partial<FleetEvent> = {}): FleetEvent {
+  return {
+    id: "evt-1",
+    ts: "2026-10-27T10:00:00.000Z",
+    type: "pr_automerged",
+    siteId: "recA",
+    siteName: "Acme",
+    summary: "auto-merged Bump foo",
+    data: null,
+    ...over,
+  };
+}
+
 export function snapshot(over: Partial<CockpitSnapshot> = {}): CockpitSnapshot {
   return {
     takenAt: NOW.toISOString(),
@@ -131,6 +146,7 @@ export function snapshot(over: Partial<CockpitSnapshot> = {}): CockpitSnapshot {
     digest: {},
     rollup: null,
     recentEvents: [],
+    feedEvents: [],
     deadLetters: new Map(),
     deadLetterOldest: new Map(),
     submissions: [],

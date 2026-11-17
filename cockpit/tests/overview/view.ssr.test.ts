@@ -30,7 +30,7 @@ import { A11Y_STALE_DAYS, PRODUCTION_STALE_DAYS } from "../../../src/alerts/prod
  * Every number it shows is pinned here against fixture rows.
  */
 
-import { NOW, FRESH, STALE, healthy, report, night, snapshot } from "./fixtures.js";
+import { NOW, FRESH, STALE, event, healthy, report, night, snapshot } from "./fixtures.js";
 import type { CockpitSnapshot } from "../../../src/dashboard/snapshot-views.js";
 
 describe("section 1: the one-line status", () => {
@@ -2854,5 +2854,205 @@ describe("review round 2: the spam tile's context when the stopped count is unme
     ).numbers.find((t) => t.key === "spam")!;
     expect(spam.measured).toBe(false);
     expect(spam.context ?? "").not.toContain("more screened");
+  });
+});
+
+/** P1-87 PR 4: the Lately feed, first version (plan pr4-lately-feed-plan.md). */
+describe("the Lately feed (P1-87 PR 4)", () => {
+  it("makes one line from each source, in Pacific time, naming the site", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [healthy({ id: "recA", name: "Acme" })],
+        feedEvents: [
+          event({ ts: "2026-10-27T10:00:00.000Z", type: "pr_automerged", siteName: "Acme" }),
+        ],
+        reports: [
+          report({
+            id: "r1",
+            reportId: "REP-1",
+            reportType: "Maintenance",
+            siteId: "recA",
+            sentAt: "2026-10-26T20:00:00.000Z",
+            approvedBy: "op@example.com",
+          }),
+        ],
+        submissions: [
+          makeSubmissionRow({
+            siteId: "recA",
+            formType: "contact",
+            status: "new",
+            notifyStatus: "sent",
+            submittedAt: "2026-10-26T18:00:00.000Z",
+          }),
+        ],
+      }),
+      NOW,
+    );
+    expect(v.lately.map((l) => [l.when, l.text, l.site])).toEqual([
+      ["Tue 3:00am", "Dependency update merged", "Acme"],
+      ["Mon 1:00pm", "Maintenance report sent", "Acme"],
+      ["Mon 11:00am", "Lead delivered", "Acme"],
+    ]);
+    expect(v.lately[0]!.atIso).toBe("2026-10-27T10:00:00.000Z");
+  });
+
+  it("never carries a lead's name, email, phone, message, extra fields, source or utm", () => {
+    const sub = makeSubmissionRow({
+      siteId: "recA",
+      formType: "contact",
+      status: "new",
+      notifyStatus: "sent",
+      submittedAt: FRESH,
+      name: "SENTINEL-NAME-Q",
+      email: "SENTINEL-EMAIL-Q@example.test",
+      phone: "SENTINEL-PHONE-Q",
+      message: "SENTINEL-MESSAGE-Q",
+      extraFields: '{"k":"SENTINEL-EXTRA-Q"}',
+      sourceUrl: "https://SENTINEL-SOURCE-Q.example.test/",
+      utm: "SENTINEL-UTM-Q",
+    });
+    const v = overviewFromSnapshot(
+      snapshot({ sites: [healthy({ id: "recA", name: "Acme" })], submissions: [sub] }),
+      NOW,
+    );
+    expect(v.lately.map((l) => l.text)).toEqual(["Lead delivered"]);
+    const json = JSON.stringify(v.lately);
+    for (const sentinel of [
+      "SENTINEL-NAME-Q",
+      "SENTINEL-EMAIL-Q",
+      "SENTINEL-PHONE-Q",
+      "SENTINEL-MESSAGE-Q",
+      "SENTINEL-EXTRA-Q",
+      "SENTINEL-SOURCE-Q",
+      "SENTINEL-UTM-Q",
+    ])
+      expect(json).not.toContain(sentinel);
+  });
+
+  it("shows no fleet_swept row, even when the feed holds 30 of them", () => {
+    const sweeps = Array.from({ length: 30 }, (_, i) =>
+      event({
+        id: `sweep-${i}`,
+        type: "fleet_swept",
+        siteId: null,
+        siteName: null,
+        ts: `2026-10-27T11:${String(i).padStart(2, "0")}:00.000Z`,
+        summary: `Swept ${i}`,
+      }),
+    );
+    const others = [
+      event({ id: "o1", type: "pr_automerged", ts: "2026-10-27T09:00:00.000Z", summary: "a" }),
+      event({ id: "o2", type: "vuln_cleared", ts: "2026-10-27T08:00:00.000Z", summary: "b" }),
+      event({ id: "o3", type: "cert_renewed", ts: "2026-10-27T07:00:00.000Z", summary: "c" }),
+    ];
+    const v = overviewFromSnapshot(snapshot({ feedEvents: [...sweeps, ...others] }), NOW);
+    expect(v.lately.map((l) => l.text)).toEqual([
+      "Dependency update merged",
+      "Vulnerability cleared",
+      "Certificate renewed",
+    ]);
+    const lone = overviewFromSnapshot(
+      snapshot({ feedEvents: [event({ type: "fleet_swept", siteId: null, siteName: null })] }),
+      NOW,
+    );
+    expect(lone.lately).toEqual([]);
+  });
+
+  it("makes no line for a test send or a withdrawn report", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        reports: [
+          report({ id: "t", reportId: "REP-T", approvedBy: "Test send via Claude", sentAt: FRESH }),
+          report({
+            id: "w",
+            reportId: "REP-W",
+            sentAt: FRESH,
+            withdrawnAt: FRESH,
+            withdrawnBy: "op@example.com",
+          }),
+        ],
+      }),
+      NOW,
+    );
+    expect(v.lately).toEqual([]);
+  });
+
+  it("makes one line for an override, without the reason typed on it", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [healthy({ id: "recA", name: "Acme" })],
+        reports: [
+          report({
+            id: "o",
+            reportId: "REP-3",
+            siteId: "recA",
+            sentAt: "2026-10-26T20:00:00.000Z",
+            sendOverride: true,
+            overrideReason: "SECRET-REASON-Z",
+          }),
+        ],
+        feedEvents: [
+          event({
+            id: "ov",
+            type: "report_sent_with_override",
+            ts: "2026-10-26T20:00:00.000Z",
+            siteName: "Acme",
+            summary: "sent with override — SECRET-REASON-Z",
+            data: { reportId: "REP-3", reason: "SECRET-REASON-Z", failing: [] },
+          }),
+        ],
+      }),
+      NOW,
+    );
+    expect(v.lately.map((l) => [l.text, l.site])).toEqual([
+      ["Report sent with an override", "Acme"],
+    ]);
+    expect(JSON.stringify(v.lately)).not.toContain("SECRET-REASON-Z");
+  });
+
+  it("lists the newest 8 lines, newest first, and drops anything older than 7 days", () => {
+    const hourly = Array.from({ length: 10 }, (_, i) =>
+      event({
+        id: `h${i}`,
+        ts: new Date(NOW.getTime() - i * 3_600_000).toISOString(),
+        summary: `hour ${i}`,
+      }),
+    );
+    const v = overviewFromSnapshot(snapshot({ feedEvents: hourly }), NOW);
+    expect(v.lately).toHaveLength(8);
+    expect(v.lately.map((l) => l.atIso)).toEqual(hourly.slice(0, 8).map((e) => e.ts));
+    const old = event({ ts: new Date(NOW.getTime() - 8 * 86_400_000).toISOString() });
+    expect(overviewFromSnapshot(snapshot({ feedEvents: [old] }), NOW).lately).toEqual([]);
+  });
+
+  it("takes the nightly's lines from the night expected by now, before 6am too", () => {
+    const nights = [
+      night("2026-10-26", {
+        steps: { "fleet-db-backup.yml": { outcome: "completed", runId: 2, conclusion: "failure" } },
+      }),
+      night("2026-10-25", {
+        steps: { "fleet-db-backup.yml": { outcome: "completed", runId: 1, conclusion: "success" } },
+      }),
+    ];
+    const early = new Date("2026-10-27T12:00:00.000Z"); // 5:00am PT: last night is the 25th
+    expect(overviewFromSnapshot(snapshot({ nights }), early).lately.map((l) => l.text)).toEqual([
+      "Backup: ran to the end",
+    ]);
+    // From 6am the night of the 26th is expected, and its one step result is the line.
+    expect(overviewFromSnapshot(snapshot({ nights }), NOW).lately.map((l) => l.text)).toEqual([
+      "Backup: failed",
+    ]);
+  });
+
+  it("gives each nightly step with a result one line, and none for a step with no result", () => {
+    const all = overviewFromSnapshot(snapshot({ nights: [night("2026-10-26")] }), NOW).lately;
+    expect(all).toHaveLength(8);
+    expect(all.every((l) => l.text.endsWith(": ran to the end"))).toBe(true);
+    expect(all.every((l) => l.site === null)).toBe(true);
+    expect(all[0]!.when).toBe("Mon 11:07pm");
+    // A night with no step results says nothing: a step with no result never reads "ran".
+    expect(
+      overviewFromSnapshot(snapshot({ nights: [night("2026-10-26", { steps: {} })] }), NOW).lately,
+    ).toEqual([]);
   });
 });

@@ -7,6 +7,7 @@ import { extname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { chromium, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { openDb } from "../../src/db/client.js";
+import { recordFleetEvent } from "../../src/db/fleet-events.js";
 import { NIGHTLIES } from "../../scripts/nightly-conductor.mjs";
 import { expectedNight } from "../../cockpit/src/lib/overview/view.js";
 
@@ -225,6 +226,25 @@ async function seed(url: string): Promise<void> {
       .execute();
   }
   await db.destroy();
+  // P1-87 PR 4: one event for the Lately feed, and a sweep newer than it, which the feed leaves out.
+  await recordFleetEvent(db, {
+    id: "pr4-merge",
+    ts: new Date(Date.now() - 3_600_000).toISOString(),
+    type: "pr_automerged",
+    siteId: "recA",
+    siteName: "Acme",
+    summary: "auto-merged Bump lodash",
+    data: null,
+  });
+  await recordFleetEvent(db, {
+    id: "pr4-sweep",
+    ts: new Date().toISOString(),
+    type: "fleet_swept",
+    siteId: null,
+    siteName: null,
+    summary: "Swept 2 sites",
+    data: null,
+  });
 }
 
 beforeAll(async () => {
@@ -366,6 +386,38 @@ describe("cockpit navigation, in a browser, against the built app", () => {
 
   // P1-87 PR 3, round 1: every check bar starts and ends in the same place, whatever
   // its count says, and the two panels sit side by side with one top at 1280px.
+  // P1-87 PR 4: the Lately column is the first screen's third panel: beside the two at
+  // 1280px, below them at 390px. It names the seeded merge and folds out the sweep.
+  it("Lately sits beside the first screen at 1280px and below it at 390px, with no sweeps and no overflow", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await expect.poll(() => page.locator(".ov-lately li").count()).toBeGreaterThan(0);
+    const lines = await page.locator(".ov-lately li").allTextContents();
+    expect(lines.some((t) => t.includes("Acme"))).toBe(true);
+    expect(lines.every((t) => !/swept/i.test(t))).toBe(true);
+    const wide = await page
+      .locator(".ov-health, .ov-happening, .ov-lately")
+      .evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
+    expect(wide).toHaveLength(3);
+    expect(new Set(wide).size).toBe(1);
+    await page.setViewportSize({ width: 390, height: 844 });
+    const narrow = await page
+      .locator(".ov-happening, .ov-lately")
+      .evaluateAll((els) =>
+        els.map((e) => ({
+          top: Math.round(e.getBoundingClientRect().top),
+          bottom: Math.round(e.getBoundingClientRect().bottom),
+        })),
+      );
+    expect(narrow).toHaveLength(2);
+    expect(narrow[1]!.top).toBeGreaterThanOrEqual(narrow[0]!.bottom);
+    const overflows = await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    );
+    expect(overflows).toBe(false);
+  });
+
   it("the overview's check bars line up and its panels share a top at 1280px", async () => {
     const page = await signedIn();
     await page.setViewportSize({ width: 1280, height: 900 });

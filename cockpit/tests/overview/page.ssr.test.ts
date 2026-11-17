@@ -16,7 +16,7 @@ import { buildCockpitView } from "../../src/lib/cockpit/view.js";
 import { cockpitModelFromSnapshot } from "../../../src/dashboard/snapshot-views.js";
 import { makeSubmissionRow } from "../../../tests/_helpers/submission-row.js";
 import { withoutComments } from "../legacy/render.js";
-import { NOW, FRESH, STALE, healthy, night, report, snapshot } from "./fixtures.js";
+import { NOW, FRESH, STALE, event, healthy, night, report, snapshot } from "./fixtures.js";
 
 /**
  * P1-78g review round 1 (T1, T2, T6, T7): the overview page itself, rendered inside
@@ -64,6 +64,8 @@ const SNAP = snapshot({
   ],
   reports: [report({ id: "sent1" })],
   nights: [night("2026-10-26")],
+  // P1-87 PR 4: one fleet event, so the sentinel render covers the Lately feed's text.
+  feedEvents: [event({ id: "pr4-1", ts: FRESH, type: "pr_automerged", summary: "auto-merged x" })],
 });
 
 function pageHtml(view: OverviewView, email: string | null = null): string {
@@ -1457,6 +1459,35 @@ describe("review round 3: the check list names its How-we-count term (group G)",
   it("marks the check list with the term that defines the bars", () => {
     expect(DOC.querySelector(".ov-checks-list")!.getAttribute("data-term")).toBe(
       "Sites passing each check",
+    );
+  });
+});
+
+/** P1-87 PR 4: the Lately feed on the page, the third panel of the first screen. */
+describe("the Lately feed on the page (P1-87 PR 4)", () => {
+  it("is the third panel beside the first screen, headed Lately, with no All activity link", () => {
+    expect(SDOC.querySelectorAll(".ov-first > section").map((el) => el.getAttribute("class"))).toEqual(
+      ["ov-health", "ov-happening", "ov-lately"],
+    );
+    expect(one(".ov-lately > h2")).toBe("Lately");
+    expect(HTML).not.toMatch(/All activity/i);
+  });
+
+  it("shows each line with its time as a datetime, and the site after a dot", () => {
+    const lines = SDOC.querySelectorAll(".ov-lately ol > li");
+    expect(lines).toHaveLength(VIEW.lately.length);
+    expect(VIEW.lately.length).toBeGreaterThan(0);
+    const times = SDOC.querySelectorAll(".ov-lately li time").map((t) => t.getAttribute("datetime"));
+    expect(times).toEqual(VIEW.lately.map((l) => l.atIso));
+    expect(text(lines[0]!)).toBe(
+      `${VIEW.lately[0]!.when} ${VIEW.lately[0]!.text} · ${VIEW.lately[0]!.site}`,
+    );
+  });
+
+  it("says nothing was recorded when the feed is empty", () => {
+    const empty = parse(pageHtml(overviewFromSnapshot(snapshot(), NOW)));
+    expect(text(empty.querySelector(".ov-lately")!)).toContain(
+      "Nothing recorded in the last 7 days.",
     );
   });
 });

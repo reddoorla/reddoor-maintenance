@@ -82,4 +82,31 @@ describe("fleet-events db helpers", () => {
     expect(rows[0]!.siteId).toBeNull();
     expect(rows[0]!.data).toBeNull();
   });
+
+  it("leaves out the types it is told to, in the query itself (P1-87 PR 4)", async () => {
+    const db = await openDb({ url: ":memory:" });
+    await recordFleetEvent(db, ev({ id: "old", ts: "2026-06-20T00:00:00.000Z" }));
+    await recordFleetEvent(
+      db,
+      ev({ id: "s1", ts: "2026-06-22T00:00:00.000Z", type: "fleet_swept", siteId: null }),
+    );
+    await recordFleetEvent(
+      db,
+      ev({ id: "s2", ts: "2026-06-23T00:00:00.000Z", type: "fleet_swept", siteId: null }),
+    );
+    // Capped at 2: without the exclusion the two sweeps would fill the cap.
+    const rows = await listFleetEvents(db, {
+      sinceIso: "2026-06-01T00:00:00.000Z",
+      limit: 2,
+      excludeTypes: ["fleet_swept"],
+    });
+    expect(rows.map((r) => r.id)).toEqual(["old"]);
+    // An empty list excludes nothing.
+    const all = await listFleetEvents(db, {
+      sinceIso: "2026-06-01T00:00:00.000Z",
+      limit: 10,
+      excludeTypes: [],
+    });
+    expect(all.map((r) => r.id)).toEqual(["s2", "s1", "old"]);
+  });
 });
