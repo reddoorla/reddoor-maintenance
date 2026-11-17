@@ -1760,7 +1760,11 @@ describe("the ticker's styles and speed (P1-87 PR 5b review r1 D)", () => {
   it("gives the pressed pause button 2px less padding on each side, so its outer size stays put (r3 D)", () => {
     const pressed = forced.match(/\.ov-ticker-pause\[aria-pressed="true"\]\s*\{([^}]*)\}/);
     expect(pressed).not.toBeNull();
-    expect(pressed![1]).toMatch(/padding:\s*calc\(0\.2em - 2px\)\s+calc\(0\.7em - 2px\)/);
+    // max(0px, …) clamps a font under 10px, where the calc() would go negative (r4 nit); it changes
+    // nothing at normal sizes.
+    expect(pressed![1]).toMatch(
+      /padding:\s*max\(0px,\s*calc\(0\.2em - 2px\)\)\s+max\(0px,\s*calc\(0\.7em - 2px\)\)/,
+    );
   });
 
   it("shows the pause button pressed: an ink fill with on-ink text", () => {

@@ -514,7 +514,7 @@ section {
      back: the button keeps its outer size, and the ticker below it does not jump (r3 D). */
   .ov-ticker-pause[aria-pressed="true"] {
     border-width: 3px;
-    padding: calc(0.2em - 2px) calc(0.7em - 2px);
+    padding: max(0px, calc(0.2em - 2px)) max(0px, calc(0.7em - 2px));
   }
 }
 
