@@ -15,6 +15,7 @@ import {
 import { buildCockpitView } from "../../src/lib/cockpit/view.js";
 import { cockpitModelFromSnapshot } from "../../../src/dashboard/snapshot-views.js";
 import { makeSubmissionRow } from "../../../tests/_helpers/submission-row.js";
+import { makeWebsiteRow } from "../../../tests/_helpers/website-row.js";
 import { withoutComments } from "../legacy/render.js";
 import { NOW, FRESH, STALE, event, healthy, night, report, snapshot } from "./fixtures.js";
 
@@ -94,6 +95,8 @@ describe("the overview page, rendered from a real view (T1)", () => {
       "Fleet health · 3 sites",
       "How much is happening",
       "Lately",
+      // P1-87 PR 5a: the nightly audit bar, under the three panels.
+      "The nightly audit",
       "Leads",
       "Client reports",
       "Upkeep",
@@ -385,6 +388,11 @@ describe("the sentinel render: each leaf in its labelled element (T1, T2; round 
       /^(live|nightly)(\.|\[)/.test(p) ||
       // The page shows a stamp's date and time apart (P1-87 PR 4, review round 2 B).
       /^lately\.lines\[[a-z]+\]\.when$/.test(p) ||
+      // P1-87 PR 5a: the bar's mode, its running label and instants are read as
+      // attributes or inside its line; the marker is a style the page computes; a
+      // step's file and state are its class and its inferred place.
+      /^cycle\.(mode|runningLabel|nowIso|windowEndIso|marker|refresh\.(fromIso|untilIso)|next\.startIso)$/.test(p) ||
+      /^cycle\.steps\[[a-z]+\]\.(file|state)$/.test(p) ||
       // The Upkeep section keeps only Open now and the major upgrades (the operator,
       // 11-16): the two counts on /how and the tiles are not shown here.
       p === "upkeep.automerged" ||
@@ -949,7 +957,8 @@ describe("the first screen (P1-87 PR 3)", () => {
 
   it("shows no site name in the panels on a quiet day", () => {
     const panels = parse(screen(quiet));
-    expect(panels.querySelectorAll("section").length).toBe(3);
+    // The three panels and, since P1-87 PR 5a, the nightly audit bar under them.
+    expect(panels.querySelectorAll("section").length).toBe(4);
     for (const name of quietSites) expect(screen(quiet)).not.toContain(name);
     // Control: the same scan finds a name when a site is broken and listed in the strip.
     expect(text(DOC.querySelector("section.ov-status")!)).toContain("Bravo");
@@ -1471,7 +1480,7 @@ describe("the Lately feed on the page (P1-87 PR 4)", () => {
   it("is the third panel beside the first screen, headed Lately, with no All activity link", () => {
     expect(
       DOC.querySelectorAll(".ov-first > section").map((el) => el.getAttribute("class")),
-    ).toEqual(["ov-health", "ov-happening", "ov-lately"]);
+    ).toEqual(["ov-health", "ov-happening", "ov-lately", "ov-cycle"]);
     expect(text(DOC.querySelector(".ov-lately > h2")!)).toBe("Lately");
     expect(HTML).not.toMatch(/All activity/i);
   });
@@ -1627,5 +1636,130 @@ describe("the Lately feed on the page (P1-87 PR 4)", () => {
     expect(text(empty.querySelector(".ov-lately")!)).toContain(
       "Nothing recorded in the last 7 days.",
     );
+  });
+});
+
+/** P1-87 PR 5a: the nightly audit bar, the first screen's section under the three panels. */
+describe("the nightly audit bar on the page (P1-87 PR 5a)", () => {
+  const RUN_NOW = new Date("2026-10-27T07:30:00.000Z");
+  // A run in progress: CMS check stamped at 11:10pm PT, so CMS sync or Security runs.
+  const RUNNING = overviewFromSnapshot(
+    snapshot({
+      nights: [],
+      sites: [
+        makeWebsiteRow({
+          id: "recA",
+          name: "Acme",
+          status: "maintained",
+          urlCheckedAt: null,
+          prismicModelsCheckedAt: "2026-10-27T06:10:00.000Z",
+        }),
+      ],
+    }),
+    RUN_NOW,
+  );
+  const RDOC = parse(pageHtml(RUNNING));
+  // A recorded night, with the CMS check's own stamp inside that run.
+  const RECORDED = overviewFromSnapshot(
+    snapshot({
+      nights: [night("2026-10-26")],
+      sites: [
+        makeWebsiteRow({
+          id: "recA",
+          name: "Acme",
+          status: "maintained",
+          urlCheckedAt: null,
+          prismicModelsCheckedAt: "2026-10-27T06:15:00.000Z",
+        }),
+      ],
+    }),
+    NOW,
+  );
+  const EDOC = parse(pageHtml(RECORDED));
+
+  it("is a full-width section under the three panels, headed The nightly audit, with its line", () => {
+    const sec = RDOC.querySelector(".ov-first > section.ov-cycle")!;
+    expect(sec).not.toBeNull();
+    expect(sec.getAttribute("aria-labelledby")).toBe("ov-cycle-h");
+    expect(text(sec.querySelector("h2")!)).toBe("The nightly audit");
+    expect(text(sec.querySelector("p.ov-cycle-line")!)).toBe(RUNNING.cycle.line);
+    expect(RUNNING.cycle.line).toBe("Running since 11:07pm PT · now on CMS sync or Security");
+  });
+
+  it("draws nine segments in run order: eight steps, then the wait to the next run", () => {
+    const items = RDOC.querySelectorAll(".ov-cycle-track > li");
+    expect(items).toHaveLength(9);
+    expect(items.slice(0, 8).map((li) => text(li.querySelector(".ov-cycle-name")!))).toEqual([
+      "Backup",
+      "CMS check",
+      "CMS sync",
+      "Security",
+      "Site checks",
+      "Build and tests",
+      "Live forms",
+      "Report drafts",
+    ]);
+    expect(items[8]!.getAttribute("class")).toBe("ov-cycle-seg wait");
+    expect(text(items[8]!)).toContain("Next run");
+    expect(text(items[8]!)).toContain("11:07pm PT");
+  });
+
+  it("stripes only the running bars, through one pattern on the page", () => {
+    const running = RDOC.querySelectorAll(".ov-cycle-seg.running");
+    expect(running.map((li) => text(li.querySelector(".ov-cycle-name")!))).toEqual([
+      "CMS sync",
+      "Security",
+    ]);
+    expect(RDOC.querySelectorAll(".ov-cycle pattern#ov-cycle-stripes")).toHaveLength(1);
+    expect(RDOC.querySelectorAll('.ov-cycle rect[fill="url(#ov-cycle-stripes)"]')).toHaveLength(2);
+    // A recorded night has nothing running, so it draws no stripes.
+    expect(EDOC.querySelectorAll(".ov-cycle pattern")).toHaveLength(0);
+    expect(EDOC.querySelectorAll(".ov-cycle-seg.running")).toHaveLength(0);
+  });
+
+  it("says each step's words to a screen reader, after its name", () => {
+    const words = RDOC.querySelectorAll(".ov-cycle-track > li").slice(0, 8).map((li) => text(li.querySelector(".visually-hidden")!));
+    expect(words).toEqual(RUNNING.cycle.steps.map((x) => `: ${x.words}`));
+    expect(words[1]).toBe(": finished at 11:10pm PT");
+    expect(words[2]).toBe(": running now, or the step beside it");
+  });
+
+  it("shows a step's time where it has one, and none where it does not", () => {
+    const times = EDOC.querySelectorAll(".ov-cycle-track > li").slice(0, 8).map((li) => text(li.querySelector(".ov-cycle-time")!));
+    expect(times).toEqual(RECORDED.cycle.steps.map((x) => x.time ?? ""));
+    expect(times[1]).toBe("11:15pm");
+    expect(times[0]).toBe("");
+  });
+
+  it("places the marker along the wait, and says when the next run starts", () => {
+    const marker = EDOC.querySelector(".ov-cycle .ov-cycle-marker")!;
+    expect(marker.getAttribute("style")).toMatch(/^left: 36\.2\d*%$/);
+    // A running bar has no marker: the wait to the next run has not begun.
+    expect(RDOC.querySelector(".ov-cycle .ov-cycle-marker")).toBeNull();
+    expect(RDOC.querySelector(".ov-cycle-seg.running .ov-cycle-marker")).toBeNull();
+  });
+
+  it("is explained in How we count, under its own term", () => {
+    const entry = HOW_WE_COUNT.find((h) => h.term === "The nightly audit bar");
+    expect(entry).toBeDefined();
+    expect(entry!.text).toContain("Backup, CMS sync and Report drafts leave no time");
+    expect(entry!.text).toContain("every 2 minutes");
+    expect(RDOC.querySelector('section.ov-cycle[data-term="The nightly audit bar"]')).not.toBeNull();
+  });
+
+  it("keeps its own rules in the stylesheet: no animation, no gradient, and full width", () => {
+    const css = readFileSync(
+      new URL("../../src/lib/overview/overview.css", import.meta.url),
+      "utf8",
+    ).replace(/\/\*[\s\S]*?\*\//g, "");
+    const rules = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)];
+    expect(css).toMatch(/\.ov-health,\s*\.ov-happening,\s*\.ov-lately,\s*\.ov-cycle\s*\{/);
+    expect(css).toMatch(/\.ov-cycle\s*\{[^}]*grid-column:\s*1 \/ -1/);
+    const own = rules.filter(([, sel]) => sel!.includes("ov-cycle"));
+    expect(own.length).toBeGreaterThan(5);
+    for (const [, , body] of own) {
+      expect(body).not.toMatch(/transition|animation|gradient/);
+    }
+    expect(css).not.toMatch(/@keyframes\s+ov-cycle/);
   });
 });

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { onMount } from "svelte";
+  import { invalidate } from "$app/navigation";
   import type { OverviewView } from "../lib/overview/view.js";
   import {
     launchingClauses,
@@ -6,6 +8,8 @@
     sparkGeometry,
     trendGeometry,
   } from "../lib/overview/view.js";
+  import { markerAt, untilWords } from "../lib/overview/cycle.js";
+  import { startCycleClock } from "../lib/overview/cycle-clock.js";
   import PageStyles from "../lib/PageStyles.svelte";
   import healthCss from "../lib/cockpit/health.css?inline";
   import overviewCss from "../lib/overview/overview.css?inline";
@@ -19,6 +23,35 @@
     v.health.tiers.watch + v.health.tiers.attention + v.health.tiers.broken === 0,
   );
   const launching = $derived(launchingClauses(v.health.launching));
+
+  // P1-87 PR 5a: the nightly bar's clock. Until the page mounts, the view's own instant
+  // is the clock, so the server render says what the view says; then the clock moves the
+  // marker once a minute and the bar re-reads the snapshot while the run is writing.
+  let clock = $state<number | null>(null);
+  const nowMs = $derived(clock ?? Date.parse(v.cycle.nowIso));
+  const marker = $derived(
+    v.cycle.marker === null
+      ? null
+      : clock === null
+        ? v.cycle.marker
+        : markerAt(v.cycle, v.cycle.windowEndIso, clock),
+  );
+  const cycleRunning = $derived(v.cycle.steps.some((x) => x.state === "running"));
+  onMount(() => {
+    clock = Date.now();
+    const cycle = startCycleClock({
+      getView: () => v.cycle,
+      nowMs: () => Date.now(),
+      isVisible: () => document.visibilityState === "visible",
+      invalidate: () => invalidate("cockpit:snapshot"),
+      onTick: (t) => {
+        clock = t;
+      },
+      setInterval,
+      clearInterval,
+    });
+    return () => cycle.stop();
+  });
 </script>
 
 <svelte:head>
@@ -167,6 +200,56 @@
         {/each}
       </ol>
     {/if}
+  </section>
+
+  <section class="ov-cycle" aria-labelledby="ov-cycle-h" data-term="The nightly audit bar">
+    <h2 id="ov-cycle-h">The nightly audit</h2>
+    <p class="ov-cycle-line">{v.cycle.line}</p>
+    {#if cycleRunning}
+      <!-- One pattern per page: the running bars fill with it (decision 1, an SVG pattern,
+           not a gradient). -->
+      <svg class="ov-cycle-defs" width="0" height="0" aria-hidden="true" focusable="false">
+        <defs>
+          <pattern
+            id="ov-cycle-stripes"
+            width="8"
+            height="8"
+            patternUnits="userSpaceOnUse"
+            patternTransform="rotate(45)"
+          >
+            <line x1="0" y1="0" x2="0" y2="8" />
+          </pattern>
+        </defs>
+      </svg>
+    {/if}
+    <ol class="ov-cycle-track">
+      {#each v.cycle.steps as step, i (i)}
+        <li class="ov-cycle-seg {step.state}">
+          <span class="ov-cycle-bar" aria-hidden="true">
+            {#if step.state === "running"}<svg
+                class="ov-cycle-stripes"
+                width="100%"
+                height="100%"
+                focusable="false"
+                ><rect width="100%" height="100%" fill="url(#ov-cycle-stripes)" /></svg
+              >{/if}
+          </span>
+          <span class="ov-cycle-name">{step.short}</span>
+          <span class="ov-cycle-time">{step.time ?? ""}</span>
+          <span class="visually-hidden">: {step.words}</span>
+        </li>
+      {/each}
+      <li class="ov-cycle-seg wait">
+        <span class="ov-cycle-bar" aria-hidden="true">
+          {#if marker !== null}<span class="ov-cycle-marker" style="left: {marker * 100}%"></span>{/if}
+        </span>
+        <span class="ov-cycle-name">Next run</span>
+        <span class="ov-cycle-time"
+          >{v.cycle.next.startsAt}{#if clock !== null}
+            · {untilWords(v.cycle.next.startIso, nowMs)}{/if}</span
+        >
+      </li>
+    </ol>
   </section>
 </div>
 

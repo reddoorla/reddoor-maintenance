@@ -2619,4 +2619,8 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
     term: "Lately",
     text: "The newest 8 lines from the last 7 days, Pacific time: fleet events (a dependency update merged, a vulnerability cleared, a certificate renewed, and the like), reports sent, leads delivered, and the night the tiles count (before 6am, the night before last). A lead line names its site and how many, never who sent it. The nightly is one line saying how many of its steps ran to the end, naming up to two steps that did not run to the end and how many more did not; a sweep is shown only as those steps. A line from six Pacific calendar days back carries its date (Wed Oct 21, 12:00pm), so two days with the same weekday never read alike. A test send and a withdrawn report are not listed. When a source could not be read, the panel says so, and does not read as nothing recorded.",
   },
+  {
+    term: "The nightly audit bar",
+    text: "The nightly audit's eight steps, in the order they run: Backup, CMS check, CMS sync, Security, Site checks, Build and tests, Live forms, Report drafts. Once the night is recorded, a filled step ran to the end, and any other step says how it ended. Before that, a filled step is shown as finished, from the sites' stamps, because a stamp proves a step finished, not that it passed. A step with a time is one that stamps the sites; Backup, CMS sync and Report drafts leave no time. The striped span is the step running now, or one of two steps when a step that leaves no time sits before the next. During the run the page re-reads every 2 minutes while the tab is visible. Five hours after the run started, with no record for its night, the bar says the run was not recorded.",
+  },
 ];

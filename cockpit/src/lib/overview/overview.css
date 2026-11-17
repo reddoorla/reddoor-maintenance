@@ -239,7 +239,8 @@ section {
 }
 .ov-health,
 .ov-happening,
-.ov-lately {
+.ov-lately,
+.ov-cycle {
   margin: 0;
   padding: 1rem 1.25rem;
   background: var(--surface);
@@ -508,5 +509,94 @@ section {
   }
   .ov-spark circle {
     fill: currentColor;
+  }
+}
+
+/* P1-87 PR 5a: the nightly audit bar, a full-width panel under the first screen's three.
+   Eight steps and the wait, one column each from 48rem; below that, one row each: a bar,
+   the name, the time. Tokens only; square corners; nothing animates (the running stripes
+   are a static SVG pattern, decision 1), so there is no transition or gradient. */
+.ov-cycle {
+  grid-column: 1 / -1;
+}
+.ov-cycle-line {
+  margin: 0 0 0.75rem;
+}
+.ov-cycle-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+.ov-cycle-defs line {
+  stroke: var(--ink);
+  stroke-width: 2px;
+}
+.ov-cycle-track {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ov-cycle-seg {
+  display: grid;
+  grid-template-columns: 3rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+}
+.ov-cycle-bar {
+  position: relative;
+  display: block;
+  height: 0.625rem;
+  background: var(--band);
+}
+.ov-cycle-stripes {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+/* Done is solid; a problem is the Attention segment's fill inside a panel-coloured frame,
+   so it differs by shape as well as tone (never red: red is Broken alone); none is an
+   outline; waiting and running sit on the band. */
+.ov-cycle-seg.done .ov-cycle-bar {
+  background: var(--ink);
+}
+.ov-cycle-seg.problem .ov-cycle-bar {
+  background: var(--ink-dark);
+  box-shadow: inset 0 0 0 3px var(--surface);
+}
+.ov-cycle-seg.none .ov-cycle-bar {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--ink-muted);
+}
+/* The marker: a 2px rule a little above and below the bar, where the wait is now. */
+.ov-cycle-marker {
+  position: absolute;
+  top: -0.3rem;
+  bottom: -0.3rem;
+  width: 2px;
+  background: var(--ink);
+  transform: translateX(-1px);
+}
+.ov-cycle-name {
+  min-width: 0;
+}
+.ov-cycle-time {
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+@media (min-width: 48rem) {
+  .ov-cycle-track {
+    grid-template-columns: repeat(8, minmax(0, 1fr)) minmax(0, 1.6fr);
+    column-gap: 0.4rem;
+    align-items: end;
+  }
+  .ov-cycle-seg {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 0.35rem;
   }
 }
