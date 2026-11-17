@@ -88,11 +88,12 @@ const pageText = (doc: HTMLElement) =>
     .join(" ");
 
 describe("the overview page, rendered from a real view (T1)", () => {
-  it("has the first screen's two panels, then the kept sections, each under its h2", () => {
+  it("has the first screen's three panels, then the kept sections, each under its h2", () => {
     expect(DOC.querySelectorAll("h2").map(text)).toEqual([
       "Status",
       "Fleet health · 3 sites",
       "How much is happening",
+      "Lately",
       "Leads",
       "Client reports",
       "Upkeep",
@@ -946,7 +947,7 @@ describe("the first screen (P1-87 PR 3)", () => {
 
   it("shows no site name in the panels on a quiet day", () => {
     const panels = parse(screen(quiet));
-    expect(panels.querySelectorAll("section").length).toBe(2);
+    expect(panels.querySelectorAll("section").length).toBe(3);
     for (const name of quietSites) expect(screen(quiet)).not.toContain(name);
     // Control: the same scan finds a name when a site is broken and listed in the strip.
     expect(text(DOC.querySelector("section.ov-status")!)).toContain("Bravo");
@@ -1466,18 +1467,18 @@ describe("review round 3: the check list names its How-we-count term (group G)",
 /** P1-87 PR 4: the Lately feed on the page, the third panel of the first screen. */
 describe("the Lately feed on the page (P1-87 PR 4)", () => {
   it("is the third panel beside the first screen, headed Lately, with no All activity link", () => {
-    expect(SDOC.querySelectorAll(".ov-first > section").map((el) => el.getAttribute("class"))).toEqual(
+    expect(DOC.querySelectorAll(".ov-first > section").map((el) => el.getAttribute("class"))).toEqual(
       ["ov-health", "ov-happening", "ov-lately"],
     );
-    expect(one(".ov-lately > h2")).toBe("Lately");
+    expect(text(DOC.querySelector(".ov-lately > h2")!)).toBe("Lately");
     expect(HTML).not.toMatch(/All activity/i);
   });
 
   it("shows each line with its time as a datetime, and the site after a dot", () => {
-    const lines = SDOC.querySelectorAll(".ov-lately ol > li");
+    const lines = DOC.querySelectorAll(".ov-lately ol > li");
     expect(lines).toHaveLength(VIEW.lately.length);
     expect(VIEW.lately.length).toBeGreaterThan(0);
-    const times = SDOC.querySelectorAll(".ov-lately li time").map((t) => t.getAttribute("datetime"));
+    const times = DOC.querySelectorAll(".ov-lately li time").map((t) => t.getAttribute("datetime"));
     expect(times).toEqual(VIEW.lately.map((l) => l.atIso));
     expect(text(lines[0]!)).toBe(
       `${VIEW.lately[0]!.when} ${VIEW.lately[0]!.text} · ${VIEW.lately[0]!.site}`,

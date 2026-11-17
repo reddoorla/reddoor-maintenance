@@ -193,7 +193,9 @@ describe("loadCockpitSnapshot on a batchReads Db", () => {
     expect(c.batches.slice(1).length).toBe(c.batches[0]?.length);
     expect(c.executes).toEqual([]);
     expect(s.recentEvents).toEqual([]);
-    expect(s.gaps).toEqual(["events"]);
+    // P1-87 PR 4: the Lately feed's read is a second read of the same table, so it fails too.
+    expect(s.feedEvents).toEqual([]);
+    expect(s.gaps).toEqual(["events", "feed events"]);
     expect(s.sites).toHaveLength(1);
     expect(s.submissions).toEqual([]);
   });
