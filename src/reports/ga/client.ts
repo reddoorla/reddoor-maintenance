@@ -12,6 +12,8 @@ export { REPORT_WINDOW_DAYS, reportWindows, type GaDateRange } from "./window.js
 const ANALYTICS_READONLY = "https://www.googleapis.com/auth/analytics.readonly";
 const ADMIN_BASE = "https://analyticsadmin.googleapis.com/v1beta";
 const MS_PER_DAY = 86_400_000;
+/** The traffic read's per-call budget: a stalled GA call must not hold the job open (P1-87, PR 6). */
+const READ_TIMEOUT_MS = 30_000;
 
 export type GaQuery = {
   /** GA4 numeric property ID (e.g. "471880366"). */
@@ -187,5 +189,50 @@ export async function fetchPeriodUsers(
     const current = await run(periodStart, periodEnd);
     const previous = await run(prevStart, prevEnd);
     return { current, previous };
+  });
+}
+
+/**
+ * GA4 `engagedSessions` for each day of `range`, on the site's own hosts: the
+ * per-day series the traffic block stores (P1-87, PR 6). Keys are `YYYY-MM-DD`.
+ *
+ * Days GA omits are absent from the map, not 0: the caller reads a missing day as 0,
+ * because GA leaves out empty days. Takes the range as given, so it does not read the
+ * property's timezone from the Admin API. Throws on any error, or once every subject
+ * has failed auth, and never returns an empty map for a failed read.
+ */
+export async function fetchDailyEngaged(
+  query: GaQuery,
+  range: GaDateRange,
+): Promise<Map<string, number>> {
+  const key = readKey(query.keyPath);
+  const property = `properties/${query.propertyId.trim()}`;
+
+  return withSubjectFailover(query.subjects, "GA", async (subject) => {
+    const authClient = new JWT({
+      email: key.client_email,
+      key: key.private_key,
+      scopes: [ANALYTICS_READONLY],
+      subject,
+    });
+    const client = new BetaAnalyticsDataClient({ authClient });
+    const [resp] = await client.runReport(
+      {
+        ...reportRequest(property, range, "engagedSessions", query.hostnames),
+        dimensions: [{ name: "date" }],
+      },
+      { timeout: READ_TIMEOUT_MS },
+    );
+    const days = new Map<string, number>();
+    for (const row of resp.rows ?? []) {
+      const raw = row.dimensionValues?.[0]?.value ?? "";
+      if (!/^\d{8}$/.test(raw)) throw new Error(`GA returned a non-date row: ${raw}`);
+      // A metric that is not a whole number is a failed read, never a 0 (review round 1).
+      const metric = row.metricValues?.[0]?.value ?? "";
+      if (!/^\d+$/.test(metric))
+        throw new Error(`GA returned a non-numeric engaged-sessions value for ${raw}: ${metric}`);
+      days.set(`${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`, Number(metric));
+    }
+    return days;
   });
 }

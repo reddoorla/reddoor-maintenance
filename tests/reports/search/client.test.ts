@@ -12,12 +12,14 @@ vi.mock("google-auth-library", () => ({
 }));
 
 import {
+  fetchSearchDaily,
   fetchSearchPresence,
   resolvePropertyCandidates,
   pickBrandQuery,
   selectBrandPosition,
   bareHost,
   BRAND_QUERY_ROW_LIMIT,
+  NoPropertyForSubjectError,
 } from "../../../src/reports/search/client.js";
 import { JWT } from "google-auth-library";
 
@@ -614,5 +616,192 @@ describe("fetchSearchPresence", () => {
         end,
       ),
     ).rejects.toThrow("last");
+  });
+});
+
+describe("fetchSearchDaily", () => {
+  const range = { startDate: "2026-10-17", endDate: "2026-10-18" };
+
+  it("POSTs a per-date query with no dimension filter, to an explicit property", async () => {
+    request.mockResolvedValueOnce(
+      ok({
+        rows: [
+          { keys: ["2026-10-17"], clicks: 4, impressions: 90 },
+          { keys: ["2026-10-18"], clicks: 2, impressions: 60 },
+        ],
+      }),
+    );
+    const out = await fetchSearchDaily(
+      { keyPath, subjects: ["s@x.com"], property: "sc-domain:erpfunds.com", host: "erpfunds.com" },
+      range,
+    );
+    expect(out).toEqual(
+      new Map([
+        ["2026-10-17", { clicks: 4, impressions: 90 }],
+        ["2026-10-18", { clicks: 2, impressions: 60 }],
+      ]),
+    );
+    const call = request.mock.calls[0]![0];
+    expect(call.url).toContain(encodeURIComponent("sc-domain:erpfunds.com"));
+    expect(call.data.dimensions).toEqual(["date"]);
+    expect(call.data.dimensionFilterGroups).toBeUndefined();
+    expect(call.data.startDate).toBe("2026-10-17");
+    expect(call.data.endDate).toBe("2026-10-18");
+  });
+
+  // Review round 2, Group B (X1): a third matching property is read when the first two have
+  // no rows, so the candidate loop is not cut at two.
+  it("reads the third matching property when the first two have no rows", async () => {
+    request
+      .mockResolvedValueOnce(
+        ok({
+          siteEntry: [
+            { siteUrl: "sc-domain:x.com" },
+            { siteUrl: "https://www.x.com/" },
+            { siteUrl: "https://x.com/" },
+          ],
+        }),
+      ) // sites.list
+      .mockResolvedValueOnce(ok({ rows: [] })) // sc-domain:x.com: no rows
+      .mockResolvedValueOnce(ok({ rows: [] })) // https://www.x.com/: no rows
+      .mockResolvedValueOnce(ok({ rows: [{ keys: ["2026-10-17"], clicks: 6, impressions: 12 }] })); // https://x.com/
+    const out = await fetchSearchDaily({ keyPath, subjects: ["s@x.com"], host: "x.com" }, range);
+    expect(out).toEqual(new Map([["2026-10-17", { clicks: 6, impressions: 12 }]]));
+    expect(request).toHaveBeenCalledTimes(4);
+    expect(request.mock.calls[3]![0].url).toContain(encodeURIComponent("https://x.com/"));
+  });
+
+  it("resolves the property via sites.list when none is given", async () => {
+    request
+      .mockResolvedValueOnce(ok({ siteEntry: [{ siteUrl: "sc-domain:erpfunds.com" }] }))
+      .mockResolvedValueOnce(ok({ rows: [{ keys: ["2026-10-17"], clicks: 1, impressions: 5 }] }));
+    const out = await fetchSearchDaily(
+      { keyPath, subjects: ["s@x.com"], host: "erpfunds.com" },
+      range,
+    );
+    expect(out.get("2026-10-17")).toEqual({ clicks: 1, impressions: 5 });
+    expect(request.mock.calls[0]![0].url).toContain("/sites");
+    expect(request.mock.calls[1]![0].url).toContain(encodeURIComponent("sc-domain:erpfunds.com"));
+  });
+
+  it("throws, rather than returning an empty map, when no property is found", async () => {
+    request.mockResolvedValueOnce(ok({ siteEntry: [] }));
+    await expect(
+      fetchSearchDaily({ keyPath, subjects: ["s@x.com"], host: "erpfunds.com" }, range),
+    ).rejects.toThrow(/no Search Console property/);
+  });
+
+  // Group B: every subject sees no matching property, so the read throws the typed error
+  // the traffic block maps to "no Search Console property".
+  it("throws NoPropertyForSubjectError when every subject sees no matching property", async () => {
+    request
+      .mockResolvedValueOnce(ok({ siteEntry: [{ siteUrl: "sc-domain:other.com" }] }))
+      .mockResolvedValueOnce(ok({ siteEntry: [] }));
+    await expect(
+      fetchSearchDaily({ keyPath, subjects: ["a@x.com", "b@x.com"], host: "erpfunds.com" }, range),
+    ).rejects.toBeInstanceOf(NoPropertyForSubjectError);
+  });
+
+  // Review round 1, Group E: one subject's auth failure falls through to the next.
+  it("fails over to the next subject on an auth error, and reads the second subject's rows", async () => {
+    request
+      .mockRejectedValueOnce(Object.assign(new Error("Forbidden"), { response: { status: 403 } }))
+      .mockResolvedValueOnce(ok({ rows: [{ keys: ["2026-10-17"], clicks: 3, impressions: 8 }] }));
+    const out = await fetchSearchDaily(
+      {
+        keyPath,
+        subjects: ["first@x.com", "second@x.com"],
+        property: "sc-domain:x.com",
+        host: "x.com",
+      },
+      range,
+    );
+    expect(out).toEqual(new Map([["2026-10-17", { clicks: 3, impressions: 8 }]]));
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(JWT).mock.calls[0]![0]).toMatchObject({ subject: "first@x.com" });
+    expect(vi.mocked(JWT).mock.calls[1]![0]).toMatchObject({ subject: "second@x.com" });
+  });
+
+  // Review round 1, Group E: a row without its date is a failed read, not a dropped row.
+  it("throws when a row has no date key", async () => {
+    request.mockResolvedValueOnce(ok({ rows: [{ clicks: 1, impressions: 2 }] }));
+    await expect(
+      fetchSearchDaily(
+        { keyPath, subjects: ["s@x.com"], property: "sc-domain:x.com", host: "x.com" },
+        range,
+      ),
+    ).rejects.toThrow(/no date/);
+  });
+
+  // Group C: a stalled socket must not hold the job open, so every request in this read
+  // carries a 30 s timeout, the sites.list call included.
+  it("gives every request in the read a 30 s timeout, sites.list included", async () => {
+    request
+      .mockResolvedValueOnce(ok({ siteEntry: [{ siteUrl: "sc-domain:erpfunds.com" }] }))
+      .mockResolvedValueOnce(ok({ rows: [{ keys: ["2026-10-17"], clicks: 1, impressions: 5 }] }));
+    await fetchSearchDaily({ keyPath, subjects: ["s@x.com"], host: "erpfunds.com" }, range);
+    expect(request).toHaveBeenCalledTimes(2);
+    for (const [call] of request.mock.calls) expect(call.timeout).toBe(30_000);
+  });
+
+  it("throws when the only candidate's request fails", async () => {
+    request.mockRejectedValueOnce(new Error("socket hang up"));
+    await expect(
+      fetchSearchDaily(
+        {
+          keyPath,
+          subjects: ["s@x.com"],
+          property: "sc-domain:erpfunds.com",
+          host: "erpfunds.com",
+        },
+        range,
+      ),
+    ).rejects.toThrow("socket hang up");
+  });
+
+  // Group A (P1-87 PR 6, review round 1): the candidates are tried in order until one
+  // returns rows, as fetchSearchPresence does. An empty Domain property is not a true 0
+  // while a URL-prefix property holds the clicks.
+  it("reads the URL-prefix property when the Domain property answers with no rows", async () => {
+    request
+      .mockResolvedValueOnce(
+        ok({
+          siteEntry: [{ siteUrl: "https://www.x.com/" }, { siteUrl: "sc-domain:x.com" }],
+        }),
+      ) // sites.list
+      .mockResolvedValueOnce(ok({})) // sc-domain: answers {}
+      .mockResolvedValueOnce(
+        ok({ rows: [{ keys: ["2026-10-17"], clicks: 40, impressions: 900 }] }),
+      ); // url-prefix: the data
+    const out = await fetchSearchDaily({ keyPath, subjects: ["s@x.com"], host: "x.com" }, range);
+    expect(out).toEqual(new Map([["2026-10-17", { clicks: 40, impressions: 900 }]]));
+    expect(request).toHaveBeenCalledTimes(3);
+    expect(request.mock.calls[2]![0].url).toContain(encodeURIComponent("https://www.x.com/"));
+  });
+
+  it("returns an empty map when every candidate answers with no rows (a true 0)", async () => {
+    request
+      .mockResolvedValueOnce(
+        ok({ siteEntry: [{ siteUrl: "sc-domain:x.com" }, { siteUrl: "https://www.x.com/" }] }),
+      )
+      .mockResolvedValueOnce(ok({ rows: [] }))
+      .mockResolvedValueOnce(ok({}));
+    const out = await fetchSearchDaily({ keyPath, subjects: ["s@x.com"], host: "x.com" }, range);
+    expect(out).toEqual(new Map());
+    expect(request).toHaveBeenCalledTimes(3);
+  });
+
+  it("throws on a 500 from the first candidate, without falling through to the next", async () => {
+    request
+      .mockResolvedValueOnce(
+        ok({ siteEntry: [{ siteUrl: "sc-domain:x.com" }, { siteUrl: "https://www.x.com/" }] }),
+      )
+      .mockRejectedValueOnce(
+        Object.assign(new Error("Internal error encountered."), { response: { status: 500 } }),
+      );
+    await expect(
+      fetchSearchDaily({ keyPath, subjects: ["s@x.com"], host: "x.com" }, range),
+    ).rejects.toThrow("Internal error encountered.");
+    expect(request).toHaveBeenCalledTimes(2); // sites.list and the first candidate only
   });
 });

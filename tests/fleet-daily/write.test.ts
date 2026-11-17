@@ -12,7 +12,7 @@ import { kyselyOverClient, type Db } from "../../src/db/client.js";
 import { writeFleetDaily, type GitHubReads } from "../../src/fleet-daily/write.js";
 import { nightOf, parseConductorLog, ageDeps } from "../../src/fleet-daily/core.js";
 import { readRecentRows } from "../../src/fleet-daily/read.js";
-import type { FleetDailyCounts } from "../../src/fleet-daily/types.js";
+import type { FleetDailyCounts, TrafficCounts } from "../../src/fleet-daily/types.js";
 import type { CockpitModel } from "../../src/dashboard/fleet-cockpit.js";
 import { countFirstParentMerges, githubReads } from "../../scripts/fleet-daily.mjs";
 
@@ -874,5 +874,89 @@ describe("the GitHub reads", () => {
       "https://api.github.com/repos/o/r/actions/runs/9001/attempts/2/jobs?per_page=10",
       "https://api.github.com/repos/o/r/actions/jobs/77/logs",
     ]);
+  });
+});
+
+/** P1-87 PR 6: the `traffic` block. A reader is injected like `github` and `cockpit`. */
+describe("the traffic block", () => {
+  const TRAFFIC = {
+    visits: {
+      value: {
+        current: 41,
+        previous: 37,
+        currentWindow: { startDate: "2026-10-18", endDate: "2026-10-25" },
+        previousWindow: { startDate: "2026-09-18", endDate: "2026-10-17" },
+        sitesRead: 1,
+        sitesWithProperty: 1,
+        daily: [],
+      },
+    },
+    search: { value: null, reason: "no site read" },
+    sites: [],
+  } as unknown as TrafficCounts;
+
+  it("the written row carries traffic from the injected reader", async () => {
+    await writeFleetDaily({
+      db,
+      github: github({}, { [NIGHT_RUN.id]: FULL_LOG }),
+      run: NIGHT_RUN,
+      planned: PLANNED,
+      cockpit: async () => MODEL,
+      traffic: async () => TRAFFIC,
+      now: new Date("2026-10-26T08:20:00Z"),
+    });
+    expect((await only()).traffic).toEqual({ value: TRAFFIC });
+  });
+
+  it("a reader that throws makes traffic unmeasured with its reason, and the rest is written", async () => {
+    await writeFleetDaily({
+      db,
+      github: github({}, { [NIGHT_RUN.id]: FULL_LOG }),
+      run: NIGHT_RUN,
+      planned: PLANNED,
+      cockpit: async () => MODEL,
+      traffic: async () => {
+        throw new Error("GA exploded");
+      },
+      now: new Date("2026-10-26T08:20:00Z"),
+    });
+    const c = await only();
+    expect(c.traffic).toEqual({ value: null, reason: "traffic: GA exploded" });
+    expect(c.leads.value).not.toBeNull();
+    expect(Object.keys(c.steps)).toHaveLength(PLANNED.length);
+  });
+
+  it("an --only merge keeps the stored traffic", async () => {
+    await writeFleetDaily({
+      db,
+      github: github({}, { [NIGHT_RUN.id]: FULL_LOG }),
+      run: NIGHT_RUN,
+      planned: PLANNED,
+      cockpit: async () => MODEL,
+      traffic: async () => TRAFFIC,
+      now: new Date("2026-10-26T08:20:00Z"),
+    });
+    const onlyRun = {
+      id: 201,
+      attempt: 1,
+      event: "workflow_dispatch",
+      createdAt: "2026-10-26T16:51:00Z",
+      startedAt: "2026-10-26T16:51:10Z",
+      conclusion: "success",
+      headBranch: "main",
+    };
+    const out = await writeFleetDaily({
+      db,
+      github: github({}, { 201: ONLY_SMOKE_LOG }),
+      run: onlyRun,
+      planned: PLANNED,
+      cockpit: async () => MODEL,
+      traffic: async () => {
+        throw new Error("should not be read on a merge");
+      },
+      now: new Date("2026-10-26T17:00:00Z"),
+    });
+    expect(out.action).toBe("merged");
+    expect((await only()).traffic).toEqual({ value: TRAFFIC });
   });
 });

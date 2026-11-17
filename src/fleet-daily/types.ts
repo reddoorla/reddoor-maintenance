@@ -94,4 +94,47 @@ export type FleetDailyCounts = {
   events: Measured<Record<string, number>>;
   /** First-parent merges on reddoor-maintenance `main`: a running total. */
   prsMerged: Measured<number>;
+  /** GA4 engaged visits and Search Console clicks and impressions (P1-87, PR 6). */
+  traffic: Measured<TrafficCounts>;
+};
+
+/** A window of calendar dates (`YYYY-MM-DD`, Pacific), both ends inclusive. */
+export type TrafficWindow = { startDate: string; endDate: string };
+
+/** One site's traffic for the night: each half is its own reading, or null with why. */
+export type TrafficSite = {
+  siteId: string;
+  visits: Measured<{ current: number; previous: number }>;
+  search: Measured<{ clicks: number; impressions: number }>;
+};
+
+/** The `traffic` block of a `fleet_daily` row (P1-87, PR 6). Each half is unmeasured
+ *  as a whole, with a reason, when no site could be read; a site that could not be read
+ *  is left out of the totals, never counted as 0. */
+export type TrafficCounts = {
+  visits: Measured<{
+    current: number;
+    previous: number;
+    currentWindow: TrafficWindow;
+    previousWindow: TrafficWindow;
+    /** Sites whose GA read returned. */
+    sitesRead: number;
+    /** Sites with a GA4 property recorded. */
+    sitesWithProperty: number;
+    /** 60 days, oldest first, every date present; a day no read site reported is 0. */
+    daily: { date: string; visits: number }[];
+  }>;
+  search: Measured<{
+    clicks: number;
+    impressions: number;
+    window: TrafficWindow;
+    /** Sites whose Search Console read returned. */
+    sitesRead: number;
+    /** Sites with a Search Console property, or a URL to resolve one from. */
+    sitesWithProperty: number;
+    /** 28 days, oldest first, every date present; a day no read site reported is 0. */
+    daily: { date: string; clicks: number; impressions: number }[];
+  }>;
+  /** Every maintained site, by site id. */
+  sites: TrafficSite[];
 };

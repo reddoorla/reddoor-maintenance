@@ -42,7 +42,7 @@ import {
   readScreenouts,
   upsertRow,
 } from "./read.js";
-import type { ConductorRun, FleetDailyCounts, Measured } from "./types.js";
+import type { ConductorRun, FleetDailyCounts, Measured, TrafficCounts } from "./types.js";
 
 export type GitHubReads = {
   /** The conductor job's log text, for this attempt. */
@@ -61,6 +61,8 @@ export type WriteInputs = {
   planned: readonly string[];
   /** The cockpit model as of now; a throw is recorded as a null block. */
   cockpit: () => Promise<CockpitModel>;
+  /** The nightly GA4 and Search Console reads (P1-87, PR 6); a throw is a null block. */
+  traffic?: () => Promise<TrafficCounts>;
   now: Date;
   log?: (line: string) => void;
 };
@@ -272,6 +274,9 @@ export async function writeFleetDaily(i: WriteInputs): Promise<WriteOutcome> {
     reportsSent: await measure("reports", () => readReportsSent(i.db)),
     events,
     prsMerged,
+    traffic: await measure("traffic", () =>
+      i.traffic ? i.traffic() : Promise.reject(new Error("no traffic reader")),
+    ),
   };
   const row: StoredRow = { night, counts, writtenAt: nowIso };
   await upsertRow(i.db, row);
