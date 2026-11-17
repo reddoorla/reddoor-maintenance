@@ -32,6 +32,9 @@ export type HowView = {
   reports: Pick<ReportsView, "checks" | "lighthouse" | "lighthouseAsOf" | "sent">;
   /** Chapter 5: PRs merged into the stack. */
   prsMerged: string;
+  /** How we count: the nights the nightly has written counts for, in words (null when
+   *  they could not be read). Shown beside the steps, not on the overview (review round 2, E). */
+  nightsCollected: string | null;
 };
 
 const LADDER_ORDER: readonly Tier[] = ["ok", "watch", "attention", "broken"];
@@ -70,5 +73,6 @@ export function howFromSnapshot(s: CockpitSnapshot, now: Date): HowView {
       sent: o.reports.sent,
     },
     prsMerged: o.prsMerged,
+    nightsCollected: o.nightsCollected,
   };
 }

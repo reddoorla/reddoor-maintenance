@@ -123,6 +123,19 @@ describe("the page sits beside the overview in the nav", () => {
   });
 });
 
+describe("the nightly facts the overview no longer shows (review round 2, E)", () => {
+  it("How we count says how many nights the nightly has written, beside the steps", () => {
+    expect(one(DOC, 'details [data-term="Nights counted"]')).toBe(
+      "The nightly has written 2 nights of counts so far.",
+    );
+  });
+
+  it("chapter 5 keeps the PR gloss and who promotes a change, each pinned once", () => {
+    expect(DOC.text).toContain("Each change lands as its own pull request (PR)");
+    expect(DOC.text).toContain("when one of us promotes it");
+  });
+});
+
 describe("five chapters, each with its diagram", () => {
   it("has the five chapters in the story's order, each kicker inside its heading group", () => {
     expect(DOC.querySelectorAll("hgroup > .how-kicker").map(text)).toEqual([
@@ -158,13 +171,19 @@ describe("five chapters, each with its diagram", () => {
     expect(steps.map((li) => text(li.querySelector(".how-step-what")!))).toEqual(
       NIGHTLY_STEPS.map((s) => s.label),
     );
-    expect(steps.map((li) => text(li.querySelector(".how-step-last")!))).toEqual(
-      NIGHTLY_STEPS.map((s) =>
-        s.file === "fleet-smoke.yml"
-          ? "Night of Oct 26: failed"
-          : "Night of Oct 26: ran to the end",
-      ),
-    );
+    // Each step's outcome, when it last finished and what it reached (review round 2, E:
+    // these moved here from the overview, where no other page now shows them). The
+    // smoke step is the one that failed on the newest night.
+    expect(steps.map((li) => text(li.querySelector(".how-step-last")!))).toEqual([
+      "Night of Oct 26: ran to the end. Last finished: in the run that started Oct 26, 11:07pm PT (ran to the end). Reached: the whole database, every site's records in one copy.",
+      "Night of Oct 26: ran to the end. Last finished: no site stamped yet. Reached: not yet collected.",
+      "Night of Oct 26: ran to the end. Last finished: in the run that started Oct 26, 11:07pm PT (ran to the end). Reached: sites on Prismic, with a pull request only where something changed.",
+      "Night of Oct 26: ran to the end. Last finished: Oct 26, 11:30pm PT. Reached: 2 sites that night.",
+      "Night of Oct 26: ran to the end. Last finished: Oct 26, 11:30pm PT. Reached: 2 sites that night.",
+      "Night of Oct 26: failed. Last finished: no site stamped yet. Reached: not yet collected.",
+      "Night of Oct 26: ran to the end. Last finished: Oct 26, 11:30pm PT. Reached: 1 site that night.",
+      "Night of Oct 26: ran to the end. Last finished: in the run that started Oct 26, 11:07pm PT (ran to the end). Reached: sites with a report due.",
+    ]);
   });
 
   it("chapter 1 numbers its steps in the markup, as the report's proofs cite them", () => {
