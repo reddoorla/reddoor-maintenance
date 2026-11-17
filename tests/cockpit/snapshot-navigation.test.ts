@@ -1413,6 +1413,14 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
       .not.toBe(moving);
     await page.locator(".ov-ticker-pause").click();
     expect(await page.locator(".ov-ticker-pause").getAttribute("aria-pressed")).toBe("true");
+    // The paused class lands on Svelte's next update: take the baseline only once the
+    // browser reports the animation paused, or one more frame of motion reads as a
+    // row that never stopped (CI, f554677c: -13.76px then -14.68px).
+    await expect
+      .poll(() =>
+        page.locator(".ov-ticker-run").evaluate((e) => getComputedStyle(e).animationPlayState),
+      )
+      .toBe("paused");
     const paused = await transform(page);
     await page.waitForTimeout(1500);
     expect(await transform(page), "the row stands still once paused").toBe(paused);
