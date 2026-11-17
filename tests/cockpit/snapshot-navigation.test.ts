@@ -418,6 +418,44 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     expect(overflows).toBe(false);
   });
 
+  // P1-87 PR 5a: the nightly audit bar under the first screen's three panels. At 1280px its
+  // nine segments share one row below them; at 390px they stack, each below the last.
+  it("the nightly audit's nine segments sit below the three panels at 1280px and stack at 390px, with no overflow", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    // The precondition: all nine segments rendered (eight steps and the wait).
+    await expect.poll(() => page.locator(".ov-cycle-seg").count()).toBe(9);
+    const wide = await page.evaluate(() => {
+      const panelsBottom = Math.max(
+        ...[...document.querySelectorAll(".ov-health, .ov-happening, .ov-lately")].map(
+          (e) => e.getBoundingClientRect().bottom,
+        ),
+      );
+      const tops = [...document.querySelectorAll(".ov-cycle-seg")].map(
+        (e) => Math.round(e.getBoundingClientRect().top),
+      );
+      return { panelsBottom, tops };
+    });
+    expect(new Set(wide.tops).size).toBe(1);
+    expect(Math.min(...wide.tops)).toBeGreaterThanOrEqual(wide.panelsBottom);
+    await page.setViewportSize({ width: 390, height: 844 });
+    const narrow = await page.locator(".ov-cycle-seg").evaluateAll((els) =>
+      els.map((e) => ({
+        top: Math.round(e.getBoundingClientRect().top),
+        bottom: Math.round(e.getBoundingClientRect().bottom),
+      })),
+    );
+    expect(narrow).toHaveLength(9);
+    for (let i = 1; i < narrow.length; i++) {
+      expect(narrow[i]!.top).toBeGreaterThanOrEqual(narrow[i - 1]!.bottom);
+    }
+    const overflows = await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    );
+    expect(overflows).toBe(false);
+  });
+
   // P1-87 PR 4, review round 2 B: at 1280px the feed is the tallest first-screen panel, so
   // without `align-items: start` on the row, Health and Happening stretch to its height. Its
   // time column is fixed, so every line's text starts at one x.
@@ -1004,7 +1042,12 @@ describe("cockpit navigation, in a browser, against the built app", () => {
         [...document.querySelectorAll("h1, section")].map((e) => e.outerHTML).join("\n"),
       );
       // Relative times may tick between the two loads; everything else must match.
-      return html.replace(/\b(just now|\d+ (?:minute|hour|day|week|month|year)s? ago)/g, "<ago>");
+      // The nightly bar's marker and its "in N hours" are the same kind of reading: where
+      // the clock is, so they tick between the loads too (P1-87 PR 5a).
+      return html
+        .replace(/\b(just now|\d+ (?:minute|hour|day|week|month|year)s? ago)/g, "<ago>")
+        .replace(/left: [\d.]+%/g, "left: <marker>%")
+        .replace(/· (?:in \d+ (?:minutes?|hours?)|starting now)/g, "· <until>");
     };
     const erik = await overview("erik");
     const tim = await overview("tim");

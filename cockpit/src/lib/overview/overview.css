@@ -592,7 +592,8 @@ section {
   .ov-cycle-track {
     grid-template-columns: repeat(8, minmax(0, 1fr)) minmax(0, 1.6fr);
     column-gap: 0.4rem;
-    align-items: end;
+    /* From the top: the bars line up whatever the height of a name or a time. */
+    align-items: start;
   }
   .ov-cycle-seg {
     grid-template-columns: minmax(0, 1fr);
