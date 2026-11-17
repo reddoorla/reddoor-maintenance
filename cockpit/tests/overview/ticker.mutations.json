@@ -326,12 +326,27 @@
   },
   {
     "id": "25-keyboard-still-keyed-on-focus-within",
-    "why": "r2 A: the still layout is keyed on any focus, so a mouse focus reflows the row under the pointer and a click on a moving link opens nothing (the click test's control, run by hand)",
+    "why": "r2 A: the still layout is keyed on any focus, so a mouse focus reflows the row under the pointer and a click on a moving link opens nothing. All four keyboard selectors change, as in the click test's control run by hand: one selector alone leaves the list in its row and is not the defect",
     "edits": [
       {
         "file": "cockpit/src/lib/overview/overview.css",
         "find": ".ov-ticker-window:has(:focus-visible) .ov-ticker-run {",
         "replace": ".ov-ticker-window:focus-within .ov-ticker-run {"
+      },
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-ticker-window:has(:focus-visible) .ov-ticker-list {",
+        "replace": ".ov-ticker-window:focus-within .ov-ticker-list {"
+      },
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-ticker-window:has(:focus-visible) .ov-ticker-list li {",
+        "replace": ".ov-ticker-window:focus-within .ov-ticker-list li {"
+      },
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-ticker-window:has(:focus-visible) .ov-ticker-list.copy {",
+        "replace": ".ov-ticker-window:focus-within .ov-ticker-list.copy {"
       }
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
@@ -456,7 +471,7 @@
   },
   {
     "id": "35-pause-baseline-without-animation-wait",
-    "why": "r2 E (the race): the pause test takes its baseline with no wait for the animation to report paused, so a frame still in flight reads as a row that never stopped",
+    "why": "r2 E (the race): the pause test takes its baseline with no wait for the animation to report paused, so a frame still in flight reads as a row that never stopped. Expected to survive here: the one-frame race failed in CI once at f554677c but did not reproduce in this container in 3 runs, so this mutant cannot be red on demand. The wait stays as the fix; a surprise red here means the race reproduces.",
     "edits": [
       {
         "file": "tests/cockpit/snapshot-navigation.test.ts",
@@ -465,6 +480,6 @@
       }
     ],
     "test": ["tests/cockpit/snapshot-navigation.test.ts"],
-    "expect": "red"
+    "expect": "survives"
   }
 ]
