@@ -223,20 +223,38 @@ describe("readTraffic", () => {
     expect(out.search.value).toMatchObject({ sitesRead: 1, sitesWithProperty: 1 });
   });
 
+  // Review round 3, Group B: the exact reason, so a mask that keeps the mailbox name, eats the
+  // host, or leaves a subdomain's tail fails. The host name survives; only the address is masked.
   it("a reader error that names an address stores it as <account>, never the address", async () => {
     const out = await readTraffic(
       [site("alpha")],
       NIGHT,
       readers({
         search: async () => {
-          throw new Error("no Search Console property is visible to a@b.com");
+          throw new Error("no Search Console property matching b.com is visible to a@b.com");
         },
       }),
     );
-    const reason = out.sites[0]!.search.reason ?? "";
-    expect(reason).toContain("<account>");
-    expect(reason).not.toContain("@");
-    expect(reason).not.toContain("b.com");
+    expect(out.sites[0]!.search.reason).toBe(
+      "no Search Console property matching b.com is visible to <account>",
+    );
+  });
+
+  it("a subdomain and a dotted mailbox are masked whole, the host name is not left behind", async () => {
+    const out = await readTraffic(
+      [site("alpha")],
+      NIGHT,
+      readers({
+        search: async () => {
+          throw new Error(
+            "no Search Console property matching mail.example.com is visible to john.smith@mail.example.com",
+          );
+        },
+      }),
+    );
+    expect(out.sites[0]!.search.reason).toBe(
+      "no Search Console property matching mail.example.com is visible to <account>",
+    );
   });
 
   // Review round 2, Group C: a JSON parse error quotes part of the key file, so a malformed
@@ -259,6 +277,40 @@ describe("readTraffic", () => {
 
   // Review round 2, Group B (X5): two addresses in one message are each masked, and neither
   // the local part nor the domain of either is stored.
+  // Review round 3, Group B (minors 3 and 5): only a SyntaxError whose message says JSON is the
+  // key file's. Any other error keeps its message, so a real reason is never replaced.
+  it("a plain error that mentions JSON keeps its message", async () => {
+    const out = await readTraffic(
+      [site("alpha")],
+      NIGHT,
+      readers({
+        search: async () => {
+          throw new Error("invalid JSON response from the API");
+        },
+      }),
+    );
+    expect(out.sites[0]!.search).toEqual({
+      value: null,
+      reason: "invalid JSON response from the API",
+    });
+  });
+
+  it("a SyntaxError whose message does not say JSON keeps its message", async () => {
+    const out = await readTraffic(
+      [site("alpha")],
+      NIGHT,
+      readers({
+        search: async () => {
+          throw new SyntaxError("Unexpected token in the response");
+        },
+      }),
+    );
+    expect(out.sites[0]!.search).toEqual({
+      value: null,
+      reason: "Unexpected token in the response",
+    });
+  });
+
   it("a reader error that names two addresses stores <account> for each, and neither address", async () => {
     const out = await readTraffic(
       [site("alpha")],
@@ -269,11 +321,9 @@ describe("readTraffic", () => {
         },
       }),
     );
-    const reason = out.sites[0]!.search.reason ?? "";
-    expect(reason.split("<account>")).toHaveLength(3);
-    expect(reason).not.toContain("@");
-    expect(reason).not.toContain("b.com");
-    expect(reason).not.toContain("d.org");
+    expect(out.sites[0]!.search.reason).toBe(
+      "no Search Console property is visible to <account> or <account>",
+    );
   });
 
   it("a site with a URL but no recorded property is read: the reader may resolve one", async () => {
