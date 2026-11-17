@@ -1351,6 +1351,46 @@ describe("review round 3: the grey part covers all three unknown kinds (group C,
   });
 });
 
+describe("review round 4: the grey part's condition, and the deploy verdict (group C, tests minors 2, 3)", () => {
+  const rowIn = (doc: HTMLElement, name: string) =>
+    doc.querySelectorAll(".ov-check").find((r) => text(r).startsWith(name))!;
+
+  it("a fresh failed test and a fresh no-result, with no stale site, still grey the whole track", () => {
+    const two = parse(
+      pageHtml(
+        overviewFromSnapshot(
+          snapshot({
+            sites: [
+              healthy({ id: "recA", name: "Ann", formE2eOk: "fail", formE2eCheckedAt: FRESH }),
+              healthy({ id: "recB", name: "Ben", formE2eOk: null, formE2eCheckedAt: FRESH }),
+            ],
+          }),
+          NOW,
+        ),
+      ),
+    );
+    const form = rowIn(two, "Contact form");
+    expect(form.querySelector(".ov-check-unknown")!.getAttribute("style")).toBe(
+      "left: 0%; width: 100%",
+    );
+    expect(form.querySelector(".ov-check-fill")).toBeNull();
+  });
+
+  it("a Live row with only a failing site draws neither a fill nor a grey part", () => {
+    const failing = parse(
+      pageHtml(
+        overviewFromSnapshot(
+          snapshot({ sites: [healthy({ id: "z", name: "Zed", reachableOk: "fail" })] }),
+          NOW,
+        ),
+      ),
+    );
+    const live = rowIn(failing, "Live");
+    expect(live.querySelector(".ov-check-unknown")).toBeNull();
+    expect(live.querySelector(".ov-check-fill")).toBeNull();
+  });
+});
+
 describe("review round 3: no zero-width parts on a check bar (group D, tests minor 6)", () => {
   // Under forced colours a 0%-wide bordered span still draws a 4px mark, so a part with no
   // sites is not rendered at all (review round 3, correctness and tests minor 6).

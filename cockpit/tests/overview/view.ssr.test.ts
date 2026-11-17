@@ -2509,6 +2509,17 @@ describe("review round 3: each unknown kind is named on its own check (group C, 
     }
   });
 
+  it("a stale deploy reading is not checked, and a fresh one with no deploy recorded is no verdict (tests minors 2, 3)", () => {
+    expect(kinds(healthOf({ deployCheckedAt: STALE }), "Deploy")).toEqual({
+      noVerdict: 0,
+      notChecked: 1,
+    });
+    expect(kinds(healthOf({ deployStatus: null, deployCheckedAt: FRESH }), "Deploy")).toEqual({
+      noVerdict: 1,
+      notChecked: 0,
+    });
+  });
+
   it("a fresh audit with no critical and a null high count is a pass when critical is 0 (tests minor 4)", () => {
     const security = healthOf({
       securityVulnsCritical: 0,
