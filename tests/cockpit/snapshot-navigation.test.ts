@@ -31,6 +31,7 @@ const OUT = join(ROOT, "cockpit/.svelte-kit/output");
 const PASSWORD = "nav-test-password";
 
 let dir: string;
+let dbUrl: string;
 let http: HttpServer;
 let browser: Browser;
 let origin: string;
@@ -251,6 +252,7 @@ beforeAll(async () => {
   ensureBuilt();
   dir = mkdtempSync(join(tmpdir(), "cockpit-nav-"));
   const url = `file:${join(dir, "fleet.db")}`;
+  dbUrl = url;
   await seed(url);
   process.env.TURSO_DATABASE_URL = url;
   delete process.env.TURSO_AUTH_TOKEN;
@@ -414,6 +416,62 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
     );
     expect(overflows).toBe(false);
+  });
+
+  // P1-87 PR 4, review round 2 B: at 1280px the feed is the tallest first-screen panel, so
+  // without `align-items: start` on the row, Health and Happening stretch to its height. Its
+  // time column is fixed, so every line's text starts at one x.
+  it("at 1280px Lately is the tallest panel and Health keeps its own height; every line's text starts at one x", async () => {
+    const db = await openDb({ url: dbUrl });
+    try {
+      // Seven more lines: one dated (6.5 days old), six from today's hours.
+      for (let i = 0; i < 7; i++)
+        await recordFleetEvent(db, {
+          id: `pr4-fill-${i}`,
+          ts:
+            i === 0
+              ? new Date(Date.now() - 6.5 * 86_400_000).toISOString()
+              : new Date(Date.now() - i * 1_800_000).toISOString(),
+          type: "pr_automerged",
+          siteId: null,
+          siteName: "Hillcrest Veterinary Hospital and Dental Care of the Northern Valley",
+          summary: "renewed",
+          data: null,
+        });
+      const page = await signedIn();
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(`${origin}/`);
+      await expect.poll(() => page.locator(".ov-lately li").count()).toBeGreaterThan(6);
+      // Each panel's own content height: its last child's bottom plus its bottom padding.
+      const measured = await page.evaluate(() => {
+        const panels = ["ov-health", "ov-happening", "ov-lately"].map((c) =>
+          document.querySelector<HTMLElement>(`.${c}`),
+        );
+        if (panels.some((p) => p === null)) return null;
+        return (panels as HTMLElement[]).map((el) => {
+          const box = el.getBoundingClientRect();
+          const last = el.lastElementChild!.getBoundingClientRect();
+          const padBottom = parseFloat(getComputedStyle(el).paddingBottom);
+          return { height: box.height, content: last.bottom - box.top + padBottom };
+        });
+      });
+      // All three panels measured. Lately's own content is the tallest, so a row that
+      // stretches shows it in Health's box: Health's height must match its own content.
+      expect(measured).not.toBeNull();
+      expect(measured!).toHaveLength(3);
+      expect(measured!.every((m) => m.height > 0)).toBe(true);
+      const [health, , lately] = measured!;
+      expect(lately!.content).toBeGreaterThan(health!.content);
+      expect(Math.abs(health!.height - health!.content)).toBeLessThanOrEqual(2);
+      const starts = await page.$$eval(".ov-lately li", (lis) =>
+        lis.map((li) => (li.children[1] as HTMLElement).getBoundingClientRect().left),
+      );
+      expect(starts.length).toBeGreaterThan(6);
+      expect(Math.max(...starts) - Math.min(...starts)).toBeLessThanOrEqual(1);
+    } finally {
+      await db.deleteFrom("fleet_events").where("id", "like", "pr4-fill-%").execute();
+      await db.destroy();
+    }
   });
 
   // P1-87 PR 4, review round 1 F: between 60rem and 75rem Lately spans both columns, below them.

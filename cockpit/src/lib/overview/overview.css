@@ -201,8 +201,10 @@ section {
 @media (min-width: 75rem) {
   .ov-first {
     /* Health keeps its check bars wide (over 100px at 1280px, measured); the plan's 1.2fr
-       left them at 65px. */
+       left them at 65px. Each panel is its own height: a long feed does not stretch the
+       other two (P1-87 PR 4, review round 2). */
     grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 0.9fr);
+    align-items: start;
   }
   .ov-lately {
     grid-column: auto;
@@ -225,10 +227,14 @@ section {
   min-width: 0;
   overflow-wrap: anywhere;
 }
+/* The time is a fixed column that wraps after the date; each span keeps its own words whole. */
 .ov-lately time {
-  flex: 0 0 auto;
+  flex: 0 0 5.5rem;
   color: var(--ink-muted);
   font-variant-numeric: tabular-nums;
+  white-space: normal;
+}
+.ov-lately time > span {
   white-space: nowrap;
 }
 .ov-health,

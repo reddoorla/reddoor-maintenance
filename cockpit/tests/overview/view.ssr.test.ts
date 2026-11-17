@@ -3322,7 +3322,11 @@ describe("the Lately feed (P1-87 PR 4)", () => {
       NOW,
     );
     expect(v.lately.lines.map((l) => [l.when, l.text, l.site])).toEqual([
-      ["Mon 11:07pm", "Nightly run: 6 of 8 steps ran to the end (Backup: failed; Live forms: failed)", null],
+      [
+        "Mon 11:07pm",
+        "Nightly run: 6 of 8 steps ran to the end (Backup: failed; Live forms: failed)",
+        null,
+      ],
     ]);
   });
 
@@ -3334,7 +3338,9 @@ describe("the Lately feed (P1-87 PR 4)", () => {
       ]),
     );
     const nights = [night("2026-10-26", { steps: all as never })];
-    const feedEvents = [event({ id: "ev8", type: "pr_automerged", ts: "2026-10-27T08:00:00.000Z" })];
+    const feedEvents = [
+      event({ id: "ev8", type: "pr_automerged", ts: "2026-10-27T08:00:00.000Z" }),
+    ];
     const v = overviewFromSnapshot(snapshot({ nights, feedEvents }), NOW);
     expect(v.lately.lines.map((l) => [l.when, l.text])).toEqual([
       ["Tue 1:00am", "Dependency update merged"],

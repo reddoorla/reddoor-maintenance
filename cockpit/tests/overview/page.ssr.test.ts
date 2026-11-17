@@ -383,6 +383,8 @@ describe("the sentinel render: each leaf in its labelled element (T1, T2; round 
     const unrendered = (p: string) =>
       // Fields the page no longer renders (P1-87 PR 3): the model keeps them.
       /^(live|nightly)(\.|\[)/.test(p) ||
+      // The page shows a stamp's date and time apart (P1-87 PR 4, review round 2 B).
+      /^lately\.lines\[[a-z]+\]\.when$/.test(p) ||
       // The Upkeep section keeps only Open now and the major upgrades (the operator,
       // 11-16): the two counts on /how and the tiles are not shown here.
       p === "upkeep.automerged" ||
@@ -1486,6 +1488,26 @@ describe("the Lately feed on the page (P1-87 PR 4)", () => {
     );
   });
 
+  it("splits each stamp into its date and its time, each in a span, so the column wraps after the date", () => {
+    const html = pageHtml(
+      overviewFromSnapshot(
+        snapshot({
+          feedEvents: [
+            event({ id: "d6", ts: "2026-10-21T19:00:00.000Z" }),
+            event({ id: "d5", ts: "2026-10-22T19:00:00.000Z" }),
+          ],
+        }),
+        NOW,
+      ),
+    );
+    // Newest first: the Thursday line (five days old) leads, the Wednesday one (six) follows.
+    const [undated, dated] = [...parse(html).querySelectorAll(".ov-lately li time")];
+    expect([...dated!.children].map(text)).toEqual(["Wed Oct 21,", "12:00pm"]);
+    expect(text(dated!)).toBe("Wed Oct 21, 12:00pm");
+    expect([...undated!.children].map(text)).toEqual(["Thu", "12:00pm"]);
+    expect(text(undated!)).toBe("Thu 12:00pm");
+  });
+
   it("renders a nightly line as its time and text, with no site and no '· null'", () => {
     const html = pageHtml(overviewFromSnapshot(snapshot({ nights: [night("2026-10-26")] }), NOW));
     const first = parse(html).querySelector(".ov-lately ol > li")!;
@@ -1516,6 +1538,18 @@ describe("the Lately feed on the page (P1-87 PR 4)", () => {
       "utf8",
     ).replace(/\/\*[\s\S]*?\*\//g, "");
     expect(css).toMatch(/\.ov-lately\s*\{[^}]*align-self:\s*start/);
+    // From 75rem the three first-screen panels align to their own heights, not one row's.
+    expect(css).toMatch(
+      /@media \(min-width: 75rem\)\s*\{[^@]*\.ov-first\s*\{[^}]*align-items:\s*start/,
+    );
+    // The time is a fixed column that wraps; its date and time spans never break inside.
+    const timeRule = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].find(
+      ([, sel]) => sel!.trim() === ".ov-lately time",
+    )![2]!;
+    expect(timeRule).toMatch(/flex:\s*0 0 5\.5rem/);
+    expect(timeRule).toMatch(/white-space:\s*normal/);
+    expect(timeRule).not.toMatch(/nowrap/);
+    expect(css).toMatch(/\.ov-lately time > span\s*\{[^}]*white-space:\s*nowrap/);
     const liRule = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].find(
       ([, sel]) => sel!.trim() === ".ov-lately li",
     )![2]!;

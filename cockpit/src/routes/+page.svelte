@@ -152,7 +152,7 @@
       <ol data-term="Lately">
         {#each v.lately.lines as l, i (i)}
           <li>
-            <time datetime={l.atIso}>{l.when}</time>
+            <time datetime={l.atIso}><span>{l.whenDate}</span> <span>{l.whenTime}</span></time>
             <span
               >{l.text}{#if l.site !== null}<span aria-hidden="true">{" · "}</span><span
                   class="visually-hidden">{", "}</span

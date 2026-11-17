@@ -2209,7 +2209,17 @@ export function sparkGeometry(
 }
 
 /** P1-87 PR 4: the Lately feed. One line: `text`, then the site when one is named. */
-export type LatelyLine = { atIso: string; when: string; text: string; site: string | null };
+export type LatelyLine = {
+  atIso: string;
+  /** The stamp whole: `whenDate` then `whenTime`, one space apart. */
+  when: string;
+  /** "Mon", or "Mon Oct 20," from six Pacific days back: the column's first line. */
+  whenDate: string;
+  /** "12:00pm", Pacific. */
+  whenTime: string;
+  text: string;
+  site: string | null;
+};
 
 /** The feed's cap: the newest this many lines (sketch 3). */
 export const LATELY_LINES = 8;
@@ -2244,8 +2254,9 @@ const LATELY_DATE = new Intl.DateTimeFormat("en-US", {
 const LATELY_DATED_DAYS = 6;
 
 /** "Sun 11:45pm": the weekday and the time, Pacific, as the sketch has it; from
- *  `LATELY_DATED_DAYS` before `now`, "Mon Nov 9, 6:07pm". */
-function latelyWhen(iso: string, now: Date): string {
+ *  `LATELY_DATED_DAYS` before `now`, "Mon Nov 9, 6:07pm". Split into its date and its
+ *  time, so the page can wrap the column after the date. */
+function latelyWhen(iso: string, now: Date): { whenDate: string; whenTime: string } {
   const at = new Date(iso);
   const parts = LATELY_WHEN.formatToParts(at);
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
@@ -2254,11 +2265,11 @@ function latelyWhen(iso: string, now: Date): string {
     (Date.parse(`${pacificYmd(now)}T00:00:00Z`) - Date.parse(`${pacificYmd(at)}T00:00:00Z`)) /
       DAY_MS,
   );
-  if (days < LATELY_DATED_DAYS) return `${get("weekday")} ${time}`;
+  if (days < LATELY_DATED_DAYS) return { whenDate: get("weekday"), whenTime: time };
   const date = LATELY_DATE.formatToParts(at)
     .map((p) => p.value)
     .join("");
-  return `${get("weekday")} ${date}, ${time}`;
+  return { whenDate: `${get("weekday")} ${date},`, whenTime: time };
 }
 
 /** The `reportId` an event names in its detail, when it names one. */
@@ -2298,7 +2309,12 @@ export function latelyView(
   const push = (iso: string, text: string, site: string | null, rank: number) => {
     const t = Date.parse(iso);
     if (!Number.isFinite(t) || t < since) return;
-    found.push({ t, rank, line: { atIso: iso, when: latelyWhen(iso, now), text, site } });
+    const w = latelyWhen(iso, now);
+    found.push({
+      t,
+      rank,
+      line: { atIso: iso, when: `${w.whenDate} ${w.whenTime}`, ...w, text, site },
+    });
   };
   // Events (rank 0). An override's report is said by its event alone (rank 1 skips it).
   const events = (s.feedEvents ?? []).filter((e) => e.type !== "fleet_swept");
