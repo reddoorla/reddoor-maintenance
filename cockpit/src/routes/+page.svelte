@@ -49,10 +49,25 @@
     let releaseTimer: ReturnType<typeof setTimeout> | undefined;
     // A mouse or pen is over the ticker. Chromium keeps :hover on the element a touch tapped, and a
     // mouse that rests fires no pointerover, so the flag is set only by the window's own pointer
-    // events (a touch never sets it) and cleared when a pointer leaves the window.
+    // events (a touch never sets it) and cleared when a pointer leaves the window. A drag fires a
+    // cancel and a leave while the pointer stays over the window, so neither counts as leaving:
+    // dragend settles the flag from where the drop landed.
     let finePointerOver = false;
+    let dragging = false;
     const onFinePointer = (e: PointerEvent) => {
       if (e.pointerType !== "touch") finePointerOver = true;
+    };
+    const onDragStart = () => {
+      dragging = true;
+    };
+    const onDragEnd = (e: DragEvent) => {
+      dragging = false;
+      // Chromium can report a drop at 0,0; that position is unknown, so the flag stays as it is.
+      if (e.clientX !== 0 || e.clientY !== 0) {
+        const drop = document.elementFromPoint(e.clientX, e.clientY);
+        finePointerOver = drop !== null && el !== undefined && el.contains(drop);
+      }
+      requestAnimationFrame(recheck);
     };
     const recheck = () => {
       if (!el || still || pressed()) return;
@@ -105,7 +120,7 @@
     // A touch leaves the window after its release, while a mouse may still rest over it: only a mouse
     // or pen leaving clears the flag.
     const onLeave = (e: PointerEvent) => {
-      if (e.pointerType !== "touch") finePointerOver = false;
+      if (e.pointerType !== "touch" && !dragging) finePointerOver = false;
       requestAnimationFrame(recheck);
     };
     document.addEventListener("keydown", onKey);
@@ -118,6 +133,8 @@
     el?.addEventListener("pointerover", onFinePointer);
     el?.addEventListener("pointerenter", onFinePointer);
     el?.addEventListener("pointermove", onFinePointer);
+    el?.addEventListener("dragstart", onDragStart);
+    el?.addEventListener("dragend", onDragEnd);
     el?.addEventListener("contextmenu", onAbandon);
     addEventListener("blur", onAbandon);
     // A focus made before this script ran (keyboard, before hydration) gets the still layout.
@@ -134,6 +151,8 @@
       el?.removeEventListener("pointerover", onFinePointer);
       el?.removeEventListener("pointerenter", onFinePointer);
       el?.removeEventListener("pointermove", onFinePointer);
+      el?.removeEventListener("dragstart", onDragStart);
+      el?.removeEventListener("dragend", onDragEnd);
       el?.removeEventListener("contextmenu", onAbandon);
       removeEventListener("blur", onAbandon);
     };
