@@ -1384,7 +1384,9 @@ describe("the first screen's layout and tones, pinned in the stylesheet (review 
 
   it("lines an unmeasured tile's label up with its neighbours: the measured line box (I, nit 10)", () => {
     // Review round 2, B.2: the rule is shared with `.long`, so its selector is the pair.
-    expect(ruleOf(".ov-num.unknown,\n.ov-num.long")).toMatch(/min-height:\s*calc\(1\.9rem \* 1\.1\)/);
+    expect(ruleOf(".ov-num.unknown,\n.ov-num.long")).toMatch(
+      /min-height:\s*calc\(1\.9rem \* 1\.1\)/,
+    );
   });
 });
 

@@ -1292,9 +1292,7 @@
         "replace": "  font-size: 1.4rem;"
       }
     ],
-    "test": [
-      "tests/cockpit/snapshot-navigation.test.ts"
-    ],
+    "test": ["tests/cockpit/snapshot-navigation.test.ts"],
     "expect": "red"
   },
   {
@@ -1307,9 +1305,7 @@
         "replace": ".ov-num.unknown {"
       }
     ],
-    "test": [
-      "tests/cockpit/snapshot-navigation.test.ts"
-    ],
+    "test": ["tests/cockpit/snapshot-navigation.test.ts"],
     "expect": "red"
   },
   {
@@ -1322,9 +1318,7 @@
         "replace": "n.value.length > 9"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -1337,9 +1331,7 @@
         "replace": "n.value.length > 7"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/page.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
   }
 ]

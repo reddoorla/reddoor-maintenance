@@ -403,7 +403,10 @@ async function seedTraffic(visits: number, impressions: number): Promise<string>
   const saved = await newestCounts();
   const newest = expectedNight(new Date());
   const w = trafficWindows(newest);
-  const visitDays = [...daysBetween(w.previous.startDate, w.previous.endDate), ...daysBetween(w.current.startDate, w.current.endDate)];
+  const visitDays = [
+    ...daysBetween(w.previous.startDate, w.previous.endDate),
+    ...daysBetween(w.current.startDate, w.current.endDate),
+  ];
   const previousDays = visitDays.length - 30;
   const visitsDaily = visitDays.map((date, i) => ({
     date,
@@ -436,7 +439,11 @@ async function seedTraffic(visits: number, impressions: number): Promise<string>
           window: w.search,
           sitesRead: 16,
           sitesWithProperty: 18,
-          daily: searchDays.map((date, i) => ({ date, clicks: clicks[i]!, impressions: shown[i]! })),
+          daily: searchDays.map((date, i) => ({
+            date,
+            clicks: clicks[i]!,
+            impressions: shown[i]!,
+          })),
         },
       },
       sites: [],
@@ -906,7 +913,10 @@ describe("cockpit navigation, in a browser, against the built app", () => {
           expect(m!.tops, `${width}px one line`).toHaveLength(1);
           expect(m!.left, `${width}px`).toBeGreaterThanOrEqual(m!.tileLeft);
           expect(m!.right, `${width}px`).toBeLessThanOrEqual(m!.tileRight);
-          expect(Math.abs(m!.labelTops[0]! - m!.labelTops[1]!), `${width}px labels`).toBeLessThanOrEqual(1);
+          expect(
+            Math.abs(m!.labelTops[0]! - m!.labelTops[1]!),
+            `${width}px labels`,
+          ).toBeLessThanOrEqual(1);
         }
         for (const [width, standard] of [
           [390, 24],
