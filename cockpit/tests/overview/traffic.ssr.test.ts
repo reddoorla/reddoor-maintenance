@@ -182,6 +182,18 @@ describe("P1-87 PR 7a review round 1 (group C): the search half and the visits g
           impressions: 12521 - last.impressions!,
         },
       ],
+      // Review round 2, C: an extra 29th day after the window, the totals unchanged. The loop
+      // reads only the 28 expected days, so only the length check catches it (visits has its
+      // "extra Oct 27" case; this is search's).
+      [
+        "an extra day after the window in daily (29 entries), the totals unchanged",
+        {
+          daily: [
+            ...searchDailyOf(),
+            { date: shiftDate(trafficWindows(OK).search.endDate, 1), clicks: 5, impressions: 5 },
+          ],
+        },
+      ],
       // b6: a date wrong at the right length (two dates swapped, the totals unchanged).
       [
         "two dates swapped at the right length",
