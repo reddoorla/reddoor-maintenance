@@ -974,6 +974,12 @@ describe("cockpit navigation, in a browser, against the built app", () => {
           // and can still show one line (120px in a 126px tile at 24px/390px), so there the test
           // checks the break points, not the line count.
           const fits = m!.advance * 1.15 <= m!.tileWidth;
+          // At the default font the shipped figure is one line at every width tested (round 2,
+          // B.1), so the margin must hold there, and a size that wraps at the default font fails.
+          if (standard === undefined)
+            expect(m!.advance * 1.15, `${where} margin at the default font`).toBeLessThanOrEqual(
+              m!.tileWidth,
+            );
           if (!fits) {
             expect(m!.wbrs, `${where} a break after each comma`).toBe(figure.split(",").length - 1);
             expect(m!.right, `${where} right`).toBeLessThanOrEqual(m!.tileRight);
