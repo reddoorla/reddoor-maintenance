@@ -357,6 +357,95 @@ async function signedIn(user = "op"): Promise<Page> {
 
 const contexts: BrowserContext[] = [];
 
+/** The newest night's stored counts, as text, so a test can put them back. */
+async function newestCounts(): Promise<string> {
+  const db = await openDb({ url: dbUrl });
+  try {
+    const row = await db
+      .selectFrom("fleet_daily")
+      .select("counts")
+      .where("night", "=", expectedNight(new Date()))
+      .executeTakeFirstOrThrow();
+    return row.counts;
+  } finally {
+    await db.destroy();
+  }
+}
+
+async function putNewestCounts(counts: string): Promise<void> {
+  const db = await openDb({ url: dbUrl });
+  try {
+    await db
+      .updateTable("fleet_daily")
+      .set({ counts })
+      .where("night", "=", expectedNight(new Date()))
+      .execute();
+  } finally {
+    await db.destroy();
+  }
+}
+
+/** The days from `from` to `to`, both included, as YYYY-MM-DD. */
+function daysBetween(from: string, to: string): string[] {
+  const out: string[] = [];
+  for (let t = Date.parse(`${from}T00:00:00Z`); t <= Date.parse(`${to}T00:00:00Z`); t += 86_400_000)
+    out.push(new Date(t).toISOString().slice(0, 10));
+  return out;
+}
+
+/** `total` split over `n` days, each day a whole count, the parts summing to `total`. */
+const spreadOver = (total: number, n: number): number[] =>
+  Array.from({ length: n }, (_, i) => Math.floor(total / n) + (i < total % n ? 1 : 0));
+
+/** Re-seeds the newest night's traffic so the visits tile reads `visits` and the search tile
+ *  reads `impressions`, both as readings the overview accepts. Returns the counts it replaced. */
+async function seedTraffic(visits: number, impressions: number): Promise<string> {
+  const saved = await newestCounts();
+  const newest = expectedNight(new Date());
+  const w = trafficWindows(newest);
+  const visitDays = [...daysBetween(w.previous.startDate, w.previous.endDate), ...daysBetween(w.current.startDate, w.current.endDate)];
+  const previousDays = visitDays.length - 30;
+  const visitsDaily = visitDays.map((date, i) => ({
+    date,
+    visits:
+      i < previousDays
+        ? spreadOver(300, previousDays)[i]!
+        : spreadOver(visits, 30)[i - previousDays]!,
+  }));
+  const searchDays = daysBetween(w.search.startDate, w.search.endDate);
+  const clicks = spreadOver(1234, searchDays.length);
+  const shown = spreadOver(impressions, searchDays.length);
+  const counts = JSON.parse(saved);
+  counts.traffic = {
+    value: {
+      visits: {
+        value: {
+          current: visits,
+          previous: 300,
+          currentWindow: w.current,
+          previousWindow: w.previous,
+          sitesRead: 16,
+          sitesWithProperty: 18,
+          daily: visitsDaily,
+        },
+      },
+      search: {
+        value: {
+          clicks: 1234,
+          impressions,
+          window: w.search,
+          sitesRead: 16,
+          sitesWithProperty: 18,
+          daily: searchDays.map((date, i) => ({ date, clicks: clicks[i]!, impressions: shown[i]! })),
+        },
+      },
+      sites: [],
+    },
+  };
+  await putNewestCounts(JSON.stringify(counts));
+  return saved;
+}
+
 /** Click a link to `href` and wait for the page it leads to. */
 async function follow(page: Page, href: string, heading: string): Promise<void> {
   await page.locator(`a[href="${href}"]`).first().click();
@@ -729,11 +818,9 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     for (const w of widths) expect(w).toBeGreaterThanOrEqual(100);
   });
 
-  // P1-87 PR 3, review round 3 (a11y m3, tests M2): with a long count on a row, the bars
-  // keep their width. The count column is 9rem wide, so 1000px keeps every bar at 140px or
-  // more; on a phone every bar is at least 100px wide, and its count sits under it.
-  // P1-87 PR 7a, review round 1 (A.3): a seven-digit figure stays on one line inside its tile,
-  // at the phone's width and at a laptop's, and its right edge is inside the tile.
+  // P1-87 PR 7a, review round 1 (A.3): the newest night's search impressions, 12,345,678 (eight
+  // digits with their commas, seeded above with visits not in the row), stay on one line inside
+  // their tile at the phone's width and at a laptop's, and the right edge is inside the tile.
   it.each([390, 1280])(
     "the search tile's 12,345,678 stays on one line inside its tile at %spx",
     async (width) => {
@@ -766,6 +853,84 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     },
   );
 
+  // P1-87 PR 7a, review round 2 (B.1, B.2, B.3): a long figure beside a three-digit one, in the
+  // same row. The visits tile holds 345 and the search tile holds the figure (the newest night's
+  // traffic is re-seeded for it, and put back). At the default font the figure is one line inside
+  // its tile at every width, and its label sits level with the neighbour's. At a 24px and a 32px
+  // default font it stays inside its tile, and the page does not scroll sideways.
+  it.each(["1,234,567", "12,345,678"])(
+    "the search tile's %s is one line inside its tile, level with visits' 345, at every width and default font",
+    async (figure) => {
+      const saved = await seedTraffic(345, Number(figure.replace(/,/g, "")));
+      try {
+        const measure = (page: Page) =>
+          page.evaluate((figure) => {
+            const figs = [...document.querySelectorAll<HTMLElement>(".ov-num")];
+            const num = figs.find((e) => e.textContent?.trim() === figure);
+            const three = figs.find((e) => e.textContent?.trim() === "345");
+            if (!num || !three) return null;
+            const tile = num.closest(".ov-tile")!;
+            const other = three.closest(".ov-tile")!;
+            const range = document.createRange();
+            range.selectNodeContents(num);
+            const rects = [...range.getClientRects()].filter((r) => r.width > 0);
+            const box = tile.getBoundingClientRect();
+            const label = (t: Element) => t.querySelector(".ov-label")!.getBoundingClientRect().top;
+            return {
+              tops: [...new Set(rects.map((r) => Math.round(r.top)))],
+              left: Math.min(...rects.map((r) => r.left)),
+              right: Math.max(...rects.map((r) => r.right)),
+              tileLeft: box.left,
+              tileRight: box.right,
+              labelTops: [label(tile), label(other)],
+              rootFont: getComputedStyle(document.documentElement).fontSize,
+              figureFont: getComputedStyle(num).fontSize,
+              scrollWidth: document.documentElement.scrollWidth,
+              innerWidth: window.innerWidth,
+            };
+          }, figure);
+        const open = async (width: number, standard?: number) => {
+          const page = await signedIn();
+          await page.setViewportSize({ width, height: 844 });
+          if (standard !== undefined) {
+            const cdp = await page.context().newCDPSession(page);
+            await cdp.send("Page.setFontSizes", { fontSizes: { standard } });
+          }
+          await page.goto(`${origin}/`);
+          await expect.poll(() => page.locator(".ov-tile").count()).toBe(8);
+          return page;
+        };
+        for (const width of [390, 768, 1280, 1440]) {
+          const m = await measure(await open(width));
+          expect(m, `${width}px`).not.toBeNull();
+          expect(m!.tops, `${width}px one line`).toHaveLength(1);
+          expect(m!.left, `${width}px`).toBeGreaterThanOrEqual(m!.tileLeft);
+          expect(m!.right, `${width}px`).toBeLessThanOrEqual(m!.tileRight);
+          expect(Math.abs(m!.labelTops[0]! - m!.labelTops[1]!), `${width}px labels`).toBeLessThanOrEqual(1);
+        }
+        for (const [width, standard] of [
+          [390, 24],
+          [1920, 24],
+          [390, 32],
+        ] as const) {
+          const m = await measure(await open(width, standard));
+          expect(m, `${width}px at ${standard}px`).not.toBeNull();
+          expect(m!.rootFont, `${width}px at ${standard}px root`).toBe(`${standard}px`);
+          expect(m!.tops, `${width}px at ${standard}px one line`).toHaveLength(1);
+          expect(m!.left, `${width}px at ${standard}px`).toBeGreaterThanOrEqual(m!.tileLeft);
+          expect(m!.right, `${width}px at ${standard}px`).toBeLessThanOrEqual(m!.tileRight);
+          expect(m!.scrollWidth, `${width}px at ${standard}px`).toBeLessThanOrEqual(m!.innerWidth);
+        }
+      } finally {
+        await putNewestCounts(saved);
+      }
+    },
+    120_000,
+  );
+
+  // P1-87 PR 3, review round 3 (a11y m3, tests M2): with a long count on a row, the bars
+  // keep their width. The count column is 9rem wide, so 1000px keeps every bar at 140px or
+  // more; on a phone every bar is at least 100px wide, and its count sits under it.
   it("a long count keeps every bar wide: 140px at 1000px, and under the bar at 390px", async () => {
     const page = await signedIn();
     await page.setViewportSize({ width: 1000, height: 800 });

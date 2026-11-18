@@ -412,6 +412,8 @@ section {
   margin: 0;
   padding: 0;
   min-width: 0;
+  /* A long figure sizes to its tile in container units (P1-87 PR 7a, review round 2, B.1). */
+  container-type: inline-size;
 }
 .ov-num {
   margin: 0;
@@ -421,15 +423,23 @@ section {
 }
 /* A figure of eight or more characters (a seven-digit count with its commas) stays on one line
  *  and steps its size down, so "1,234,567" never wraps mid-number in a narrow tile (P1-87 PR 7a,
- *  review round 1, A.3). The size is measured at 390px and at 1440px in the browser test. */
+ *  review round 1, A.3). Its size is the smaller of 1.4rem and 19cqi of its tile. At 1.4rem
+ *  (22.4px) "12,345,678" is 112.1px wide, 5.00 em, which the browser test measures in a 149px tile
+ *  at 390px; 100/5.00 = 19.99cqi is the most that fits any tile at any root font, so 19cqi leaves
+ *  5% over it (review round 2, B.1). */
 .ov-num.long {
   white-space: nowrap;
-  font-size: 1.4rem;
+  font-size: min(1.4rem, 19cqi);
 }
-.ov-num.unknown {
+/* An unmeasured figure and a long one share the row's height and its bottom edge, so a long
+ *  figure beside a short one keeps both labels level (P1-87 PR 7a, review round 2, B.2). */
+.ov-num.unknown,
+.ov-num.long {
   display: flex;
   align-items: flex-end;
   min-height: calc(1.9rem * 1.1);
+}
+.ov-num.unknown {
   font-size: 0.95rem;
   font-weight: var(--weight-text);
   color: var(--ink-muted);

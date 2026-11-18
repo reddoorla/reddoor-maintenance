@@ -1383,7 +1383,8 @@ describe("the first screen's layout and tones, pinned in the stylesheet (review 
   });
 
   it("lines an unmeasured tile's label up with its neighbours: the measured line box (I, nit 10)", () => {
-    expect(ruleOf(".ov-num.unknown")).toMatch(/min-height:\s*calc\(1\.9rem \* 1\.1\)/);
+    // Review round 2, B.2: the rule is shared with `.long`, so its selector is the pair.
+    expect(ruleOf(".ov-num.unknown,\n.ov-num.long")).toMatch(/min-height:\s*calc\(1\.9rem \* 1\.1\)/);
   });
 });
 
@@ -1982,5 +1983,33 @@ describe("P1-87 PR 7a: the traffic tiles on the page", () => {
     expect(checked).toBe(6);
     const allowed = new Set(ST.at.values());
     expect(boundNumbers(doc, PV.reports.checks.length).filter((d) => !allowed.has(d))).toEqual([]);
+  });
+});
+
+// P1-87 PR 7a, review round 2 (B.3, B.4): which figures carry the `long` class. A figure over
+// seven characters (eight with the commas) gets it, so "1,234,567" (nine) does and "123,456"
+// (seven) does not; an unmeasured tile never does, even when its words are long.
+describe("a long figure carries the long class (review round 2, B.3, B.4)", () => {
+  /** The overview with its first tile's figure set to `value`, measured or not. */
+  const firstFigure = (value: string, measured = true) => {
+    const view = {
+      ...VIEW,
+      numbers: VIEW.numbers.map((n, i) => (i === 0 ? { ...n, value, measured } : n)),
+    };
+    return parse(pageHtml(view)).querySelector(".ov-tile .ov-num")!;
+  };
+
+  it.each(["1,234,567", "12,345,678"])("%s is long", (value) => {
+    expect(firstFigure(value).classList.contains("long")).toBe(true);
+  });
+
+  it("123,456 is not long: seven characters is the most a figure holds at its size", () => {
+    expect(firstFigure("123,456").classList.contains("long")).toBe(false);
+  });
+
+  it("an unmeasured tile is never long, even with words longer than a figure", () => {
+    const words = firstFigure("no count for last night", false);
+    expect(words.classList.contains("unknown")).toBe(true);
+    expect(words.classList.contains("long")).toBe(false);
   });
 });
