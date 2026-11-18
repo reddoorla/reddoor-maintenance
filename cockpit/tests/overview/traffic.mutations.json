@@ -266,11 +266,11 @@
   },
   {
     "id": "21-long-figure-wraps",
-    "why": "(A.3) the long figure's size is not stepped down, so 12,345,678 overruns its tile at 1280px and 390px (review round 1, A.3)",
+    "why": "(A.3, retargeted in review round 3 to the clamp that replaced min(1.4rem, 19cqi)) the long figure's size is not stepped down, so 12,345,678 overruns its tile at 1280px and 390px",
     "edits": [
       {
         "file": "cockpit/src/lib/overview/overview.css",
-        "find": "  font-size: min(1.4rem, 19cqi);\n}",
+        "find": "  font-size: clamp(1rem, 16.5cqi, 1.4rem);\n}",
         "replace": "  font-size: 1.9rem;\n}"
       }
     ],

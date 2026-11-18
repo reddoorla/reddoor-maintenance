@@ -1333,5 +1333,89 @@
     ],
     "test": ["cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
+  },
+  {
+    "id": "103-long-floor-removed",
+    "why": "(review round 3, B.1) the 1rem floor removed, min(1.4rem, 16.5cqi): at a 24px default font the figure is below the body text at 1920px and 390px, and the size-floor assertion goes red",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "  font-size: clamp(1rem, 16.5cqi, 1.4rem);",
+        "replace": "  font-size: min(1.4rem, 16.5cqi);"
+      }
+    ],
+    "test": ["tests/cockpit/snapshot-navigation.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "104-long-N-19cqi",
+    "why": "(review round 3, B.1) N back to 19cqi: at the default font at 1280px the figure is 22.4px, 5.00em wide, and its width times 1.15 runs past its 122.6px tile",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "  font-size: clamp(1rem, 16.5cqi, 1.4rem);",
+        "replace": "  font-size: clamp(1rem, 19cqi, 1.4rem);"
+      }
+    ],
+    "test": ["tests/cockpit/snapshot-navigation.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "105-long-no-wbr",
+    "why": "(review round 3, B.3) no <wbr> after the commas: the long figure has no break point, so where the floor is wider than the tile it runs past it, and the SSR test and the break assertion go red",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "{#if i > 0},<wbr />{/if}",
+        "replace": "{#if i > 0},{/if}"
+      }
+    ],
+    "test": [
+      "cockpit/tests/overview/page.ssr.test.ts",
+      "tests/cockpit/snapshot-navigation.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "106-long-wbr-mid-group",
+    "why": "(review round 3, B.3) a <wbr> after every digit, not only after a comma: the SSR test's count of break points goes red",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "{#if i > 0},<wbr />{/if}{part}{/each}",
+        "replace": "{#if i > 0},<wbr />{/if}{#each part.split('') as ch}{ch}<wbr />{/each}{/each}"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "107-long-align-dropped",
+    "why": "(review round 3, B.5) the shared rule without align-items: a long figure's text sits at the top of its box, so its bottom is not level with 345's, and the bottom-level assertion goes red",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-num.unknown,\n.ov-num.long {\n  display: flex;\n  align-items: flex-end;",
+        "replace": ".ov-num.unknown,\n.ov-num.long {\n  display: flex;"
+      }
+    ],
+    "test": [
+      "tests/cockpit/snapshot-navigation.test.ts",
+      "cockpit/tests/overview/page.ssr.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "108-long-fallback-line-removed",
+    "why": "(review round 3, B.4) the 1.4rem fallback line before the clamp removed: a browser without container units would drop the declaration and fall to the inherited size; the SSR CSS pin goes red",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "  font-size: 1.4rem;\n  font-size: clamp(1rem, 16.5cqi, 1.4rem);",
+        "replace": "  font-size: clamp(1rem, 16.5cqi, 1.4rem);"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
   }
 ]
