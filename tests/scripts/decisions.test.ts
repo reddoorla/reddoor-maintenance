@@ -796,6 +796,28 @@ describe("directory and time edges", () => {
     expect(r.out).toContain("ERROR 2026-10-13-1205-sub.md: not a regular file");
   });
 
+  it("skips a directory named images, where decision files keep their pictures", () => {
+    const d = dirWith({ "2026-10-13-1200-good.md": file({}) });
+    mkdirSync(join(d, "images"));
+    writeFileSync(join(d, "images", "2026-10-13-sketch.png"), "png");
+    const r = cli(["check", d, "--offline"]);
+    expect(r.code).toBe(0);
+    expect(r.out.split("\n")[0]).toBe(
+      "DECISIONS_SUMMARY parsed=1 errors=0 open=1 parked=0 unchecked=0",
+    );
+    expect(r.out).not.toContain("images");
+  });
+
+  it("still reports a regular file named images", () => {
+    const d = dirWith({ "2026-10-13-1200-good.md": file({}), images: "not a folder" });
+    const r = cli(["check", d, "--offline"]);
+    expect(r.code).toBe(1);
+    expect(r.out.split("\n")[0]).toBe(
+      "DECISIONS_SUMMARY parsed=1 errors=1 open=1 parked=0 unchecked=0",
+    );
+    expect(r.out).toContain("ERROR images: ");
+  });
+
   it("names a missing directory in one line", () => {
     const missing = join(tmpdir(), "decisions-does-not-exist-0f3a");
     const r = cli(["check", missing, "--offline"]);

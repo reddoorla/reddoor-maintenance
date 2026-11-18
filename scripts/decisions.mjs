@@ -287,6 +287,8 @@ export function parseDecision(name, text, now = Date.now()) {
 export function readDecisionDir(dir, now = Date.now()) {
   const entries = readdirSync(dir, { withFileTypes: true })
     .filter((e) => !IGNORED_ENTRIES.includes(e.name) && !e.name.startsWith("."))
+    // Decision files keep their pictures in images/; any other non-file is still reported.
+    .filter((e) => !(e.name === "images" && e.isDirectory()))
     .sort((a, b) => a.name.localeCompare(b.name));
   return entries.map((e) =>
     e.isFile()
