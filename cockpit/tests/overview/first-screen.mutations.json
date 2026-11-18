@@ -1284,11 +1284,11 @@
   },
   {
     "id": "99-long-figure-fixed-size",
-    "why": "(review round 2, B.1) the long figure back to a fixed 1.4rem: at a 24px default font '12,345,678' overruns its tile",
+    "why": "(review round 2, B.1; retargeted in review round 3 to the clamp that replaced min(1.4rem, 19cqi)) the long figure back to a fixed 1.4rem: at a 24px default font '12,345,678' overruns its tile",
     "edits": [
       {
         "file": "cockpit/src/lib/overview/overview.css",
-        "find": "  font-size: min(1.4rem, 19cqi);",
+        "find": "  font-size: clamp(1rem, 16.5cqi, 1.4rem);",
         "replace": "  font-size: 1.4rem;"
       }
     ],
