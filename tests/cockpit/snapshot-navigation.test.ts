@@ -860,13 +860,19 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     },
   );
 
-  // P1-87 PR 7a, review round 2 (B.1, B.2, B.3): a long figure beside a three-digit one, in the
-  // same row. The visits tile holds 345 and the search tile holds the figure (the newest night's
-  // traffic is re-seeded for it, and put back). At the default font the figure is one line inside
-  // its tile at every width, and its label sits level with the neighbour's. At a 24px and a 32px
-  // default font it stays inside its tile, and the page does not scroll sideways.
+  // P1-87 PR 7a, review round 2 (B.1, B.2, B.3) and review round 3 (M1, M2, the tests minor): a
+  // long figure beside a three-digit one, in the same row. The visits tile holds 345 and the
+  // search tile holds the figure (the newest night's traffic is re-seeded for it, and put back).
+  // The harness has no brand font: it falls back to Liberation Sans, where "12,345,678" is 5.00em,
+  // and the shipped Pragmatica 700 is 5.71em (5.71 / 5.00 = 1.142, so 1.15 is the margin). A figure
+  // on one line must fit its tile with that margin. A figure too wide for its tile breaks only
+  // after a comma: each line but the last ends with ",", and no line runs past the tile. The size
+  // is never below the body text (1rem) or the label's, so the reader's text size is kept.
+  // Level: a figure on one line has its text's bottom and its label's top level with 345's,
+  // within 1px. A wrapped figure is taller than 345, so only its fit is asserted there.
+  // The figure's text is the plain figure: no break character is spoken.
   it.each(["1,234,567", "12,345,678"])(
-    "the search tile's %s is one line inside its tile, level with visits' 345, at every width and default font",
+    "the search tile's %s fits its tile at every width and font size, one line level with visits' 345 or broken only after a comma (review rounds 2 and 3)",
     async (figure) => {
       const saved = await seedTraffic(345, Number(figure.replace(/,/g, "")));
       try {
@@ -878,20 +884,47 @@ describe("cockpit navigation, in a browser, against the built app", () => {
             if (!num || !three) return null;
             const tile = num.closest(".ov-tile")!;
             const other = three.closest(".ov-tile")!;
+            // Each character's own box, grouped by its line (its top), in reading order.
+            const byTop = new Map<number, string>();
+            let advance = 0; // the figure's width on one line: its characters' boxes, summed
+            const walker = document.createTreeWalker(num, NodeFilter.SHOW_TEXT);
+            for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+              const text = n.textContent ?? "";
+              for (let i = 0; i < text.length; i++) {
+                const r = document.createRange();
+                r.setStart(n, i);
+                r.setEnd(n, i + 1);
+                const box = r.getBoundingClientRect();
+                advance += box.width;
+                const top = Math.round(box.top);
+                byTop.set(top, (byTop.get(top) ?? "") + text[i]);
+              }
+            }
             const range = document.createRange();
             range.selectNodeContents(num);
             const rects = [...range.getClientRects()].filter((r) => r.width > 0);
             const box = tile.getBoundingClientRect();
             const label = (t: Element) => t.querySelector(".ov-label")!.getBoundingClientRect().top;
+            const textBottom = (el: HTMLElement) => {
+              const rs = document.createRange();
+              rs.selectNodeContents(el);
+              return Math.max(...[...rs.getClientRects()].map((r) => r.bottom));
+            };
             return {
-              tops: [...new Set(rects.map((r) => Math.round(r.top)))],
+              text: num.textContent ?? "",
+              lines: [...byTop.entries()].sort((a, b) => a[0] - b[0]).map(([, s]) => s),
               left: Math.min(...rects.map((r) => r.left)),
               right: Math.max(...rects.map((r) => r.right)),
               tileLeft: box.left,
               tileRight: box.right,
+              tileWidth: box.width,
               labelTops: [label(tile), label(other)],
+              textBottoms: [textBottom(num), textBottom(three)],
               rootFont: getComputedStyle(document.documentElement).fontSize,
               figureFont: getComputedStyle(num).fontSize,
+              labelFont: getComputedStyle(tile.querySelector(".ov-label")!).fontSize,
+              wbrs: num.querySelectorAll("wbr").length,
+              advance,
               scrollWidth: document.documentElement.scrollWidth,
               innerWidth: window.innerWidth,
             };
@@ -907,29 +940,66 @@ describe("cockpit navigation, in a browser, against the built app", () => {
           await expect.poll(() => page.locator(".ov-tile").count()).toBe(8);
           return page;
         };
-        for (const width of [390, 768, 1280, 1440]) {
-          const m = await measure(await open(width));
-          expect(m, `${width}px`).not.toBeNull();
-          expect(m!.tops, `${width}px one line`).toHaveLength(1);
-          expect(m!.left, `${width}px`).toBeGreaterThanOrEqual(m!.tileLeft);
-          expect(m!.right, `${width}px`).toBeLessThanOrEqual(m!.tileRight);
-          expect(
-            Math.abs(m!.labelTops[0]! - m!.labelTops[1]!),
-            `${width}px labels`,
-          ).toBeLessThanOrEqual(1);
-        }
-        for (const [width, standard] of [
-          [390, 24],
-          [1920, 24],
-          [390, 32],
-        ] as const) {
+        // The sideways-scroll check is kept to the three cases the round-2 test checked: at
+        // 768px and at 24px on a laptop the page is wider than the screen for reasons this figure
+        // does not cause (`table.ov-leads-sites`, pre-existing; see the PR body).
+        const cases: [number, number | undefined, boolean][] = [
+          [390, undefined, false],
+          [768, undefined, false],
+          [1280, undefined, false],
+          [1440, undefined, false],
+          [390, 24, true],
+          [1920, 24, true],
+          [390, 32, true],
+          [320, 32, false],
+        ];
+        for (const [width, standard, sideways] of cases) {
+          const where = `${width}px${standard === undefined ? "" : ` at ${standard}px`}`;
           const m = await measure(await open(width, standard));
-          expect(m, `${width}px at ${standard}px`).not.toBeNull();
-          expect(m!.rootFont, `${width}px at ${standard}px root`).toBe(`${standard}px`);
-          expect(m!.tops, `${width}px at ${standard}px one line`).toHaveLength(1);
-          expect(m!.left, `${width}px at ${standard}px`).toBeGreaterThanOrEqual(m!.tileLeft);
-          expect(m!.right, `${width}px at ${standard}px`).toBeLessThanOrEqual(m!.tileRight);
-          expect(m!.scrollWidth, `${width}px at ${standard}px`).toBeLessThanOrEqual(m!.innerWidth);
+          expect(m, where).not.toBeNull();
+          expect(m!.text, `${where} plain figure`).toBe(figure);
+          expect(m!.rootFont, `${where} root`).toBe(`${standard ?? 16}px`);
+          // The size floor: never below the body text, nor the label's.
+          expect(parseFloat(m!.figureFont), `${where} floor`).toBeGreaterThanOrEqual(
+            parseFloat(m!.rootFont),
+          );
+          expect(parseFloat(m!.figureFont), `${where} label floor`).toBeGreaterThanOrEqual(
+            parseFloat(m!.labelFont),
+          );
+          if (sideways)
+            expect(m!.scrollWidth, `${where} sideways`).toBeLessThanOrEqual(m!.innerWidth);
+          // The shipped font's width, estimated from the fallback's with the 1.15 margin. Where it
+          // fits, the figure is one line and level with 345. Where it does not, the shipped font
+          // wraps, and it may break only at the `<wbr>`s after the commas; the fallback is narrower
+          // and can still show one line (120px in a 126px tile at 24px/390px), so there the test
+          // checks the break points, not the line count.
+          const fits = m!.advance * 1.15 <= m!.tileWidth;
+          if (!fits) {
+            expect(m!.wbrs, `${where} a break after each comma`).toBe(figure.split(",").length - 1);
+            expect(m!.right, `${where} right`).toBeLessThanOrEqual(m!.tileRight);
+          }
+          if (fits) {
+            // One line: inside its tile with the 1.15 margin, and level with 345.
+            expect(m!.lines.length, `${where} one line`).toBe(1);
+            expect(m!.advance * 1.15, `${where} margin`).toBeLessThanOrEqual(m!.tileWidth);
+            expect(m!.left, `${where} left`).toBeGreaterThanOrEqual(m!.tileLeft);
+            expect(m!.right, `${where} right`).toBeLessThanOrEqual(m!.tileRight);
+            expect(
+              Math.abs(m!.labelTops[0]! - m!.labelTops[1]!),
+              `${where} label tops`,
+            ).toBeLessThanOrEqual(1);
+            expect(
+              Math.abs(m!.textBottoms[0]! - m!.textBottoms[1]!),
+              `${where} text bottoms`,
+            ).toBeLessThanOrEqual(1);
+          } else {
+            // Wrapped in the fallback too: every break falls after a comma, nothing runs past the tile.
+            m!.lines.slice(0, -1).forEach((line) => {
+              expect(line.endsWith(","), `${where} break after a comma: ${line}`).toBe(true);
+            });
+            expect(m!.left, `${where} left`).toBeGreaterThanOrEqual(m!.tileLeft);
+            expect(m!.right, `${where} right`).toBeLessThanOrEqual(m!.tileRight);
+          }
         }
       } finally {
         await putNewestCounts(saved);

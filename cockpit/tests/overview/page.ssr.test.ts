@@ -1384,9 +1384,12 @@ describe("the first screen's layout and tones, pinned in the stylesheet (review 
 
   it("lines an unmeasured tile's label up with its neighbours: the measured line box (I, nit 10)", () => {
     // Review round 2, B.2: the rule is shared with `.long`, so its selector is the pair.
-    expect(ruleOf(".ov-num.unknown,\n.ov-num.long")).toMatch(
-      /min-height:\s*calc\(1\.9rem \* 1\.1\)/,
-    );
+    // Review round 3, B.5: the shared rule also keeps the figure's bottom edge (the alignment),
+    // so dropping `align-items` cannot pass silently.
+    const shared = ruleOf(".ov-num.unknown,\n.ov-num.long");
+    expect(shared).toMatch(/min-height:\s*calc\(1\.9rem \* 1\.1\)/);
+    expect(shared).toMatch(/display:\s*flex/);
+    expect(shared).toMatch(/align-items:\s*flex-end/);
   });
 });
 
@@ -2013,5 +2016,51 @@ describe("a long figure carries the long class (review round 2, B.3, B.4)", () =
     const words = firstFigure("no count for last night", false);
     expect(words.classList.contains("unknown")).toBe(true);
     expect(words.classList.contains("long")).toBe(false);
+  });
+});
+
+// P1-87 PR 7a, review round 3 (B.1, B.2, B.5): a long figure's size is clamped between the body
+// text (1rem) and round 1's 1.4rem, with 1.4rem before the clamp for a browser without container
+// units; a long figure breaks only at the `<wbr>` after each comma, never mid-group; a short or
+// unmeasured figure has none.
+describe("a long figure is sized, and breaks only after a comma (review round 3, B.1, B.2, B.5)", () => {
+  const firstFigure = (value: string, measured = true) => {
+    const view = {
+      ...VIEW,
+      numbers: VIEW.numbers.map((n, i) => (i === 0 ? { ...n, value, measured } : n)),
+    };
+    return parse(pageHtml(view)).querySelector(".ov-tile .ov-num")!;
+  };
+
+  it.each(["1,234,567", "12,345,678"])(
+    "%s renders a <wbr> after each comma and no other",
+    (value) => {
+      const figure = firstFigure(value);
+      expect(figure.textContent).toBe(value);
+      expect(figure.querySelectorAll("wbr")).toHaveLength(value.split(",").length - 1);
+      expect(figure.innerHTML).toBe(value.replace(/,/g, ",<wbr>").replace(/<wbr>$/, ""));
+    },
+  );
+
+  it("123,456 (short) and an unmeasured figure render no <wbr>", () => {
+    expect(firstFigure("123,456").querySelectorAll("wbr")).toHaveLength(0);
+    expect(firstFigure("no count for last night", false).querySelectorAll("wbr")).toHaveLength(0);
+  });
+
+  // Comments are cut first, so a selector never carries the comment above it.
+  const css = readFileSync(
+    new URL("../../src/lib/overview/overview.css", import.meta.url),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  const ruleOf = (sel: string) =>
+    [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].find(([, s]) => s!.trim() === sel)?.[2] ?? "";
+
+  it("sizes a long figure between 1rem and 1.4rem, with 1.4rem first as the fallback, and no nowrap", () => {
+    const long = ruleOf(".ov-num.long");
+    expect(long).toMatch(
+      /font-size:\s*1\.4rem;\s*font-size:\s*clamp\(1rem,\s*16\.5cqi,\s*1\.4rem\)/,
+    );
+    expect(long).not.toMatch(/white-space/);
+    expect(ruleOf(".ov-tile")).toMatch(/container-type:\s*inline-size/);
   });
 });
