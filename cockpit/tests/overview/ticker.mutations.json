@@ -987,5 +987,70 @@
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "76-doc-listener-never-armed",
+    "why": "r9 C.1: the drag's end never arms the document listener, so after a drag the first move out leaves the flag as the drop set it, and the row stays still-blocked under a pointer that has left. Red: B.1 (the drop inside, then the mouse out).",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      armDoc();\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "77-doc-listener-sets-true",
+    "why": "r9 C.2: the document listener sets the flag true whatever the target, so the first move out after a drag keeps the row moving. Red: B.1.",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      finePointerOver = el !== undefined && el.contains(e.target as Node);\n",
+        "replace": "      finePointerOver = true;\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "78-doc-listener-ignores-pointermove",
+    "why": "r9 C.3: the document listener registers pointerover only, not pointermove. Expected to survive: Chromium sends pointerover to the element under the pointer on the first move into it, so the listener still settles the flag. Measured below.",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      document.addEventListener(\"pointermove\", onDocPointer, true);\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "79-doc-listener-not-disarmed",
+    "why": "r9 C.4: the document listener is not disarmed after its first event, so every later pointerover or pointermove on the page sets the flag to whether its target is inside the window. Expected equivalent: the window's own leave and enter events set the same truth, and an outside pointer already cleared the flag.",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      disarmDoc();\n      requestAnimationFrame(recheck);\n    };",
+        "replace": "      requestAnimationFrame(recheck);\n    };"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "80-doc-listener-not-removed",
+    "why": "r9 C.5: the effect's cleanup does not disarm the document listener. Expected equivalent like 68 and 73: the effect re-runs only when the window element is replaced, and a listener armed at that moment can only read a detached element.",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      disarmDoc();\n    };",
+        "replace": "    };"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
   }
 ]
