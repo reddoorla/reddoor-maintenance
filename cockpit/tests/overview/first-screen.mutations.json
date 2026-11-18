@@ -369,8 +369,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "class=\"ov-num{n.measured ? '' : ' unknown'}\"",
-        "replace": "class=\"ov-num\""
+        "find": "class=\"ov-num{n.measured ? '' : ' unknown'}",
+        "replace": "class=\"ov-num"
       }
     ],
     "test": ["cockpit/tests/overview/page.ssr.test.ts"],
@@ -1280,6 +1280,66 @@
       }
     ],
     "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "99-long-figure-fixed-size",
+    "why": "(review round 2, B.1) the long figure back to a fixed 1.4rem: at a 24px default font '12,345,678' overruns its tile",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "  font-size: min(1.4rem, 19cqi);",
+        "replace": "  font-size: 1.4rem;"
+      }
+    ],
+    "test": [
+      "tests/cockpit/snapshot-navigation.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "100-long-without-shared-height",
+    "why": "(review round 2, B.2) .long leaves the shared rule: no min-height or bottom alignment, so beside a three-digit figure its label sits higher than its neighbour's",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-num.unknown,\n.ov-num.long {",
+        "replace": ".ov-num.unknown {"
+      }
+    ],
+    "test": [
+      "tests/cockpit/snapshot-navigation.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "101-long-threshold-nine",
+    "why": "(review round 2, B.3) the threshold at nine characters: '1,234,567' (nine) loses the long class and wraps at the narrow widths",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "n.value.length > 7",
+        "replace": "n.value.length > 9"
+      }
+    ],
+    "test": [
+      "cockpit/tests/overview/page.ssr.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "102-long-unmeasured-guard-removed",
+    "why": "(review round 2, B.4) the measured guard removed: an unmeasured tile's words ('no count for last night') get the long class and overflow their tile",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "n.measured && n.value.length > 7",
+        "replace": "n.value.length > 7"
+      }
+    ],
+    "test": [
+      "cockpit/tests/overview/page.ssr.test.ts"
+    ],
     "expect": "red"
   }
 ]

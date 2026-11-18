@@ -270,7 +270,7 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/overview.css",
-        "find": "  font-size: 1.4rem;\n}",
+        "find": "  font-size: min(1.4rem, 19cqi);\n}",
         "replace": "  font-size: 1.9rem;\n}"
       }
     ],
@@ -357,7 +357,7 @@
   },
   {
     "id": "28-b5-search-daily-one-short-accepted",
-    "why": "(b5) a search daily one day short is accepted: the length check and the loop over the expected days are both removed, so a short daily is read as its days present (the two edits together; each alone is caught or equivalent)",
+    "why": "(b5) a search daily one day short is accepted: the length check and the loop over the expected days are both removed, so a short daily is read as its days present (the two edits together; the loop edit alone is equivalent, because the length check forces equal lengths, and the length-check half alone is caught by 47-c-search-length-check-alone, the extra-day search case (review round 2, C))",
     "edits": [
       {
         "file": "cockpit/src/lib/overview/traffic.ts",
@@ -563,6 +563,45 @@
         "file": "cockpit/src/lib/overview/traffic.ts",
         "find": "  if (!isPlain(block)) return \"not collected\";",
         "replace": "  if (!isPlain(block)) return \"malformed\";"
+      }
+    ],
+    "test": "cockpit/tests/overview/traffic.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "45-a-visits-not-a-half-not-in-row",
+    "why": "(review round 2, A) visits: a present half that is not a reading (5, {}, [], null) reads as not in this row, the pre-fix NOT_IN_ROW for !isHalf",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "  if (h === undefined) return NOT_IN_ROW;\n  if (!isHalf(h)) return MALFORMED;\n  const v = h.value;\n  if (v === null) return unmeasuredHalf(h);\n  if (!isPlain(v) || !isCount(v.current)",
+        "replace": "  if (!isHalf(h)) return NOT_IN_ROW;\n  const v = h.value;\n  if (v === null) return unmeasuredHalf(h);\n  if (!isPlain(v) || !isCount(v.current)"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "46-a-search-not-a-half-not-in-row",
+    "why": "(review round 2, A) search: a present half that is not a reading reads as not in this row, the pre-fix NOT_IN_ROW for !isHalf",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "  if (h === undefined) return NOT_IN_ROW;\n  if (!isHalf(h)) return MALFORMED;\n  const v = h.value;\n  if (v === null) return unmeasuredHalf(h);\n  if (!isPlain(v) || !isCount(v.clicks)",
+        "replace": "  if (!isHalf(h)) return NOT_IN_ROW;\n  const v = h.value;\n  if (v === null) return unmeasuredHalf(h);\n  if (!isPlain(v) || !isCount(v.clicks)"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "47-c-search-length-check-alone",
+    "why": "(review round 2, C) the search length check removed alone: an extra 29th day reads as valid, because the loop reads only the 28 expected days; caught by the new extra-day search case",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "    !isCount(value.impressions) ||\n    !isCount(value.sitesRead) ||\n    !Array.isArray(daily) ||\n    daily.length !== expected.length\n  ) {",
+        "replace": "    !isCount(value.impressions) ||\n    !isCount(value.sitesRead) ||\n    !Array.isArray(daily)\n  ) {"
       }
     ],
     "test": "cockpit/tests/overview/traffic.ssr.test.ts",
