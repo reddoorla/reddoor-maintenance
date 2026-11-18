@@ -47,17 +47,19 @@
     // key re-check waits a frame. The pointer re-check (pointerleave) waits a frame only for
     // symmetry with the key one.
     let releaseTimer: ReturnType<typeof setTimeout> | undefined;
-    // The type of the last pointer on the page. A touch leaves :hover on the element it tapped, and
-    // no pointer leaves to clear it, so a touch's :hover does not count as a pointer over the window.
-    let lastPointer = "";
-    const notePointer = (e: PointerEvent) => {
-      lastPointer = e.pointerType;
+    // A mouse or pen is over the ticker. Chromium keeps :hover on the element a touch tapped, and a
+    // mouse that rests fires no pointerover, so the flag is set only by the window's own pointer
+    // events (a touch never sets it) and cleared when a pointer leaves the window.
+    let finePointerOver = false;
+    const onFinePointer = (e: PointerEvent) => {
+      if (e.pointerType !== "touch") finePointerOver = true;
     };
     const recheck = () => {
       if (!el || still || pressed()) return;
       const a = document.activeElement;
       if (!a || !el.contains(a) || !a.matches(":focus-visible")) return;
-      if (lastPointer !== "touch" && el.matches(":hover")) return;
+      // A mouse or pen over the ticker keeps it moving under the pointer (rounds 3 and 4).
+      if (finePointerOver) return;
       still = true;
     };
     const onKey = () => {
@@ -100,18 +102,22 @@
     const onAbandon = () => {
       pressing = false;
     };
-    const onLeave = () => {
+    // A touch leaves the window after its release, while a mouse may still rest over it: only a mouse
+    // or pen leaving clears the flag.
+    const onLeave = (e: PointerEvent) => {
+      if (e.pointerType !== "touch") finePointerOver = false;
       requestAnimationFrame(recheck);
     };
     document.addEventListener("keydown", onKey);
-    document.addEventListener("pointerover", notePointer);
-    document.addEventListener("pointerdown", notePointer);
     document.addEventListener("pointerup", onRelease);
     document.addEventListener("pointercancel", onRelease);
     el?.addEventListener("focusin", onFocusIn);
     el?.addEventListener("focusout", onFocusOut);
     el?.addEventListener("pointerdown", onPress);
     el?.addEventListener("pointerleave", onLeave);
+    el?.addEventListener("pointerover", onFinePointer);
+    el?.addEventListener("pointerenter", onFinePointer);
+    el?.addEventListener("pointermove", onFinePointer);
     el?.addEventListener("contextmenu", onAbandon);
     addEventListener("blur", onAbandon);
     // A focus made before this script ran (keyboard, before hydration) gets the still layout.
@@ -119,14 +125,15 @@
     return () => {
       clearTimeout(releaseTimer);
       document.removeEventListener("keydown", onKey);
-      document.removeEventListener("pointerover", notePointer);
-      document.removeEventListener("pointerdown", notePointer);
       document.removeEventListener("pointerup", onRelease);
       document.removeEventListener("pointercancel", onRelease);
       el?.removeEventListener("focusin", onFocusIn);
       el?.removeEventListener("focusout", onFocusOut);
       el?.removeEventListener("pointerdown", onPress);
       el?.removeEventListener("pointerleave", onLeave);
+      el?.removeEventListener("pointerover", onFinePointer);
+      el?.removeEventListener("pointerenter", onFinePointer);
+      el?.removeEventListener("pointermove", onFinePointer);
       el?.removeEventListener("contextmenu", onAbandon);
       removeEventListener("blur", onAbandon);
     };
