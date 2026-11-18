@@ -886,7 +886,7 @@ describe("cockpit navigation, in a browser, against the built app", () => {
   // The figure's text is the plain figure: no break character is spoken.
   // Measured ratios (shipped / fallback character-box advance, Pragmatica 700 from the kit,
   // in the harness's pages, 1280 to 320px, default fonts 16 to 32px, figure sizes 16 to 34px):
-  //   "12,345,678": 1.155 at 16px (1280, 1440, 320), 1.1552 at 20px, 1.1739 at 32px (320, 390),
+  //   "12,345,678": 1.155 at 16px (1280, 1440), 1.146 at 16px (320), 1.1552 at 20px, 1.1739 at 32px (320, 390),
   //     1.1895 at 24px (390, 1920); the widest measured, 1.1895, is rounded up to 1.19.
   //   "1,234,567": 1.1774 at 16px, 1.1794 at 20px, 1.1871 at 32px, 1.2072 at 24px (390, 1920),
   //     1.2085 at 20px (390); rounded up to 1.21.
