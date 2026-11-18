@@ -1075,9 +1075,10 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       await expect.poll(() => page.locator("h1").first().textContent()).toContain("Overview");
       // The content the check needs is on the page: the long name, in section 1 and both tables.
       expect(await page.locator(".ov-list.broken li", { hasText: LONG_NAME }).count()).toBe(1);
-      // The first screen's health panel and its six number tiles (P1-87 PR 3).
+      // The first screen's health panel and its eight number tiles (P1-87 PR 3; the two traffic
+      // tiles first, P1-87 PR 7a).
       expect(await page.locator(".ov-health").count()).toBe(1);
-      expect(await page.locator(".ov-tile").count()).toBe(6);
+      expect(await page.locator(".ov-tile").count()).toBe(8);
       expect(await page.locator(".ov-leads-sites tbody th", { hasText: LONG_NAME }).count()).toBe(
         1,
       );
