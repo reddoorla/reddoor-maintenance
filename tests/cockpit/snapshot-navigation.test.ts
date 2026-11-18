@@ -2381,8 +2381,16 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
   // from / to a site page and back leaves the same count on /, and the site page has none of them.
   it("the ticker's listeners are removed when the page is left, and a round trip leaves the same count", async () => {
     const types = {
-      doc: ["keydown", "pointerup", "pointercancel"],
-      win: ["focusin", "focusout", "pointerdown", "pointerleave"],
+      doc: ["keydown", "pointerup", "pointercancel", "pointerover", "pointerdown"],
+      win: [
+        "focusin",
+        "focusout",
+        "pointerdown",
+        "pointerleave",
+        "pointerover",
+        "pointerenter",
+        "pointermove",
+      ],
     } as const;
     const counts = async (page: Page) => {
       const cdp = await page.context().newCDPSession(page);
@@ -2415,16 +2423,24 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
       .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
       .toBeGreaterThanOrEqual(2);
     const first = await counts(page);
-    expect(first.doc, "one of each on / after the first load").toEqual({
+    expect(
+      first.doc,
+      "one of each on / after the first load; none of the old pointer types",
+    ).toEqual({
       keydown: 1,
       pointerup: 1,
       pointercancel: 1,
+      pointerover: 0,
+      pointerdown: 0,
     });
     expect(first.win, "one of each on the ticker window after the first load").toEqual({
       focusin: 1,
       focusout: 1,
       pointerdown: 1,
       pointerleave: 1,
+      pointerover: 1,
+      pointerenter: 1,
+      pointermove: 1,
     });
     for (let trip = 0; trip < 3; trip++) {
       // Playwright would wait for the moving row to stop before a click, so the click is
@@ -2442,6 +2458,9 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
         focusout: 0,
         pointerdown: 0,
         pointerleave: 0,
+        pointerover: 0,
+        pointerenter: 0,
+        pointermove: 0,
       });
       await page.goBack();
       await page.waitForURL(`${origin}/`);
@@ -2486,7 +2505,10 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
       for (let i = 0; i < 6 && !(await inMovingList(page)); i++) {
         await page.keyboard.press("Tab");
       }
-      expect(Date.now() - tapped, `a link has focus within 300 ms of the tap at ${width}px`).toBeLessThan(300);
+      expect(
+        Date.now() - tapped,
+        `a link has focus within 300 ms of the tap at ${width}px`,
+      ).toBeLessThan(300);
       expect(await inMovingList(page), `a ticker link has focus at ${width}px`).toBe(true);
       expect(
         await page.evaluate(() => document.activeElement!.matches(":focus-visible")),
@@ -2495,12 +2517,15 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
       expect(await inWindow(page), `the focused link is in the window at once at ${width}px`).toBe(
         true,
       );
-      await expect
-        .poll(() => stillSet(page), {
-          message: `the row stands still once the window has ended, at ${width}px`,
-          timeout: 3_000,
-        })
-        .toBe(true);
+      // A tap outside the window is no press in the window, so it counts for nothing: the row is
+      // still at once, within 300 ms of the focus, and not by a poll.
+      expect(
+        await stillSet(page),
+        `the row stands still within 300 ms of the focus, at ${width}px`,
+      ).toBe(true);
+      expect(Date.now() - tapped, `the still list is up within 300 ms at ${width}px`).toBeLessThan(
+        300,
+      );
       await page.waitForTimeout(2_000);
       expect(await stillSet(page), `the row is still 2 s on at ${width}px`).toBe(true);
       expect(await inWindow(page), `the focused link is in the window 2 s on at ${width}px`).toBe(
@@ -2526,12 +2551,17 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
       const findFact = () =>
         page.evaluate(() => {
           const win = document.querySelector(".ov-ticker-window")!.getBoundingClientRect();
-          for (const f of document.querySelectorAll(".ov-ticker-list:not(.copy) .pill, .ov-ticker-list:not(.copy) .ov-ticker-fact")) {
+          for (const f of document.querySelectorAll(
+            ".ov-ticker-list:not(.copy) .pill, .ov-ticker-list:not(.copy) .ov-ticker-fact",
+          )) {
             const r = f.getBoundingClientRect();
             const x = (r.left + r.right) / 2;
             const y = (r.top + r.bottom) / 2;
             const inside =
-              r.left >= win.left && r.right <= win.right && r.top >= win.top && r.bottom <= win.bottom;
+              r.left >= win.left &&
+              r.right <= win.right &&
+              r.top >= win.top &&
+              r.bottom <= win.bottom;
             if (inside && document.elementFromPoint(x, y) === f) return { x, y };
           }
           return null;
@@ -2558,30 +2588,58 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
       await page.touchscreen.tap(target!.x, target!.y);
       const released = Date.now();
       await page.keyboard.press("Tab");
-      expect(Date.now() - released, `the Tab follows the release within 200 ms at ${width}px`).toBeLessThan(200);
+      expect(
+        Date.now() - released,
+        `the Tab follows the release within 200 ms at ${width}px`,
+      ).toBeLessThan(200);
       expect(
         await page.evaluate(() => {
           const a = document.activeElement;
-          return a instanceof HTMLAnchorElement && a.closest(".ov-ticker-list:not(.copy)") !== null && a.matches(":focus-visible");
+          return (
+            a instanceof HTMLAnchorElement &&
+            a.closest(".ov-ticker-list:not(.copy)") !== null &&
+            a.matches(":focus-visible")
+          );
         }),
         `a ticker link has keyboard focus at ${width}px`,
       ).toBe(true);
-      const stillAt = await page.evaluate(
+      const probe = await page.evaluate(
         () =>
-          new Promise<number | null>((done) => {
-            const start = performance.now();
-            const tick = () => {
-              if (document.querySelector(".ov-ticker-window")!.hasAttribute("data-still")) {
-                return done(performance.now() - (window as Window & { __rel?: number }).__rel!);
-              }
-              if (performance.now() - start > 5_000) return done(null);
-              requestAnimationFrame(tick);
-            };
-            tick();
-          }),
+          new Promise<{ stillAt: number | null; stillBy900: boolean; startedAt: number }>(
+            (done) => {
+              const rel = (window as Window & { __rel?: number }).__rel!;
+              const startedAt = performance.now() - rel;
+              let stillBy900 = false;
+              const tick = () => {
+                const since = performance.now() - rel;
+                const set = document.querySelector(".ov-ticker-window")!.hasAttribute("data-still");
+                if (set && since < 900) stillBy900 = true;
+                if (set) return done({ stillAt: since, stillBy900, startedAt });
+                if (since > 5_000) return done({ stillAt: null, stillBy900, startedAt });
+                requestAnimationFrame(tick);
+              };
+              tick();
+            },
+          ),
       );
+      expect(
+        probe.startedAt,
+        `the sampling began within 900 ms of the release at ${width}px`,
+      ).toBeLessThan(900);
+      expect(
+        probe.stillBy900,
+        `the press counted: the row moves at 900 ms after the release at ${width}px`,
+      ).toBe(false);
+      const stillAt = probe.stillAt;
       expect(stillAt, `the row stands still within 5 s at ${width}px`).not.toBeNull();
-      expect(stillAt!, `the row stands still by 1.6 s after the release at ${width}px`).toBeLessThanOrEqual(1_600);
+      expect(
+        stillAt!,
+        `the press counted: the row stands still no earlier than 1 s after the release at ${width}px`,
+      ).toBeGreaterThanOrEqual(1_000);
+      expect(
+        stillAt!,
+        `the row stands still by 1.6 s after the release at ${width}px`,
+      ).toBeLessThanOrEqual(1_600);
       expect(
         await page.evaluate(() => {
           const a = document.activeElement!.getBoundingClientRect();
@@ -2589,6 +2647,330 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
           return a.left >= w.left && a.right <= w.right && a.top >= w.top && a.bottom <= w.bottom;
         }),
         `the focused link is in the window at ${width}px`,
+      ).toBe(true);
+    }
+  });
+
+  // The helpers for round 7: a touch swipe, a pen or mouse event through CDP (Playwright's page.mouse
+  // cannot send a pen), the row's still state, and a sample of the row over time.
+  const dataStill = (page: Page) =>
+    page.locator(".ov-ticker-window").evaluate((el) => el.hasAttribute("data-still"));
+  const focusedHref = (page: Page) =>
+    page.evaluate(() => document.activeElement!.closest("a")?.getAttribute("href") ?? null);
+  const swipe = async (page: Page, x: number, y: number) => {
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+    for (let i = 1; i <= 5; i++) {
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [{ x: x + (60 * i) / 5, y }],
+      });
+    }
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await cdp.detach();
+  };
+  const pointer = (
+    cdp: { send: (method: string, params: object) => Promise<unknown> },
+    type: "mouseMoved" | "mousePressed" | "mouseReleased",
+    x: number,
+    y: number,
+    pointerType: "mouse" | "pen",
+    button: "left" | "right" = "left",
+  ) =>
+    cdp.send("Input.dispatchMouseEvent", {
+      type,
+      x,
+      y,
+      button: type === "mouseMoved" ? "none" : button,
+      buttons: type === "mousePressed" ? (button === "right" ? 2 : 1) : 0,
+      clickCount: type === "mouseMoved" ? 0 : 1,
+      pointerType,
+    });
+  /** The row's still state and animation, sampled every 100 ms for `ms`. */
+  const watchRow = async (page: Page, ms: number) => {
+    const seen: { still: boolean; anim: string }[] = [];
+    for (let t = 0; t < ms; t += 100) {
+      seen.push(
+        await page.evaluate(() => ({
+          still: document.querySelector(".ov-ticker-window")!.hasAttribute("data-still"),
+          anim: getComputedStyle(document.querySelector(".ov-ticker-run")!).animationName,
+        })),
+      );
+      await page.waitForTimeout(100);
+    }
+    return seen;
+  };
+  /** A point inside the window on an element matching `selector` that is the element at that point. */
+  const pointOn = (page: Page, selector: string) =>
+    page.evaluate((sel) => {
+      const win = document.querySelector(".ov-ticker-window")!.getBoundingClientRect();
+      for (const f of document.querySelectorAll(sel)) {
+        const r = f.getBoundingClientRect();
+        const x = (r.left + r.right) / 2;
+        const y = (r.top + r.bottom) / 2;
+        const inside = x >= win.left && x <= win.right && y >= win.top && y <= win.bottom;
+        if (inside && document.elementFromPoint(x, y) === f) return { x, y };
+      }
+      return null;
+    }, selector);
+  const headingPoint = async (page: Page) => {
+    const heading = page.getByRole("heading", { name: "Every site", exact: true });
+    await heading.scrollIntoViewIfNeeded();
+    const h = (await heading.boundingBox())!;
+    return { x: h.x + h.width / 2, y: h.y + h.height / 2 };
+  };
+
+  // P1-87 PR 5b review r7 B.1 (route 1 of the A.4 major): a mouse resting over link 1 keeps the row
+  // moving after a touch that moves no focus. The swipe goes on the heading, then on the window's
+  // own bottom edge (a touch over the window, which must not clear the mouse's presence).
+  it("a mouse resting on link 1 after a right press and Escape keeps the row moving through a touch swipe and a Shift, on the heading or the window's edge, at 1280px and 390px", async () => {
+    for (const width of [1280, 390]) {
+      for (const on of ["heading", "edge"] as const) {
+        const page = await signedIn("op", { hasTouch: true });
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(`${origin}/`);
+        await expect
+          .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
+          .toBeGreaterThanOrEqual(2);
+        const link = page.locator(".ov-ticker-list:not(.copy) > li:nth-child(1) a");
+        const href = await link.getAttribute("href");
+        expect(href, `link 1 is a link at ${width}px`).toBeTruthy();
+        await page.locator(".ov-ticker-window").hover();
+        await settledPaused(page);
+        const box = (await link.boundingBox())!;
+        const win = (await page.locator(".ov-ticker-window").boundingBox())!;
+        const left = Math.max(box.x, win.x, 0) + 1;
+        const right = Math.min(box.x + box.width, win.x + win.width, width) - 1;
+        const mx = (left + right) / 2;
+        const my = box.y + box.height / 2;
+        await page.mouse.move(mx, my);
+        await page.mouse.down({ button: "right" });
+        await page.mouse.up({ button: "right" });
+        await page.keyboard.press("Escape");
+        // Precondition: link 1 holds a visible keyboard focus, the mouse is over the window, and the
+        // row is not still.
+        expect(await focusedHref(page), `link 1 holds the focus at ${width}px`).toBe(href);
+        expect(
+          await page.evaluate(() => document.activeElement!.matches(":focus-visible")),
+          `the focused link is :focus-visible at ${width}px`,
+        ).toBe(true);
+        expect(
+          await page.evaluate(
+            ([x, y]) => document.elementFromPoint(x, y)?.closest(".ov-ticker-window") !== null,
+            [mx, my] as const,
+          ),
+          `the pointer is over the window at ${width}px`,
+        ).toBe(true);
+        expect(await dataStill(page), `the row is not still before the swipe at ${width}px`).toBe(
+          false,
+        );
+        const start =
+          on === "heading"
+            ? await headingPoint(page)
+            : { x: win.x + win.width / 2 - 30, y: win.y + win.height - 4 };
+        await swipe(page, start.x, start.y);
+        await page.keyboard.press("Shift");
+        const seen = await watchRow(page, 1600);
+        expect(
+          seen.some((s) => s.still),
+          `the row never stands still after a swipe on the ${on} at ${width}px`,
+        ).toBe(false);
+        expect(
+          seen.every((s) => s.anim === "ov-ticker"),
+          `the row keeps its moving layout after a swipe on the ${on} at ${width}px`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  // P1-87 PR 5b review r7 B.2 (route 2): a mouse rests on a fact in the row, a touch taps a pill in the
+  // row, the mouse moves 1 px, and a Tab follows within 1 s. The row must not stand still under the mouse.
+  it("a mouse resting on a fact, a touch tap on a pill, a 1 px mouse move and a Tab within 1 s leave the row moving until 1.6 s after the tap, at 1280px", async () => {
+    const page = await signedIn("op", { hasTouch: true });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await expect
+      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
+      .toBeGreaterThanOrEqual(2);
+    // The window sits below the fold at 900px: scroll it in, so its points are on screen.
+    await page.locator(".ov-ticker-window").scrollIntoViewIfNeeded();
+    let rest: { x: number; y: number } | null = null;
+    await expect
+      .poll(
+        async () => {
+          rest = await pointOn(page, ".ov-ticker-list:not(.copy) .ov-ticker-fact");
+          return rest !== null;
+        },
+        { message: "a fact sits in the window at 1280px", timeout: 10_000 },
+      )
+      .toBe(true);
+    await page.mouse.move(rest!.x, rest!.y);
+    await settledPaused(page);
+    let pill: { x: number; y: number } | null = null;
+    await expect
+      .poll(
+        async () => {
+          pill = await pointOn(page, ".ov-ticker-list:not(.copy) .pill");
+          return pill !== null;
+        },
+        { message: "a pill sits in the window at 1280px", timeout: 10_000 },
+      )
+      .toBe(true);
+    await page.evaluate(
+      ([x, y]) => {
+        (window as Window & { __rest?: Element | null }).__rest = document.elementFromPoint(x, y);
+      },
+      [rest!.x, rest!.y] as const,
+    );
+    await page.touchscreen.tap(pill!.x, pill!.y);
+    const tapped = Date.now();
+    // The 1 px move stays on the fact the mouse rests on: the row is paused under the window's hover.
+    await page.mouse.move(rest!.x + 1, rest!.y);
+    expect(
+      await page.evaluate(
+        ([x, y]) =>
+          document.elementFromPoint(x, y) ===
+          (window as Window & { __rest?: Element | null }).__rest,
+        [rest!.x + 1, rest!.y] as const,
+      ),
+      "the 1 px move stays on the fact the mouse rested on",
+    ).toBe(true);
+    await page.keyboard.press("Tab");
+    expect(Date.now() - tapped, "the Tab follows the tap within 1 s").toBeLessThan(1_000);
+    expect(
+      await page.evaluate(() => {
+        const a = document.activeElement;
+        return (
+          a instanceof HTMLAnchorElement &&
+          a.closest(".ov-ticker-list:not(.copy)") !== null &&
+          a.matches(":focus-visible")
+        );
+      }),
+      "a ticker link has keyboard focus",
+    ).toBe(true);
+    const seen = await watchRow(page, Math.max(100, 1_600 - (Date.now() - tapped)));
+    expect(
+      seen.some((s) => s.still),
+      "the row never stands still under the resting mouse, 1.6 s after the tap",
+    ).toBe(false);
+    expect(
+      seen.every((s) => s.anim === "ov-ticker"),
+      "the row keeps its moving layout under the resting mouse",
+    ).toBe(true);
+  });
+
+  // P1-87 PR 5b review r7 B.3: a pen is a pointer, as a mouse is. A pen tap outside the row stands the
+  // row still once the press window ends, as a touch does; a pen resting on link 1 keeps the row moving
+  // after a Shift. Playwright's page.mouse sends no pen, so these go through CDP.
+  it("a pen tap outside the ticker, then a Tab into it within 300 ms, stands the row still with the link in the window, at 1280px and 390px", async () => {
+    for (const width of [1280, 390]) {
+      const page = await signedIn();
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`${origin}/`);
+      await expect
+        .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
+        .toBeGreaterThanOrEqual(2);
+      await page.evaluate(() => {
+        (window as Window & { __pen?: string[] }).__pen = [];
+        document.addEventListener(
+          "pointerup",
+          (e) => (window as Window & { __pen?: string[] }).__pen!.push(e.pointerType),
+          { capture: true },
+        );
+      });
+      const cdp = await page.context().newCDPSession(page);
+      const h = await headingPoint(page);
+      await pointer(cdp, "mousePressed", h.x, h.y, "pen");
+      await pointer(cdp, "mouseReleased", h.x, h.y, "pen");
+      const tapped = Date.now();
+      expect(
+        await page.evaluate(() => (window as Window & { __pen?: string[] }).__pen),
+        `the tap arrived as a pen at ${width}px`,
+      ).toEqual(["pen"]);
+      for (
+        let i = 0;
+        i < 6 &&
+        !(await page.evaluate(() => {
+          const a = document.activeElement;
+          return a instanceof HTMLAnchorElement && a.closest(".ov-ticker-list:not(.copy)") !== null;
+        }));
+        i++
+      ) {
+        await page.keyboard.press("Tab");
+      }
+      expect(
+        Date.now() - tapped,
+        `a link has focus within 300 ms of the tap at ${width}px`,
+      ).toBeLessThan(300);
+      expect(
+        await page.evaluate(() => {
+          const a = document.activeElement!;
+          return (
+            a instanceof HTMLAnchorElement &&
+            a.closest(".ov-ticker-list:not(.copy)") !== null &&
+            a.matches(":focus-visible")
+          );
+        }),
+        `a ticker link has visible focus at ${width}px`,
+      ).toBe(true);
+      // A pen tap outside the window counts for nothing, as a touch's does: the row is still at once.
+      expect(
+        await dataStill(page),
+        `the row stands still within 300 ms of the focus at ${width}px`,
+      ).toBe(true);
+      await page.waitForTimeout(2_000);
+      expect(await dataStill(page), `the row is still 2 s on at ${width}px`).toBe(true);
+      expect(
+        await page.evaluate(() => {
+          const a = document.activeElement!.getBoundingClientRect();
+          const w = document.querySelector(".ov-ticker-window")!.getBoundingClientRect();
+          return a.left >= w.left && a.right <= w.right && a.top >= w.top && a.bottom <= w.bottom;
+        }),
+        `the focused link is in the window at ${width}px`,
+      ).toBe(true);
+    }
+  });
+
+  it("a pen resting on link 1, a right press on it, Escape, then a Shift keeps the row moving under the pen, at 1280px and 390px", async () => {
+    for (const width of [1280, 390]) {
+      const page = await signedIn();
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`${origin}/`);
+      await expect
+        .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
+        .toBeGreaterThanOrEqual(2);
+      const link = page.locator(".ov-ticker-list:not(.copy) > li:nth-child(1) a");
+      const href = await link.getAttribute("href");
+      expect(href, `link 1 is a link at ${width}px`).toBeTruthy();
+      await page.locator(".ov-ticker-window").hover();
+      await settledPaused(page);
+      const box = (await link.boundingBox())!;
+      const win = (await page.locator(".ov-ticker-window").boundingBox())!;
+      const left = Math.max(box.x, win.x, 0) + 1;
+      const right = Math.min(box.x + box.width, win.x + win.width, width) - 1;
+      const x = (left + right) / 2;
+      const y = box.y + box.height / 2;
+      const cdp = await page.context().newCDPSession(page);
+      await pointer(cdp, "mouseMoved", x, y, "pen");
+      await pointer(cdp, "mousePressed", x, y, "pen", "right");
+      await pointer(cdp, "mouseReleased", x, y, "pen", "right");
+      expect(
+        await focusedHref(page),
+        `the pen's right press leaves link 1 focused at ${width}px`,
+      ).toBe(href);
+      await page.keyboard.press("Escape");
+      await page.keyboard.press("Shift");
+      const seen = await watchRow(page, 1600);
+      expect(
+        seen.some((s) => s.still),
+        `the row keeps moving under the pen after a key press at ${width}px`,
+      ).toBe(false);
+      expect(
+        await page.evaluate(
+          ([px, py]) => document.elementFromPoint(px, py)?.closest(".ov-ticker-window") !== null,
+          [x, y] as const,
+        ),
+        `the pen is still over the window at ${width}px`,
       ).toBe(true);
     }
   });
