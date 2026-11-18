@@ -841,9 +841,18 @@ describe("cockpit navigation, in a browser, against the built app", () => {
         ) as HTMLElement | undefined;
         if (!num) return null;
         const tile = num.closest(".ov-tile")!.getBoundingClientRect();
-        const range = document.createRange();
-        range.selectNodeContents(num);
-        const rects = [...range.getClientRects()].filter((r) => r.width > 0);
+        const textRects = (el: Element): DOMRect[] => {
+          // The text boxes only: a flex item span is a box of its own, one pixel off the text.
+          const out: DOMRect[] = [];
+          const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+          for (let n = w.nextNode(); n; n = w.nextNode()) {
+            const r = document.createRange();
+            r.selectNodeContents(n);
+            out.push(...r.getClientRects());
+          }
+          return out.filter((r) => r.width > 0);
+        };
+        const rects = textRects(num);
         return {
           tops: [...new Set(rects.map((r) => Math.round(r.top)))],
           right: Math.max(...rects.map((r) => r.right)),
@@ -863,15 +872,74 @@ describe("cockpit navigation, in a browser, against the built app", () => {
   // P1-87 PR 7a, review round 2 (B.1, B.2, B.3) and review round 3 (M1, M2, the tests minor): a
   // long figure beside a three-digit one, in the same row. The visits tile holds 345 and the
   // search tile holds the figure (the newest night's traffic is re-seeded for it, and put back).
-  // The harness has no brand font: it falls back to Liberation Sans, where "12,345,678" is 5.00em,
-  // and the shipped Pragmatica 700 is 5.71em (5.71 / 5.00 = 1.142, so 1.15 is the margin). A figure
-  // on one line must fit its tile with that margin. A figure too wide for its tile breaks only
-  // after a comma: each line but the last ends with ",", and no line runs past the tile. The size
-  // is never below the body text (1rem) or the label's, so the reader's text size is kept.
+  // The harness has no brand font: it falls back to Liberation Sans, where "12,345,678" is 5.00em.
+  // The shipped Pragmatica 700 is wider, by a per-figure ratio that moves with the font size
+  // (measured in this page with the Adobe kit served, round 4): RATIO below. The figure's width
+  // in the shipped font is its fallback width times its ratio. A figure on one line must fit its
+  // tile at that width. A figure too wide for its tile breaks only after a comma: each line but
+  // the last ends with ",", and every line fits its tile, or only its trailing "," passes the
+  // edge by at most half the column gap (hanging punctuation, so it never reaches the next tile).
+  // At 320px with a 32px default that overhang is the one accepted case. The size is never below
+  // the body text (1rem) or the label's, so the reader's text size is kept.
   // Level: a figure on one line has its text's bottom and its label's top level with 345's,
   // within 1px. A wrapped figure is taller than 345, so only its fit is asserted there.
   // The figure's text is the plain figure: no break character is spoken.
-  it.each(["1,234,567", "12,345,678"])(
+  // Measured ratios (shipped / fallback character-box advance, Pragmatica 700 from the kit,
+  // in the harness's pages, 1280 to 320px, default fonts 16 to 32px, figure sizes 16 to 34px):
+  //   "12,345,678": 1.155 at 16px (1280, 1440, 320), 1.1552 at 20px, 1.1739 at 32px (320, 390),
+  //     1.1895 at 24px (390, 1920); the widest measured, 1.1895, is rounded up to 1.19.
+  //   "1,234,567": 1.1774 at 16px, 1.1794 at 20px, 1.1871 at 32px, 1.2072 at 24px (390, 1920),
+  //     1.2085 at 20px (390); rounded up to 1.21.
+  //   "123,456,789": 1.1640 at 16px, 1.1617 at 20px, 1.1801 at 32px, 1.1978 at 24px (1920),
+  //     1.1965 at 20px (390); rounded up to 1.20.
+  // Fallback advances, for the same cases: "12,345,678" 101.30px at 16px (20.23px figure), 120.22px
+  // at 24px, 160.16px at 32px; "1,234,567" 90.03, 106.86, 142.36px; "123,456,789" 112.55, 133.58,
+  // 177.95px.
+  // The 1.15 this test used before round 4 was measured on the 12,345,678 case only, and it
+  // predicts 1,234,567 at 390/24 as one line where Pragmatica wraps it (round 4, tests major 1).
+  /** Shipped-font ratio per figure: its measured maximum over 16 to 34px, rounded up (see above). */
+  const RATIO: Record<string, number> = {
+    "12,345,678": 1.19,
+    "1,234,567": 1.21,
+    "123,456,789": 1.2,
+  };
+  /** Figures that wrap at the default font in the shipped font (a filed residual, round 4). */
+  const WRAPS_AT_DEFAULT = new Set(["123,456,789"]);
+  type Measured = {
+    groups: { text: string; width: number; comma: number }[];
+    tileWidth: number;
+    gap: number;
+  };
+  /**
+   * The shipped lines, estimated: comma groups packed greedily into lines at the shipped width
+   * (the fallback's width times the figure's ratio). A line fits if it is inside the tile, or if
+   * only its trailing comma passes the tile's edge and it overhangs by at most half the column gap.
+   * The fallback does not wrap where Pragmatica does (390px at 24px: 120px in a 126px tile), so
+   * the estimate, not the fallback's own lines, is what the shipped font's breaks are checked against.
+   */
+  function shippedLines(m: Measured, ratio: number): { text: string; fits: boolean }[] {
+    const fits = (g: Measured["groups"]): boolean => {
+      const width = ratio * g.reduce((s, x) => s + x.width, 0);
+      if (width <= m.tileWidth) return true;
+      const last = g[g.length - 1]!;
+      if (!last.text.endsWith(",")) return false;
+      const withoutComma = width - ratio * last.comma;
+      return withoutComma <= m.tileWidth && width - m.tileWidth <= m.gap / 2;
+    };
+    const lines: { text: string; fits: boolean }[] = [];
+    let cur: Measured["groups"] = [];
+    for (const g of m.groups) {
+      if (cur.length > 0 && !fits([...cur, g])) {
+        lines.push({ text: cur.map((x) => x.text).join(""), fits: fits(cur) });
+        cur = [];
+      }
+      cur.push(g);
+    }
+    if (cur.length > 0) lines.push({ text: cur.map((x) => x.text).join(""), fits: fits(cur) });
+    return lines;
+  }
+
+  it.each(["1,234,567", "12,345,678", "123,456,789"])(
     "the search tile's %s fits its tile at every width and font size, one line level with visits' 345 or broken only after a comma (review rounds 2 and 3)",
     async (figure) => {
       const saved = await seedTraffic(345, Number(figure.replace(/,/g, "")));
@@ -884,8 +952,12 @@ describe("cockpit navigation, in a browser, against the built app", () => {
             if (!num || !three) return null;
             const tile = num.closest(".ov-tile")!;
             const other = three.closest(".ov-tile")!;
-            // Each character's own box, grouped by its line (its top), in reading order.
+            // Each character's own box, grouped by its line (its top), in reading order; and each
+            // comma group (its digits and its comma) with its width, for the shipped estimate.
             const byTop = new Map<number, string>();
+            const groups: { text: string; width: number; comma: number }[] = [];
+            let groupText = "";
+            let groupWidth = 0;
             let advance = 0; // the figure's width on one line: its characters' boxes, summed
             const walker = document.createTreeWalker(num, NodeFilter.SHOW_TEXT);
             for (let n = walker.nextNode(); n; n = walker.nextNode()) {
@@ -898,26 +970,43 @@ describe("cockpit navigation, in a browser, against the built app", () => {
                 advance += box.width;
                 const top = Math.round(box.top);
                 byTop.set(top, (byTop.get(top) ?? "") + text[i]);
+                groupText += text[i];
+                groupWidth += box.width;
+                if (text[i] === ",") {
+                  groups.push({ text: groupText, width: groupWidth, comma: box.width });
+                  groupText = "";
+                  groupWidth = 0;
+                }
               }
             }
-            const range = document.createRange();
-            range.selectNodeContents(num);
-            const rects = [...range.getClientRects()].filter((r) => r.width > 0);
+            if (groupText) groups.push({ text: groupText, width: groupWidth, comma: 0 });
+            const textRects = (el: Element): DOMRect[] => {
+              // The text boxes only: a flex item span is a box of its own, one pixel off the text.
+              const out: DOMRect[] = [];
+              const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+              for (let n = w.nextNode(); n; n = w.nextNode()) {
+                const r = document.createRange();
+                r.selectNodeContents(n);
+                out.push(...r.getClientRects());
+              }
+              return out.filter((r) => r.width > 0);
+            };
+            const rects = textRects(num);
             const box = tile.getBoundingClientRect();
             const label = (t: Element) => t.querySelector(".ov-label")!.getBoundingClientRect().top;
             const textBottom = (el: HTMLElement) => {
-              const rs = document.createRange();
-              rs.selectNodeContents(el);
-              return Math.max(...[...rs.getClientRects()].map((r) => r.bottom));
+              return Math.max(...textRects(el).map((r) => r.bottom));
             };
             return {
               text: num.textContent ?? "",
               lines: [...byTop.entries()].sort((a, b) => a[0] - b[0]).map(([, s]) => s),
+              groups,
               left: Math.min(...rects.map((r) => r.left)),
               right: Math.max(...rects.map((r) => r.right)),
               tileLeft: box.left,
               tileRight: box.right,
               tileWidth: box.width,
+              gap: parseFloat(getComputedStyle(tile.parentElement!).columnGap),
               labelTops: [label(tile), label(other)],
               textBottoms: [textBottom(num), textBottom(three)],
               rootFont: getComputedStyle(document.documentElement).fontSize,
@@ -968,26 +1057,21 @@ describe("cockpit navigation, in a browser, against the built app", () => {
           );
           if (sideways)
             expect(m!.scrollWidth, `${where} sideways`).toBeLessThanOrEqual(m!.innerWidth);
-          // The shipped font's width, estimated from the fallback's with the 1.15 margin. Where it
-          // fits, the figure is one line and level with 345. Where it does not, the shipped font
-          // wraps, and it may break only at the `<wbr>`s after the commas; the fallback is narrower
-          // and can still show one line (120px in a 126px tile at 24px/390px), so there the test
-          // checks the break points, not the line count.
-          const fits = m!.advance * 1.15 <= m!.tileWidth;
+          // The shipped width: the fallback's, times this figure's ratio.
+          const ratio = RATIO[figure]!;
+          const fits = m!.advance * ratio <= m!.tileWidth;
           // At the default font the shipped figure is one line at every width tested (round 2,
           // B.1), so the margin must hold there, and a size that wraps at the default font fails.
-          if (standard === undefined)
-            expect(m!.advance * 1.15, `${where} margin at the default font`).toBeLessThanOrEqual(
+          // 123,456,789 wraps at the default font at 1280 to 1920px in the shipped font (filed
+          // residual, round 4), so for it the default-font case is checked by the break rule below.
+          if (standard === undefined && !WRAPS_AT_DEFAULT.has(figure))
+            expect(m!.advance * ratio, `${where} margin at the default font`).toBeLessThanOrEqual(
               m!.tileWidth,
             );
-          if (!fits) {
-            expect(m!.wbrs, `${where} a break after each comma`).toBe(figure.split(",").length - 1);
-            expect(m!.right, `${where} right`).toBeLessThanOrEqual(m!.tileRight);
-          }
           if (fits) {
-            // One line: inside its tile with the 1.15 margin, and level with 345.
+            // One line: inside its tile at the shipped width, and level with 345.
             expect(m!.lines.length, `${where} one line`).toBe(1);
-            expect(m!.advance * 1.15, `${where} margin`).toBeLessThanOrEqual(m!.tileWidth);
+            expect(m!.advance * ratio, `${where} fits`).toBeLessThanOrEqual(m!.tileWidth);
             expect(m!.left, `${where} left`).toBeGreaterThanOrEqual(m!.tileLeft);
             expect(m!.right, `${where} right`).toBeLessThanOrEqual(m!.tileRight);
             expect(
@@ -999,12 +1083,26 @@ describe("cockpit navigation, in a browser, against the built app", () => {
               `${where} text bottoms`,
             ).toBeLessThanOrEqual(1);
           } else {
-            // Wrapped in the fallback too: every break falls after a comma, nothing runs past the tile.
+            // Wrapped: the break points are the commas, the figure never runs sideways, and each
+            // line of the shipped estimate fits its tile or hangs only its trailing comma.
+            expect(m!.wbrs, `${where} a break after each comma`).toBe(figure.split(",").length - 1);
+            const lines = shippedLines(m!, ratio);
+            expect(lines.length, `${where} wraps in the shipped estimate`).toBeGreaterThan(1);
+            lines.forEach((line, i) => {
+              if (i < lines.length - 1)
+                expect(line.text.endsWith(","), `${where} break after a comma: ${line.text}`).toBe(
+                  true,
+                );
+              expect(line.fits, `${where} shipped line ${line.text} inside its tile`).toBe(true);
+            });
             m!.lines.slice(0, -1).forEach((line) => {
-              expect(line.endsWith(","), `${where} break after a comma: ${line}`).toBe(true);
+              expect(line.endsWith(","), `${where} fallback break after a comma: ${line}`).toBe(
+                true,
+              );
             });
             expect(m!.left, `${where} left`).toBeGreaterThanOrEqual(m!.tileLeft);
             expect(m!.right, `${where} right`).toBeLessThanOrEqual(m!.tileRight);
+            expect(m!.scrollWidth, `${where} sideways`).toBeLessThanOrEqual(m!.innerWidth);
           }
         }
       } finally {

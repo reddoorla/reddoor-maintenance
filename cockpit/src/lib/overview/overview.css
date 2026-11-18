@@ -429,9 +429,10 @@ section {
  *    falls below its own label (WCAG 1.4.4); where the floor is wider than the tile, the figure
  *    wraps only after a comma (the `<wbr>` the page renders after each one, `+page.svelte`);
  *  - 16.5cqi is N. The shipped font is Pragmatica 700 (Adobe kit noj4tji), where "12,345,678" is
- *    5.71em wide: 100/5.71 = 17.51cqi is the most that fits a tile, and 16.5 leaves about 6% over
- *    it. (The browser harness has no brand font; its Liberation Sans fallback is 5.00em, so its
- *    test asserts a 1.15 margin on the measured width.)
+ *    5.78em wide at 16px and 5.96em at 24px, the widest measured: 100/5.96 = 16.8cqi is the most
+ *    that fits a tile at any size, and 16.5 leaves about 2%. (The browser harness has no brand
+ *    font; its Liberation Sans fallback is 5.00em, so its test scales each figure by its own
+ *    measured ratio to the shipped font.)
  *  The 1.4rem line before the clamp is the fallback for a browser without container units. */
 .ov-num.long {
   font-size: 1.4rem;
