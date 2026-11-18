@@ -104,6 +104,81 @@ describe("readOverviewNights guards every block it reads", () => {
     expect(older!.counts.traffic).toEqual({ value: null, reason: "not in this row" });
   });
 
+  // P1-87 PR 7a (#2103): the per-site array is rebuilt from its own fields, never passed through.
+  // An entry with no id that is a string, or a half present but not a reading, is left out; a
+  // half the row does not carry is unmeasured, as the other blocks are.
+  it("the per-site array keeps only each site's id and its halves' counts (#2103)", async () => {
+    const window = { startDate: "2026-10-18", endDate: "2026-11-16" };
+    const visits = {
+      value: {
+        current: 1,
+        previous: 2,
+        currentWindow: window,
+        previousWindow: window,
+        sitesRead: 1,
+        sitesWithProperty: 1,
+        daily: [{ date: "2026-11-16", visits: 1 }],
+      },
+    };
+    const search = { value: null, reason: "no site read" };
+    await put("2026-11-16", {
+      traffic: {
+        value: {
+          visits,
+          search,
+          sites: [
+            {
+              siteId: "a",
+              visits: { value: { current: 1, previous: 2, extra: "x" } },
+              search: { value: { clicks: 3, impressions: 4, extra: "x" } },
+              evil: "<script>",
+            },
+            { siteId: 5, visits: { value: { current: 1, previous: 2 } }, search },
+            {
+              siteId: "b",
+              visits: { value: null, reason: "no GA" },
+              search: { value: { clicks: "x", impressions: 1 } },
+            },
+            { siteId: "c", visits: { value: { current: 7, previous: 6 } } },
+          ],
+        },
+      },
+    });
+    const [n] = await readOverviewNights(db);
+    expect(n!.counts.traffic.value!.sites).toEqual([
+      {
+        siteId: "a",
+        visits: { value: { current: 1, previous: 2 } },
+        search: { value: { clicks: 3, impressions: 4 } },
+      },
+      {
+        siteId: "c",
+        visits: { value: { current: 7, previous: 6 } },
+        search: { value: null, reason: "not in this row" },
+      },
+    ]);
+  });
+
+  it("a per-site value that is not an array is left out (#2103)", async () => {
+    const window = { startDate: "2026-10-18", endDate: "2026-11-16" };
+    const visits = {
+      value: {
+        current: 1,
+        previous: 2,
+        currentWindow: window,
+        previousWindow: window,
+        sitesRead: 1,
+        sitesWithProperty: 1,
+        daily: [{ date: "2026-11-16", visits: 1 }],
+      },
+    };
+    await put("2026-11-16", {
+      traffic: { value: { visits, search: { value: null, reason: "x" }, sites: "x" } },
+    });
+    const [n] = await readOverviewNights(db);
+    expect(n!.counts.traffic.value).not.toHaveProperty("sites");
+  });
+
   // Review round 1, Group F: the page ships one night's per-day series and per-site array,
   // not 32 of them. The older nights keep their totals, windows and counts.
   it("the older traffic rows drop the daily series and the per-site array; the newest keeps both", async () => {
