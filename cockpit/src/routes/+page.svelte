@@ -31,8 +31,10 @@
   let still = $state(false);
   let js = $state(false);
   let pressing = false;
-  // The last pointerup or pointercancel: a tap's focus arrives after its pointerup, when pressing
-  // is already false, so the tap is a press for 1000 ms unless it was a mouse release.
+  // The last counted release: a press that began in the window and ended with a pointerup or
+  // pointercancel. A tap's focus arrives after its pointerup, when pressing is already false, so a
+  // touch or pen release is a press for 1000 ms. A release whose press began outside the window, or
+  // whose press contextmenu or blur already cleared, is not counted and never opens that window.
   let lastRelease = { type: "", at: -Infinity };
   const pressed = () =>
     pressing || (lastRelease.type !== "mouse" && performance.now() - lastRelease.at < 1000);
@@ -44,10 +46,18 @@
     // window, and no press is in progress. Chromium updates :focus-visible after a key, so the
     // key re-check waits a frame. The pointer re-check (pointerleave) waits a frame only for
     // symmetry with the key one.
+    let releaseTimer: ReturnType<typeof setTimeout> | undefined;
+    // The type of the last pointer on the page. A touch leaves :hover on the element it tapped, and
+    // no pointer leaves to clear it, so a touch's :hover does not count as a pointer over the window.
+    let lastPointer = "";
+    const notePointer = (e: PointerEvent) => {
+      lastPointer = e.pointerType;
+    };
     const recheck = () => {
       if (!el || still || pressed()) return;
       const a = document.activeElement;
-      if (!a || !el.contains(a) || !a.matches(":focus-visible") || el.matches(":hover")) return;
+      if (!a || !el.contains(a) || !a.matches(":focus-visible")) return;
+      if (lastPointer !== "touch" && el.matches(":hover")) return;
       still = true;
     };
     const onKey = () => {
@@ -67,9 +77,18 @@
     const onPress = () => {
       pressing = true;
     };
+    // Only a release whose press began in the window counts. A counted touch or pen release also
+    // schedules a re-check for when its 1000 ms ends, so a focus taken during it is stood still then
+    // (recheck still refuses a focus that is not :focus-visible, or one under the pointer).
     const onRelease = (e: PointerEvent) => {
+      const counted = pressing;
       pressing = false;
-      lastRelease = { type: e.pointerType, at: performance.now() };
+      if (counted) {
+        lastRelease = { type: e.pointerType, at: performance.now() };
+        clearTimeout(releaseTimer);
+        releaseTimer = undefined;
+        if (e.pointerType !== "mouse") releaseTimer = setTimeout(recheck, 1000 + 50);
+      }
       // Focus that went nowhere during the press leaves the row moving, not stuck still.
       if (
         still &&
@@ -85,6 +104,8 @@
       requestAnimationFrame(recheck);
     };
     document.addEventListener("keydown", onKey);
+    document.addEventListener("pointerover", notePointer);
+    document.addEventListener("pointerdown", notePointer);
     document.addEventListener("pointerup", onRelease);
     document.addEventListener("pointercancel", onRelease);
     el?.addEventListener("focusin", onFocusIn);
@@ -96,7 +117,10 @@
     // A focus made before this script ran (keyboard, before hydration) gets the still layout.
     requestAnimationFrame(recheck);
     return () => {
+      clearTimeout(releaseTimer);
       document.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerover", notePointer);
+      document.removeEventListener("pointerdown", notePointer);
       document.removeEventListener("pointerup", onRelease);
       document.removeEventListener("pointercancel", onRelease);
       el?.removeEventListener("focusin", onFocusIn);
