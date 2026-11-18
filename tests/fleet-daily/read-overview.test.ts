@@ -553,7 +553,7 @@ describe("readOverviewNights normalises each half, and places each series on the
     ["[]", [], NOT_IN_ROW],
     ['"x"', "x", NOT_IN_ROW],
     ["5", 5, NOT_IN_ROW],
-    ["{visits: null}", { visits: null }, NOT_IN_ROW],
+    ["{visits: null}", { visits: null }, MALFORMED],
     ['{visits: {value: "x"}}', { visits: { value: "x" } }, MALFORMED],
   ])(
     "a newest block of %s reads its visits as %j, and the night before keeps both series",
@@ -567,6 +567,34 @@ describe("readOverviewNights normalises each half, and places each series on the
         expect(t.value.visits).toEqual(visitsWant);
         expect(t.value.search).toEqual(NOT_IN_ROW);
       }
+      const bt = before!.counts.traffic.value!;
+      expect(bt.visits.value!.daily).toHaveLength(1);
+      expect(bt.search.value!.daily).toHaveLength(1);
+    },
+  );
+
+  // Review round 2, Group A (correctness, major): a half the row carries that is not a reading
+  // (a number, an object without `value`, an array, null) is malformed, never "not in this row".
+  // Only a half the row does not carry at all is not in the row, and the other half stays so.
+  it.each([
+    ["visits 5", { visits: 5 }, "visits"],
+    ["visits {}", { visits: {} }, "visits"],
+    ["visits []", { visits: [] }, "visits"],
+    ["visits null", { visits: null }, "visits"],
+    ["search 5", { search: 5 }, "search"],
+    ["search {}", { search: {} }, "search"],
+    ["search []", { search: [] }, "search"],
+    ["search null", { search: null }, "search"],
+  ] as const)(
+    "a newest row whose %s half is malformed, not not-in-row, and the night before keeps both series",
+    async (_name, halves, bad) => {
+      await put("2026-11-16", { traffic: { value: halves } });
+      await put("2026-11-15", { traffic: { value: block(7) } });
+      const [newer, before] = await readOverviewNights(db);
+      const nt = newer!.counts.traffic.value!;
+      expect(nt[bad]).toEqual(MALFORMED);
+      const other = bad === "visits" ? "search" : "visits";
+      expect(nt[other]).toEqual(NOT_IN_ROW);
       const bt = before!.counts.traffic.value!;
       expect(bt.visits.value!.daily).toHaveLength(1);
       expect(bt.search.value!.daily).toHaveLength(1);

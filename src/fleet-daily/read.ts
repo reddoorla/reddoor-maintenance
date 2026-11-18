@@ -127,7 +127,8 @@ const unmeasuredHalf = (h: Record<string, unknown>): { value: null; reason: stri
  *  is set and it was stored. A half the row does not carry is not in the row; one it carries
  *  with a value that is not a reading is malformed (P1-87 PR 7a, review round 1). */
 function visitsHalf(h: unknown, keepDaily: boolean): unknown {
-  if (!isHalf(h)) return NOT_IN_ROW;
+  if (h === undefined) return NOT_IN_ROW;
+  if (!isHalf(h)) return MALFORMED;
   const v = h.value;
   if (v === null) return unmeasuredHalf(h);
   if (!isPlain(v) || !isCount(v.current) || !isCount(v.previous)) return MALFORMED;
@@ -145,7 +146,8 @@ function visitsHalf(h: unknown, keepDaily: boolean): unknown {
 
 /** The search half, normalised the way `visitsHalf` is. */
 function searchHalf(h: unknown, keepDaily: boolean): unknown {
-  if (!isHalf(h)) return NOT_IN_ROW;
+  if (h === undefined) return NOT_IN_ROW;
+  if (!isHalf(h)) return MALFORMED;
   const v = h.value;
   if (v === null) return unmeasuredHalf(h);
   if (!isPlain(v) || !isCount(v.clicks) || !isCount(v.impressions)) return MALFORMED;
