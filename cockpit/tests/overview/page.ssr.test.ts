@@ -17,7 +17,17 @@ import { cockpitModelFromSnapshot } from "../../../src/dashboard/snapshot-views.
 import { makeSubmissionRow } from "../../../tests/_helpers/submission-row.js";
 import { makeWebsiteRow } from "../../../tests/_helpers/website-row.js";
 import { withoutComments } from "../legacy/render.js";
-import { NOW, FRESH, STALE, event, healthy, night, report, snapshot } from "./fixtures.js";
+import {
+  NOW,
+  FRESH,
+  STALE,
+  event,
+  healthy,
+  night,
+  report,
+  snapshot,
+  trafficBlock,
+} from "./fixtures.js";
 
 /**
  * P1-78g review round 1 (T1, T2, T6, T7): the overview page itself, rendered inside
@@ -1040,14 +1050,14 @@ describe("the first screen (P1-87 PR 3)", () => {
       ),
     );
     const nums = none.querySelectorAll(".ov-tile .ov-num").map(text);
-    expect(nums.length).toBe(6);
+    expect(nums.length).toBe(8);
     expect(nums).not.toContain("0");
     expect(nums.every((n) => n === "not readable")).toBe(true);
   });
 
   it("each tile names its number, its label and its context; the sparkline is hidden from readers", () => {
     const tiles = DOC.querySelectorAll(".ov-tile");
-    expect(tiles.length).toBe(6);
+    expect(tiles.length).toBe(8);
     for (const t of tiles) {
       expect(t.querySelector(".ov-label")).not.toBeNull();
       const svg = t.querySelector("svg");
@@ -1075,9 +1085,10 @@ describe("the first screen (P1-87 PR 3)", () => {
       ),
     ).reverse();
     const page = parse(pageHtml(overviewFromSnapshot(snapshot({ nights: fourteen }), NOW)));
-    // The checks tile is the third (round 1, fix 6 removed the leads sparkline): its
-    // sixth night has no count, so the line breaks there: a run of 5, then a run of 8.
-    const checks = page.querySelectorAll(".ov-tile")[2]!;
+    // The checks tile is the fifth (round 1, fix 6 removed the leads sparkline; PR 7a put the
+    // two traffic tiles first): its sixth night has no count, so the line breaks there: a run
+    // of 5, then a run of 8.
+    const checks = page.querySelectorAll(".ov-tile")[4]!;
     const runs = [...checks.querySelectorAll("polyline")];
     expect(runs.length).toBe(2);
     expect(runs[0]!.getAttribute("points")!.split(" ").length).toBe(5);
@@ -1228,7 +1239,7 @@ describe("the first screen's bars and launching line (P1-87 PR 3, round 1)", () 
         ),
       ),
     );
-    expect(none.querySelectorAll(".ov-tile .ov-num.unknown").length).toBe(6);
+    expect(none.querySelectorAll(".ov-tile .ov-num.unknown").length).toBe(8);
     // On the page fixture, exactly the numbers that are words (not digits) carry the class.
     const nums = DOC.querySelectorAll(".ov-tile .ov-num");
     const words = nums.filter((n) => !/^\d+$/.test(text(n)));
@@ -1921,5 +1932,55 @@ describe("the nightly audit bar on the page (P1-87 PR 5a)", () => {
       expect(body).not.toMatch(/transition|animation|gradient/);
     }
     expect(css).not.toMatch(/@keyframes\s+ov-cycle/);
+  });
+});
+
+/** P1-87 PR 7a: the two traffic tiles on the page, from a newest night with the probe's block. */
+describe("P1-87 PR 7a: the traffic tiles on the page", () => {
+  const PNIGHT = "2026-10-26";
+  const PV = overviewFromSnapshot(
+    snapshot({
+      nights: [night(PNIGHT, { traffic: { value: trafficBlock(PNIGHT) } as never })],
+    }),
+    NOW,
+  );
+  const PD = parse(pageHtml(PV));
+
+  it("the first two tiles read the sketch's lines, as measured numbers", () => {
+    const tiles = PD.querySelectorAll(".ov-tile");
+    const [visits, search] = [tiles[0]!, tiles[1]!];
+    expect(text(visits.querySelector(".ov-num")!)).toBe("1,674");
+    expect(visits.querySelector(".ov-num")!.classList.contains("unknown")).toBe(false);
+    expect(text(visits.querySelector(".ov-label")!)).toBe("engaged visits, last 30 days");
+    expect(text(visits.querySelector(".ov-context")!)).toBe(
+      "up 9% on the 30 days before · 16 sites",
+    );
+    expect(text(search.querySelector(".ov-num")!)).toBe("12,521");
+    expect(text(search.querySelector(".ov-label")!)).toBe("times shown in Google, 28 days");
+    expect(text(search.querySelector(".ov-context")!)).toBe("623 clicks through · 16 sites");
+  });
+
+  it("an unmeasured traffic tile says its words in the unknown class, never 0", () => {
+    const none = parse(pageHtml(overviewFromSnapshot(snapshot({ nights: [night(PNIGHT)] }), NOW)));
+    const first = none.querySelectorAll(".ov-tile")[0]!;
+    expect(text(first.querySelector(".ov-num")!)).toBe("not yet collected");
+    expect(first.querySelector(".ov-num")!.classList.contains("unknown")).toBe(true);
+  });
+
+  it("over the sentinel render: each traffic leaf is on the page, and no digit is typed in", () => {
+    const ST = sentinelize(PV);
+    const doc = parse(pageHtml(ST.view));
+    const shown = new Set(shownNumbers(doc));
+    const words = doc.text;
+    let checked = 0;
+    for (const [path, v] of ST.at) {
+      if (!/^numbers\[[ab]\]\.(value|label|context)$/.test(path)) continue;
+      checked++;
+      const on = v.startsWith("⟦") ? words.includes(v) : shown.has(v);
+      expect.soft(on, `${path} (${v}) is on the page`).toBe(true);
+    }
+    expect(checked).toBe(6);
+    const allowed = new Set(ST.at.values());
+    expect(boundNumbers(doc, PV.reports.checks.length).filter((d) => !allowed.has(d))).toEqual([]);
   });
 });

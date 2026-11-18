@@ -2110,7 +2110,17 @@ describe("health and numbers (P1-87 PR 3)", () => {
 
   it("the tile numbers for the nightly-driven and lead counts, from their own fields", () => {
     const N = overviewFromSnapshot(numbersFleet(), NOW).numbers;
-    expect(N.map((t) => t.key)).toEqual(["leads", "spam", "checks", "deps", "reports", "shipped"]);
+    // PR 7a: the two traffic tiles come first.
+    expect(N.map((t) => t.key)).toEqual([
+      "visits",
+      "search",
+      "leads",
+      "spam",
+      "checks",
+      "deps",
+      "reports",
+      "shipped",
+    ]);
     const tile = (k: string) => N.find((t) => t.key === k)!;
     expect(tile("leads")).toMatchObject({
       value: "3",
