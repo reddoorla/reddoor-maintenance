@@ -642,11 +642,11 @@
   },
   {
     "id": "48-listeners-left-on-document",
-    "why": "r4 C (x4): the effect's cleanup does not remove the document listeners, so after a round trip the document has two of each (the listener-count test goes red)",
+    "why": "r4 C (x4), retargeted r7 C.7: the effect's cleanup does not remove the document listeners, so after a round trip the document has two of each (the listener-count test goes red)",
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "      document.removeEventListener(\"keydown\", onKey);\n      document.removeEventListener(\"pointerover\", notePointer);\n      document.removeEventListener(\"pointerdown\", notePointer);\n      document.removeEventListener(\"pointerup\", onRelease);\n      document.removeEventListener(\"pointercancel\", onRelease);\n",
+        "find": "      document.removeEventListener(\"keydown\", onKey);\n      document.removeEventListener(\"pointerup\", onRelease);\n      document.removeEventListener(\"pointercancel\", onRelease);\n",
         "replace": ""
       }
     ],
@@ -776,8 +776,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "    const onLeave = () => {\n      requestAnimationFrame(recheck);\n    };",
-        "replace": "    const onLeave = () => {\n    };"
+        "find": "    const onLeave = (e: PointerEvent) => {\n      if (e.pointerType !== \"touch\") finePointerOver = false;\n      requestAnimationFrame(recheck);\n    };",
+        "replace": "    const onLeave = (e: PointerEvent) => {\n      if (e.pointerType !== \"touch\") finePointerOver = false;\n    };"
       }
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
@@ -824,12 +824,100 @@
   },
   {
     "id": "62-hover-refused-for-touch",
-    "why": "r6 A.4: the re-check refuses on :hover whatever the last pointer was, so a touch's emulated hover on the window blocks the window-end re-check for good. Red: the press-in-window test (B.2)",
+    "why": "r6 A.4, retargeted r7 C.7: the re-check refuses on :hover as well as the presence flag, so a touch's leftover :hover on the window blocks the window-end re-check for good. Red: the press-in-window test (B.2)",
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "if (lastPointer !== \"touch\" && el.matches(\":hover\")) return;",
-        "replace": "if (el.matches(\":hover\")) return;"
+        "find": "      if (finePointerOver) return;",
+        "replace": "      if (finePointerOver || el.matches(\":hover\")) return;"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "63-page-wide-type-back",
+    "why": "r7 C.1: the flag is set from the document's pointerover and pointerdown only, from the last non-touch-or-touch pointer (the page-wide type, no pointermove, no window events). A mouse that rests after a touch is no longer seen. Red: route 1 (the mouse resting on link 1 through a touch swipe and a Shift)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "    const onFinePointer = (e: PointerEvent) => {\n      if (e.pointerType !== \"touch\") finePointerOver = true;\n    };",
+        "replace": "    const onFinePointer = (e: PointerEvent) => {\n      finePointerOver = e.pointerType !== \"touch\";\n    };"
+      },
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "    el?.addEventListener(\"pointerover\", onFinePointer);\n    el?.addEventListener(\"pointerenter\", onFinePointer);\n    el?.addEventListener(\"pointermove\", onFinePointer);",
+        "replace": "    document.addEventListener(\"pointerover\", onFinePointer);\n    document.addEventListener(\"pointerdown\", onFinePointer);"
+      },
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      el?.removeEventListener(\"pointerover\", onFinePointer);\n      el?.removeEventListener(\"pointerenter\", onFinePointer);\n      el?.removeEventListener(\"pointermove\", onFinePointer);",
+        "replace": "      document.removeEventListener(\"pointerover\", onFinePointer);\n      document.removeEventListener(\"pointerdown\", onFinePointer);"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "64-pointermove-not-registered",
+    "why": "r7 C.2: the window does not listen for pointermove, so a mouse that rests and then moves within one element sets no presence. Red: the route 2 test (B.2), or the pen test that lets a mouse's 1 px move restore the flag",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "    el?.addEventListener(\"pointermove\", onFinePointer);\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "65-flag-kept-on-leave",
+    "why": "r7 C.3: the flag is never cleared when a mouse or pen leaves the window, so the row keeps the mouse's presence after it has gone. Red: the right press on link 1, Escape, then the pointer leaving the window stills the row (the M1 test)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      if (e.pointerType !== \"touch\") finePointerOver = false;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "66-flag-set-by-touch",
+    "why": "r7 C.4: a touch sets the flag as a mouse does, so a touch's leftover :hover and its presence keep the row moving. Red: the touch press in the window, then a Tab within 200 ms (round 6's B.2)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      if (e.pointerType !== \"touch\") finePointerOver = true;",
+        "replace": "      finePointerOver = true;"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "67-hover-refusal-removed",
+    "why": "r7 C.5: the re-check does not refuse for a mouse or pen over the window at all. Red: the key press after a mouse press on a link leaves the row moving and the link under the pointer",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      if (finePointerOver) return;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "68-window-listener-not-removed",
+    "why": "r7 C.6: the cleanup does not remove the window's pointermove listener. Expected to be red through the listener-count test: the window element is replaced on each visit, so a window leak is not counted there (see the result)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      el?.removeEventListener(\"pointermove\", onFinePointer);\n",
+        "replace": ""
       }
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
