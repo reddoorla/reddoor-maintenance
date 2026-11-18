@@ -77,14 +77,27 @@ describe("P1-87 PR 7a: the guarded read", () => {
           },
         },
       ],
-      ["previousWindow.startDate one day later (29 days)", { previousWindow: shifted("startDate", 1) }],
+      [
+        "previousWindow.startDate one day later (29 days)",
+        { previousWindow: shifted("startDate", 1) },
+      ],
       [
         "a day 55.5 and another 54.5 (the sum kept)",
-        { daily: dailyWith([[54, day(54, 55.5)], [55, day(55, 54.5)]]) },
+        {
+          daily: dailyWith([
+            [54, day(54, 55.5)],
+            [55, day(55, 54.5)],
+          ]),
+        },
       ],
       [
         "a day at −1 and another raised by 56 (the sum kept)",
-        { daily: dailyWith([[54, day(54, -1)], [55, day(55, 111)]]) },
+        {
+          daily: dailyWith([
+            [54, day(54, -1)],
+            [55, day(55, 111)],
+          ]),
+        },
       ],
       ["sitesRead as a string", { sitesRead: "x" }],
       ["a daily entry {day: 5}", { daily: dailyWith([[0, { day: 5 }]]) }],
@@ -95,10 +108,7 @@ describe("P1-87 PR 7a: the guarded read", () => {
           current: 1674 - 55,
         },
       ],
-      [
-        "an extra Oct 27 in daily",
-        { daily: [...dailyOf(), { date: "2026-10-27", visits: 5 }] },
-      ],
+      ["an extra Oct 27 in daily", { daily: [...dailyOf(), { date: "2026-10-27", visits: 5 }] }],
       ["stored current 1675 against days summing 1674", { current: 1675 }],
     ];
     for (const [why, over] of cases) {
@@ -117,9 +127,7 @@ describe("P1-87 PR 7a: the guarded read", () => {
 
   it("with no night holding daily, the newest night's stored reason decides", () => {
     const reasonOf = (stored: string) =>
-      readVisits([
-        withTraffic(OK, trafficBlock(OK, { visits: { value: null, reason: stored } })),
-      ]);
+      readVisits([withTraffic(OK, trafficBlock(OK, { visits: { value: null, reason: stored } }))]);
     expect(reasonOf("not in this row")).toEqual({ value: null, reason: "not collected" });
     expect(reasonOf("GA not configured")).toEqual({ value: null, reason: "not configured" });
     expect(reasonOf("no site read")).toEqual({ value: null, reason: "no site read" });

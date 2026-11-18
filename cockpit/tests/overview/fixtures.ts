@@ -172,9 +172,8 @@ export function spread(total: number, n: number): number[] {
 /** The calendar dates from `start` for `n` days, oldest first (UTC, so no DST shift). */
 export function datesFrom(start: string, n: number): string[] {
   const t0 = Date.parse(`${start}T00:00:00Z`);
-  return Array.from(
-    { length: n },
-    (_, i) => new Date(t0 + i * 86_400_000).toISOString().slice(0, 10),
+  return Array.from({ length: n }, (_, i) =>
+    new Date(t0 + i * 86_400_000).toISOString().slice(0, 10),
   );
 }
 
@@ -184,7 +183,11 @@ export function datesFrom(start: string, n: number): string[] {
  *  replaces a half whole when it holds `value`, else merges its fields into the half's value. */
 export function trafficBlock(
   night: string,
-  over: { visits?: Record<string, unknown>; search?: Record<string, unknown>; sites?: unknown } = {},
+  over: {
+    visits?: Record<string, unknown>;
+    search?: Record<string, unknown>;
+    sites?: unknown;
+  } = {},
 ): Record<string, unknown> {
   const w = trafficWindows(night);
   const visitDates = datesFrom(w.previous.startDate, 60);
