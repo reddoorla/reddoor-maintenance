@@ -356,22 +356,14 @@
     "expect": "red"
   },
   {
-    "id": "28-b5-search-daily-one-short",
-    "why": "(b5) a search daily one day short is not caught (the loop runs over what is there)",
+    "id": "28-b5-search-daily-one-short-accepted",
+    "why": "(b5) a search daily one day short is accepted: the length check and the loop over the expected days are both removed, so a short daily is read as its days present (the two edits together; each alone is caught or equivalent)",
     "edits": [
       {
         "file": "cockpit/src/lib/overview/traffic.ts",
         "find": "    !Array.isArray(daily) ||\n    daily.length !== expected.length\n  ) {\n    return { value: null, reason: \"malformed\" };\n  }\n  const counts = new Map<string, { clicks: number; impressions: number }>();",
         "replace": "    !Array.isArray(daily)\n  ) {\n    return { value: null, reason: \"malformed\" };\n  }\n  const counts = new Map<string, { clicks: number; impressions: number }>();"
-      }
-    ],
-    "test": "cockpit/tests/overview/traffic.ssr.test.ts",
-    "expect": "red"
-  },
-  {
-    "id": "29-b5-search-loop-over-what-is-there",
-    "why": "(b5, its loop) the search loop runs over the days present, so a short daily is not caught",
-    "edits": [
+      },
       {
         "file": "cockpit/src/lib/overview/traffic.ts",
         "find": "for (let i = 0; i < expected.length; i++) {\n    const d = daily[i];\n    if (!isPlain(d) || d.date !== expected[i] || !isCount(d.clicks)",
