@@ -1428,8 +1428,8 @@
       },
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "</span\n              >",
-        "replace": ""
+        "find": "{/each}</span\n              >",
+        "replace": "{/each}"
       }
     ],
     "test": [
