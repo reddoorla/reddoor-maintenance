@@ -782,5 +782,57 @@
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "59-release-counted-regardless",
+    "why": "r6 A.1: lastRelease is written for every release again, ignoring whether the press began in the window, so a tap outside the window still holds the row moving for 1 s. Red: the tap-outside test (B.1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      const counted = pressing;",
+        "replace": "      const counted = true;"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "60-no-window-end-recheck",
+    "why": "r6 A.2: the window-end re-check is removed, so a focus taken during a touch's window is never stood still at its end. Red: the press-in-window test (B.2)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "        if (e.pointerType !== \"mouse\") releaseTimer = setTimeout(recheck, 1000 + 50);",
+        "replace": "        void releaseTimer;"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "61-window-stretched-1e9",
+    "why": "r6 D.3: the touch window is stretched to 1e9 ms, so a touch's press holds the row moving for good. Red: the tap-outside test (B.1) and the press-in-window test (B.2), both",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "performance.now() - lastRelease.at < 1000)",
+        "replace": "performance.now() - lastRelease.at < 1e9)"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "62-hover-refused-for-touch",
+    "why": "r6 A.4: the re-check refuses on :hover whatever the last pointer was, so a touch's emulated hover on the window blocks the window-end re-check for good. Red: the press-in-window test (B.2)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "if (lastPointer !== \"touch\" && el.matches(\":hover\")) return;",
+        "replace": "if (el.matches(\":hover\")) return;"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
   }
 ]
