@@ -562,7 +562,7 @@
   },
   {
     "id": "43-a-no-pointerleave-recheck",
-    "why": "r4 A control: the window's pointerleave no longer re-checks a visible focus, so a link focused by a right press and a key stays moving once the pointer leaves (the M1 test goes red)",
+    "why": "r4 A control: the window's pointerleave listener is not registered, so a visible focus is never re-checked when the pointer leaves. The red is the key-press test \"a key press after a mouse press on a link leaves the row moving and the link under the pointer\" and the listener-count test. The M1 test (a right press, Escape, then the pointer leaving) stays green and does not pin this rule",
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
@@ -772,7 +772,7 @@
   },
   {
     "id": "58-pointerleave-no-recheck",
-    "why": "r6 C: onLeave no longer re-checks the focus (the rAF(recheck) in the pointerleave handler is removed), so a link focused by keyboard and left under the pointer's leave stays moving once the pointer is gone (the key-press test, with the pointer over the window then moved off, goes red)",
+    "why": "r6 C: onLeave loses its re-check (requestAnimationFrame(recheck)), so a keyboard focus left under a pointer that then leaves stays moving. Red: the key-press test \"a key press after a mouse press on a link leaves the row moving and the link under the pointer\". The M1 test stays green",
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
