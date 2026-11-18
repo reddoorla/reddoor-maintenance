@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readSearch, readVisits, windowsFor } from "../../src/lib/overview/traffic.js";
 import { trafficWindows } from "../../../src/fleet-daily/traffic.js";
 import type { OverviewNight } from "../../../src/fleet-daily/read.js";
-import { datesFrom, night, trafficBlock } from "./fixtures.js";
+import { night, trafficBlock } from "./fixtures.js";
 
 /**
  * P1-87 PR 7a: the guarded read of the traffic block (cockpit/src/lib/overview/traffic.ts).
