@@ -167,7 +167,13 @@
     <div class="ov-tiles">
       {#each v.numbers as n (n.key)}
         <div class="ov-tile">
-          <p class="ov-num{n.measured ? '' : ' unknown'}">{n.value}</p>
+          <p
+            class="ov-num{n.measured ? '' : ' unknown'}{n.measured && n.value.length > 7
+              ? ' long'
+              : ''}"
+          >
+            {n.value}
+          </p>
           <p class="ov-label">{n.label}</p>
           {#if n.context}<p class="muted ov-context">{n.context}</p>{/if}
           {#if n.spark}

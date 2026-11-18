@@ -88,16 +88,17 @@ describe("readOverviewNights guards every block it reads", () => {
     ]);
   });
 
-  it("traffic (P1-87 PR 6): an old row reads it unmeasured, and a visits half with no previous count is not in the row", async () => {
+  it("traffic (P1-87 PR 6): an old row reads it unmeasured, and a visits half with no previous count is malformed", async () => {
     const traffic = { value: { visits: { value: { current: 9 } } } };
     await put("2026-11-16", { traffic });
     await put("2026-11-15", {});
     const [newer, older] = await readOverviewNights(db);
     // Review round 3, Group A: a visits half with no `previous` is not a valid half, so it
-    // reads as not in the row (it used to pass through whole).
+    // is not passed through whole. PR 7a review round 1 (A.2): the row carries it, so it is
+    // malformed, not not-in-the-row.
     expect(newer!.counts.traffic).toEqual({
       value: {
-        visits: { value: null, reason: "not in this row" },
+        visits: { value: null, reason: "malformed reading" },
         search: { value: null, reason: "not in this row" },
       },
     });
@@ -314,15 +315,30 @@ describe("readOverviewNights keeps the traffic series whole on the newest row wi
     expect(newer!.counts.traffic.value!.sites).toHaveLength(1);
     expect(bare!.counts.traffic.value!.visits).toEqual({ value: null, reason: "not in this row" });
     expect(bare!.counts.traffic.value!.search).toEqual({ value: null, reason: "not in this row" });
-    // Review round 3, Group A: no `previous` count, so the half is not in the row.
+    // Review round 3, Group A: no `previous` count, so the half is not valid. PR 7a round 1
+    // (A.2): it is carried, so it reads as malformed.
     expect(partial!.counts.traffic.value!.visits).toEqual({
       value: null,
-      reason: "not in this row",
+      reason: "malformed reading",
     });
     expect(partial!.counts.traffic.value!.search).toEqual({
       value: null,
       reason: "not in this row",
     });
+  });
+
+  // P1-87 PR 7a, review round 1 (A.2): a half the row carries whose value is not a reading is
+  // malformed, not "not in this row" (which reads as "not collected" on the page).
+  it("a stored half with a value that is not a reading is malformed, and a missing one is not in the row", async () => {
+    const b = block(9);
+    (b.search.value as { clicks: number }).clicks = -1;
+    (b.visits.value as { current: unknown }).current = "x";
+    await put("2026-11-16", { traffic: { value: b } });
+    await put("2026-11-15", { traffic: { value: { visits: { value: null, reason: "no site read" } } } });
+    const [n, older] = await readOverviewNights(db);
+    expect(n!.counts.traffic.value!.search).toEqual({ value: null, reason: "malformed reading" });
+    expect(n!.counts.traffic.value!.visits).toEqual({ value: null, reason: "malformed reading" });
+    expect(older!.counts.traffic.value!.search).toEqual({ value: null, reason: "not in this row" });
   });
 
   it("a failed newest traffic night keeps the series of the night before that holds one", async () => {
@@ -363,6 +379,7 @@ describe("readOverviewNights normalises each half, and places each series on the
       .values({ night, counts: JSON.stringify(counts), written_at: `${night}T07:00:00.000Z` })
       .execute();
   const NOT_IN_ROW = { value: null, reason: "not in this row" };
+  const MALFORMED = { value: null, reason: "malformed reading" };
   const window = { startDate: "2026-10-18", endDate: "2026-11-16" };
   const block = (n: number) => ({
     visits: {
@@ -479,25 +496,26 @@ describe("readOverviewNights normalises each half, and places each series on the
     expect(bt).not.toHaveProperty("sites");
   });
 
-  // Malformed newest blocks: each reads as not in the row, and the night before keeps both
-  // series. None of them throws the page.
+  // Malformed newest blocks: each reads as not in the row (or, where the row carries a half
+  // whose value is not a reading, as malformed), and the night before keeps both series. None
+  // of them throws the page.
   it.each([
-    ["{}", {}],
-    ["[]", []],
-    ['"x"', "x"],
-    ["5", 5],
-    ["{visits: null}", { visits: null }],
-    ['{visits: {value: "x"}}', { visits: { value: "x" } }],
+    ["{}", {}, NOT_IN_ROW],
+    ["[]", [], NOT_IN_ROW],
+    ['"x"', "x", NOT_IN_ROW],
+    ["5", 5, NOT_IN_ROW],
+    ["{visits: null}", { visits: null }, NOT_IN_ROW],
+    ['{visits: {value: "x"}}', { visits: { value: "x" } }, MALFORMED],
   ])(
-    "a newest block of %s reads as not in the row, and the night before keeps both series",
-    async (_name, value) => {
+    "a newest block of %s reads its visits as %j, and the night before keeps both series",
+    async (_name, value, visitsWant) => {
       await put("2026-11-16", { traffic: { value } });
       await put("2026-11-15", { traffic: { value: block(7) } });
       const [newer, before] = await readOverviewNights(db);
       const t = newer!.counts.traffic;
       if (t.value === null) expect(t).toEqual(NOT_IN_ROW);
       else {
-        expect(t.value.visits).toEqual(NOT_IN_ROW);
+        expect(t.value.visits).toEqual(visitsWant);
         expect(t.value.search).toEqual(NOT_IN_ROW);
       }
       const bt = before!.counts.traffic.value!;
@@ -507,20 +525,20 @@ describe("readOverviewNights normalises each half, and places each series on the
   );
 
   // Review round 4, Group A (major 2): the search half's required counts and the visits half's
-  // `current` are each checked. The half that lacks one is not in the row, and the night before
-  // keeps both series.
+  // `current` are each checked. The half that lacks one is malformed (PR 7a round 1, A.2: the
+  // row carries it), and the night before keeps both series.
   it.each([
     ["search {}", { search: { value: {} } }, "search"],
     ["search with only clicks", { search: { value: { clicks: 1 } } }, "search"],
     ["search with only impressions", { search: { value: { impressions: 1 } } }, "search"],
     ["visits with only previous", { visits: { value: { previous: 1 } } }, "visits"],
   ] as const)(
-    "a newest row whose %s is not in the row, and the night before keeps both series",
+    "a newest row whose %s is malformed, and the night before keeps both series",
     async (_name, halves, bad) => {
       await put("2026-11-16", { traffic: { value: halves } });
       await put("2026-11-15", { traffic: { value: block(7) } });
       const [newer, before] = await readOverviewNights(db);
-      expect(newer!.counts.traffic.value![bad]).toEqual(NOT_IN_ROW);
+      expect(newer!.counts.traffic.value![bad]).toEqual(MALFORMED);
       const bt = before!.counts.traffic.value!;
       expect(bt.visits.value!.daily).toHaveLength(1);
       expect(bt.search.value!.daily).toHaveLength(1);

@@ -3683,6 +3683,42 @@ describe("P1-87 PR 7a: the traffic tiles", () => {
     expect(cmp(1674, 1542, 1)).toBe("down 8% on the 30 days before · 1 site");
   });
 
+  it("a half-way percentage rounds up: 1,832 against 1,600 is up 15%, 17 against 40 is down 58%", () => {
+    // 232 × 100 / 1,600 = 14.5 exactly (Math.round gives 15); 23 × 100 / 40 = 57.5 (58).
+    const cmp = (prev: number, cur: number) =>
+      tiles([
+        [
+          OCT26,
+          block(OCT26, {
+            visits: {
+              current: cur,
+              previous: prev,
+              daily: visitsDaily(OCT26, prev, cur),
+            },
+          }),
+        ],
+      ]).visits.context;
+    expect(cmp(1600, 1832)).toBe("up 15% on the 30 days before · 16 sites");
+    expect(cmp(40, 17)).toBe("down 58% on the 30 days before · 16 sites");
+  });
+
+  it("a large percentage is grouped the way the other numbers are: 123,446,600%", () => {
+    const N = tiles([
+      [
+        OCT26,
+        block(OCT26, {
+          visits: {
+            current: 1234467,
+            previous: 1,
+            daily: visitsDaily(OCT26, 1, 1234467),
+          },
+        }),
+      ],
+    ]).visits;
+    expect(N.value).toBe("1,234,467");
+    expect(N.context).toBe("up 123,446,600% on the 30 days before · 16 sites");
+  });
+
   it("the wrong window is caught: a previous window shifted a day later would read up 8%", () => {
     // The probe's edges: previous 52 for 12 days then 51, current 56 for 24 then 55. The
     // previous window moved a day later sums 1,546 (up 8%); the pinned value is up 9%.
@@ -3708,10 +3744,19 @@ describe("P1-87 PR 7a: the traffic tiles", () => {
       ["no site read", "no site could be read", "UNREADABLE"],
       ["traffic: timeout", null, "UNREADABLE"],
     ];
-    for (const [reason, context, word] of cases) {
+    for (const [reason, visitsContext, word] of cases) {
       const t = tiles([[OCT26, unmeasured(OCT26, reason)]]);
+      // PR 7a review round 1 (A.4): the search tile is Search Console, so its GA words are Google's.
+      const contextFor = (k: "visits" | "search") =>
+        k === "search" && reason === "GA not configured"
+          ? "Google is not set up for the nightly"
+          : visitsContext;
       for (const k of ["visits", "search"] as const) {
-        expect(t[k], `${reason} ${k}`).toMatchObject({ measured: false, context, spark: null });
+        expect(t[k], `${reason} ${k}`).toMatchObject({
+          measured: false,
+          context: contextFor(k),
+          spark: null,
+        });
         expect(t[k].value, `${reason} ${k}`).not.toBe("0");
       }
       expect(t.visits.value).toBe(word === "NOT_YET" ? NOT_YET : UNREADABLE);
@@ -3724,6 +3769,19 @@ describe("P1-87 PR 7a: the traffic tiles", () => {
       value: UNREADABLE,
       context: "the stored reading is not in the expected shape",
     });
+  });
+
+  it("a malformed stored half reads as malformed words on both tiles, never not-yet-collected", () => {
+    const malformed = { value: null, reason: "malformed reading" };
+    const t = tiles([[OCT26, block(OCT26, { visits: malformed, search: malformed })]]);
+    for (const k of ["visits", "search"] as const) {
+      expect(t[k], k).toMatchObject({
+        measured: false,
+        value: UNREADABLE,
+        context: "the stored reading is not in the expected shape",
+        spark: null,
+      });
+    }
   });
 
   it("a stored reason is never printed: a Google error's text and account stay off the page", () => {

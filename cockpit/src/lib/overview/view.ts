@@ -2108,9 +2108,11 @@ const WHOLE = new Intl.NumberFormat("en-US");
  *  "about the same" at 0% after rounding, and "none" when the 30 days before had none. */
 function againstBefore(current: number, previous: number): string {
   if (previous === 0) return "none in the 30 days before";
-  const p = Math.round((Math.abs(current - previous) / previous) * 100);
+  // Multiply before dividing: (x / y) * 100 can land just under a half (14.499…), which rounds
+  // down, where (x * 100) / y is exact (P1-87 PR 7a, review round 1).
+  const p = Math.round((Math.abs(current - previous) * 100) / previous);
   if (p === 0) return "about the same as the 30 days before";
-  return `${current > previous ? "up" : "down"} ${p}% on the 30 days before`;
+  return `${current > previous ? "up" : "down"} ${WHOLE.format(p)}% on the 30 days before`;
 }
 
 /** The night a traffic series is as of, said only when it is older than the expected night
@@ -2147,7 +2149,11 @@ function trafficTiles(nights: OverviewNight[] | null, now: Date): [NumberTile, N
           label: "times shown in Google, 28 days",
           measured: false,
           spark: null,
+          // This tile is Search Console, not Analytics: the GA words would name the wrong source.
           ...TRAFFIC_UNMEASURED[search.reason],
+          ...(search.reason === "not configured"
+            ? { context: "Google is not set up for the nightly" }
+            : {}),
         }
       : {
           key: "search",

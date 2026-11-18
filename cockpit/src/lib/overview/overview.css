@@ -419,6 +419,13 @@ section {
   font-weight: var(--weight-bold);
   line-height: 1.1;
 }
+/* A figure of eight or more characters (a seven-digit count with its commas) stays on one line
+ *  and steps its size down, so "1,234,567" never wraps mid-number in a narrow tile (P1-87 PR 7a,
+ *  review round 1, A.3). The size is measured at 390px and at 1440px in the browser test. */
+.ov-num.long {
+  white-space: nowrap;
+  font-size: 1.4rem;
+}
 .ov-num.unknown {
   display: flex;
   align-items: flex-end;

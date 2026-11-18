@@ -8,7 +8,7 @@
 import { sql } from "kysely";
 import type { Db } from "../db/client.js";
 import type { FleetDailyCounts, Measured, TrafficCounts } from "./types.js";
-import { OVERVIEW_NIGHTS } from "./types.js";
+import { MALFORMED_HALF, OVERVIEW_NIGHTS } from "./types.js";
 import type { DepsReading, StoredRow } from "./core.js";
 import type { LatestDeps } from "../alerts/production-signals.js";
 
@@ -93,6 +93,9 @@ export { OVERVIEW_NIGHTS };
 /** A block an older or partial row does not carry: unmeasured, never a thrown page. */
 const NOT_IN_ROW = { value: null, reason: "not in this row" } as const;
 
+/** A half the row carries whose value is not a reading (P1-87 PR 7a, review round 1). */
+const MALFORMED = { value: null, reason: MALFORMED_HALF } as const;
+
 /** A block as the reader hands it on: one that is not an object holding `value`
  *  (missing, or hand-written as `{}`) is unmeasured, never passed through to throw
  *  on the page (P1-78h review round 2). */
@@ -121,12 +124,13 @@ const unmeasuredHalf = (h: Record<string, unknown>): { value: null; reason: stri
 });
 
 /** The visits half, normalised: its exact keys as stored, and `daily` only when `keepDaily`
- *  is set and it was stored. A half that is not a valid reading is not in the row. */
+ *  is set and it was stored. A half the row does not carry is not in the row; one it carries
+ *  with a value that is not a reading is malformed (P1-87 PR 7a, review round 1). */
 function visitsHalf(h: unknown, keepDaily: boolean): unknown {
   if (!isHalf(h)) return NOT_IN_ROW;
   const v = h.value;
   if (v === null) return unmeasuredHalf(h);
-  if (!isPlain(v) || !isCount(v.current) || !isCount(v.previous)) return NOT_IN_ROW;
+  if (!isPlain(v) || !isCount(v.current) || !isCount(v.previous)) return MALFORMED;
   const out: Record<string, unknown> = {
     current: v.current,
     previous: v.previous,
@@ -144,7 +148,7 @@ function searchHalf(h: unknown, keepDaily: boolean): unknown {
   if (!isHalf(h)) return NOT_IN_ROW;
   const v = h.value;
   if (v === null) return unmeasuredHalf(h);
-  if (!isPlain(v) || !isCount(v.clicks) || !isCount(v.impressions)) return NOT_IN_ROW;
+  if (!isPlain(v) || !isCount(v.clicks) || !isCount(v.impressions)) return MALFORMED;
   const out: Record<string, unknown> = {
     clicks: v.clicks,
     impressions: v.impressions,

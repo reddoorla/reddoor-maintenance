@@ -14,6 +14,10 @@
  *  importing the database reader. */
 export const OVERVIEW_NIGHTS = 32;
 
+/** The reason a traffic half carries when the row holds it but its value is not a valid reading
+ *  (P1-87 PR 7a, review round 1). Shared with the cockpit, which words it as malformed. */
+export const MALFORMED_HALF = "malformed reading";
+
 /** A value the writer may fail to read: null, and why, rather than a fake 0. */
 export type Measured<T> = { value: T; reason?: undefined } | { value: null; reason: string };
 

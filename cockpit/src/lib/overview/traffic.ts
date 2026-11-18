@@ -9,6 +9,7 @@
  * Any failed check is "malformed" (#2103).
  */
 import type { OverviewNight } from "../../../../src/fleet-daily/read.js";
+import { MALFORMED_HALF } from "../../../../src/fleet-daily/types.js";
 
 /** Why a series is not shown; the view words each one (view.ts `TRAFFIC_WORDS`). */
 export type TrafficReason =
@@ -91,6 +92,7 @@ const WORDS: Record<string, TrafficReason> = {
   "not in this row": "not collected",
   "GA not configured": "not configured",
   "no site read": "no site read",
+  [MALFORMED_HALF]: "malformed",
 };
 
 function noSeries(nights: readonly OverviewNight[], key: "visits" | "search"): TrafficReason {

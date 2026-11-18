@@ -11,6 +11,7 @@ import { recordFleetEvent } from "../../src/db/fleet-events.js";
 import { NIGHTLIES } from "../../scripts/nightly-conductor.mjs";
 import { seededNights } from "../_helpers/bar-nights.js";
 import { expectedNight } from "../../cockpit/src/lib/overview/view.js";
+import { trafficWindows } from "../../src/fleet-daily/traffic.js";
 
 /**
  * The cockpit navigates without a server round trip (home base
@@ -175,6 +176,40 @@ async function seed(url: string): Promise<void> {
   // run that crosses 6am Pacific between seeding and the check would read one night
   // behind.
   const newest = expectedNight(new Date());
+  // P1-87 PR 7a, review round 1 (A.3): the newest night's search half reads 12,345,678
+  // impressions over its 28 days, so the widest figure a tile can carry is on the page.
+  const searchWindow = trafficWindows(newest).search;
+  const spreadOver = (total: number, n: number) =>
+    Array.from({ length: n }, (_, i) => Math.floor(total / n) + (i < total % n ? 1 : 0));
+  const searchDaily = (() => {
+    const clicks = spreadOver(1234, 28);
+    const shown = spreadOver(12345678, 28);
+    return Array.from({ length: 28 }, (_, i) => ({
+      date: new Date(Date.parse(`${searchWindow.startDate}T00:00:00Z`) + i * 86_400_000)
+        .toISOString()
+        .slice(0, 10),
+      clicks: clicks[i]!,
+      impressions: shown[i]!,
+    }));
+  })();
+  const newestTraffic = {
+    traffic: {
+      value: {
+        visits: { value: null, reason: "not in this row" },
+        search: {
+          value: {
+            clicks: 1234,
+            impressions: 12345678,
+            window: { ...searchWindow },
+            sitesRead: 16,
+            sitesWithProperty: 18,
+            daily: searchDaily,
+          },
+        },
+        sites: [],
+      },
+    },
+  };
   // P1-87 PR 5a, review round 3 (Group C): the bar's own run night is written too, so the bar
   // reads recorded at any hour (see seededNights). Its backup did not run, so it renders a
   // `none` step for the forced-colours check.
@@ -194,6 +229,7 @@ async function seed(url: string): Promise<void> {
           ),
           prsMerged: { value: merged },
           events: { value: { pr_automerged: merged / 6, vuln_cleared: 3 } },
+          ...(night === newest ? newestTraffic : {}),
         }),
         written_at: new Date().toISOString(),
       })
@@ -696,6 +732,40 @@ describe("cockpit navigation, in a browser, against the built app", () => {
   // P1-87 PR 3, review round 3 (a11y m3, tests M2): with a long count on a row, the bars
   // keep their width. The count column is 9rem wide, so 1000px keeps every bar at 140px or
   // more; on a phone every bar is at least 100px wide, and its count sits under it.
+  // P1-87 PR 7a, review round 1 (A.3): a seven-digit figure stays on one line inside its tile,
+  // at the phone's width and at a laptop's, and its right edge is inside the tile.
+  it.each([390, 1280])(
+    "the search tile's 12,345,678 stays on one line inside its tile at %spx",
+    async (width) => {
+      const page = await signedIn();
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto(`${origin}/`);
+      await expect.poll(() => page.locator(".ov-tile").count()).toBe(8);
+      const fit = await page.evaluate(() => {
+        const num = [...document.querySelectorAll(".ov-num")].find(
+          (e) => e.textContent?.trim() === "12,345,678",
+        ) as HTMLElement | undefined;
+        if (!num) return null;
+        const tile = num.closest(".ov-tile")!.getBoundingClientRect();
+        const range = document.createRange();
+        range.selectNodeContents(num);
+        const rects = [...range.getClientRects()].filter((r) => r.width > 0);
+        return {
+          tops: [...new Set(rects.map((r) => Math.round(r.top)))],
+          right: Math.max(...rects.map((r) => r.right)),
+          tileRight: tile.right,
+          tileLeft: tile.left,
+          left: Math.min(...rects.map((r) => r.left)),
+        };
+      });
+      expect(fit).not.toBeNull();
+      // One line: every box of the figure's text starts at the same top.
+      expect(fit!.tops).toHaveLength(1);
+      expect(fit!.left).toBeGreaterThanOrEqual(fit!.tileLeft);
+      expect(fit!.right).toBeLessThanOrEqual(fit!.tileRight);
+    },
+  );
+
   it("a long count keeps every bar wide: 140px at 1000px, and under the bar at 390px", async () => {
     const page = await signedIn();
     await page.setViewportSize({ width: 1000, height: 800 });
