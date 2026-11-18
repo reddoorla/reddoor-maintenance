@@ -2451,4 +2451,145 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
       expect(await counts(page), `the counts on / after round trip ${trip}`).toEqual(first);
     }
   });
+
+  // P1-87 PR 5b review r6 B.1: a touch tap outside the ticker, then a Tab into it within 300 ms. The
+  // tap's release held the press state for 1 s, so the focus never stood the row still once the
+  // window ended, and the focused link slid out of the window.
+  it("a touch tap outside the ticker, then a Tab into it within 300 ms, stands the row still with the link in the window, at 1280px and 390px", async () => {
+    const inMovingList = (page: Page) =>
+      page.evaluate(() => {
+        const a = document.activeElement;
+        return a instanceof HTMLAnchorElement && a.closest(".ov-ticker-list:not(.copy)") !== null;
+      });
+    const stillSet = (page: Page) =>
+      page.locator(".ov-ticker-window").evaluate((el) => el.hasAttribute("data-still"));
+    const inWindow = (page: Page) =>
+      page.evaluate(() => {
+        const a = document.activeElement!.getBoundingClientRect();
+        const w = document.querySelector(".ov-ticker-window")!.getBoundingClientRect();
+        return a.left >= w.left && a.right <= w.right && a.top >= w.top && a.bottom <= w.bottom;
+      });
+    for (const width of [1280, 390]) {
+      const page = await signedIn("op", { hasTouch: true });
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`${origin}/`);
+      await expect
+        .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
+        .toBeGreaterThanOrEqual(2);
+      const heading = page.getByRole("heading", { name: "Every site", exact: true });
+      await heading.scrollIntoViewIfNeeded();
+      const h = (await heading.boundingBox())!;
+      expect(h, `the heading is on screen at ${width}px`).not.toBeNull();
+      await page.touchscreen.tap(h.x + h.width / 2, h.y + h.height / 2);
+      const tapped = Date.now();
+      // Tab until a ticker link has focus. Each press is a keyboard focus after the tap.
+      for (let i = 0; i < 6 && !(await inMovingList(page)); i++) {
+        await page.keyboard.press("Tab");
+      }
+      expect(Date.now() - tapped, `a link has focus within 300 ms of the tap at ${width}px`).toBeLessThan(300);
+      expect(await inMovingList(page), `a ticker link has focus at ${width}px`).toBe(true);
+      expect(
+        await page.evaluate(() => document.activeElement!.matches(":focus-visible")),
+        `the focused link is :focus-visible at ${width}px`,
+      ).toBe(true);
+      expect(await inWindow(page), `the focused link is in the window at once at ${width}px`).toBe(
+        true,
+      );
+      await expect
+        .poll(() => stillSet(page), {
+          message: `the row stands still once the window has ended, at ${width}px`,
+          timeout: 3_000,
+        })
+        .toBe(true);
+      await page.waitForTimeout(2_000);
+      expect(await stillSet(page), `the row is still 2 s on at ${width}px`).toBe(true);
+      expect(await inWindow(page), `the focused link is in the window 2 s on at ${width}px`).toBe(
+        true,
+      );
+    }
+  });
+
+  // P1-87 PR 5b review r6 B.2: a touch press and release inside the window, then a keyboard focus on
+  // a link within 200 ms. The window's end must re-check the focus, so the row stands still by 1.6 s
+  // after the release, with the link in the window.
+  it("a touch press and release inside the window, then a Tab to a link within 200 ms, stands the row still by 1.6 s after the release, at 1280px and 390px", async () => {
+    for (const width of [1280, 390]) {
+      const page = await signedIn("op", { hasTouch: true });
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`${origin}/`);
+      await expect
+        .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
+        .toBeGreaterThanOrEqual(2);
+      await page.locator(".ov-ticker-pause").focus();
+      // The press lands on the text of the moving list (a pill or a fact, never a link), inside the window.
+      // The row moves, so the spot is polled for rather than read once.
+      const findFact = () =>
+        page.evaluate(() => {
+          const win = document.querySelector(".ov-ticker-window")!.getBoundingClientRect();
+          for (const f of document.querySelectorAll(".ov-ticker-list:not(.copy) .pill, .ov-ticker-list:not(.copy) .ov-ticker-fact")) {
+            const r = f.getBoundingClientRect();
+            const x = (r.left + r.right) / 2;
+            const y = (r.top + r.bottom) / 2;
+            const inside =
+              r.left >= win.left && r.right <= win.right && r.top >= win.top && r.bottom <= win.bottom;
+            if (inside && document.elementFromPoint(x, y) === f) return { x, y };
+          }
+          return null;
+        });
+      let target: { x: number; y: number } | null = null;
+      await expect
+        .poll(
+          async () => {
+            target = await findFact();
+            return target !== null;
+          },
+          { message: `a fact text sits in the window at ${width}px`, timeout: 10_000 },
+        )
+        .toBe(true);
+      await page.evaluate(() => {
+        document.addEventListener(
+          "pointerup",
+          () => {
+            (window as Window & { __rel?: number }).__rel = performance.now();
+          },
+          { capture: true, once: true },
+        );
+      });
+      await page.touchscreen.tap(target!.x, target!.y);
+      const released = Date.now();
+      await page.keyboard.press("Tab");
+      expect(Date.now() - released, `the Tab follows the release within 200 ms at ${width}px`).toBeLessThan(200);
+      expect(
+        await page.evaluate(() => {
+          const a = document.activeElement;
+          return a instanceof HTMLAnchorElement && a.closest(".ov-ticker-list:not(.copy)") !== null && a.matches(":focus-visible");
+        }),
+        `a ticker link has keyboard focus at ${width}px`,
+      ).toBe(true);
+      const stillAt = await page.evaluate(
+        () =>
+          new Promise<number | null>((done) => {
+            const start = performance.now();
+            const tick = () => {
+              if (document.querySelector(".ov-ticker-window")!.hasAttribute("data-still")) {
+                return done(performance.now() - (window as Window & { __rel?: number }).__rel!);
+              }
+              if (performance.now() - start > 5_000) return done(null);
+              requestAnimationFrame(tick);
+            };
+            tick();
+          }),
+      );
+      expect(stillAt, `the row stands still within 5 s at ${width}px`).not.toBeNull();
+      expect(stillAt!, `the row stands still by 1.6 s after the release at ${width}px`).toBeLessThanOrEqual(1_600);
+      expect(
+        await page.evaluate(() => {
+          const a = document.activeElement!.getBoundingClientRect();
+          const w = document.querySelector(".ov-ticker-window")!.getBoundingClientRect();
+          return a.left >= w.left && a.right <= w.right && a.top >= w.top && a.bottom <= w.bottom;
+        }),
+        `the focused link is in the window at ${width}px`,
+      ).toBe(true);
+    }
+  });
 });
