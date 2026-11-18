@@ -811,7 +811,7 @@
   },
   {
     "id": "61-window-stretched-1e9",
-    "why": "r6 D.3: the touch window is stretched to 1e9 ms, so a touch's press holds the row moving for good. Red: the tap-outside test (B.1) and the press-in-window test (B.2), both",
+    "why": "r6 D.3: the touch window is stretched to 1e9 ms, so a touch's press holds the row moving for good. Red: the press-in-window test (B.2) only; the tap-outside test (B.1) stays green under it, so B.1 does not pin the window's length",
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
