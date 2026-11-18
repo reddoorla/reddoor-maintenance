@@ -1,0 +1,228 @@
+[
+  {
+    "id": "1-floor-previous-shifted-window",
+    "why": "(floor) the previous total is summed over the window shifted a day later (PR 7a floor mutant 1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "      previous: value.previous,",
+        "replace": "      previous: sumOf(datesBetween(w.previous.startDate, w.previous.endDate).slice(1).concat([w.current.startDate])),"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2-unmeasured-visits-shows-zero",
+    "why": "An unmeasured visits tile shows 0 (mutant 2)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "\"not collected\": { value: NOT_YET, context: null },",
+        "replace": "\"not collected\": { value: \"0\", context: null },"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "3-series-from-newest-row",
+    "why": "The series is read from nights[0], not the night holding daily (mutant 3)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "  const row = nights.find((n) => holdsSeries(n, \"visits\"));",
+        "replace": "  const row = nights.length > 0 && holdsSeries(nights[0]!, \"visits\") ? nights[0] : undefined;"
+      }
+    ],
+    "test": "cockpit/tests/overview/traffic.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "4-window-check-removed",
+    "why": "The stored windows are not checked (mutant 4)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "    !sameWindow(value.currentWindow, w.current) ||\n    !sameWindow(value.previousWindow, w.previous) ||\n",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/overview/traffic.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "5-window-end-only",
+    "why": "The window check compares endDate only (mutant 5)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "  isPlain(x) && x.startDate === w.startDate && x.endDate === w.endDate;",
+        "replace": "  isPlain(x) && x.endDate === w.endDate;"
+      }
+    ],
+    "test": "cockpit/tests/overview/traffic.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "6-fractional-counts",
+    "why": "Non-integer counts are allowed (mutant 6)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "Number.isInteger(x) && (x as number) >= 0;",
+        "replace": "typeof x === \"number\" && (x as number) >= 0;"
+      }
+    ],
+    "test": "cockpit/tests/overview/traffic.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "7-negative-counts",
+    "why": "Negative counts are allowed (mutant 7)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "Number.isInteger(x) && (x as number) >= 0;",
+        "replace": "Number.isInteger(x);"
+      }
+    ],
+    "test": "cockpit/tests/overview/traffic.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "8-missing-date-as-zero",
+    "why": "A missing daily date is filled with 0 (mutant 8)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "!isCount(value.sitesRead) ||\n    !Array.isArray(daily) ||\n    daily.length !== expected.length",
+        "replace": "!isCount(value.sitesRead) ||\n    !Array.isArray(daily)"
+      },
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "    const d = daily[i];\n    if (!isPlain(d) || d.date !== expected[i] || !isCount(d.visits)) {",
+        "replace": "    const d = daily.find((x) => isPlain(x) && x.date === expected[i]) ?? { visits: 0 };\n    if (!isPlain(d) || !isCount(d.visits)) {"
+      }
+    ],
+    "test": "cockpit/tests/overview/traffic.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "9-sum-check-removed",
+    "why": "The stored current total is not checked against its days (mutant 9)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "    sumOf(datesBetween(w.current.startDate, w.current.endDate)) !== value.current ||",
+        "replace": "    false ||"
+      }
+    ],
+    "test": "cockpit/tests/overview/traffic.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "10-down-said-as-up",
+    "why": "A decrease is said as up (mutant 10)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "? \"up\" : \"down\"}",
+        "replace": "? \"up\" : \"up\"}"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "11-floor-for-round",
+    "why": "Math.floor for Math.round in the percentage (mutant 11)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "Math.round((Math.abs(",
+        "replace": "Math.floor((Math.abs("
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "12-sites-from-properties",
+    "why": "The tile's sites come from the properties count, not the sites read (mutant 12)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "count(search.value.sitesRead, \"site\", \"sites\")",
+        "replace": "count(nights?.[0]?.counts.traffic.value?.search.value?.sitesWithProperty ?? 0, \"site\", \"sites\")"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "13-search-value-clicks-swapped",
+    "why": "The search tile's value and clicks are swapped (mutant 13)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "value: WHOLE.format(search.value.impressions),",
+        "replace": "value: WHOLE.format(search.value.clicks),"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "14-stored-reason-printed",
+    "why": "A stored reason is printed on the tile (mutant 14)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "          ...TRAFFIC_UNMEASURED[visits.reason],",
+        "replace": "          value: UNREADABLE,\n          context: (nights?.[0]?.counts.traffic.value?.visits as { reason?: string } | undefined)?.reason ?? null,"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "15-traffic-tiles-last",
+    "why": "The traffic tiles are placed last (mutant 15)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  return [\n    ...trafficTiles(s.nights, now),\n    leadsTile,\n    spamTile,\n    checksTile,\n    depsTile,\n    reportsTile,\n    shippedTile,",
+        "replace": "  return [\n    leadsTile,\n    spamTile,\n    checksTile,\n    depsTile,\n    reportsTile,\n    shippedTile,\n    ...trafficTiles(s.nights, now),"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "16-sites-passed-raw",
+    "why": "The per-site array is passed through raw (#2103, mutant 16)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "            sites: v.sites\n              .map(siteEntry)\n              .filter((x): x is NonNullable<typeof x> => x !== null) as TrafficCounts[\"sites\"],",
+        "replace": "            sites: v.sites as TrafficCounts[\"sites\"],"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "17-search-window-ends-on-night",
+    "why": "The search window ends on the night (mutant 17)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "search: w(-30, -3) };",
+        "replace": "search: w(-30, 0) };"
+      }
+    ],
+    "test": "cockpit/tests/overview/traffic.ssr.test.ts",
+    "expect": "red"
+  }
+]

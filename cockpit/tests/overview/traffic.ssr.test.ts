@@ -105,7 +105,7 @@ describe("P1-87 PR 7a: the guarded read", () => {
         "Oct 1 missing from daily (its day removed, the current total lowered to match)",
         {
           daily: dailyOf().filter((d) => d.date !== "2026-10-01"),
-          current: 1674 - 55,
+          current: 1674 - 56,
         },
       ],
       ["an extra Oct 27 in daily", { daily: [...dailyOf(), { date: "2026-10-27", visits: 5 }] }],
