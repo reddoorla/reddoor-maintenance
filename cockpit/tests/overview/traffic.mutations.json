@@ -224,5 +224,356 @@
     ],
     "test": "cockpit/tests/overview/traffic.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "18-percent-divide-first",
+    "why": "(A.1) the percentage divides before it multiplies, so 1,832 against 1,600 reads up 14% (review round 1, A.1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "const p = Math.round((Math.abs(current - previous) * 100) / previous);",
+        "replace": "const p = Math.round((Math.abs(current - previous) / previous) * 100);"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "19-percent-not-grouped",
+    "why": "(A.1 nit) the percentage is not formatted with WHOLE, so 123,446,600% reads without its comma (review round 1, A.1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "${WHOLE.format(p)}% on the 30 days before",
+        "replace": "${p}% on the 30 days before"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "20-visits-malformed-as-not-in-row",
+    "why": "(A.2) a visits half the row carries with a bad count reads as not in the row, not malformed (review round 1, A.2)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "if (!isPlain(v) || !isCount(v.current) || !isCount(v.previous)) return MALFORMED;",
+        "replace": "if (!isPlain(v) || !isCount(v.current) || !isCount(v.previous)) return NOT_IN_ROW;"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "21-long-figure-wraps",
+    "why": "(A.3) the long figure's size is not stepped down, so 12,345,678 overruns its tile at 1280px and 390px (review round 1, A.3)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "  font-size: 1.4rem;\n}",
+        "replace": "  font-size: 1.9rem;\n}"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "22-search-tile-says-analytics",
+    "why": "(A.4) the search tile says Google Analytics is not set up, the Analytics words on Search Console's tile (review round 1, A.4)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "? { context: \"Google is not set up for the nightly\" }",
+        "replace": "? { context: \"Google Analytics is not set up for the nightly\" }"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "23-a3-current-endDate-alone",
+    "why": "(a3) the current window's endDate alone moved is not caught: only its startDate is checked",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "!sameWindow(value.currentWindow, w.current) ||",
+        "replace": "!(isPlain(value.currentWindow) && value.currentWindow.startDate === w.current.startDate) ||"
+      }
+    ],
+    "test": "cockpit/tests/overview/traffic.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "24-a8-visits-date-unchecked",
+    "why": "(a8) a visits day with a wrong or reordered date at the right length is not caught",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "if (!isPlain(d) || d.date !== expected[i] || !isCount(d.visits)) {",
+        "replace": "if (!isPlain(d) || !isCount(d.visits)) {"
+      }
+    ],
+    "test": "cockpit/tests/overview/traffic.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "25-a9-null-daily-entry-throws",
+    "why": "(a9) a null daily entry is read without its guard and throws, not malformed",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "if (!isPlain(d) || d.date !== expected[i] || !isCount(d.visits)) {",
+        "replace": "if ((d as Record<string, unknown>).date !== expected[i] || !isCount(d.visits)) {"
+      }
+    ],
+    "test": "cockpit/tests/overview/traffic.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "26-a11-previous-sum-unchecked",
+    "why": "(a11) a previous-window total that does not match its days is not caught",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "sumOf(datesBetween(w.previous.startDate, w.previous.endDate)) !== value.previous",
+        "replace": "false"
+      }
+    ],
+    "test": "cockpit/tests/overview/traffic.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "27-b4-search-sitesRead-unchecked",
+    "why": "(b4) a search half whose sitesRead is not a count is not caught",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "!isCount(value.impressions) ||\n    !isCount(value.sitesRead) ||",
+        "replace": "!isCount(value.impressions) ||"
+      }
+    ],
+    "test": "cockpit/tests/overview/traffic.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "28-b5-search-daily-one-short",
+    "why": "(b5) a search daily one day short is not caught (the loop runs over what is there)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "    !Array.isArray(daily) ||\n    daily.length !== expected.length\n  ) {\n    return { value: null, reason: \"malformed\" };\n  }\n  const counts = new Map<string, { clicks: number; impressions: number }>();",
+        "replace": "    !Array.isArray(daily)\n  ) {\n    return { value: null, reason: \"malformed\" };\n  }\n  const counts = new Map<string, { clicks: number; impressions: number }>();"
+      }
+    ],
+    "test": "cockpit/tests/overview/traffic.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "29-b5-search-loop-over-what-is-there",
+    "why": "(b5, its loop) the search loop runs over the days present, so a short daily is not caught",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "for (let i = 0; i < expected.length; i++) {\n    const d = daily[i];\n    if (!isPlain(d) || d.date !== expected[i] || !isCount(d.clicks)",
+        "replace": "for (let i = 0; i < daily.length; i++) {\n    const d = daily[i];\n    if (!isPlain(d) || d.date !== expected[i] || !isCount(d.clicks)"
+      }
+    ],
+    "test": "cockpit/tests/overview/traffic.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "30-b6-search-date-unchecked",
+    "why": "(b6) a search day whose date is wrong at the right length is not caught",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "if (!isPlain(d) || d.date !== expected[i] || !isCount(d.clicks) || !isCount(d.impressions)) {",
+        "replace": "if (!isPlain(d) || !isCount(d.clicks) || !isCount(d.impressions)) {"
+      }
+    ],
+    "test": "cockpit/tests/overview/traffic.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "31-b7-search-clicks-unchecked",
+    "why": "(b7) a search day's clicks negative or fractional is not caught",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "|| !isCount(d.clicks) || !isCount(d.impressions)) {",
+        "replace": "|| !isCount(d.impressions)) {"
+      }
+    ],
+    "test": "cockpit/tests/overview/traffic.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "32-b8-search-impressions-unchecked",
+    "why": "(b8) a search day's impressions negative or fractional is not caught",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "|| !isCount(d.clicks) || !isCount(d.impressions)) {",
+        "replace": "|| !isCount(d.clicks)) {"
+      }
+    ],
+    "test": "cockpit/tests/overview/traffic.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "33-b9-search-clicks-sum-unchecked",
+    "why": "(b9) stored search clicks that do not match their days are not caught",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "if (clicks !== value.clicks || impressions !== value.impressions) {",
+        "replace": "if (impressions !== value.impressions) {"
+      }
+    ],
+    "test": "cockpit/tests/overview/traffic.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "34-b10-search-impressions-sum-unchecked",
+    "why": "(b10) stored search impressions that do not match their days are not caught",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "if (clicks !== value.clicks || impressions !== value.impressions) {",
+        "replace": "if (clicks !== value.clicks) {"
+      }
+    ],
+    "test": "cockpit/tests/overview/traffic.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "35-b12-search-malformed-as-not-readable",
+    "why": "(b12) a malformed search half reads as not readable, not malformed",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "if (clicks !== value.clicks || impressions !== value.impressions) {\n    return { value: null, reason: \"malformed\" };",
+        "replace": "if (clicks !== value.clicks || impressions !== value.impressions) {\n    return { value: null, reason: \"not readable\" };"
+      }
+    ],
+    "test": "cockpit/tests/overview/traffic.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "36-f2-as-of-edge-an-hour-early",
+    "why": "(f2) the as-of clause is not turned on at 6am Pacific: the expected night is taken an hour early",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "const expected = expectedNight(now);\n  const visits = readVisits(nights);",
+        "replace": "const expected = expectedNight(new Date(now.getTime() - 3_600_000));\n  const visits = readVisits(nights);"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "37-f3-search-stale-clause-missing",
+    "why": "(f3) the search tile's stale clause is not shown",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "${asOfClause(search.value.night, expected)}",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "38-f4-expected-night-gets-a-clause",
+    "why": "(f4) a series on the expected night says it is as of that night",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "night < expected ? `; as of the night of",
+        "replace": "night <= expected ? `; as of the night of"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "39-g2-site-with-unmeasured-half-dropped",
+    "why": "(g2) a site with a half it did not read is dropped, not kept with that half unmeasured",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "  if (h.value === null) return unmeasuredHalf(h);\n  if (!isPlain(h.value)) return null;",
+        "replace": "  if (h.value === null) return null;\n  if (!isPlain(h.value)) return null;"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "40-g4-site-half-not-a-half-kept",
+    "why": "(g4) a site whose half is not a half is kept, not dropped",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "  if (!isHalf(h)) return null;",
+        "replace": "  if (!isHalf(h)) return NOT_IN_ROW;"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "41-g5-site-value-not-object-kept",
+    "why": "(g5) a site whose half's value is not a plain object is kept, not dropped",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "  if (!isPlain(h.value)) return null;",
+        "replace": "  if (!isPlain(h.value)) return NOT_IN_ROW;"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "42-g8-site-bad-visits-count-kept",
+    "why": "(g8) a site whose visits count is not a count is kept, not dropped",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "    isCount(v.current) && isCount(v.previous) ? { current: v.current, previous: v.previous } : null,",
+        "replace": "    ({ current: v.current, previous: v.previous }) as Record<string, number>,"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "43-c2-missing-half-malformed",
+    "why": "(c2) a missing half reads as malformed, not not collected",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "  if (h === undefined) return \"not collected\";",
+        "replace": "  if (h === undefined) return \"malformed\";"
+      }
+    ],
+    "test": "cockpit/tests/overview/traffic.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "44-c3-missing-block-malformed",
+    "why": "(c3) a missing traffic block reads as malformed, not not collected",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "  if (!isPlain(block)) return \"not collected\";",
+        "replace": "  if (!isPlain(block)) return \"malformed\";"
+      }
+    ],
+    "test": "cockpit/tests/overview/traffic.ssr.test.ts",
+    "expect": "red"
   }
 ]
