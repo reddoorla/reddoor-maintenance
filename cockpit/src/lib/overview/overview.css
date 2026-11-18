@@ -429,12 +429,14 @@ section {
  *    falls below its own label (WCAG 1.4.4); where the floor is wider than the tile, the figure
  *    wraps only after a comma (the `<wbr>` the page renders after each one, `+page.svelte`);
  *  - 16.5cqi is N. The shipped font is Pragmatica 700 (Adobe kit noj4tji), where "12,345,678" is
- *    5.78em wide at 16px and 5.96em at 24px, the widest measured: 100/5.96 = 16.8cqi is the most
- *    that fits a tile at any size, and 16.5 leaves about 2%. (The browser harness has no brand
- *    font; its Liberation Sans fallback is 5.00em, so its test scales each figure by its own
- *    measured ratio to the shipped font.)
- *  At 320px with a 32px default the trailing comma of "345," hangs into the 40px gutter (hanging
- *  punctuation, round 4: no CSS for it; the test asserts it never reaches the next tile).
+ *    5.84em wide in Chromium and WebKit and 5.965em in Firefox, the same at every size (measured
+ *    in review round 5): 100/5.965 = 16.76cqi is the most that fits a tile in all three, and 16.5
+ *    leaves about 1.6%. (The browser harness has no brand font; its Liberation Sans fallback is
+ *    5.00em, so its test scales each figure by its own measured ratio to the shipped font.)
+ *  At 320px with a 32px default the trailing comma of "345," hangs up to 7px past its tile. The
+ *  search tile is the grid's right column, so the comma hangs past the grid's edge into the
+ *  page's side margin, never over another tile (hanging punctuation, round 4: no CSS for it; the
+ *  test asserts the page gains no sideways scroll).
  *  The 1.4rem line before the clamp is the fallback for a browser without container units. */
 .ov-num.long {
   font-size: 1.4rem;

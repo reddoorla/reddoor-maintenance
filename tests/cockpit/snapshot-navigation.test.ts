@@ -878,7 +878,9 @@ describe("cockpit navigation, in a browser, against the built app", () => {
   // in the shipped font is its fallback width times its ratio. A figure on one line must fit its
   // tile at that width. A figure too wide for its tile breaks only after a comma: each line but
   // the last ends with ",", and every line fits its tile, or only its trailing "," passes the
-  // edge by at most half the column gap (hanging punctuation, so it never reaches the next tile).
+  // edge by at most half the column gap (hanging punctuation). The search tile is the grid's right
+  // column, so that comma hangs past the grid's edge into the page's side margin, not into the
+  // gutter: half the gap only caps the overhang, and the no-sideways-scroll check is what guards it.
   // At 320px with a 32px default that overhang is the one accepted case. The size is never below
   // the body text (1rem) or the label's, so the reader's text size is kept.
   // Level: a figure on one line has its text's bottom and its label's top level with 345's,
@@ -913,7 +915,9 @@ describe("cockpit navigation, in a browser, against the built app", () => {
   /**
    * The shipped lines, estimated: comma groups packed greedily into lines at the shipped width
    * (the fallback's width times the figure's ratio). A line fits if it is inside the tile, or if
-   * only its trailing comma passes the tile's edge and it overhangs by at most half the column gap.
+   * only its trailing comma passes the tile's edge and it overhangs by at most half the column gap
+   * (a cap only: the search tile is the right column, so the comma hangs past the grid's edge into
+   * the page margin, and the caller's scrollWidth check is the real guard).
    * The fallback does not wrap where Pragmatica does (390px at 24px: 120px in a 126px tile), so
    * the estimate, not the fallback's own lines, is what the shipped font's breaks are checked against.
    */
