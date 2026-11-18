@@ -8,7 +8,7 @@
 import { sql } from "kysely";
 import type { Db } from "../db/client.js";
 import type { FleetDailyCounts, Measured, TrafficCounts } from "./types.js";
-import { OVERVIEW_NIGHTS } from "./types.js";
+import { MALFORMED_HALF, OVERVIEW_NIGHTS } from "./types.js";
 import type { DepsReading, StoredRow } from "./core.js";
 import type { LatestDeps } from "../alerts/production-signals.js";
 
@@ -93,6 +93,9 @@ export { OVERVIEW_NIGHTS };
 /** A block an older or partial row does not carry: unmeasured, never a thrown page. */
 const NOT_IN_ROW = { value: null, reason: "not in this row" } as const;
 
+/** A half the row carries whose value is not a reading (P1-87 PR 7a, review round 1). */
+const MALFORMED = { value: null, reason: MALFORMED_HALF } as const;
+
 /** A block as the reader hands it on: one that is not an object holding `value`
  *  (missing, or hand-written as `{}`) is unmeasured, never passed through to throw
  *  on the page (P1-78h review round 2). */
@@ -121,12 +124,14 @@ const unmeasuredHalf = (h: Record<string, unknown>): { value: null; reason: stri
 });
 
 /** The visits half, normalised: its exact keys as stored, and `daily` only when `keepDaily`
- *  is set and it was stored. A half that is not a valid reading is not in the row. */
+ *  is set and it was stored. A half the row does not carry is not in the row; one it carries
+ *  with a value that is not a reading is malformed (P1-87 PR 7a, review round 1). */
 function visitsHalf(h: unknown, keepDaily: boolean): unknown {
-  if (!isHalf(h)) return NOT_IN_ROW;
+  if (h === undefined) return NOT_IN_ROW;
+  if (!isHalf(h)) return MALFORMED;
   const v = h.value;
   if (v === null) return unmeasuredHalf(h);
-  if (!isPlain(v) || !isCount(v.current) || !isCount(v.previous)) return NOT_IN_ROW;
+  if (!isPlain(v) || !isCount(v.current) || !isCount(v.previous)) return MALFORMED;
   const out: Record<string, unknown> = {
     current: v.current,
     previous: v.previous,
@@ -141,10 +146,11 @@ function visitsHalf(h: unknown, keepDaily: boolean): unknown {
 
 /** The search half, normalised the way `visitsHalf` is. */
 function searchHalf(h: unknown, keepDaily: boolean): unknown {
-  if (!isHalf(h)) return NOT_IN_ROW;
+  if (h === undefined) return NOT_IN_ROW;
+  if (!isHalf(h)) return MALFORMED;
   const v = h.value;
   if (v === null) return unmeasuredHalf(h);
-  if (!isPlain(v) || !isCount(v.clicks) || !isCount(v.impressions)) return NOT_IN_ROW;
+  if (!isPlain(v) || !isCount(v.clicks) || !isCount(v.impressions)) return MALFORMED;
   const out: Record<string, unknown> = {
     clicks: v.clicks,
     impressions: v.impressions,
@@ -189,6 +195,36 @@ function seriesNights(rows: StoredRow[]): { visitsAt: number; searchAt: number; 
   };
 }
 
+/** One half of a site's traffic (P1-87 PR 7a, #2103), rebuilt from the fields `pick` keeps. A
+ *  half the row does not carry is unmeasured; a present half that is not a reading is null. */
+function siteHalf(
+  h: unknown,
+  pick: (v: Record<string, unknown>) => Record<string, number> | null,
+): unknown {
+  if (h === undefined) return NOT_IN_ROW;
+  if (!isHalf(h)) return null;
+  if (h.value === null) return unmeasuredHalf(h);
+  if (!isPlain(h.value)) return null;
+  const v = pick(h.value);
+  return v === null ? null : { value: v };
+}
+
+/** One site's traffic as the overview reads it (#2103): its id, and each half's counts rebuilt
+ *  from their own fields, never passed through. An entry whose id is not a string, or whose
+ *  present half is not a reading, is left out (null). */
+function siteEntry(e: unknown): { siteId: string; visits: unknown; search: unknown } | null {
+  if (!isPlain(e) || typeof e.siteId !== "string") return null;
+  const visits = siteHalf(e.visits, (v) =>
+    isCount(v.current) && isCount(v.previous) ? { current: v.current, previous: v.previous } : null,
+  );
+  const search = siteHalf(e.search, (v) =>
+    isCount(v.clicks) && isCount(v.impressions)
+      ? { clicks: v.clicks, impressions: v.impressions }
+      : null,
+  );
+  return visits === null || search === null ? null : { siteId: e.siteId, visits, search };
+}
+
 /** The traffic block for the page: each half normalised, and the series and sites kept only on
  *  the nights `keep` names (review round 3, Group A). A block that is not measured passes
  *  through as unmeasured; a value that is not a plain object is not in the row. */
@@ -204,7 +240,13 @@ function overviewTraffic(
     value: {
       visits: visitsHalf(v.visits, keep.visits),
       search: searchHalf(v.search, keep.search),
-      ...(keep.sites ? { sites: v.sites } : {}),
+      ...(keep.sites && Array.isArray(v.sites)
+        ? {
+            sites: v.sites
+              .map(siteEntry)
+              .filter((x): x is NonNullable<typeof x> => x !== null) as TrafficCounts["sites"],
+          }
+        : {}),
     },
   } as OverviewTraffic;
 }

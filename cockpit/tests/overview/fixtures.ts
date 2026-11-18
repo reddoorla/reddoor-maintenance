@@ -5,6 +5,7 @@ import type { WebsiteRow } from "../../../src/fleet/site-row.js";
 import type { FleetEvent } from "../../../src/db/fleet-events.js";
 import { NIGHTLIES } from "../../../scripts/nightly-conductor.mjs";
 import { makeWebsiteRow } from "../../../tests/_helpers/website-row.js";
+import { trafficWindows } from "../../../src/fleet-daily/traffic.js";
 
 /** P1-78g: the overview's fixture rows, shared by the model's tests and the page's. */
 
@@ -157,5 +158,81 @@ export function snapshot(over: Partial<CockpitSnapshot> = {}): CockpitSnapshot {
     deps: null,
     nights: [],
     ...over,
+  };
+}
+
+/** P1-87 PR 7a: `total` spread over `n` days, oldest first: each day `floor(total / n)`, the
+ *  first `total % n` days one more. The probe's 1,542 over 30 days is 52 for 12 days, then 51. */
+export function spread(total: number, n: number): number[] {
+  const base = Math.floor(total / n);
+  const extra = total % n;
+  return Array.from({ length: n }, (_, i) => base + (i < extra ? 1 : 0));
+}
+
+/** The calendar dates from `start` for `n` days, oldest first (UTC, so no DST shift). */
+export function datesFrom(start: string, n: number): string[] {
+  const t0 = Date.parse(`${start}T00:00:00Z`);
+  return Array.from({ length: n }, (_, i) =>
+    new Date(t0 + i * 86_400_000).toISOString().slice(0, 10),
+  );
+}
+
+/** P1-87 PR 7a: a night's `traffic` block, valid for `night`'s windows (`trafficWindows`).
+ *  Defaults are the probe's: visits 1,674 over the 30 days, 1,542 over the 30 before, 16 of
+ *  16 sites; search 12,521 impressions and 623 clicks over 28 days, 16 of 18 sites. `over`
+ *  replaces a half whole when it holds `value`, else merges its fields into the half's value. */
+export function trafficBlock(
+  night: string,
+  over: {
+    visits?: Record<string, unknown>;
+    search?: Record<string, unknown>;
+    sites?: unknown;
+  } = {},
+): Record<string, unknown> {
+  const w = trafficWindows(night);
+  const visitDates = datesFrom(w.previous.startDate, 60);
+  const prevDays = spread(1542, 30);
+  const curDays = spread(1674, 30);
+  const visitsDaily = visitDates.map((date, i) => ({
+    date,
+    visits: i < 30 ? prevDays[i]! : curDays[i - 30]!,
+  }));
+  const searchDates = datesFrom(w.search.startDate, 28);
+  const clicks = spread(623, 28);
+  const impressions = spread(12521, 28);
+  const visitsValue = {
+    current: 1674,
+    previous: 1542,
+    currentWindow: { ...w.current },
+    previousWindow: { ...w.previous },
+    sitesRead: 16,
+    sitesWithProperty: 16,
+    daily: visitsDaily,
+  };
+  const searchValue = {
+    clicks: 623,
+    impressions: 12521,
+    window: { ...w.search },
+    sitesRead: 16,
+    sitesWithProperty: 18,
+    daily: searchDates.map((date, i) => ({
+      date,
+      clicks: clicks[i]!,
+      impressions: impressions[i]!,
+    })),
+  };
+  const half = (
+    base: Record<string, unknown>,
+    o: Record<string, unknown> | undefined,
+  ): Record<string, unknown> =>
+    o === undefined
+      ? base
+      : "value" in o
+        ? o
+        : { value: { ...(base.value as Record<string, unknown>), ...o } };
+  return {
+    visits: half({ value: visitsValue }, over.visits),
+    search: half({ value: searchValue }, over.search),
+    sites: over.sites ?? [],
   };
 }

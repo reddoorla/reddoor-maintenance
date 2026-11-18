@@ -11,6 +11,7 @@ import { recordFleetEvent } from "../../src/db/fleet-events.js";
 import { NIGHTLIES } from "../../scripts/nightly-conductor.mjs";
 import { seededNights } from "../_helpers/bar-nights.js";
 import { expectedNight } from "../../cockpit/src/lib/overview/view.js";
+import { trafficWindows } from "../../src/fleet-daily/traffic.js";
 
 /**
  * The cockpit navigates without a server round trip (home base
@@ -175,6 +176,40 @@ async function seed(url: string): Promise<void> {
   // run that crosses 6am Pacific between seeding and the check would read one night
   // behind.
   const newest = expectedNight(new Date());
+  // P1-87 PR 7a, review round 1 (A.3): the newest night's search half reads 12,345,678
+  // impressions over its 28 days, so the widest figure a tile can carry is on the page.
+  const searchWindow = trafficWindows(newest).search;
+  const spreadOver = (total: number, n: number) =>
+    Array.from({ length: n }, (_, i) => Math.floor(total / n) + (i < total % n ? 1 : 0));
+  const searchDaily = (() => {
+    const clicks = spreadOver(1234, 28);
+    const shown = spreadOver(12345678, 28);
+    return Array.from({ length: 28 }, (_, i) => ({
+      date: new Date(Date.parse(`${searchWindow.startDate}T00:00:00Z`) + i * 86_400_000)
+        .toISOString()
+        .slice(0, 10),
+      clicks: clicks[i]!,
+      impressions: shown[i]!,
+    }));
+  })();
+  const newestTraffic = {
+    traffic: {
+      value: {
+        visits: { value: null, reason: "not in this row" },
+        search: {
+          value: {
+            clicks: 1234,
+            impressions: 12345678,
+            window: { ...searchWindow },
+            sitesRead: 16,
+            sitesWithProperty: 18,
+            daily: searchDaily,
+          },
+        },
+        sites: [],
+      },
+    },
+  };
   // P1-87 PR 5a, review round 3 (Group C): the bar's own run night is written too, so the bar
   // reads recorded at any hour (see seededNights). Its backup did not run, so it renders a
   // `none` step for the forced-colours check.
@@ -194,6 +229,7 @@ async function seed(url: string): Promise<void> {
           ),
           prsMerged: { value: merged },
           events: { value: { pr_automerged: merged / 6, vuln_cleared: 3 } },
+          ...(night === newest ? newestTraffic : {}),
         }),
         written_at: new Date().toISOString(),
       })
@@ -320,6 +356,102 @@ async function signedIn(user = "op"): Promise<Page> {
 }
 
 const contexts: BrowserContext[] = [];
+
+/** The newest night's stored counts, as text, so a test can put them back. */
+async function newestCounts(): Promise<string> {
+  const db = await openDb({ url: dbUrl });
+  try {
+    const row = await db
+      .selectFrom("fleet_daily")
+      .select("counts")
+      .where("night", "=", expectedNight(new Date()))
+      .executeTakeFirstOrThrow();
+    return row.counts;
+  } finally {
+    await db.destroy();
+  }
+}
+
+async function putNewestCounts(counts: string): Promise<void> {
+  const db = await openDb({ url: dbUrl });
+  try {
+    await db
+      .updateTable("fleet_daily")
+      .set({ counts })
+      .where("night", "=", expectedNight(new Date()))
+      .execute();
+  } finally {
+    await db.destroy();
+  }
+}
+
+/** The days from `from` to `to`, both included, as YYYY-MM-DD. */
+function daysBetween(from: string, to: string): string[] {
+  const out: string[] = [];
+  for (let t = Date.parse(`${from}T00:00:00Z`); t <= Date.parse(`${to}T00:00:00Z`); t += 86_400_000)
+    out.push(new Date(t).toISOString().slice(0, 10));
+  return out;
+}
+
+/** `total` split over `n` days, each day a whole count, the parts summing to `total`. */
+const spreadOver = (total: number, n: number): number[] =>
+  Array.from({ length: n }, (_, i) => Math.floor(total / n) + (i < total % n ? 1 : 0));
+
+/** Re-seeds the newest night's traffic so the visits tile reads `visits` and the search tile
+ *  reads `impressions`, both as readings the overview accepts. Returns the counts it replaced. */
+async function seedTraffic(visits: number, impressions: number): Promise<string> {
+  const saved = await newestCounts();
+  const newest = expectedNight(new Date());
+  const w = trafficWindows(newest);
+  const visitDays = [
+    ...daysBetween(w.previous.startDate, w.previous.endDate),
+    ...daysBetween(w.current.startDate, w.current.endDate),
+  ];
+  const previousDays = visitDays.length - 30;
+  const visitsDaily = visitDays.map((date, i) => ({
+    date,
+    visits:
+      i < previousDays
+        ? spreadOver(300, previousDays)[i]!
+        : spreadOver(visits, 30)[i - previousDays]!,
+  }));
+  const searchDays = daysBetween(w.search.startDate, w.search.endDate);
+  const clicks = spreadOver(1234, searchDays.length);
+  const shown = spreadOver(impressions, searchDays.length);
+  const counts = JSON.parse(saved);
+  counts.traffic = {
+    value: {
+      visits: {
+        value: {
+          current: visits,
+          previous: 300,
+          currentWindow: w.current,
+          previousWindow: w.previous,
+          sitesRead: 16,
+          sitesWithProperty: 18,
+          daily: visitsDaily,
+        },
+      },
+      search: {
+        value: {
+          clicks: 1234,
+          impressions,
+          window: w.search,
+          sitesRead: 16,
+          sitesWithProperty: 18,
+          daily: searchDays.map((date, i) => ({
+            date,
+            clicks: clicks[i]!,
+            impressions: shown[i]!,
+          })),
+        },
+      },
+      sites: [],
+    },
+  };
+  await putNewestCounts(JSON.stringify(counts));
+  return saved;
+}
 
 /** Click a link to `href` and wait for the page it leads to. */
 async function follow(page: Page, href: string, heading: string): Promise<void> {
@@ -693,6 +825,297 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     for (const w of widths) expect(w).toBeGreaterThanOrEqual(100);
   });
 
+  // P1-87 PR 7a, review round 1 (A.3): the newest night's search impressions, 12,345,678 (eight
+  // digits with their commas, seeded above with visits not in the row), stay on one line inside
+  // their tile at the phone's width and at a laptop's, and the right edge is inside the tile.
+  it.each([390, 1280])(
+    "the search tile's 12,345,678 stays on one line inside its tile at %spx",
+    async (width) => {
+      const page = await signedIn();
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto(`${origin}/`);
+      await expect.poll(() => page.locator(".ov-tile").count()).toBe(8);
+      const fit = await page.evaluate(() => {
+        const num = [...document.querySelectorAll(".ov-num")].find(
+          (e) => e.textContent?.trim() === "12,345,678",
+        ) as HTMLElement | undefined;
+        if (!num) return null;
+        const tile = num.closest(".ov-tile")!.getBoundingClientRect();
+        const textRects = (el: Element): DOMRect[] => {
+          // The text boxes only: a flex item span is a box of its own, one pixel off the text.
+          const out: DOMRect[] = [];
+          const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+          for (let n = w.nextNode(); n; n = w.nextNode()) {
+            const r = document.createRange();
+            r.selectNodeContents(n);
+            out.push(...r.getClientRects());
+          }
+          return out.filter((r) => r.width > 0);
+        };
+        const rects = textRects(num);
+        return {
+          tops: [...new Set(rects.map((r) => Math.round(r.top)))],
+          right: Math.max(...rects.map((r) => r.right)),
+          tileRight: tile.right,
+          tileLeft: tile.left,
+          left: Math.min(...rects.map((r) => r.left)),
+        };
+      });
+      expect(fit).not.toBeNull();
+      // One line: every box of the figure's text starts at the same top.
+      expect(fit!.tops).toHaveLength(1);
+      expect(fit!.left).toBeGreaterThanOrEqual(fit!.tileLeft);
+      expect(fit!.right).toBeLessThanOrEqual(fit!.tileRight);
+    },
+  );
+
+  // P1-87 PR 7a, review round 2 (B.1, B.2, B.3) and review round 3 (M1, M2, the tests minor): a
+  // long figure beside a three-digit one, in the same row. The visits tile holds 345 and the
+  // search tile holds the figure (the newest night's traffic is re-seeded for it, and put back).
+  // The harness has no brand font: it falls back to Liberation Sans, where "12,345,678" is 5.00em.
+  // The shipped Pragmatica 700 is wider, by a per-figure ratio that moves with the font size
+  // (measured in this page with the Adobe kit served, round 4): RATIO below. The figure's width
+  // in the shipped font is its fallback width times its ratio. A figure on one line must fit its
+  // tile at that width. A figure too wide for its tile breaks only after a comma: each line but
+  // the last ends with ",", and every line fits its tile, or only its trailing "," passes the
+  // edge by at most half the column gap (hanging punctuation). The search tile is the grid's right
+  // column, so that comma hangs past the grid's edge into the page's side margin, not into the
+  // gutter: half the gap only caps the overhang, and the no-sideways-scroll check is what guards it.
+  // At 320px with a 32px default that overhang is the one accepted case. The size is never below
+  // the body text (1rem) or the label's, so the reader's text size is kept.
+  // Level: a figure on one line has its text's bottom and its label's top level with 345's,
+  // within 1px. A wrapped figure is taller than 345, so only its fit is asserted there.
+  // The figure's text is the plain figure: no break character is spoken.
+  // Measured ratios (shipped / fallback character-box advance, Pragmatica 700 from the kit,
+  // in the harness's pages, 1280 to 320px, default fonts 16 to 32px, figure sizes 16 to 34px):
+  //   "12,345,678": 1.155 at 16px (1280, 1440), 1.146 at 16px (320), 1.1552 at 20px, 1.1739 at 32px (320, 390),
+  //     1.1895 at 24px (390, 1920); the widest measured, 1.1895, is rounded up to 1.19.
+  //   "1,234,567": 1.1774 at 16px, 1.1794 at 20px, 1.1871 at 32px, 1.2072 at 24px (390, 1920),
+  //     1.2085 at 20px (390); rounded up to 1.21.
+  //   "123,456,789": 1.1640 at 16px, 1.1617 at 20px, 1.1801 at 32px, 1.1978 at 24px (1920),
+  //     1.1965 at 20px (390); rounded up to 1.20.
+  // Fallback advances, for the same cases: "12,345,678" 101.30px at 16px (20.23px figure), 120.22px
+  // at 24px, 160.16px at 32px; "1,234,567" 90.03, 106.86, 142.36px; "123,456,789" 112.55, 133.58,
+  // 177.95px.
+  // The 1.15 this test used before round 4 was measured on the 12,345,678 case only, and it
+  // predicts 1,234,567 at 390/24 as one line where Pragmatica wraps it (round 4, tests major 1).
+  /** Shipped-font ratio per figure: its measured maximum over 16 to 34px, rounded up (see above). */
+  const RATIO: Record<string, number> = {
+    "12,345,678": 1.19,
+    "1,234,567": 1.21,
+    "123,456,789": 1.2,
+  };
+  /** Figures that wrap at the default font in the shipped font (a filed residual, round 4). */
+  const WRAPS_AT_DEFAULT = new Set(["123,456,789"]);
+  type Measured = {
+    groups: { text: string; width: number; comma: number }[];
+    tileWidth: number;
+    gap: number;
+  };
+  /**
+   * The shipped lines, estimated: comma groups packed greedily into lines at the shipped width
+   * (the fallback's width times the figure's ratio). A line fits if it is inside the tile, or if
+   * only its trailing comma passes the tile's edge and it overhangs by at most half the column gap
+   * (a cap only: the search tile is the right column, so the comma hangs past the grid's edge into
+   * the page margin, and the caller's scrollWidth check is the real guard).
+   * The fallback does not wrap where Pragmatica does (390px at 24px: 120px in a 126px tile), so
+   * the estimate, not the fallback's own lines, is what the shipped font's breaks are checked against.
+   */
+  function shippedLines(m: Measured, ratio: number): { text: string; fits: boolean }[] {
+    const fits = (g: Measured["groups"]): boolean => {
+      const width = ratio * g.reduce((s, x) => s + x.width, 0);
+      if (width <= m.tileWidth) return true;
+      const last = g[g.length - 1]!;
+      if (!last.text.endsWith(",")) return false;
+      const withoutComma = width - ratio * last.comma;
+      return withoutComma <= m.tileWidth && width - m.tileWidth <= m.gap / 2;
+    };
+    const lines: { text: string; fits: boolean }[] = [];
+    let cur: Measured["groups"] = [];
+    for (const g of m.groups) {
+      if (cur.length > 0 && !fits([...cur, g])) {
+        lines.push({ text: cur.map((x) => x.text).join(""), fits: fits(cur) });
+        cur = [];
+      }
+      cur.push(g);
+    }
+    if (cur.length > 0) lines.push({ text: cur.map((x) => x.text).join(""), fits: fits(cur) });
+    return lines;
+  }
+
+  it.each(["1,234,567", "12,345,678", "123,456,789"])(
+    "the search tile's %s fits its tile at every width and font size, one line level with visits' 345 or broken only after a comma (review rounds 2 and 3)",
+    async (figure) => {
+      const saved = await seedTraffic(345, Number(figure.replace(/,/g, "")));
+      try {
+        const measure = (page: Page) =>
+          page.evaluate((figure) => {
+            const figs = [...document.querySelectorAll<HTMLElement>(".ov-num")];
+            const num = figs.find((e) => e.textContent?.trim() === figure);
+            const three = figs.find((e) => e.textContent?.trim() === "345");
+            if (!num || !three) return null;
+            const tile = num.closest(".ov-tile")!;
+            const other = three.closest(".ov-tile")!;
+            // Each character's own box, grouped by its line (its top), in reading order; and each
+            // comma group (its digits and its comma) with its width, for the shipped estimate.
+            const byTop = new Map<number, string>();
+            const groups: { text: string; width: number; comma: number }[] = [];
+            let groupText = "";
+            let groupWidth = 0;
+            let advance = 0; // the figure's width on one line: its characters' boxes, summed
+            const walker = document.createTreeWalker(num, NodeFilter.SHOW_TEXT);
+            for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+              const text = n.textContent ?? "";
+              for (let i = 0; i < text.length; i++) {
+                const r = document.createRange();
+                r.setStart(n, i);
+                r.setEnd(n, i + 1);
+                const box = r.getBoundingClientRect();
+                advance += box.width;
+                const top = Math.round(box.top);
+                byTop.set(top, (byTop.get(top) ?? "") + text[i]);
+                groupText += text[i];
+                groupWidth += box.width;
+                if (text[i] === ",") {
+                  groups.push({ text: groupText, width: groupWidth, comma: box.width });
+                  groupText = "";
+                  groupWidth = 0;
+                }
+              }
+            }
+            if (groupText) groups.push({ text: groupText, width: groupWidth, comma: 0 });
+            const textRects = (el: Element): DOMRect[] => {
+              // The text boxes only: a flex item span is a box of its own, one pixel off the text.
+              const out: DOMRect[] = [];
+              const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+              for (let n = w.nextNode(); n; n = w.nextNode()) {
+                const r = document.createRange();
+                r.selectNodeContents(n);
+                out.push(...r.getClientRects());
+              }
+              return out.filter((r) => r.width > 0);
+            };
+            const rects = textRects(num);
+            const box = tile.getBoundingClientRect();
+            const label = (t: Element) => t.querySelector(".ov-label")!.getBoundingClientRect().top;
+            const textBottom = (el: HTMLElement) => {
+              return Math.max(...textRects(el).map((r) => r.bottom));
+            };
+            return {
+              text: num.textContent ?? "",
+              lines: [...byTop.entries()].sort((a, b) => a[0] - b[0]).map(([, s]) => s),
+              groups,
+              left: Math.min(...rects.map((r) => r.left)),
+              right: Math.max(...rects.map((r) => r.right)),
+              tileLeft: box.left,
+              tileRight: box.right,
+              tileWidth: box.width,
+              gap: parseFloat(getComputedStyle(tile.parentElement!).columnGap),
+              labelTops: [label(tile), label(other)],
+              textBottoms: [textBottom(num), textBottom(three)],
+              rootFont: getComputedStyle(document.documentElement).fontSize,
+              figureFont: getComputedStyle(num).fontSize,
+              labelFont: getComputedStyle(tile.querySelector(".ov-label")!).fontSize,
+              wbrs: num.querySelectorAll("wbr").length,
+              advance,
+              scrollWidth: document.documentElement.scrollWidth,
+              innerWidth: window.innerWidth,
+            };
+          }, figure);
+        const open = async (width: number, standard?: number) => {
+          const page = await signedIn();
+          await page.setViewportSize({ width, height: 844 });
+          if (standard !== undefined) {
+            const cdp = await page.context().newCDPSession(page);
+            await cdp.send("Page.setFontSizes", { fontSizes: { standard } });
+          }
+          await page.goto(`${origin}/`);
+          await expect.poll(() => page.locator(".ov-tile").count()).toBe(8);
+          return page;
+        };
+        // The sideways-scroll check is kept to the three cases the round-2 test checked: at
+        // 768px and at 24px on a laptop the page is wider than the screen for reasons this figure
+        // does not cause (`table.ov-leads-sites`, pre-existing; see the PR body).
+        const cases: [number, number | undefined, boolean][] = [
+          [390, undefined, false],
+          [768, undefined, false],
+          [1280, undefined, false],
+          [1440, undefined, false],
+          [390, 24, true],
+          [1920, 24, true],
+          [390, 32, true],
+          [320, 32, false],
+        ];
+        for (const [width, standard, sideways] of cases) {
+          const where = `${width}px${standard === undefined ? "" : ` at ${standard}px`}`;
+          const m = await measure(await open(width, standard));
+          expect(m, where).not.toBeNull();
+          expect(m!.text, `${where} plain figure`).toBe(figure);
+          expect(m!.rootFont, `${where} root`).toBe(`${standard ?? 16}px`);
+          // The size floor: never below the body text, nor the label's.
+          expect(parseFloat(m!.figureFont), `${where} floor`).toBeGreaterThanOrEqual(
+            parseFloat(m!.rootFont),
+          );
+          expect(parseFloat(m!.figureFont), `${where} label floor`).toBeGreaterThanOrEqual(
+            parseFloat(m!.labelFont),
+          );
+          if (sideways)
+            expect(m!.scrollWidth, `${where} sideways`).toBeLessThanOrEqual(m!.innerWidth);
+          // The shipped width: the fallback's, times this figure's ratio.
+          const ratio = RATIO[figure]!;
+          const fits = m!.advance * ratio <= m!.tileWidth;
+          // At the default font the shipped figure is one line at every width tested (round 2,
+          // B.1), so the margin must hold there, and a size that wraps at the default font fails.
+          // 123,456,789 wraps at the default font at 1280 to 1920px in the shipped font (filed
+          // residual, round 4), so for it the default-font case is checked by the break rule below.
+          if (standard === undefined && !WRAPS_AT_DEFAULT.has(figure))
+            expect(m!.advance * ratio, `${where} margin at the default font`).toBeLessThanOrEqual(
+              m!.tileWidth,
+            );
+          if (fits) {
+            // One line: inside its tile at the shipped width, and level with 345.
+            expect(m!.lines.length, `${where} one line`).toBe(1);
+            expect(m!.advance * ratio, `${where} fits`).toBeLessThanOrEqual(m!.tileWidth);
+            expect(m!.left, `${where} left`).toBeGreaterThanOrEqual(m!.tileLeft);
+            expect(m!.right, `${where} right`).toBeLessThanOrEqual(m!.tileRight);
+            expect(
+              Math.abs(m!.labelTops[0]! - m!.labelTops[1]!),
+              `${where} label tops`,
+            ).toBeLessThanOrEqual(1);
+            expect(
+              Math.abs(m!.textBottoms[0]! - m!.textBottoms[1]!),
+              `${where} text bottoms`,
+            ).toBeLessThanOrEqual(1);
+          } else {
+            // Wrapped: the break points are the commas, the figure never runs sideways, and each
+            // line of the shipped estimate fits its tile or hangs only its trailing comma.
+            expect(m!.wbrs, `${where} a break after each comma`).toBe(figure.split(",").length - 1);
+            const lines = shippedLines(m!, ratio);
+            expect(lines.length, `${where} wraps in the shipped estimate`).toBeGreaterThan(1);
+            lines.forEach((line, i) => {
+              if (i < lines.length - 1)
+                expect(line.text.endsWith(","), `${where} break after a comma: ${line.text}`).toBe(
+                  true,
+                );
+              expect(line.fits, `${where} shipped line ${line.text} inside its tile`).toBe(true);
+            });
+            m!.lines.slice(0, -1).forEach((line) => {
+              expect(line.endsWith(","), `${where} fallback break after a comma: ${line}`).toBe(
+                true,
+              );
+            });
+            expect(m!.left, `${where} left`).toBeGreaterThanOrEqual(m!.tileLeft);
+            expect(m!.right, `${where} right`).toBeLessThanOrEqual(m!.tileRight);
+            expect(m!.scrollWidth, `${where} sideways`).toBeLessThanOrEqual(m!.innerWidth);
+          }
+        }
+      } finally {
+        await putNewestCounts(saved);
+      }
+    },
+    120_000,
+  );
+
   // P1-87 PR 3, review round 3 (a11y m3, tests M2): with a long count on a row, the bars
   // keep their width. The count column is 9rem wide, so 1000px keeps every bar at 140px or
   // more; on a phone every bar is at least 100px wide, and its count sits under it.
@@ -1005,9 +1428,10 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       await expect.poll(() => page.locator("h1").first().textContent()).toContain("Overview");
       // The content the check needs is on the page: the long name, in section 1 and both tables.
       expect(await page.locator(".ov-list.broken li", { hasText: LONG_NAME }).count()).toBe(1);
-      // The first screen's health panel and its six number tiles (P1-87 PR 3).
+      // The first screen's health panel and its eight number tiles (P1-87 PR 3; the two traffic
+      // tiles first, P1-87 PR 7a).
       expect(await page.locator(".ov-health").count()).toBe(1);
-      expect(await page.locator(".ov-tile").count()).toBe(6);
+      expect(await page.locator(".ov-tile").count()).toBe(8);
       expect(await page.locator(".ov-leads-sites tbody th", { hasText: LONG_NAME }).count()).toBe(
         1,
       );

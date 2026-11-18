@@ -31,7 +31,20 @@ import { A11Y_STALE_DAYS, PRODUCTION_STALE_DAYS } from "../../../src/alerts/prod
  * Every number it shows is pinned here against fixture rows.
  */
 
-import { NOW, FRESH, STALE, event, healthy, report, night, snapshot } from "./fixtures.js";
+import {
+  NOW,
+  FRESH,
+  STALE,
+  datesFrom,
+  event,
+  healthy,
+  night,
+  report,
+  snapshot,
+  spread,
+  trafficBlock,
+} from "./fixtures.js";
+import { trafficWindows } from "../../../src/fleet-daily/traffic.js";
 import type { CockpitSnapshot } from "../../../src/dashboard/snapshot-views.js";
 
 describe("section 1: the one-line status", () => {
@@ -2097,7 +2110,17 @@ describe("health and numbers (P1-87 PR 3)", () => {
 
   it("the tile numbers for the nightly-driven and lead counts, from their own fields", () => {
     const N = overviewFromSnapshot(numbersFleet(), NOW).numbers;
-    expect(N.map((t) => t.key)).toEqual(["leads", "spam", "checks", "deps", "reports", "shipped"]);
+    // PR 7a: the two traffic tiles come first.
+    expect(N.map((t) => t.key)).toEqual([
+      "visits",
+      "search",
+      "leads",
+      "spam",
+      "checks",
+      "deps",
+      "reports",
+      "shipped",
+    ]);
     const tile = (k: string) => N.find((t) => t.key === k)!;
     expect(tile("leads")).toMatchObject({
       value: "3",
@@ -3560,5 +3583,257 @@ describe("the Lately feed (P1-87 PR 4)", () => {
       NOW,
     );
     expect(v.lately.lines.map((l) => l.text)).toEqual(["Dependency update merged"]);
+  });
+});
+
+/**
+ * P1-87 PR 7a: the two traffic tiles, first on the first screen. Each tile reads the
+ * guarded series (traffic.ts) from the night that holds it; an unmeasured tile says why,
+ * never 0, and a stored reason is never printed.
+ */
+describe("P1-87 PR 7a: the traffic tiles", () => {
+  const OCT26 = "2026-10-26";
+  /** A row's traffic: a measured block, or the given visits and search halves. */
+  const block = (date: string, over: Parameters<typeof trafficBlock>[1] = {}) => ({
+    value: trafficBlock(date, over),
+  });
+  /** Newest first: each row is [date, its traffic block]. */
+  const fleet = (rows: Array<[string, unknown]>, now = NOW) =>
+    overviewFromSnapshot(
+      snapshot({
+        nights: rows.map(([d, t]) =>
+          night(d, { traffic: t as unknown as OverviewNight["counts"]["traffic"] }),
+        ),
+      }),
+      now,
+    );
+  const tiles = (rows: Array<[string, unknown]>, now = NOW) => {
+    const N = fleet(rows, now).numbers;
+    return {
+      visits: N.find((t) => t.key === "visits")!,
+      search: N.find((t) => t.key === "search")!,
+    };
+  };
+  /** A visits and search half that is unmeasured with `reason`. */
+  const unmeasured = (date: string, reason: string) =>
+    block(date, { visits: { value: null, reason }, search: { value: null, reason } });
+  /** One night's visits daily for `prev` over the 30 days before and `cur` over the 30 days. */
+  const visitsDaily = (date: string, prev: number, cur: number) => {
+    const w = trafficWindows(date);
+    const p = spread(prev, 30);
+    const c = spread(cur, 30);
+    return datesFrom(w.previous.startDate, 60).map((d, i) => ({
+      date: d,
+      visits: i < 30 ? p[i]! : c[i - 30]!,
+    }));
+  };
+
+  it("the probe: 1,674 engaged visits, up 9%, and 12,521 shown in Google, 623 clicks", () => {
+    const t = tiles([[OCT26, block(OCT26)]]);
+    expect(t.visits).toEqual({
+      key: "visits",
+      value: "1,674",
+      label: "engaged visits, last 30 days",
+      context: "up 9% on the 30 days before · 16 sites",
+      measured: true,
+      spark: null,
+    });
+    expect(t.search).toEqual({
+      key: "search",
+      value: "12,521",
+      label: "times shown in Google, 28 days",
+      context: "623 clicks through · 16 sites",
+      measured: true,
+      spark: null,
+    });
+  });
+
+  it("the two traffic tiles come first, then the six nightly tiles", () => {
+    const N = fleet([[OCT26, block(OCT26)]]).numbers;
+    expect(N.map((t) => t.key)).toEqual([
+      "visits",
+      "search",
+      "leads",
+      "spam",
+      "checks",
+      "deps",
+      "reports",
+      "shipped",
+    ]);
+  });
+
+  it("compares the 30 days with the 30 before: down, about the same, none before", () => {
+    const cmp = (prev: number, cur: number, sites = 16) =>
+      tiles([
+        [
+          OCT26,
+          block(OCT26, {
+            visits: {
+              current: cur,
+              previous: prev,
+              daily: visitsDaily(OCT26, prev, cur),
+              sitesRead: sites,
+            },
+          }),
+        ],
+      ]).visits.context;
+    expect(cmp(1674, 1542)).toBe("down 8% on the 30 days before · 16 sites");
+    expect(cmp(1000, 1004)).toBe("about the same as the 30 days before · 16 sites");
+    expect(cmp(0, 12)).toBe("none in the 30 days before · 16 sites");
+    expect(cmp(1674, 1542, 1)).toBe("down 8% on the 30 days before · 1 site");
+  });
+
+  it("a half-way percentage rounds up: 1,832 against 1,600 is up 15%, 17 against 40 is down 58%", () => {
+    // 232 × 100 / 1,600 = 14.5 exactly (Math.round gives 15); 23 × 100 / 40 = 57.5 (58).
+    const cmp = (prev: number, cur: number) =>
+      tiles([
+        [
+          OCT26,
+          block(OCT26, {
+            visits: {
+              current: cur,
+              previous: prev,
+              daily: visitsDaily(OCT26, prev, cur),
+            },
+          }),
+        ],
+      ]).visits.context;
+    expect(cmp(1600, 1832)).toBe("up 15% on the 30 days before · 16 sites");
+    expect(cmp(40, 17)).toBe("down 58% on the 30 days before · 16 sites");
+  });
+
+  it("a large percentage is grouped the way the other numbers are: 123,446,600%", () => {
+    const N = tiles([
+      [
+        OCT26,
+        block(OCT26, {
+          visits: {
+            current: 1234467,
+            previous: 1,
+            daily: visitsDaily(OCT26, 1, 1234467),
+          },
+        }),
+      ],
+    ]).visits;
+    expect(N.value).toBe("1,234,467");
+    expect(N.context).toBe("up 123,446,600% on the 30 days before · 16 sites");
+  });
+
+  it("the wrong window is caught: a previous window shifted a day later would read up 8%", () => {
+    // The probe's edges: previous 52 for 12 days then 51, current 56 for 24 then 55. The
+    // previous window moved a day later sums 1,546 (up 8%); the pinned value is up 9%.
+    expect(tiles([[OCT26, block(OCT26)]]).visits.context).toMatch(/^up 9% /);
+  });
+
+  it("a stale series says the night it is as of; a pre-6am one counts with no 'as of'", () => {
+    const stale = tiles([
+      [OCT26, unmeasured(OCT26, "traffic: timeout")],
+      ["2026-10-25", block("2026-10-25")],
+    ]).visits;
+    expect(stale.context).toBe("up 9% on the 30 days before · 16 sites; as of the night of Oct 25");
+    expect(stale.value).toBe("1,674");
+    // 11:00Z on Oct 27 is 4am Pacific: the expected night is Oct 25, and Oct 26 is newer.
+    const early = tiles([[OCT26, block(OCT26)]], new Date("2026-10-27T11:00:00.000Z")).visits;
+    expect(early.context).toBe("up 9% on the 30 days before · 16 sites");
+  });
+
+  // PR 7a review round 1, group C (f2-f4): the "as of" clause, at the 6am Pacific edge and on
+  // the search tile too. 2026-10-27T13:00Z is 6am Pacific (expected night Oct 26); 12:59Z is
+  // 5am (expected night Oct 25).
+  it("the 'as of' clause turns on at 6am Pacific: an Oct 25 series at 13:00Z says so, at 12:59Z not", () => {
+    const rows: Array<[string, unknown]> = [
+      [OCT26, unmeasured(OCT26, "traffic: timeout")],
+      ["2026-10-25", block("2026-10-25")],
+    ];
+    const at13 = tiles(rows, new Date("2026-10-27T13:00:00.000Z"));
+    expect(at13.visits.context).toBe(
+      "up 9% on the 30 days before · 16 sites; as of the night of Oct 25",
+    );
+    expect(at13.search.context).toBe("623 clicks through · 16 sites; as of the night of Oct 25");
+    const at1259 = tiles(rows, new Date("2026-10-27T12:59:00.000Z"));
+    expect(at1259.visits.context).toBe("up 9% on the 30 days before · 16 sites");
+    expect(at1259.search.context).toBe("623 clicks through · 16 sites");
+  });
+
+  it("the search tile's stale clause names its night, as the visits tile's does", () => {
+    const t = tiles([
+      [OCT26, unmeasured(OCT26, "traffic: timeout")],
+      ["2026-10-25", block("2026-10-25")],
+    ]);
+    expect(t.search.context).toBe("623 clicks through · 16 sites; as of the night of Oct 25");
+    expect(t.search.value).toBe("12,521");
+  });
+
+  it("a series on the expected night, with older rows only, has no 'as of' clause", () => {
+    const t = tiles([
+      [OCT26, block(OCT26)],
+      ["2026-10-25", unmeasured("2026-10-25", "traffic: timeout")],
+      ["2026-10-24", unmeasured("2026-10-24", "traffic: timeout")],
+    ]);
+    expect(t.visits.context).toBe("up 9% on the 30 days before · 16 sites");
+    expect(t.search.context).toBe("623 clicks through · 16 sites");
+  });
+
+  it("an unmeasured tile says why, in words, never 0, with no spark", () => {
+    const cases: Array<[string, string | null, string]> = [
+      ["not in this row", null, "NOT_YET"],
+      ["GA not configured", "Google Analytics is not set up for the nightly", "UNREADABLE"],
+      ["no site read", "no site could be read", "UNREADABLE"],
+      ["traffic: timeout", null, "UNREADABLE"],
+    ];
+    for (const [reason, visitsContext, word] of cases) {
+      const t = tiles([[OCT26, unmeasured(OCT26, reason)]]);
+      // PR 7a review round 1 (A.4): the search tile is Search Console, so its GA words are Google's.
+      const contextFor = (k: "visits" | "search") =>
+        k === "search" && reason === "GA not configured"
+          ? "Google is not set up for the nightly"
+          : visitsContext;
+      for (const k of ["visits", "search"] as const) {
+        expect(t[k], `${reason} ${k}`).toMatchObject({
+          measured: false,
+          context: contextFor(k),
+          spark: null,
+        });
+        expect(t[k].value, `${reason} ${k}`).not.toBe("0");
+      }
+      expect(t.visits.value).toBe(word === "NOT_YET" ? NOT_YET : UNREADABLE);
+    }
+    const bad = tiles([
+      [OCT26, block(OCT26, { visits: { current: 1675 }, search: { clicks: 9 } })],
+    ]);
+    expect(bad.visits).toMatchObject({
+      measured: false,
+      value: UNREADABLE,
+      context: "the stored reading is not in the expected shape",
+    });
+    // PR 7a review round 1, group C (b12): the search half reads malformed too.
+    expect(bad.search).toMatchObject({
+      measured: false,
+      value: UNREADABLE,
+      context: "the stored reading is not in the expected shape",
+    });
+  });
+
+  it("a malformed stored half reads as malformed words on both tiles, never not-yet-collected", () => {
+    const malformed = { value: null, reason: "malformed reading" };
+    const t = tiles([[OCT26, block(OCT26, { visits: malformed, search: malformed })]]);
+    for (const k of ["visits", "search"] as const) {
+      expect(t[k], k).toMatchObject({
+        measured: false,
+        value: UNREADABLE,
+        context: "the stored reading is not in the expected shape",
+        spark: null,
+      });
+    }
+  });
+
+  it("a stored reason is never printed: a Google error's text and account stay off the page", () => {
+    const N = fleet([
+      [OCT26, unmeasured(OCT26, "traffic: Request failed for svc@example.iam")],
+    ]).numbers;
+    // The tile is there and unmeasured, so the absence below is a real absence.
+    expect(N.find((t) => t.key === "visits")).toMatchObject({ measured: false });
+    expect(JSON.stringify(N)).not.toContain("example.iam");
+    expect(JSON.stringify(N)).not.toContain("Request failed");
   });
 });

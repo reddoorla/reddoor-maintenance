@@ -51,6 +51,7 @@ import { TRIAGE_PATH } from "../../../../src/dashboard/home-path.js";
 import { NETLIFY_SITE_NOT_FOUND } from "../../../../src/fleet/roster-url-probe.js";
 import { OVERVIEW_NIGHTS } from "../../../../src/fleet-daily/types.js";
 import { cycleView, type CycleView } from "./cycle.js";
+import { readSearch, readVisits, type TrafficReason } from "./traffic.js";
 
 /**
  * P1-78g: the overview at `/` as render-ready data (workspace
@@ -1877,7 +1878,7 @@ export type HealthView = {
   launching: Array<{ level: "broken" | "attention" | "watch"; count: number; kind: keyof OffCare }>;
 };
 export type NumberTile = {
-  key: "leads" | "spam" | "checks" | "deps" | "reports" | "shipped";
+  key: "visits" | "search" | "leads" | "spam" | "checks" | "deps" | "reports" | "shipped";
   /** Digits, or the model's NOT_YET / UNREADABLE words; never a 0 for a missing count. */
   value: string;
   measured: boolean;
@@ -2088,6 +2089,83 @@ function checksOverWindow(
   return `${total} over the last ${span} nights${missing > 0 ? `; ${missing} with no count` : ""}`;
 }
 
+/** P1-87 PR 7a: what a traffic tile says when its series is not shown (a stored reason is
+ *  never printed: a Google error's text can carry an account, so it maps to words or none). */
+const TRAFFIC_UNMEASURED: Record<TrafficReason, { value: string; context: string | null }> = {
+  "not collected": { value: NOT_YET, context: null },
+  "not readable": { value: UNREADABLE, context: null },
+  "not configured": {
+    value: UNREADABLE,
+    context: "Google Analytics is not set up for the nightly",
+  },
+  "no site read": { value: UNREADABLE, context: "no site could be read" },
+  malformed: { value: UNREADABLE, context: "the stored reading is not in the expected shape" },
+};
+
+const WHOLE = new Intl.NumberFormat("en-US");
+
+/** The engaged visits' comparison with the 30 days before, in words: "up 9%", "down 8%",
+ *  "about the same" at 0% after rounding, and "none" when the 30 days before had none. */
+function againstBefore(current: number, previous: number): string {
+  if (previous === 0) return "none in the 30 days before";
+  // Multiply before dividing: (x / y) * 100 can land just under a half (14.499…), which rounds
+  // down, where (x * 100) / y is exact (P1-87 PR 7a, review round 1).
+  const p = Math.round((Math.abs(current - previous) * 100) / previous);
+  if (p === 0) return "about the same as the 30 days before";
+  return `${current > previous ? "up" : "down"} ${WHOLE.format(p)}% on the 30 days before`;
+}
+
+/** The night a traffic series is as of, said only when it is older than the expected night
+ *  (a series on a newer, pre-6am row counts with no clause, as the trend axis does). */
+const asOfClause = (night: string, expected: string): string =>
+  night < expected ? `; as of the night of ${nightLabel(night)}` : "";
+
+/** The two traffic tiles, from the guarded reads (traffic.ts), each from its own series. */
+function trafficTiles(nights: OverviewNight[] | null, now: Date): [NumberTile, NumberTile] {
+  const expected = expectedNight(now);
+  const visits = readVisits(nights);
+  const search = readSearch(nights);
+  const visitsTile: NumberTile =
+    visits.value === null
+      ? {
+          key: "visits",
+          label: "engaged visits, last 30 days",
+          measured: false,
+          spark: null,
+          ...TRAFFIC_UNMEASURED[visits.reason],
+        }
+      : {
+          key: "visits",
+          label: "engaged visits, last 30 days",
+          measured: true,
+          value: WHOLE.format(visits.value.current),
+          context: `${againstBefore(visits.value.current, visits.value.previous)} · ${count(visits.value.sitesRead, "site", "sites")}${asOfClause(visits.value.night, expected)}`,
+          spark: null,
+        };
+  const searchTile: NumberTile =
+    search.value === null
+      ? {
+          key: "search",
+          label: "times shown in Google, 28 days",
+          measured: false,
+          spark: null,
+          // This tile is Search Console, not Analytics: the GA words would name the wrong source.
+          ...TRAFFIC_UNMEASURED[search.reason],
+          ...(search.reason === "not configured"
+            ? { context: "Google is not set up for the nightly" }
+            : {}),
+        }
+      : {
+          key: "search",
+          label: "times shown in Google, 28 days",
+          measured: true,
+          value: WHOLE.format(search.value.impressions),
+          context: `${WHOLE.format(search.value.clicks)} clicks through · ${count(search.value.sitesRead, "site", "sites")}${asOfClause(search.value.night, expected)}`,
+          spark: null,
+        };
+  return [visitsTile, searchTile];
+}
+
 export function numbersView(
   s: CockpitSnapshot,
   leads: LeadsView,
@@ -2184,7 +2262,15 @@ export function numbersView(
     context: shipped.context,
     spark: null,
   };
-  return [leadsTile, spamTile, checksTile, depsTile, reportsTile, shippedTile];
+  return [
+    ...trafficTiles(s.nights, now),
+    leadsTile,
+    spamTile,
+    checksTile,
+    depsTile,
+    reportsTile,
+    shippedTile,
+  ];
 }
 
 /** A sparkline's marks, in its own viewBox units: one polyline per run of nights with a

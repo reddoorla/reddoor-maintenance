@@ -166,8 +166,18 @@
     <h2 id="ov-happening-h">How much is happening</h2>
     <div class="ov-tiles">
       {#each v.numbers as n (n.key)}
+        {@const long = n.measured && n.value.length > 7}
         <div class="ov-tile">
-          <p class="ov-num{n.measured ? '' : ' unknown'}">{n.value}</p>
+          <p class="ov-num{n.measured ? '' : ' unknown'}{long ? ' long' : ''}">
+            {#if long}
+              {@const parts = n.value.split(",")}
+              <span
+                >{#each parts as part, i (i)}{#if i > 0},<wbr />{/if}{part}{/each}</span
+              >
+            {:else}
+              {n.value}
+            {/if}
+          </p>
           <p class="ov-label">{n.label}</p>
           {#if n.context}<p class="muted ov-context">{n.context}</p>{/if}
           {#if n.spark}
