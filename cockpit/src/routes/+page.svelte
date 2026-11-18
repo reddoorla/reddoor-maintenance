@@ -170,7 +170,10 @@
         <div class="ov-tile">
           <p class="ov-num{n.measured ? '' : ' unknown'}{long ? ' long' : ''}">
             {#if long}
-              {#each n.value.split(",") as part, i (i)}{#if i > 0},<wbr />{/if}{part}{/each}
+              {@const parts = n.value.split(",")}
+              <span
+                >{#each parts as part, i (i)}{#if i > 0},<wbr />{/if}{part}{/each}</span
+              >
             {:else}
               {n.value}
             {/if}

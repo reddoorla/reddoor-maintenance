@@ -2038,7 +2038,12 @@ describe("a long figure is sized, and breaks only after a comma (review round 3,
       const figure = firstFigure(value);
       expect(figure.textContent).toBe(value);
       expect(figure.querySelectorAll("wbr")).toHaveLength(value.split(",").length - 1);
-      expect(figure.innerHTML).toBe(value.replace(/,/g, ",<wbr>").replace(/<wbr>$/, ""));
+      // The pieces sit in one span, the flex item the text wraps inside (review round 4, major 1).
+      expect(figure.children).toHaveLength(1);
+      expect(figure.children[0]!.tagName).toBe("SPAN");
+      expect(figure.innerHTML).toBe(
+        `<span>${value.replace(/,/g, ",<wbr>").replace(/<wbr>$/, "")}</span>`,
+      );
     },
   );
 
