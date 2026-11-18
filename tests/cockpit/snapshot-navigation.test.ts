@@ -3121,13 +3121,21 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
         `the drop is outside the window at ${width}px`,
       ).toBe(true);
       expect(await focusedHref(page), `link 1 holds the focus at ${width}px`).toBe(href);
-      // No rest here: Chromium's own hover update lands 110 ms or more after a drop, at the last position it
-      // knew inside the window, and that pointerover would set the flag again. The key comes first.
+      // A real user moves the pointer once more, a few px and still outside, then presses a key. The
+      // move is a real pointer move, so Chromium's hover is the real one by the key press.
+      await page.mouse.move(drop.x + 3, drop.y);
+      expect(
+        await page.evaluate(
+          ([px, py]) => document.elementFromPoint(px, py)?.closest(".ov-ticker-window") === null,
+          [drop.x + 3, drop.y] as const,
+        ),
+        `the pointer is still outside the window after its move at ${width}px`,
+      ).toBe(true);
       await page.keyboard.press("Shift");
       await expect
         .poll(() => dataStill(page), {
-          message: `the row stands still after a drag out of the window at ${width}px`,
-          timeout: 1_600,
+          message: `the row stands still within 300 ms of the Shift after a drag out of the window at ${width}px`,
+          timeout: 300,
         })
         .toBe(true);
       expect(

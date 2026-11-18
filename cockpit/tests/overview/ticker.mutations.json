@@ -772,12 +772,12 @@
   },
   {
     "id": "58-pointerleave-no-recheck",
-    "why": "r6 C: onLeave loses its re-check (requestAnimationFrame(recheck)), so a keyboard focus left under a pointer that then leaves stays moving. Red: the key-press test \"a key press after a mouse press on a link leaves the row moving and the link under the pointer\". The M1 test stays green Retargeted r8 A: the find now includes the drag guard in onLeave.",
+    "why": "r6 C: onLeave loses its re-check (requestAnimationFrame(recheck)), so a keyboard focus left under a pointer that then leaves stays moving. Red: the key-press test \"a key press after a mouse press on a link leaves the row moving and the link under the pointer\". The M1 test stays green",
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "    const onLeave = (e: PointerEvent) => {\n      if (e.pointerType !== \"touch\" && !dragging) finePointerOver = false;\n      requestAnimationFrame(recheck);\n    };",
-        "replace": "    const onLeave = (e: PointerEvent) => {\n      if (e.pointerType !== \"touch\" && !dragging) finePointerOver = false;\n    };"
+        "find": "    const onLeave = (e: PointerEvent) => {\n      if (e.pointerType !== \"touch\") finePointerOver = false;\n      requestAnimationFrame(recheck);\n    };",
+        "replace": "    const onLeave = (e: PointerEvent) => {\n      if (e.pointerType !== \"touch\") finePointerOver = false;\n    };"
       }
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
@@ -873,11 +873,11 @@
   },
   {
     "id": "65-flag-kept-on-leave",
-    "why": "r7 C.3: the flag is never cleared when a mouse or pen leaves the window, so the row keeps the mouse's presence after it has gone. Red: the right press on link 1, Escape, then the pointer leaving the window stills the row (the M1 test) Retargeted r8 A: the find now includes the drag guard in onLeave.",
+    "why": "r7 C.3: the flag is never cleared when a mouse or pen leaves the window, so the row keeps the mouse's presence after it has gone. Red: the right press on link 1, Escape, then the pointer leaving the window stills the row (the M1 test)",
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "      if (e.pointerType !== \"touch\" && !dragging) finePointerOver = false;\n",
+        "find": "      if (e.pointerType !== \"touch\") finePointerOver = false;\n",
         "replace": ""
       }
     ],
@@ -924,19 +924,6 @@
     "expect": "survives"
   },
   {
-    "id": "69-drag-cancel-ignored",
-    "why": "r8 C.1: a mouse leave during a drag clears the flag again (the dragging flag is not honoured in onLeave). Measured on the ticker block: it SURVIVES, because dragend settles the flag from an inside drop, so the guard only matters between the leave and the dragend. Open for the operator: keep the guard and a test for it, or drop it.",
-    "edits": [
-      {
-        "file": "cockpit/src/routes/+page.svelte",
-        "find": "      if (e.pointerType !== \"touch\" && !dragging) finePointerOver = false;",
-        "replace": "      if (e.pointerType !== \"touch\") finePointerOver = false;"
-      }
-    ],
-    "test": "tests/cockpit/snapshot-navigation.test.ts",
-    "expect": "red"
-  },
-  {
     "id": "70-dragend-does-not-settle",
     "why": "r8 C.3: dragend does not settle the flag from the drop point, so a drag released outside keeps the flag it had from the leave suppressed during the drag. Red: the drag released outside (B.2), which presses Shift before Chromium's hover update",
     "edits": [
@@ -961,19 +948,6 @@
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
     "expect": "red"
-  },
-  {
-    "id": "72-dragstart-listener-not-removed",
-    "why": "equivalent: as 68. The effect re-runs only when the window element is replaced, so a dragstart listener left on the detached element can never fire",
-    "edits": [
-      {
-        "file": "cockpit/src/routes/+page.svelte",
-        "find": "      el?.removeEventListener(\"dragstart\", onDragStart);\n",
-        "replace": ""
-      }
-    ],
-    "test": "tests/cockpit/snapshot-navigation.test.ts",
-    "expect": "survives"
   },
   {
     "id": "73-dragend-listener-not-removed",
@@ -1007,8 +981,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "      if (e.pointerType !== \"touch\" && !dragging) finePointerOver = false;",
-        "replace": "      if (e.pointerType === \"mouse\" && !dragging) finePointerOver = false;"
+        "find": "      if (e.pointerType !== \"touch\") finePointerOver = false;",
+        "replace": "      if (e.pointerType === \"mouse\") finePointerOver = false;"
       }
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
