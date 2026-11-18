@@ -144,6 +144,9 @@ const searchValueOf = (): Record<string, unknown> => {
   return { ...v, daily: (v.daily as SDaily).map((d) => ({ ...d })) };
 };
 const searchDailyOf = (): SDaily => searchValueOf().daily as SDaily;
+/** The search day at `i`, typed: its date and counts. */
+type SDay = { date: string; clicks: number; impressions: number };
+const sday = (i: number): SDay => searchDailyOf()[i] as unknown as SDay;
 /** The search half read for OK, with `over` merged into its value. */
 const searchRead = (over: Record<string, unknown>) =>
   readSearch([
@@ -166,7 +169,7 @@ const swapDates = (d: Daily, i: number, j: number): Daily => {
 
 describe("P1-87 PR 7a review round 1 (group C): the search half and the visits guards", () => {
   it("the search half's guards: each malformed input reads as malformed (b4-b10)", () => {
-    const last = searchDailyOf()[27]!;
+    const last = sday(27);
     const cases: Array<[string, Record<string, unknown>]> = [
       // b4: sitesRead that is not a count.
       ["sitesRead as a string", { sitesRead: "x" }],
@@ -184,8 +187,8 @@ describe("P1-87 PR 7a review round 1 (group C): the search half and the visits g
         "two dates swapped at the right length",
         {
           daily: searchDailyWith([
-            [10, { date: searchDailyOf()[11]!.date }],
-            [11, { date: searchDailyOf()[10]!.date }],
+            [10, { date: sday(11).date }],
+            [11, { date: sday(10).date }],
           ]),
         },
       ],
@@ -195,7 +198,7 @@ describe("P1-87 PR 7a review round 1 (group C): the search half and the visits g
         {
           daily: searchDailyWith([
             [5, { clicks: -1 }],
-            [6, { clicks: searchDailyOf()[6]!.clicks! + searchDailyOf()[5]!.clicks! + 1 }],
+            [6, { clicks: sday(6).clicks! + sday(5).clicks! + 1 }],
           ]),
         },
       ],
@@ -203,8 +206,8 @@ describe("P1-87 PR 7a review round 1 (group C): the search half and the visits g
         "a day's clicks at x.5 and the next at x.5 less (the sum kept)",
         {
           daily: searchDailyWith([
-            [5, { clicks: searchDailyOf()[5]!.clicks! + 0.5 }],
-            [6, { clicks: searchDailyOf()[6]!.clicks! - 0.5 }],
+            [5, { clicks: sday(5).clicks! + 0.5 }],
+            [6, { clicks: sday(6).clicks! - 0.5 }],
           ]),
         },
       ],
@@ -217,8 +220,7 @@ describe("P1-87 PR 7a review round 1 (group C): the search half and the visits g
             [
               6,
               {
-                impressions:
-                  searchDailyOf()[6]!.impressions! + searchDailyOf()[5]!.impressions! + 1,
+                impressions: sday(6).impressions! + sday(5).impressions! + 1,
               },
             ],
           ]),
@@ -228,8 +230,8 @@ describe("P1-87 PR 7a review round 1 (group C): the search half and the visits g
         "a day's impressions at x.5 and the next at x.5 less (the sum kept)",
         {
           daily: searchDailyWith([
-            [5, { impressions: searchDailyOf()[5]!.impressions! + 0.5 }],
-            [6, { impressions: searchDailyOf()[6]!.impressions! - 0.5 }],
+            [5, { impressions: sday(5).impressions! + 0.5 }],
+            [6, { impressions: sday(6).impressions! - 0.5 }],
           ]),
         },
       ],
