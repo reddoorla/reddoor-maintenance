@@ -579,8 +579,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "      pressing = false;\n      lastRelease = { type: e.pointerType, at: performance.now() };",
-        "replace": "      lastRelease = { type: e.pointerType, at: performance.now() };"
+        "find": "      pressing = false;\n      if (counted) {",
+        "replace": "      if (counted) {"
       }
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
@@ -646,7 +646,7 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "      document.removeEventListener(\"keydown\", onKey);\n      document.removeEventListener(\"pointerup\", onRelease);\n      document.removeEventListener(\"pointercancel\", onRelease);\n",
+        "find": "      document.removeEventListener(\"keydown\", onKey);\n      document.removeEventListener(\"pointerover\", notePointer);\n      document.removeEventListener(\"pointerdown\", notePointer);\n      document.removeEventListener(\"pointerup\", onRelease);\n      document.removeEventListener(\"pointercancel\", onRelease);\n",
         "replace": ""
       }
     ],
