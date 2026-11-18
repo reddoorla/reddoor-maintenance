@@ -96,8 +96,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/traffic.ts",
-        "find": "!isCount(value.sitesRead) ||\n    !Array.isArray(daily) ||\n    daily.length !== expected.length",
-        "replace": "!isCount(value.sitesRead) ||\n    !Array.isArray(daily)"
+        "find": "!isCount(value.previous) ||\n    !isCount(value.sitesRead) ||\n    !Array.isArray(daily) ||\n    daily.length !== expected.length",
+        "replace": "!isCount(value.previous) ||\n    !isCount(value.sitesRead) ||\n    !Array.isArray(daily)"
       },
       {
         "file": "cockpit/src/lib/overview/traffic.ts",
