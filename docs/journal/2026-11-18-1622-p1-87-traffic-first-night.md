@@ -13,6 +13,6 @@ The numbers, as stored:
 
 I checked the block against itself before trusting it: visits' current and previous each equal the sum of their window's daily entries (1,770 and 1,493), search's clicks and impressions equal their daily sums (622 and 12,508), and the per-site rows sum to the same four totals. So the totals, the series the tiles and 7b's charts will draw, and the per-site rebuild all agree on the first night.
 
-One thing to know when reading the tiles: the visits window ends on the night (11-17) while the search window ends three days earlier (11-14), so the two tiles' periods are not the same 30 days. That is by design (PR 6's spec) and the How-we-count page says so.
+One thing to know when reading the tiles: the visits window ends on the night (11-17) while the search window ends three days earlier (11-14), so the two tiles' periods are not the same 30 days. The tiles label their own periods ("engaged visits, last 30 days" and "times shown in Google, 28 days"), but nothing on the page or on How-we-count says the search window ends three days before the night. That is worth a line on How-we-count when 7b writes its "Trends" text.
 
 Usage: not readable (the session's usage is in the workspace journal).
