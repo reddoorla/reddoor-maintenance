@@ -769,5 +769,18 @@
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "58-pointerleave-no-recheck",
+    "why": "r6 C: onLeave no longer re-checks the focus (the rAF(recheck) in the pointerleave handler is removed), so a link focused by keyboard and left under the pointer's leave stays moving once the pointer is gone (the key-press test, with the pointer over the window then moved off, goes red)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "    const onLeave = () => {\n      requestAnimationFrame(recheck);\n    };",
+        "replace": "    const onLeave = () => {\n    };"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
   }
 ]
