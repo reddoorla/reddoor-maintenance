@@ -421,15 +421,21 @@ section {
   font-weight: var(--weight-bold);
   line-height: 1.1;
 }
-/* A figure of eight or more characters (a seven-digit count with its commas) stays on one line
- *  and steps its size down, so "1,234,567" never wraps mid-number in a narrow tile (P1-87 PR 7a,
- *  review round 1, A.3). Its size is the smaller of 1.4rem and 19cqi of its tile. At 1.4rem
- *  (22.4px) "12,345,678" is 112.1px wide, 5.00 em, which the browser test measures in a 149px tile
- *  at 390px; 100/5.00 = 19.99cqi is the most that fits any tile at any root font, so 19cqi leaves
- *  5% over it (review round 2, B.1). */
+/* A figure of eight or more characters (a seven-digit count with its commas) sizes to its tile
+ *  so "1,234,567" never runs past it (P1-87 PR 7a, review rounds 1 and 3). Its size is
+ *  clamp(1rem, 16.5cqi, 1.4rem) of its tile (`cqi` is 1% of the tile's inline size):
+ *  - the 1.4rem ceiling is round 1's size, so a wide tile keeps it;
+ *  - the 1rem floor is the body text, so the figure grows with the reader's text size and never
+ *    falls below its own label (WCAG 1.4.4); where the floor is wider than the tile, the figure
+ *    wraps only after a comma (the `<wbr>` the page renders after each one, `+page.svelte`);
+ *  - 16.5cqi is N. The shipped font is Pragmatica 700 (Adobe kit noj4tji), where "12,345,678" is
+ *    5.71em wide: 100/5.71 = 17.51cqi is the most that fits a tile, and 16.5 leaves about 6% over
+ *    it. (The browser harness has no brand font; its Liberation Sans fallback is 5.00em, so its
+ *    test asserts a 1.15 margin on the measured width.)
+ *  The 1.4rem line before the clamp is the fallback for a browser without container units. */
 .ov-num.long {
-  white-space: nowrap;
-  font-size: min(1.4rem, 19cqi);
+  font-size: 1.4rem;
+  font-size: clamp(1rem, 16.5cqi, 1.4rem);
 }
 /* An unmeasured figure and a long one share the row's height and its bottom edge, so a long
  *  figure beside a short one keeps both labels level (P1-87 PR 7a, review round 2, B.2). */
