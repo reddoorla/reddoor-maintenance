@@ -2942,16 +2942,49 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
       const link = page.locator(".ov-ticker-list:not(.copy) > li:nth-child(1) a");
       const href = await link.getAttribute("href");
       expect(href, `link 1 is a link at ${width}px`).toBeTruthy();
-      await page.locator(".ov-ticker-window").hover();
-      await settledPaused(page);
+      const cdp = await page.context().newCDPSession(page);
+      // P1-87 PR 5b review r8 B.3: the pen alone takes the window. A CDP pen move also sends Chromium's
+      // compatibility mouse events to the window (measured on e13f628c), which would hide a mouse-only
+      // flag, so the hover is a synthetic pen pointerover, pointerenter and pointermove. The window is
+      // scrolled into view first, so the scroll's synthetic mouse move cannot be logged as a mouse.
+      await page.locator(".ov-ticker-window").scrollIntoViewIfNeeded();
+      await page.evaluate(() => {
+        const seen: string[] = [];
+        (window as Window & { __types?: string[] }).__types = seen;
+        const w = document.querySelector(".ov-ticker-window")!;
+        for (const t of ["pointerover", "pointerenter", "pointermove", "pointerdown", "pointerup"])
+          w.addEventListener(t, (e) => seen.push((e as PointerEvent).pointerType));
+      });
+      const hover = (await page.locator(".ov-ticker-window").boundingBox())!;
+      await page.evaluate(
+        ([hx, hy]) => {
+          const w = document.querySelector(".ov-ticker-window")!;
+          for (const t of ["pointerover", "pointerenter", "pointermove"])
+            w.dispatchEvent(
+              new PointerEvent(t, {
+                pointerType: "pen",
+                pointerId: 3,
+                isPrimary: true,
+                clientX: hx,
+                clientY: hy,
+                bubbles: true,
+              }),
+            );
+        },
+        [hover.x + hover.width / 2, hover.y + hover.height / 2] as const,
+      );
+      const types = await page.evaluate(() => (window as Window & { __types?: string[] }).__types!);
+      expect(types, `the pen hover reached the window, and only the pen, at ${width}px`).toEqual([
+        "pen",
+        "pen",
+        "pen",
+      ]);
       const box = (await link.boundingBox())!;
       const win = (await page.locator(".ov-ticker-window").boundingBox())!;
       const left = Math.max(box.x, win.x, 0) + 1;
       const right = Math.min(box.x + box.width, win.x + win.width, width) - 1;
       const x = (left + right) / 2;
       const y = box.y + box.height / 2;
-      const cdp = await page.context().newCDPSession(page);
-      await pointer(cdp, "mouseMoved", x, y, "pen");
       await pointer(cdp, "mousePressed", x, y, "pen", "right");
       await pointer(cdp, "mouseReleased", x, y, "pen", "right");
       expect(
@@ -2971,6 +3004,284 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
           [x, y] as const,
         ),
         `the pen is still over the window at ${width}px`,
+      ).toBe(true);
+    }
+  });
+
+  // P1-87 PR 5b review r8 B.1 (the drag, round 8's major): a press on link 1 that drags it. Chromium
+  // starts the link drag with dragstart, then pointercancel and a mouse pointerleave on the window
+  // while the pointer is still over it, then dragend at the drop (the logged order on e13f628c:
+  // dragstart, pointercancel, pointerleave, dragend; the next pointerover comes about 400 ms later).
+  // The row must not stand still under the resting mouse. The control 8fc54f17 fails 8 of 10 at
+  // 1280px and 5 of 10 at 390px, so five runs at each width are red there almost every time.
+  const dragLink1 = async (page: Page, width: number, end: "inside" | "outside") => {
+    await page.evaluate(() => {
+      const log: string[] = ((window as Window & { __drag?: string[] }).__drag = []);
+      document
+        .querySelector(".ov-ticker-window")!
+        .addEventListener("dragstart", () => log.push("dragstart"));
+    });
+    const link = page.locator(".ov-ticker-list:not(.copy) > li:nth-child(1) a");
+    await page.locator(".ov-ticker-window").hover();
+    await settledPaused(page);
+    const box = (await link.boundingBox())!;
+    const win = (await page.locator(".ov-ticker-window").boundingBox())!;
+    const left = Math.max(box.x, win.x, 0) + 1;
+    const right = Math.min(box.x + box.width, win.x + win.width, width) - 1;
+    const x = (left + right) / 2;
+    const y = box.y + box.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    for (let i = 1; i <= 4; i++) await page.mouse.move(x + 3 * i, y);
+    let dropY = y;
+    if (end === "outside") {
+      // The list overflows the window box, so a point just below the box can still hit the list. The
+      // drop point is the first one below the box that elementFromPoint reports outside the window.
+      dropY = await page.evaluate((bottom) => {
+        for (let yy = bottom + 2; yy < bottom + 300; yy += 2) {
+          const e = document.elementFromPoint(window.innerWidth / 2, yy);
+          if (!e || e.closest(".ov-ticker-window") === null) return yy;
+        }
+        return -1;
+      }, win.y + win.height);
+      expect(dropY, "a point below the window is outside it").toBeGreaterThan(0);
+      for (let i = 1; i <= 10; i++) await page.mouse.move(x + 12, y + ((dropY - y) * i) / 10);
+    }
+    await page.mouse.up();
+    return { x: x + 12, y: dropY };
+  };
+  const dragStarted = (page: Page) =>
+    page.evaluate(() =>
+      ((window as Window & { __drag?: string[] }).__drag ?? []).includes("dragstart"),
+    );
+
+  it("a press on link 1 that drags it, then a rest and a Shift, keeps the row moving under the resting mouse, at 1280px and 390px", async () => {
+    for (const width of [1280, 390]) {
+      for (let run = 1; run <= 5; run++) {
+        const page = await signedIn();
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(`${origin}/`);
+        await expect
+          .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
+          .toBeGreaterThanOrEqual(2);
+        const href = await page
+          .locator(".ov-ticker-list:not(.copy) > li:nth-child(1) a")
+          .getAttribute("href");
+        expect(href, `link 1 is a link at ${width}px`).toBeTruthy();
+        const drop = await dragLink1(page, width, "inside");
+        expect(
+          await dragStarted(page),
+          `a drag started on the window at ${width}px, run ${run}`,
+        ).toBe(true);
+        expect(
+          await focusedHref(page),
+          `link 1 holds the focus after the drag at ${width}px, run ${run}`,
+        ).toBe(href);
+        expect(
+          await page.evaluate(
+            ([px, py]) => document.elementFromPoint(px, py)?.closest(".ov-ticker-window") != null,
+            [drop.x, drop.y] as const,
+          ),
+          `the mouse is over the window after the drag at ${width}px, run ${run}`,
+        ).toBe(true);
+        await page.waitForTimeout(400);
+        await page.keyboard.press("Shift");
+        expect(
+          await page.evaluate(() => document.activeElement!.matches(":focus-visible")),
+          `link 1 is :focus-visible after the Shift at ${width}px, run ${run}`,
+        ).toBe(true);
+        const seen = await watchRow(page, 1600);
+        expect(
+          seen.some((s) => s.still),
+          `the row keeps moving under the resting mouse after a drag at ${width}px, run ${run}`,
+        ).toBe(false);
+      }
+    }
+  });
+
+  it("a press on link 1 dragged out of the window and released there, then a rest and a Shift, stands the row still with link 1 in the window, at 1280px and 390px", async () => {
+    for (const width of [1280, 390]) {
+      const page = await signedIn();
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`${origin}/`);
+      await expect
+        .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
+        .toBeGreaterThanOrEqual(2);
+      const href = await page
+        .locator(".ov-ticker-list:not(.copy) > li:nth-child(1) a")
+        .getAttribute("href");
+      expect(href, `link 1 is a link at ${width}px`).toBeTruthy();
+      const drop = await dragLink1(page, width, "outside");
+      expect(await dragStarted(page), `a drag started on the window at ${width}px`).toBe(true);
+      expect(
+        await page.evaluate(
+          ([px, py]) => document.elementFromPoint(px, py)?.closest(".ov-ticker-window") === null,
+          [drop.x, drop.y] as const,
+        ),
+        `the drop is outside the window at ${width}px`,
+      ).toBe(true);
+      expect(await focusedHref(page), `link 1 holds the focus at ${width}px`).toBe(href);
+      // Chromium's own hover update lands 110 to 420 ms after a drop, at the last position it knew
+      // inside the window, so a pointerover can arrive after the drop outside. The pointer then moves
+      // 1 px outside, so Chromium's hover is the real one before the key press.
+      await page.waitForTimeout(600);
+      await page.mouse.move(drop.x + 1, drop.y);
+      expect(
+        await page.evaluate(
+          ([px, py]) => document.elementFromPoint(px, py)?.closest(".ov-ticker-window") === null,
+          [drop.x + 1, drop.y] as const,
+        ),
+        `the pointer is outside the window at ${width}px`,
+      ).toBe(true);
+      await page.waitForTimeout(400);
+      await page.keyboard.press("Shift");
+      await expect
+        .poll(() => dataStill(page), {
+          message: `the row stands still after a drag out of the window at ${width}px`,
+          timeout: 1_600,
+        })
+        .toBe(true);
+      expect(
+        await page.evaluate(() => {
+          const a = document.activeElement!.getBoundingClientRect();
+          const w = document.querySelector(".ov-ticker-window")!.getBoundingClientRect();
+          return a.left >= w.left && a.right <= w.right && a.top >= w.top && a.bottom <= w.bottom;
+        }),
+        `link 1 is in the window once the row is still at ${width}px`,
+      ).toBe(true);
+    }
+  });
+
+  // P1-87 PR 5b review r8 B.3: a mouse that rests after a pen has left, then moves 1 px within one
+  // element. The window's pointermove is the only event that sees it (pointerover does not fire).
+  it("a mouse that rests after a pen has left, then moves 1 px within one element, keeps the row moving: pointermove alone is seen, at 1280px and 390px", async () => {
+    for (const width of [1280, 390]) {
+      const page = await signedIn();
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`${origin}/`);
+      await expect
+        .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
+        .toBeGreaterThanOrEqual(2);
+      const link = page.locator(".ov-ticker-list:not(.copy) > li:nth-child(1) a");
+      const href = await link.getAttribute("href");
+      expect(href, `link 1 is a link at ${width}px`).toBeTruthy();
+      await page.locator(".ov-ticker-window").hover();
+      await settledPaused(page);
+      const box = (await link.boundingBox())!;
+      const win = (await page.locator(".ov-ticker-window").boundingBox())!;
+      const left = Math.max(box.x, win.x, 0) + 1;
+      const right = Math.min(box.x + box.width, win.x + win.width, width) - 1;
+      const mx = (left + right) / 2;
+      const my = box.y + box.height / 2;
+      await page.mouse.move(mx, my);
+      // A pen leaves the window while the mouse rests on link 1 (CDP cannot send two pointers at
+      // once, so the pen's leave is a synthetic pointerleave on the window).
+      await page.evaluate(() =>
+        document
+          .querySelector(".ov-ticker-window")!
+          .dispatchEvent(new PointerEvent("pointerleave", { pointerType: "pen", pointerId: 2 })),
+      );
+      await page.evaluate(() => {
+        (window as Window & { __ev?: string[] }).__ev = [];
+        for (const t of ["pointerover", "pointerenter", "pointermove"])
+          document
+            .querySelector(".ov-ticker-window")!
+            .addEventListener(t, () => (window as Window & { __ev?: string[] }).__ev!.push(t));
+      });
+      await page.mouse.move(mx + 1, my);
+      expect(
+        await page.evaluate(() => (window as Window & { __ev?: string[] }).__ev),
+        `the 1 px move is a pointermove alone at ${width}px`,
+      ).toEqual(["pointermove"]);
+      await page.mouse.down({ button: "right" });
+      await page.mouse.up({ button: "right" });
+      await page.keyboard.press("Escape");
+      expect(await focusedHref(page), `link 1 holds the focus at ${width}px`).toBe(href);
+      expect(
+        await page.evaluate(() => document.activeElement!.matches(":focus-visible")),
+        `link 1 is :focus-visible at ${width}px`,
+      ).toBe(true);
+      await page.keyboard.press("Shift");
+      const seen = await watchRow(page, 1200);
+      expect(
+        seen.some((s) => s.still),
+        `the row keeps moving under the mouse at ${width}px`,
+      ).toBe(false);
+    }
+  });
+
+  // P1-87 PR 5b review r8 B.3: a pen resting on link 1, a right press, Escape, then the pen leaves the
+  // window (round 4's M1 rule with a pen). The hover and the leave are synthetic pen events, as in the
+  // pen-resting test, because a CDP pen move also sends compatibility mouse events, which would clear a
+  // flag that only a mouse leave clears. The press and the keys are real.
+  it("a pen resting on link 1, a right press, Escape, then the pen leaving the window stands the row still with link 1 in the window, at 1280px and 390px", async () => {
+    for (const width of [1280, 390]) {
+      const page = await signedIn();
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`${origin}/`);
+      await expect
+        .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
+        .toBeGreaterThanOrEqual(2);
+      const link = page.locator(".ov-ticker-list:not(.copy) > li:nth-child(1) a");
+      const href = await link.getAttribute("href");
+      expect(href, `link 1 is a link at ${width}px`).toBeTruthy();
+      const cdp = await page.context().newCDPSession(page);
+      await page.locator(".ov-ticker-window").scrollIntoViewIfNeeded();
+      const hover = (await page.locator(".ov-ticker-window").boundingBox())!;
+      await page.evaluate(
+        ([hx, hy]) => {
+          const w = document.querySelector(".ov-ticker-window")!;
+          for (const t of ["pointerover", "pointerenter", "pointermove"])
+            w.dispatchEvent(
+              new PointerEvent(t, {
+                pointerType: "pen",
+                pointerId: 3,
+                isPrimary: true,
+                clientX: hx,
+                clientY: hy,
+                bubbles: true,
+              }),
+            );
+        },
+        [hover.x + hover.width / 2, hover.y + hover.height / 2] as const,
+      );
+      const box = (await link.boundingBox())!;
+      const win = (await page.locator(".ov-ticker-window").boundingBox())!;
+      const left = Math.max(box.x, win.x, 0) + 1;
+      const right = Math.min(box.x + box.width, win.x + win.width, width) - 1;
+      const x = (left + right) / 2;
+      const y = box.y + box.height / 2;
+      await pointer(cdp, "mousePressed", x, y, "pen", "right");
+      await pointer(cdp, "mouseReleased", x, y, "pen", "right");
+      expect(
+        await focusedHref(page),
+        `the pen's right press leaves link 1 focused at ${width}px`,
+      ).toBe(href);
+      await page.keyboard.press("Escape");
+      expect(
+        await page.evaluate(() => document.activeElement!.matches(":focus-visible")),
+        `link 1 is :focus-visible after Escape at ${width}px`,
+      ).toBe(true);
+      await page.evaluate(() =>
+        document
+          .querySelector(".ov-ticker-window")!
+          .dispatchEvent(
+            new PointerEvent("pointerleave", { pointerType: "pen", pointerId: 3, isPrimary: true }),
+          ),
+      );
+      await expect
+        .poll(() => dataStill(page), {
+          message: `the row stands still once the pen has left at ${width}px`,
+          timeout: 1_600,
+        })
+        .toBe(true);
+      expect(
+        await page.evaluate(() => {
+          const a = document.activeElement!.getBoundingClientRect();
+          const w = document.querySelector(".ov-ticker-window")!.getBoundingClientRect();
+          return a.left >= w.left && a.right <= w.right && a.top >= w.top && a.bottom <= w.bottom;
+        }),
+        `link 1 is in the window once the row is still at ${width}px`,
       ).toBe(true);
     }
   });
