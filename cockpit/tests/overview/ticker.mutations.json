@@ -1016,7 +1016,7 @@
   },
   {
     "id": "78-doc-listener-ignores-pointermove",
-    "why": "r9 C.3: the document listener registers pointerover only, not pointermove. Expected to survive: Chromium sends pointerover to the element under the pointer on the first move into it, so the listener still settles the flag. Measured below.",
+    "why": "r9 C.3, measured: the document listener registers pointerover only. Survives the full snapshot-navigation file (70 of 70 green): Chromium sends pointerover to the element under the pointer on the first move into it, so the listener still settles the flag on that move. No test can see the difference in this browser.",
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
@@ -1025,11 +1025,11 @@
       }
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
-    "expect": "red"
+    "expect": "survives"
   },
   {
     "id": "79-doc-listener-not-disarmed",
-    "why": "r9 C.4: the document listener is not disarmed after its first event, so every later pointerover or pointermove on the page sets the flag to whether its target is inside the window. Expected equivalent: the window's own leave and enter events set the same truth, and an outside pointer already cleared the flag.",
+    "why": "r9 C.4, measured: not disarmed after the first event. Survives the full snapshot-navigation file (70 of 70 green). Equivalent: after an outside pointer clears the flag, the window's own leave and enter events set the same truth, and an inside pointer sets it true through the window's listener, so a later document event never changes the flag.",
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
@@ -1038,11 +1038,11 @@
       }
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
-    "expect": "red"
+    "expect": "survives"
   },
   {
     "id": "80-doc-listener-not-removed",
-    "why": "r9 C.5: the effect's cleanup does not disarm the document listener. Expected equivalent like 68 and 73: the effect re-runs only when the window element is replaced, and a listener armed at that moment can only read a detached element.",
+    "why": "r9 C.5, measured: the cleanup does not disarm the document listener. Survives the full snapshot-navigation file (70 of 70 green). Equivalent like 68 and 73: the effect re-runs only when the window element is replaced, and a listener armed at that moment can only read a detached element.",
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
@@ -1051,6 +1051,6 @@
       }
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
-    "expect": "red"
+    "expect": "survives"
   }
 ]
