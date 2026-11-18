@@ -2670,7 +2670,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     await cdp.detach();
   };
   const pointer = (
-    cdp: { send: (method: string, params: object) => Promise<unknown> },
+    cdp: Awaited<ReturnType<BrowserContext["newCDPSession"]>>,
     type: "mouseMoved" | "mousePressed" | "mouseReleased",
     x: number,
     y: number,
