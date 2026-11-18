@@ -27,9 +27,16 @@
 </script>
 
 {#if "ack" in button}
-  <button class="subm-status" data-id={id} data-ack={button.ack} data-url={url} {disabled} {onclick}
-    >{label}</button
+  <button
+    class="subm-status"
+    data-id={id}
+    data-ack={button.ack}
+    data-url={url}
+    {disabled}
+    {onclick}
   >
+    {label}
+  </button>
 {:else}
   <button
     class="subm-status"
@@ -37,6 +44,8 @@
     data-status={button.status}
     data-url={url}
     {disabled}
-    {onclick}>{label}</button
+    {onclick}
   >
+    {label}
+  </button>
 {/if}

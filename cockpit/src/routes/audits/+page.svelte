@@ -31,8 +31,10 @@
       <div class="audit-row">
         <div class="audit-row-head">
           {#if a.business}<span class="audit-business">{a.business}</span>{:else}<span
-              class="audit-business muted">(no business name)</span
-            >{/if}
+              class="audit-business muted"
+            >
+              (no business name)
+            </span>{/if}
           <span class="pill {a.pill.cls}">{a.pill.label}</span>
           <span class="audit-when">{a.when}</span>
         </div>
@@ -43,14 +45,16 @@
             searches chosen by hand
           </div>{/if}{#if a.edited || a.opened}<div class="edit-state">
             {#if a.edited}Edited {a.edited}{/if}{#if a.edited && a.opened}{" · "}{/if}{#if a.opened}Opened
-              {a.opened}{/if}{#if a.readSinceEdit}{" · "}<strong class="edit-state-warn"
-                >read since you edited</strong
-              >{/if}
+              {a.opened}{/if}{#if a.readSinceEdit}{" · "}<strong class="edit-state-warn">
+                read since you edited
+              </strong>{/if}
           </div>{/if}
         <div class="audit-row-foot">
           {#if a.report.kind === "link"}<a href={a.report.href}>View report →</a>{:else}<span
-              class="muted">{a.report.text}</span
-            >{/if}
+              class="muted"
+            >
+              {a.report.text}
+            </span>{/if}
         </div>
       </div>
     {/each}

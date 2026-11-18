@@ -33,7 +33,9 @@
   data-retest-url={url}
   title={`Runs ${audits.join(", ")} for this site only`}
   {disabled}
-  onclick={trigger}>{label}</button
->{#if runsUrl}
+  onclick={trigger}
+>
+  {label}
+</button>{#if runsUrl}
   <a class="site-retest-runs" href={runsUrl} target="_blank" rel="noopener">watch the run</a>{/if}
 <span class="site-retest-audits">({audits.join(", ")})</span>

@@ -26,5 +26,7 @@
   data-rerender-url={url}
   title="Re-render this report from its current row and, until it is approved, re-check its health evidence and take the site's current audit scores; approved or not, re-run the site's Search Console lookup (runs in Actions; takes a minute or two)"
   {disabled}
-  {onclick}>{label}</button
+  {onclick}
 >
+  {label}
+</button>

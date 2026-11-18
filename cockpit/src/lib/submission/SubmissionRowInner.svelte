@@ -8,22 +8,28 @@
 </script>
 
 <details>
-  <summary class="subm-head"
-    ><strong>{row.formType}</strong> · {row.who} <span class="muted">{row.email}</span>
+  <summary class="subm-head">
+    <strong>{row.formType}</strong> · {row.who} <span class="muted">{row.email}</span>
     <span class="pill subm-{row.status}">{row.status}</span>{#if row.provenance}{" "}<span
         class="subm-provenance"
-        title={row.provenance.title}>auto-spam · {row.provenance.score}</span
-      >{#if row.provenance.reasons !== null}{" "}<span class="subm-reasons"
-          >{row.provenance.reasons}</span
-        >{/if}{/if}{#if row.bounce}{" "}<span
+        title={row.provenance.title}
+      >
+        auto-spam · {row.provenance.score}
+      </span>{#if row.provenance.reasons !== null}{" "}<span class="subm-reasons">
+          {row.provenance.reasons}
+        </span>{/if}{/if}{#if row.bounce}{" "}<span
         class={row.bounce.acked ? "subm-bounce acked" : "subm-bounce"}
-        title={row.bounce.title}>{row.bounce.text}</span
-      >{/if}{#if row.fanout !== null}{" "}<span
+        title={row.bounce.title}
+      >
+        {row.bounce.text}
+      </span>{/if}{#if row.fanout !== null}{" "}<span
         class="subm-fanout-fail"
-        title="This signup did not reach every configured destination">fan-out: {row.fanout}</span
-      >{/if}
-    <span class="muted">{row.when}</span></summary
-  >
+        title="This signup did not reach every configured destination"
+      >
+        fan-out: {row.fanout}
+      </span>{/if}
+    <span class="muted">{row.when}</span>
+  </summary>
   <div class="subm-detail">
     {#each row.details as d, i (i)}
       {#if d.kind === "kv"}

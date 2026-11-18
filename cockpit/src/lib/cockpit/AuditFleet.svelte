@@ -142,8 +142,10 @@
     class="refresh-fleet"
     data-refresh-url={REFRESH_URL}
     {disabled}
-    onclick={start}>{label}</button
+    onclick={start}
   >
+    {label}
+  </button>
   <div id="rf-status" class="rf-status" aria-live="polite">
     {#each rows as row, i (i)}
       {#if row.kind === "workflow"}
@@ -156,13 +158,17 @@
                 : ""}{#if row.progress.url}{" · "}<a
                   href={row.progress.url}
                   target="_blank"
-                  rel="noopener">view run →</a
-                >{/if}
+                  rel="noopener"
+                >
+                  view run →
+                </a>{/if}
             </div>{:else if row.failedUrl}{" "}<a
               href={row.failedUrl}
               target="_blank"
-              rel="noopener">run</a
-            >{/if}
+              rel="noopener"
+            >
+              run
+            </a>{/if}
         </div>
       {:else if row.kind === "text"}
         <div class="rf-row">{row.text}</div>
