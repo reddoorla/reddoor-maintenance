@@ -51,17 +51,40 @@
     // mouse that rests fires no pointerover, so the flag is set only by the window's own pointer
     // events (a touch never sets it) and cleared when a pointer leaves the window. A drag fires a
     // cancel and a leave while the pointer stays over the window; dragend settles the flag from
-    // the drop point instead.
+    // the drop point instead. After a drag Chromium sends the window no leave for the first move out,
+    // so the next mouse or pen event on the page settles the flag (onDocPointer).
     let finePointerOver = false;
     const onFinePointer = (e: PointerEvent) => {
       if (e.pointerType !== "touch") finePointerOver = true;
     };
+    // Armed by a drag's end: the first mouse or pen pointerover or pointermove anywhere on the page
+    // says whether the pointer is over the window, then the listener disarms. A touch leaves it armed.
+    let docArmed = false;
+    const onDocPointer = (e: PointerEvent) => {
+      if (e.pointerType === "touch") return;
+      finePointerOver = el !== undefined && el.contains(e.target as Node);
+      disarmDoc();
+      requestAnimationFrame(recheck);
+    };
+    const armDoc = () => {
+      if (docArmed) return;
+      docArmed = true;
+      document.addEventListener("pointerover", onDocPointer, true);
+      document.addEventListener("pointermove", onDocPointer, true);
+    };
+    const disarmDoc = () => {
+      docArmed = false;
+      document.removeEventListener("pointerover", onDocPointer, true);
+      document.removeEventListener("pointermove", onDocPointer, true);
+    };
     const onDragEnd = (e: DragEvent) => {
-      // Chromium can report a drop at 0,0; that position is unknown, so the flag stays as it is.
+      // Chromium was never seen reporting a dragend at 0,0 (0 of 1021 logged). The guard stays as a
+      // safety for an unknown position: the flag stays as it is there.
       if (e.clientX !== 0 || e.clientY !== 0) {
         const drop = document.elementFromPoint(e.clientX, e.clientY);
         finePointerOver = drop !== null && el !== undefined && el.contains(drop);
       }
+      armDoc();
       requestAnimationFrame(recheck);
     };
     const recheck = () => {
@@ -148,6 +171,7 @@
       el?.removeEventListener("dragend", onDragEnd);
       el?.removeEventListener("contextmenu", onAbandon);
       removeEventListener("blur", onAbandon);
+      disarmDoc();
     };
   });
 </script>
