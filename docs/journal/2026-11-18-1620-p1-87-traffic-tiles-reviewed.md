@@ -1,0 +1,33 @@
+# 2026-11-18 — P1-87 PR 7a: five review rounds, clean at the fifth
+
+Branch `claude/p1-87-traffic-tiles`, [reddoorla/reddoor-maintenance#2108](https://github.com/reddoorla/reddoor-maintenance/pull/2108). Follows `2026-11-18-0109-p1-87-traffic-tiles.md`, which described the build at `dc57bd77`. Review rounds 1 to 4 were dirty; round 5 (on `c65a1dad..71cf0e4d`) was clean on all three lenses, minors and nits only. Its wording minors were folded as comments in `7b2d016c`, and every other minor and nit from the five rounds is filed (#2109 to #2115; #2092 already held the 768px leads table). The fix briefs, one per round, are in the workspace's `plans/2026-11-16-p1-87-overview-reorg/pr7a-round{1..4}-fixes.md`.
+
+**Tier.** A behaviour-changing `feat`, so 🟡 YELLOW under `AUTONOMY.md`: it lands unattended only with CI green and a clean 3-lens review. Round 5 was the fifth round and clean, so the narrow sixth-round rule does not apply and the PR is not held for the operator. Not landed in this session.
+
+**Why most of the five rounds went to one CSS rule.** The data work held up from round 2 on. The traffic read's guards needed one round of test gaps (21 surviving extra mutants in round 1, all pinned) and one correction of a rule: a half the row carries but whose value is not a reading is malformed, not "not in this row", so the tile says "the stored reading is not in the expected shape" instead of "not yet collected" (round 1 for a bad count, round 2 for `5`, `null`, `{}` and `[]`). Rounds 2 to 5 were about one figure: what "12,345,678" does in a tile 68 to 149px wide.
+
+**The defects, round by round.**
+
+- Round 1: the percentage rounded half-way cases down. `Math.round(232 / 1600 * 100)` is `Math.round(14.499999999999998)`, so 1,832 against 1,600 read "up 14%"; multiplying first gives 15. A 7-digit figure wrapped mid-number at 1200 to 1440px ("1,234,56" over "7"). The browser test still counted six tiles, so CI was red; the implementer had not run the browser suite.
+- Round 2: the round-1 fix (`white-space: nowrap; font-size: 1.4rem`) overflowed at large text. At a 32px default and 390px, "12,345,678" ended at 439 against a tile edge of 318, and the page scrolled sideways. The fix sized the figure in container units, `min(1.4rem, 19cqi)`, from a measured 5.0035em.
+- Round 3: that 5.0035em was the harness's fallback font. The browser harness has no brand font and renders Liberation Sans. The cockpit ships Pragmatica 700 from the Adobe kit, and with the kit served to the harness page (`page.route` on the Typekit hosts) the figure still overflowed: 5.4px at 1280 and 1440px, 20px at 390px with a 24px default. The same rule also shrank the figure as the reader enlarged text, because tiles narrow as rem breakpoints move: 22.4px at a 16px default, 20.0px at 24px, below its own label. The fix: `clamp(1rem, 16.5cqi, 1.4rem)`, a `<wbr>` after each comma, no `nowrap`, and a test that scales each fallback width to the shipped font.
+- Round 4: in Firefox the figure never broke. `.ov-num.long` is `display: flex` (shared with `.unknown` for the bottom alignment), and Firefox makes each run of text between `<wbr>`s its own flex item on one line that cannot wrap. 87.9px past its tile at 390/32, scrollWidth 406. Chromium and WebKit wrap, and the browser suite is Chromium-only, so nothing saw it. The fix put the pieces in one `<span>`, so the flex item is the span and the text wraps inside it. The same round found that at 320px with a 32px default the middle line "345," is 75px in a 68px tile.
+- Round 5: clean. Across 162 cases in three engines, with the kit loaded in every one, the figure breaks only after a comma; the only overhang is that 320/32 comma, at most 6.7px, with no sideways scroll. Firefox's 27 overflow cases on the control are gone, and the accessible name is "12,345,678" where the control's was "12, 345, 678".
+
+**The lesson, named.** The harness's fallback font hid two rounds of overflow. Every measurement in rounds 1 and 2 was true of Liberation Sans and false of what Erik and Tim see. A layout test that measures text is an instrument, and its font is part of it. The test now carries per-figure ratios measured with the kit served (1.19, 1.21, 1.20), but nothing re-measures them; that, and a font update silently invalidating them, is #2114.
+
+**Beliefs corrected.** "12,345,678 is 5.71em in Pragmatica 700" (round 3's brief) did not reproduce. Round 3's fixer measured 5.78em by rect. Round 4's measured 5.785em at 16px and 5.958em at 24px, and the font file's advances give 5.966em. Round 5 settled it: 5.84em in Chromium and WebKit and 5.965em in Firefox, the same at every size, so the earlier "by size" figures were engine and rounding differences. 100 / 5.965 = 16.76cqi, so 16.5cqi fits in every engine with about 1.6% to spare (not the 6% round 3 thought it had). A second correction, from round 5: the 320/32 comma was described as hanging "into the 40px gutter, never reaching the next tile". The search tile is the grid's right column, so it hangs past the grid into the page's 72px side margin, and the test's `gap / 2` bound guards a neighbour that does not exist; the scrollWidth check is the real guard. The comments say so now, and the test's premise is #2114.
+
+**Tried and abandoned.**
+
+- `white-space: nowrap` at a fixed 1.4rem (round 1): fits only at the default font.
+- `min(1.4rem, 19cqi)` (round 2): no floor, and derived from the fallback font.
+- One 1.15 shipped-font ratio for every figure (round 3): right for "12,345,678" (1.155) and wrong for "1,234,567" (up to 1.2085), which it predicted as one line at 390/24 where Pragmatica wraps. Its mutant (110) survived because the harness renders only the fallback, so it was dropped as a test-only change.
+- A local CSS fix that keeps "345," inside a 2.125rem tile at the 1rem floor (round 4): none exists without changing the grid's flow. The lead chose hanging punctuation and an explicit test branch for it. A one-column grid at large text, or row tracks (subgrid) that would also line up wrapped rows' labels, are the routes back (#2109, #2110).
+- Lowering the floor below 1rem: ruled out by round 3's accessibility major.
+
+**Numbers at the head.** Unit 2434 passed (2385 before the PR); browser suite 45. Traffic sidecar 46 of 46 red; first-screen sidecar 110 of 110 red, both run in full at `7b2d016c`.
+
+**Honest accounting.** The round-5 findings are the lenses'; this entry's own work was folding three comments, filing seven issues, rerunning both sidecars and rewriting the PR body. A Firefox run in the test suite was offered in round 4 as optional and not done; the Firefox evidence is the round 4 and 5 lenses' scratch harnesses.
+
+Usage: not readable
