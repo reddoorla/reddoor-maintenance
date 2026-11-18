@@ -3737,6 +3737,43 @@ describe("P1-87 PR 7a: the traffic tiles", () => {
     expect(early.context).toBe("up 9% on the 30 days before · 16 sites");
   });
 
+  // PR 7a review round 1, group C (f2-f4): the "as of" clause, at the 6am Pacific edge and on
+  // the search tile too. 2026-10-27T13:00Z is 6am Pacific (expected night Oct 26); 12:59Z is
+  // 5am (expected night Oct 25).
+  it("the 'as of' clause turns on at 6am Pacific: an Oct 25 series at 13:00Z says so, at 12:59Z not", () => {
+    const rows: Array<[string, unknown]> = [
+      [OCT26, unmeasured(OCT26, "traffic: timeout")],
+      ["2026-10-25", block("2026-10-25")],
+    ];
+    const at13 = tiles(rows, new Date("2026-10-27T13:00:00.000Z"));
+    expect(at13.visits.context).toBe(
+      "up 9% on the 30 days before · 16 sites; as of the night of Oct 25",
+    );
+    expect(at13.search.context).toBe("623 clicks through · 16 sites; as of the night of Oct 25");
+    const at1259 = tiles(rows, new Date("2026-10-27T12:59:00.000Z"));
+    expect(at1259.visits.context).toBe("up 9% on the 30 days before · 16 sites");
+    expect(at1259.search.context).toBe("623 clicks through · 16 sites");
+  });
+
+  it("the search tile's stale clause names its night, as the visits tile's does", () => {
+    const t = tiles([
+      [OCT26, unmeasured(OCT26, "traffic: timeout")],
+      ["2026-10-25", block("2026-10-25")],
+    ]);
+    expect(t.search.context).toBe("623 clicks through · 16 sites; as of the night of Oct 25");
+    expect(t.search.value).toBe("12,521");
+  });
+
+  it("a series on the expected night, with older rows only, has no 'as of' clause", () => {
+    const t = tiles([
+      [OCT26, block(OCT26)],
+      ["2026-10-25", unmeasured("2026-10-25", "traffic: timeout")],
+      ["2026-10-24", unmeasured("2026-10-24", "traffic: timeout")],
+    ]);
+    expect(t.visits.context).toBe("up 9% on the 30 days before · 16 sites");
+    expect(t.search.context).toBe("623 clicks through · 16 sites");
+  });
+
   it("an unmeasured tile says why, in words, never 0, with no spark", () => {
     const cases: Array<[string, string | null, string]> = [
       ["not in this row", null, "NOT_YET"],
@@ -3765,6 +3802,12 @@ describe("P1-87 PR 7a: the traffic tiles", () => {
       [OCT26, block(OCT26, { visits: { current: 1675 }, search: { clicks: 9 } })],
     ]);
     expect(bad.visits).toMatchObject({
+      measured: false,
+      value: UNREADABLE,
+      context: "the stored reading is not in the expected shape",
+    });
+    // PR 7a review round 1, group C (b12): the search half reads malformed too.
+    expect(bad.search).toMatchObject({
       measured: false,
       value: UNREADABLE,
       context: "the stored reading is not in the expected shape",

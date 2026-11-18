@@ -160,6 +160,53 @@ describe("readOverviewNights guards every block it reads", () => {
     ]);
   });
 
+  // PR 7a review round 1, group C (g2, g4, g5, g8): a site is kept with a half it did not read
+  // (its stored reason), and dropped for a half that is not a reading at all.
+  it("a site keeps a half it did not read as unmeasured, and drops one with a half that is not a reading", async () => {
+    const window = { startDate: "2026-10-18", endDate: "2026-11-16" };
+    const visits = {
+      value: {
+        current: 1,
+        previous: 2,
+        currentWindow: window,
+        previousWindow: window,
+        sitesRead: 1,
+        sitesWithProperty: 1,
+        daily: [{ date: "2026-11-16", visits: 1 }],
+      },
+    };
+    const search = { value: { clicks: 2, impressions: 20 } };
+    await put("2026-11-16", {
+      traffic: {
+        value: {
+          visits,
+          search: { value: null, reason: "no site read" },
+          sites: [
+            // g2: the writer's shape for a site without GA: its visits unmeasured, kept.
+            { siteId: "kept", visits: { value: null, reason: "GA not configured" }, search },
+            // g4: a half that is not a half, and a half whose value is not a plain object.
+            { siteId: "not-a-half", visits: "x", search },
+            { siteId: "value-not-object", visits: { value: "x" }, search },
+            // g8: a bad visits count (a string) drops the site.
+            {
+              siteId: "bad-count",
+              visits: { value: { current: "x", previous: 1 } },
+              search,
+            },
+          ],
+        },
+      },
+    });
+    const [n] = await readOverviewNights(db);
+    expect(n!.counts.traffic.value!.sites).toEqual([
+      {
+        siteId: "kept",
+        visits: { value: null, reason: "GA not configured" },
+        search: { value: { clicks: 2, impressions: 20 } },
+      },
+    ]);
+  });
+
   it("a per-site value that is not an array is left out (#2103)", async () => {
     const window = { startDate: "2026-10-18", endDate: "2026-11-16" };
     const visits = {
@@ -334,7 +381,9 @@ describe("readOverviewNights keeps the traffic series whole on the newest row wi
     (b.search.value as { clicks: number }).clicks = -1;
     (b.visits.value as { current: unknown }).current = "x";
     await put("2026-11-16", { traffic: { value: b } });
-    await put("2026-11-15", { traffic: { value: { visits: { value: null, reason: "no site read" } } } });
+    await put("2026-11-15", {
+      traffic: { value: { visits: { value: null, reason: "no site read" } } },
+    });
     const [n, older] = await readOverviewNights(db);
     expect(n!.counts.traffic.value!.search).toEqual({ value: null, reason: "malformed reading" });
     expect(n!.counts.traffic.value!.visits).toEqual({ value: null, reason: "malformed reading" });

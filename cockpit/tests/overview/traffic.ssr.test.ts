@@ -60,7 +60,7 @@ describe("P1-87 PR 7a: the guarded read", () => {
     expect(readSearch(rows).value?.night).toBe("2026-10-25");
   });
 
-  it("the guards: each malformed input reads as malformed, and only the guard it names catches it", () => {
+  it("each malformed visits input reads as malformed (each case names its guard)", () => {
     const shifted = (k: "startDate" | "endDate", days: number) => ({
       startDate: shiftDate(trafficWindows(OK).previous.startDate, k === "startDate" ? days : 0),
       endDate: shiftDate(trafficWindows(OK).previous.endDate, k === "endDate" ? days : 0),
@@ -134,6 +134,165 @@ describe("P1-87 PR 7a: the guarded read", () => {
     expect(reasonOf("traffic: timeout")).toEqual({ value: null, reason: "not readable" });
     expect(readVisits(null)).toEqual({ value: null, reason: "not readable" });
     expect(readVisits([])).toEqual({ value: null, reason: "not collected" });
+  });
+});
+
+/** P1-87 PR 7a, review round 1, group C: the search half's values and its daily, a fresh copy. */
+type SDaily = Array<Record<string, unknown>>;
+const searchValueOf = (): Record<string, unknown> => {
+  const v = (trafficBlock(OK).search as { value: Record<string, unknown> }).value;
+  return { ...v, daily: (v.daily as SDaily).map((d) => ({ ...d })) };
+};
+const searchDailyOf = (): SDaily => searchValueOf().daily as SDaily;
+/** The search half read for OK, with `over` merged into its value. */
+const searchRead = (over: Record<string, unknown>) =>
+  readSearch([
+    withTraffic(OK, trafficBlock(OK, { search: { value: { ...searchValueOf(), ...over } } })),
+  ]);
+/** The search daily with `edits` applied at the given indexes (index into the 28 days). */
+const searchDailyWith = (edits: Array<[number, Record<string, unknown>]>): SDaily => {
+  const d = searchDailyOf();
+  for (const [i, e] of edits) d[i] = { ...d[i]!, ...e };
+  return d;
+};
+/** The visits daily's date at `i` with its date swapped with `j`'s (counts unchanged). */
+const swapDates = (d: Daily, i: number, j: number): Daily => {
+  const out = d.map((x) => ({ ...x }));
+  const t = out[i]!.date;
+  out[i]!.date = out[j]!.date;
+  out[j]!.date = t;
+  return out;
+};
+
+describe("P1-87 PR 7a review round 1 (group C): the search half and the visits guards", () => {
+  it("the search half's guards: each malformed input reads as malformed (b4-b10)", () => {
+    const last = searchDailyOf()[27]!;
+    const cases: Array<[string, Record<string, unknown>]> = [
+      // b4: sitesRead that is not a count.
+      ["sitesRead as a string", { sitesRead: "x" }],
+      // b5: one day short (the last day gone, the totals lowered to match).
+      [
+        "daily one day short, the totals lowered to match",
+        {
+          daily: searchDailyOf().slice(0, 27),
+          clicks: 623 - last.clicks!,
+          impressions: 12521 - last.impressions!,
+        },
+      ],
+      // b6: a date wrong at the right length (two dates swapped, the totals unchanged).
+      [
+        "two dates swapped at the right length",
+        {
+          daily: searchDailyWith([
+            [10, { date: searchDailyOf()[11]!.date }],
+            [11, { date: searchDailyOf()[10]!.date }],
+          ]),
+        },
+      ],
+      // b7: a day's clicks negative, then fractional (the sums kept).
+      [
+        "a day's clicks at −1 and the next raised to match",
+        {
+          daily: searchDailyWith([
+            [5, { clicks: -1 }],
+            [6, { clicks: searchDailyOf()[6]!.clicks! + searchDailyOf()[5]!.clicks! + 1 }],
+          ]),
+        },
+      ],
+      [
+        "a day's clicks at x.5 and the next at x.5 less (the sum kept)",
+        {
+          daily: searchDailyWith([
+            [5, { clicks: searchDailyOf()[5]!.clicks! + 0.5 }],
+            [6, { clicks: searchDailyOf()[6]!.clicks! - 0.5 }],
+          ]),
+        },
+      ],
+      // b8: a day's impressions negative, then fractional (the sums kept).
+      [
+        "a day's impressions at −1 and the next raised to match",
+        {
+          daily: searchDailyWith([
+            [5, { impressions: -1 }],
+            [
+              6,
+              {
+                impressions:
+                  searchDailyOf()[6]!.impressions! + searchDailyOf()[5]!.impressions! + 1,
+              },
+            ],
+          ]),
+        },
+      ],
+      [
+        "a day's impressions at x.5 and the next at x.5 less (the sum kept)",
+        {
+          daily: searchDailyWith([
+            [5, { impressions: searchDailyOf()[5]!.impressions! + 0.5 }],
+            [6, { impressions: searchDailyOf()[6]!.impressions! - 0.5 }],
+          ]),
+        },
+      ],
+      // b9, b10: a stored total that does not match its days, clicks and then impressions.
+      ["stored clicks 624 against days summing 623", { clicks: 624 }],
+      ["stored impressions 12522 against days summing 12521", { impressions: 12522 }],
+    ];
+    for (const [why, over] of cases) {
+      expect(searchRead(over), why).toEqual({ value: null, reason: "malformed" });
+    }
+  });
+
+  it("b12: a malformed search half reads as malformed, never as not readable", () => {
+    expect(searchRead({ clicks: 624 })).toEqual({ value: null, reason: "malformed" });
+    expect(searchRead({ sitesRead: "x" })).toEqual({ value: null, reason: "malformed" });
+  });
+
+  it("the visits guards: a wrong or reordered date at the right length is malformed (a8)", () => {
+    const base = dailyOf();
+    expect(visitsRead({ daily: swapDates(base, 3, 4) })).toEqual({
+      value: null,
+      reason: "malformed",
+    });
+    expect(visitsRead({ daily: swapDates(base, 40, 41) })).toEqual({
+      value: null,
+      reason: "malformed",
+    });
+  });
+
+  it("the visits previous total must match its days (a11)", () => {
+    expect(visitsRead({ previous: 1543 })).toEqual({ value: null, reason: "malformed" });
+  });
+
+  it("the current window's endDate alone moved is malformed (a3)", () => {
+    const w = trafficWindows(OK).current;
+    const r = visitsRead({
+      currentWindow: { startDate: w.startDate, endDate: shiftDate(w.endDate, 1) },
+    });
+    expect(r).toEqual({ value: null, reason: "malformed" });
+  });
+
+  it("a null daily entry is malformed and never throws (a9)", () => {
+    const daily = dailyOf();
+    daily[3] = null as unknown as Record<string, unknown>;
+    expect(() => visitsRead({ daily })).not.toThrow();
+    expect(visitsRead({ daily })).toEqual({ value: null, reason: "malformed" });
+  });
+
+  it("a missing half and a missing block read as not collected, never malformed (c2, c3)", () => {
+    // c2: the traffic block is there, with no visits half and no daily.
+    const noHalf = readVisits([
+      night(OK, {
+        traffic: {
+          value: { search: { value: null, reason: "not in this row" } },
+        } as unknown as OverviewNight["counts"]["traffic"],
+      }),
+    ]);
+    expect(noHalf).toEqual({ value: null, reason: "not collected" });
+    // c3: the row has no traffic block at all.
+    const noBlock = readVisits([
+      night(OK, { traffic: undefined as unknown as OverviewNight["counts"]["traffic"] }),
+    ]);
+    expect(noBlock).toEqual({ value: null, reason: "not collected" });
   });
 });
 
