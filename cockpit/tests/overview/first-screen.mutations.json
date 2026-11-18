@@ -1417,5 +1417,52 @@
     ],
     "test": ["cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
+  },
+  {
+    "id": "109-long-span-removed",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "<span\n                >{#each parts",
+        "replace": "{#each parts"
+      },
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "</span\n              >",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "cockpit/tests/overview/page.ssr.test.ts",
+      "tests/cockpit/snapshot-navigation.test.ts"
+    ],
+    "expect": "red",
+    "why": "(review round 4, major 1) the span removed, the pieces straight in the flex p: each run between the wbrs is a flex item on one line that cannot wrap, as Firefox lays it out. The SSR pin (the only child is a span) goes red"
+  },
+  {
+    "id": "110-long-ratio-1.15-for-1234567",
+    "edits": [
+      {
+        "file": "tests/cockpit/snapshot-navigation.test.ts",
+        "find": "\"1,234,567\": 1.21,",
+        "replace": "\"1,234,567\": 1.15,"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red",
+    "why": "(review round 4, tests 2) the 1,234,567 ratio back to the one 1.15 margin: at 390px and 24px the estimate says one line (106.9 x 1.15 = 122.9 in a 126px tile) where Pragmatica wraps it (129px); the shipped-font check goes red"
+  },
+  {
+    "id": "111-long-line-check-without-ratio",
+    "edits": [
+      {
+        "file": "tests/cockpit/snapshot-navigation.test.ts",
+        "find": "const width = ratio * g.reduce(",
+        "replace": "const width = 1 * g.reduce("
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red",
+    "why": "(review round 4, tests 1) the per-line estimate without the figure ratio: a wrapped figure's lines are then the fallback's lines, and 390px at 24px (120px in a 126px tile) stays one line, so the wrapped branch finds no break to check"
   }
 ]
