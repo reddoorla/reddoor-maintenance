@@ -3377,7 +3377,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
           .locator(".ov-ticker-list:not(.copy) > li:nth-child(1) a")
           .getAttribute("href");
         expect(href, `link 1 is a link at ${width}px`).toBeTruthy();
-        const drop = await dragLink1(page, width, "inside");
+        await dragLink1(page, width, "inside");
         expect(
           await dragStarted(page),
           `a drag started on the window at ${width}px, run ${run}`,
