@@ -1,16 +1,18 @@
 import { describe, it, expect } from "vitest";
 import type { OverviewNight } from "../../../src/fleet-daily/read.js";
 import {
+  HOW_WE_COUNT,
+  TREND_AXIS_NIGHTS,
   TREND_NIGHTS,
   UNREADABLE,
-  WINDOW_NIGHTS,
   trendGeometry,
   trendsFromDaily,
   MIN_COLUMN,
+  tickLabel,
   type TrendChart,
 } from "../../src/lib/overview/view.js";
 import { overviewFromSnapshot } from "../../src/lib/overview/view.js";
-import { NOW, night, snapshot } from "./fixtures.js";
+import { NOW, night, snapshot, trafficBlock } from "./fixtures.js";
 
 /**
  * P1-78h: section 8, trends from `fleet_daily` (workspace
@@ -55,13 +57,16 @@ describe("the 14-night threshold", () => {
     );
   });
 
-  it("with 14 nights, draws the four charts", () => {
+  it("with 14 nights, draws the seven charts", () => {
     const v = trendsFromDaily(run("2026-10-26", TREND_NIGHTS), NOW);
     expect(v.charts?.map((c) => c.title)).toEqual([
       "Broken and Attention sites, each night",
       "Checks run on sites, each night",
       "Submissions the client was emailed about, RSVPs included, each night",
       "Vulnerabilities: sites with an alert open, and sites cleared",
+      "Engaged visits, each day",
+      "Times shown in Google, each day",
+      "Clicks through from Google, each day",
     ]);
     expect(v.charts![0]!.series[0]!.points).toHaveLength(14);
   });
@@ -136,12 +141,20 @@ describe("a count that could not be read is a gap, not a zero", () => {
   const v = trendsFromDaily(nights, NOW);
   const on = (c: TrendChart, s = 0) => c.series[s]!.points[c.nights.indexOf("Oct 22")]!;
 
-  it("every chart has no value that night, and says it could not be read", () => {
-    for (const c of v.charts!)
+  it("every chart has no value that night, and says why", () => {
+    // The fixture's rows carry no traffic block at all, so the three traffic charts are
+    // unmeasured (the tile's "not yet collected"), not unreadable. The four count charts
+    // read their own rows, which are unreadable that night (P1-87 PR 7b: the traffic charts
+    // added to the same loop).
+    v.charts!.forEach((c, ci) => {
+      const traffic = ci >= 4;
       for (let s = 0; s < c.series.length; s++) {
         expect(on(c, s).value, `${c.title} ${s}`).toBeNull();
-        expect(on(c, s).note, `${c.title} ${s}`).toBe("could not be read that night");
+        expect(on(c, s).note, `${c.title} ${s}`).toBe(
+          traffic ? "not yet collected" : "could not be read that night",
+        );
       }
+    });
   });
 
   it("a delta the night after an unread night is not taken across it", () => {
@@ -307,11 +320,11 @@ describe("what each chart counts", () => {
 });
 
 describe("the window", () => {
-  it("spans at most the last 30 nights", () => {
-    const v = trendsFromDaily(run("2026-10-26", 31), NOW);
-    expect(v.charts![0]!.series[0]!.points).toHaveLength(WINDOW_NIGHTS);
+  it("spans at most the last 31 nights", () => {
+    const v = trendsFromDaily(run("2026-10-26", 32), NOW);
+    expect(v.charts![0]!.series[0]!.points).toHaveLength(TREND_AXIS_NIGHTS);
     expect(v.charts![0]!.nights.at(-1)).toBe("Oct 26");
-    expect(v.charts![0]!.nights[0]).toBe("Sep 27");
+    expect(v.charts![0]!.nights[0]).toBe("Sep 26");
   });
 
   it("runs to the night expected by now, so a nightly that stopped shows as gaps", () => {
@@ -490,11 +503,11 @@ describe("review round 1", () => {
 
 describe("review round 2", () => {
   it("the threshold counts nights inside the window, not every row (C2)", () => {
-    // Fourteen rows ending Oct 3: only Sep 27 to Oct 3 fall in the 30 nights to Oct 26.
+    // Fourteen rows ending Oct 3: only Sep 26 to Oct 3 fall in the 31 nights to Oct 26.
     const v = trendsFromDaily(run("2026-10-03", 14), NOW);
     expect(v).toEqual({
       status:
-        "Collecting: 7 of 14 nights in the last 30; the charts start once all 14 are in; none counted since the night of Oct 3",
+        "Collecting: 8 of 14 nights in the last 31; the charts start once all 14 are in; none counted since the night of Oct 3",
       charts: null,
     });
   });
@@ -502,7 +515,7 @@ describe("review round 2", () => {
   it("the collecting line says when the nightly stopped (round 3, C1)", () => {
     // Twenty rows to Oct 3: the night expected by now is Oct 26.
     expect(trendsFromDaily(run("2026-10-03", 20), NOW).status).toBe(
-      "Collecting: 7 of 14 nights in the last 30; the charts start once all 14 are in; none counted since the night of Oct 3",
+      "Collecting: 8 of 14 nights in the last 31; the charts start once all 14 are in; none counted since the night of Oct 3",
     );
     // Up to date: nothing said.
     expect(trendsFromDaily(run("2026-10-26", 3), NOW).status).toBe(
@@ -692,5 +705,474 @@ describe("review round 4", () => {
     const nights = run("2026-10-26", 14, (_, i) => (i === 0 ? { coverage: { value: {} } } : {}));
     const c = chart(trendsFromDaily(nights, NOW), /^Checks run/);
     expect(c.series[0]!.points.at(-1)!.value).toBe(0);
+  });
+});
+
+/**
+ * P1-87 PR 7b: the 31-night axis and the three traffic charts (engaged visits, times shown in
+ * Google, clicks through). The series is the night holding `daily`; a day after it is "no
+ * reading", a search day in its last three is "Google has no data yet", a visits day in the
+ * window is its value (the newest is still being counted), and every point before its window
+ * is "before the 30 days the tile counts" (visits) or "before the 28 days the tile counts"
+ * (search).
+ */
+describe("P1-87 PR 7b: 31 nights and the three traffic charts", () => {
+  const N = "2026-10-26";
+  const traffic = (block: Record<string, unknown>) =>
+    ({ value: block }) as unknown as OverviewNight["counts"]["traffic"];
+  /** 32 nights to Oct 26, with the traffic block `block` on the newest row. */
+  const withBlock = (block: Record<string, unknown>) =>
+    run(N, 32, (_, i) => (i === 0 ? { traffic: traffic(block) } : {}));
+  const sumOf = (xs: Array<number | null>) => xs.reduce<number>((a, x) => a + (x ?? 0), 0);
+  // The traffic charts' indices, after the four existing ones.
+  const DAYS = { visits: 4, searchTimes: 5, clicks: 6 } as const;
+  const TF = (v: ReturnType<typeof trendsFromDaily>, i: number) => v.charts![i]!;
+  const v = trendsFromDaily(withBlock(trafficBlock(N)), NOW);
+
+  it("the axis is 31 nights, Sep 26 to Oct 26, and the status says so", () => {
+    expect(v.status).toBe("The 31 nights from Sep 26 to Oct 26");
+    expect(TF(v, DAYS.visits).nights).toHaveLength(TREND_AXIS_NIGHTS);
+  });
+
+  it("visits: the night before the window is blank with its reason, the window sums to the tile", () => {
+    const c = TF(v, DAYS.visits);
+    const p = c.series[0]!.points;
+    expect(p[0]).toMatchObject({ value: null, note: "before the 30 days the tile counts" });
+    expect(sumOf(p.slice(1).map((q) => q.value))).toBe(1674);
+    expect(p[30]).toMatchObject({ value: 55, partial: true, note: "still being counted" });
+    expect(c.slotHeading).toBe("Day");
+    expect(c.term).toBe("Engaged visits");
+  });
+
+  it("search: the 28 days to Oct 23 sum to the tile, and the last three days are lag", () => {
+    const impressions = TF(v, DAYS.searchTimes);
+    const clicks = TF(v, DAYS.clicks);
+    expect(sumOf(impressions.series[0]!.points.slice(0, 28).map((q) => q.value))).toBe(12521);
+    expect(sumOf(clicks.series[0]!.points.slice(0, 28).map((q) => q.value))).toBe(623);
+    for (const c of [impressions, clicks]) {
+      expect(c.series[0]!.points.slice(28).map((q) => [q.value, q.lag, q.note])).toEqual([
+        [null, true, "Google has no data yet"],
+        [null, true, "Google has no data yet"],
+        [null, true, "Google has no data yet"],
+      ]);
+      // Sep 26 is the search window's first day, so it has its count, not a blank.
+      expect(c.series[0]!.points[0]!.value).not.toBeNull();
+      expect(c.term).toBe("Times shown in Google");
+    }
+  });
+
+  it("a day is drawn at its own date, not its index: a spike on Oct 1 lands at Oct 1", () => {
+    const block = trafficBlock(N) as {
+      search: {
+        value: { daily: Array<{ date: string; clicks: number; impressions: number }> };
+      };
+    };
+    const daily = block.search.value.daily.map((d) => ({ ...d }));
+    const oct1 = daily.findIndex((d) => d.date === "2026-10-01");
+    const oct2 = oct1 + 1;
+    daily[oct1]!.impressions += 300;
+    daily[oct2]!.impressions -= 300;
+    const spiked = { ...block, search: { value: { ...block.search.value, daily } } };
+    const c = TF(trendsFromDaily(withBlock(spiked), NOW), DAYS.searchTimes);
+    const at = c.nights.indexOf("Oct 1");
+    expect(c.series[0]!.points[at]!.value).toBe(747);
+    expect(c.series[0]!.points[at + 1]!.value).toBe(147);
+  });
+
+  it("late: a day after the series' night is no reading, never 0; the window's days before the axis are counted", () => {
+    const rows = run(N, 32, (d, i) =>
+      d === "2026-10-24"
+        ? { traffic: traffic(trafficBlock("2026-10-24")) }
+        : i < 2
+          ? {
+              traffic: traffic({
+                visits: { value: null, reason: "traffic: timeout" },
+                search: { value: null, reason: "traffic: timeout" },
+                sites: [],
+              }),
+            }
+          : {},
+    );
+    const late = trendsFromDaily(rows, NOW);
+    const vis = TF(late, DAYS.visits);
+    const oct = (d: string) => vis.nights.indexOf(d);
+    expect(vis.series[0]!.points[oct("Oct 25")]).toMatchObject({
+      value: null,
+      note: "no traffic reading since the night of Oct 24",
+    });
+    expect(vis.series[0]!.points[oct("Oct 26")]!.value).toBeNull();
+    expect(vis.series[0]!.points[oct("Oct 24")]).toMatchObject({ partial: true });
+    expect(vis.series[0]!.points[oct("Oct 24")]!.value).not.toBeNull();
+    expect(vis.note).toContain("1 of the tile's 30 days falls before it");
+
+    const srch = TF(late, DAYS.searchTimes);
+    const at = (d: string) => srch.nights.indexOf(d);
+    for (const d of ["Oct 22", "Oct 23", "Oct 24"]) {
+      expect(srch.series[0]!.points[at(d)]).toMatchObject({ value: null, lag: true });
+    }
+    expect(srch.series[0]!.points[at("Oct 25")]!.note).toBe(
+      "no traffic reading since the night of Oct 24",
+    );
+    expect(srch.note).toContain("2 of the tile's 28 days");
+  });
+
+  it("a short axis: with 17 nights the visits note names the 13 window days before it", () => {
+    const short = trendsFromDaily(
+      run(N, 17, (_, i) => (i === 0 ? { traffic: traffic(trafficBlock(N)) } : {})),
+      NOW,
+    );
+    expect(short.status).toBe("The 17 nights from Oct 10 to Oct 26");
+    expect(TF(short, DAYS.visits).note).toContain("13 of the tile's 30 days");
+  });
+
+  it("each traffic note in full (PR 7b review round 1, B and tests major 2): the standard fixture, a short axis, a late reading, a series older than the axis", () => {
+    const notes = (x: ReturnType<typeof trendsFromDaily>) =>
+      [DAYS.visits, DAYS.searchTimes, DAYS.clicks].map((i) => TF(x, i).note);
+    // (a) the standard fixture: the axis shows the whole window, so the columns add up.
+    expect(notes(v)).toEqual([
+      "Each column is that day's engaged visits across 16 sites; the 30 columns add up to the tile's 1,674. The night of Oct 26 is still being counted, so its column is drawn in outline.",
+      "Each column is that day's times shown in Google across 16 sites; the 28 columns add up to the tile's 12,521. Google's data lags about 3 days: the hatched days have none yet.",
+      "Each column is that day's clicks through from Google across 16 sites; the 28 columns add up to the tile's 623. Google's data lags about 3 days: the hatched days have none yet.",
+    ]);
+    // (b) a 17-night axis from Oct 10: 13 visits days and 14 search days fall before it.
+    const short = trendsFromDaily(
+      run(N, 17, (_, i) => (i === 0 ? { traffic: traffic(trafficBlock(N)) } : {})),
+      NOW,
+    );
+    expect(notes(short)).toEqual([
+      "Each column is that day's engaged visits across 16 sites. The chart starts on Oct 10, so 13 of the tile's 30 days fall before it, and the columns add up to less than the tile's 1,674. The night of Oct 26 is still being counted, so its column is drawn in outline.",
+      "Each column is that day's times shown in Google across 16 sites. The chart starts on Oct 10, so 14 of the tile's 28 days fall before it, and the columns add up to less than the tile's 12,521. Google's data lags about 3 days: the hatched days have none yet.",
+      "Each column is that day's clicks through from Google across 16 sites. The chart starts on Oct 10, so 14 of the tile's 28 days fall before it, and the columns add up to less than the tile's 623. Google's data lags about 3 days: the hatched days have none yet.",
+    ]);
+    // (c) one night late: the newest reading is Oct 24, so the axis starts Sep 26 with the
+    // window's Sep 25 (visits) and Sep 24 and 25 (search) before it.
+    const late = trendsFromDaily(
+      run(N, 32, (d, i) =>
+        d === "2026-10-24"
+          ? { traffic: traffic(trafficBlock("2026-10-24")) }
+          : i < 2
+            ? {
+                traffic: traffic({
+                  visits: { value: null, reason: "traffic: timeout" },
+                  search: { value: null, reason: "traffic: timeout" },
+                  sites: [],
+                }),
+              }
+            : {},
+      ),
+      NOW,
+    );
+    expect(notes(late)).toEqual([
+      "Each column is that day's engaged visits across 16 sites. The chart starts on Sep 26, so 1 of the tile's 30 days falls before it, and the columns add up to less than the tile's 1,674. The night of Oct 24 is still being counted, so its column is drawn in outline.",
+      "Each column is that day's times shown in Google across 16 sites. The chart starts on Sep 26, so 2 of the tile's 28 days fall before it, and the columns add up to less than the tile's 12,521. Google's data lags about 3 days: the hatched days have none yet.",
+      "Each column is that day's clicks through from Google across 16 sites. The chart starts on Sep 26, so 2 of the tile's 28 days fall before it, and the columns add up to less than the tile's 623. Google's data lags about 3 days: the hatched days have none yet.",
+    ]);
+    // (d) the only series is on Sep 20, older than the axis: every window day is before it.
+    const older = trendsFromDaily(
+      run(N, 40, (d) => (d === "2026-09-20" ? { traffic: traffic(trafficBlock(d)) } : {})),
+      NOW,
+    );
+    // No lag day is on this axis (the series' night is older than it), so no hatch is drawn and
+    // the search notes say nothing of one (PR 7b review round 2, correctness minor 2).
+    expect(notes(older)).toEqual([
+      "Each column is that day's engaged visits across 16 sites. All 30 of the tile's days fall before this chart starts on Sep 26, so no column is drawn.",
+      "Each column is that day's times shown in Google across 16 sites. All 28 of the tile's days fall before this chart starts on Sep 26, so no column is drawn.",
+      "Each column is that day's clicks through from Google across 16 sites. All 28 of the tile's days fall before this chart starts on Sep 26, so no column is drawn.",
+    ]);
+  });
+
+  /** The traffic block for `night` with some days' counts set, each reading's total re-summed
+   *  over its own window, so a note's "tile's total" is what the window's days really add to. */
+  const edited = (
+    night: string,
+    visits: Record<string, number>,
+    search: Record<string, { clicks: number; impressions: number }>,
+  ) => {
+    type Day = { date: string; [k: string]: unknown };
+    const block = trafficBlock(night) as Record<string, { value: Record<string, unknown> }>;
+    const inWin = (date: string, w: { startDate: string; endDate: string }) =>
+      date >= w.startDate && date <= w.endDate;
+    const vv = block.visits!.value as {
+      current: number;
+      currentWindow: { startDate: string; endDate: string };
+      daily: Day[];
+    };
+    vv.daily = vv.daily.map((d) =>
+      visits[d.date] === undefined ? d : { ...d, visits: visits[d.date] },
+    );
+    vv.current = vv.daily
+      .filter((d) => inWin(d.date, vv.currentWindow))
+      .reduce((a, d) => a + (d.visits as number), 0);
+    const sv = block.search!.value as {
+      clicks: number;
+      impressions: number;
+      window: { startDate: string; endDate: string };
+      daily: Day[];
+    };
+    sv.daily = sv.daily.map((d) =>
+      search[d.date] === undefined ? d : { ...d, ...search[d.date] },
+    );
+    const inSearch = sv.daily.filter((d) => inWin(d.date, sv.window));
+    sv.clicks = inSearch.reduce((a, d) => a + (d.clicks as number), 0);
+    sv.impressions = inSearch.reduce((a, d) => a + (d.impressions as number), 0);
+    return block;
+  };
+
+  it("the dropped days count none: the note says so, and the columns still add up (review round 2, correctness major)", () => {
+    // The Oct 24 night's window is Sep 25 to Oct 24; the axis starts Sep 26, so Sep 25 is dropped
+    // and counted 0. The drawn columns sum to the whole tile, so "less than" would be false.
+    const block = edited("2026-10-24", { "2026-09-25": 0 }, {});
+    const late = trendsFromDaily(
+      run(N, 32, (d) => (d === "2026-10-24" ? { traffic: traffic(block) } : {})),
+      NOW,
+    );
+    expect(TF(late, DAYS.visits).note).toBe(
+      "Each column is that day's engaged visits across 16 sites. The chart starts on Sep 26, so 1 of the tile's 30 days falls before it; that day counted none, so the columns still add up to the tile's 1,618. The night of Oct 24 is still being counted, so its column is drawn in outline.",
+    );
+  });
+
+  it("the same for search, per chart: clicks whose dropped days are 0 say counted none; impressions whose dropped days are not 0 say less than (review round 2, correctness major)", () => {
+    // The Oct 24 night's search window is Sep 24 to Oct 21; Sep 24 and 25 fall before the axis.
+    // Their clicks are 0 and their impressions are not.
+    const block = edited(
+      "2026-10-24",
+      {},
+      {
+        "2026-09-24": { clicks: 0, impressions: 300 },
+        "2026-09-25": { clicks: 0, impressions: 300 },
+      },
+    );
+    const late = trendsFromDaily(
+      run(N, 32, (d) => (d === "2026-10-24" ? { traffic: traffic(block) } : {})),
+      NOW,
+    );
+    expect(TF(late, DAYS.clicks).note).toBe(
+      "Each column is that day's clicks through from Google across 16 sites. The chart starts on Sep 26, so 2 of the tile's 28 days fall before it; they counted none, so the columns still add up to the tile's 577. Google's data lags about 3 days: the hatched days have none yet.",
+    );
+    expect(TF(late, DAYS.searchTimes).note).toBe(
+      "Each column is that day's times shown in Google across 16 sites. The chart starts on Sep 26, so 2 of the tile's 28 days fall before it, and the columns add up to less than the tile's 12,225. Google's data lags about 3 days: the hatched days have none yet.",
+    );
+  });
+
+  it("the dropped days are summed whole: one counted something, the other none (PR 7b review round 3, tests R3T-1)", () => {
+    // Sep 24 and 25 fall before the axis. Sep 24 has impressions and no clicks, Sep 25 the
+    // reverse, so a sum that skipped either day would say "still add up" for one chart.
+    const block = edited(
+      "2026-10-24",
+      {},
+      {
+        "2026-09-24": { clicks: 0, impressions: 300 },
+        "2026-09-25": { clicks: 5, impressions: 0 },
+      },
+    );
+    const late = trendsFromDaily(
+      run(N, 32, (d) => (d === "2026-10-24" ? { traffic: traffic(block) } : {})),
+      NOW,
+    );
+    expect(TF(late, DAYS.clicks).note).toContain(
+      "2 of the tile's 28 days fall before it, and the columns add up to less than the tile's",
+    );
+    expect(TF(late, DAYS.searchTimes).note).toContain(
+      "2 of the tile's 28 days fall before it, and the columns add up to less than the tile's",
+    );
+  });
+
+  it("an unmeasured reason, visits half (PR 7b review round 1, minor 3): every visits day says Google Analytics", () => {
+    const rows = run(N, 32, (_, i) =>
+      i === 0
+        ? {
+            traffic: traffic({
+              visits: { value: null, reason: "GA not configured" },
+              search: { value: null, reason: "not in this row" },
+              sites: [],
+            }),
+          }
+        : {},
+    );
+    const c = TF(trendsFromDaily(rows, NOW), DAYS.visits);
+    expect(c.series[0]!.points.map((p) => p.note)).toEqual(
+      Array(TREND_AXIS_NIGHTS).fill("not readable: Google Analytics is not set up for the nightly"),
+    );
+  });
+
+  it("an unmeasured reason, search half (minor 3): every search day names Google, not Analytics", () => {
+    const rows = run(N, 32, (_, i) =>
+      i === 0
+        ? {
+            traffic: traffic({
+              visits: { value: null, reason: "not in this row" },
+              search: { value: null, reason: "GA not configured" },
+              sites: [],
+            }),
+          }
+        : {},
+    );
+    const late = trendsFromDaily(rows, NOW);
+    for (const i of [DAYS.searchTimes, DAYS.clicks]) {
+      const c = TF(late, i);
+      expect(c.series[0]!.points.map((p) => p.note)).toEqual(
+        Array(TREND_AXIS_NIGHTS).fill("not readable: Google is not set up for the nightly"),
+      );
+      expect(c.note + c.summary).not.toContain("Analytics");
+    }
+  });
+
+  it("each traffic summary names its partial day and its lag days (PR 7b review round 1, E)", () => {
+    expect(TF(v, DAYS.visits).summary.endsWith("Oct 26 is still being counted.")).toBe(true);
+    for (const i of [DAYS.searchTimes, DAYS.clicks]) {
+      expect(
+        TF(v, i).summary.endsWith("Google has no data yet for 3 days, Oct 24 to Oct 26."),
+      ).toBe(true);
+    }
+  });
+
+  it("each traffic summary in full (PR 7b review round 2, T2 and T3): the four round-1 fixtures, and one whose lag band has one day on the axis", () => {
+    const summaries = (x: ReturnType<typeof trendsFromDaily>) =>
+      [DAYS.visits, DAYS.searchTimes, DAYS.clicks].map((i) => TF(x, i).summary);
+    // (a) the standard fixture.
+    expect(summaries(v)).toEqual([
+      "Engaged visits: from 55 to 56 over the 30 days drawn, 55 on Oct 26. 1 day has no point; the table gives why. Oct 26 is still being counted.",
+      "Times shown in Google: from 447 to 448 over the 28 days drawn, 447 on Oct 23. 3 days have no point; the table gives why. Google has no data yet for 3 days, Oct 24 to Oct 26.",
+      "Clicks through from Google: from 22 to 23 over the 28 days drawn, 22 on Oct 23. 3 days have no point; the table gives why. Google has no data yet for 3 days, Oct 24 to Oct 26.",
+    ]);
+    // (b) a 17-night axis from Oct 10.
+    expect(
+      summaries(
+        trendsFromDaily(
+          run(N, 17, (_, i) => (i === 0 ? { traffic: traffic(trafficBlock(N)) } : {})),
+          NOW,
+        ),
+      ),
+    ).toEqual([
+      "Engaged visits: from 55 to 56 over the 17 days drawn, 55 on Oct 26. Every day is drawn. Oct 26 is still being counted.",
+      "Times shown in Google: 447 on each of the 14 days drawn, 447 on Oct 23. 3 days have no point; the table gives why. Google has no data yet for 3 days, Oct 24 to Oct 26.",
+      "Clicks through from Google: 22 on each of the 14 days drawn, 22 on Oct 23. 3 days have no point; the table gives why. Google has no data yet for 3 days, Oct 24 to Oct 26.",
+    ]);
+    // (c) the series one night late, on Oct 24.
+    expect(
+      summaries(
+        trendsFromDaily(
+          run(N, 32, (d) =>
+            d === "2026-10-24" ? { traffic: traffic(trafficBlock("2026-10-24")) } : {},
+          ),
+          NOW,
+        ),
+      ),
+    ).toEqual([
+      "Engaged visits: from 55 to 56 over the 29 days drawn, 55 on Oct 24. 2 days have no point; the table gives why. Oct 24 is still being counted.",
+      "Times shown in Google: from 447 to 448 over the 26 days drawn, 447 on Oct 21. 5 days have no point; the table gives why. Google has no data yet for 3 days, Oct 22 to Oct 24.",
+      "Clicks through from Google: from 22 to 23 over the 26 days drawn, 22 on Oct 21. 5 days have no point; the table gives why. Google has no data yet for 3 days, Oct 22 to Oct 24.",
+    ]);
+    // (d) the only series is on Sep 20, older than the axis.
+    expect(
+      summaries(
+        trendsFromDaily(
+          run(N, 40, (d) => (d === "2026-09-20" ? { traffic: traffic(trafficBlock(d)) } : {})),
+          NOW,
+        ),
+      ),
+    ).toEqual([
+      "Engaged visits: no day drawn. 31 days have no point; the table gives why.",
+      "Times shown in Google: no day drawn. 31 days have no point; the table gives why.",
+      "Clicks through from Google: no day drawn. 31 days have no point; the table gives why.",
+    ]);
+    // (e) the series on Sep 26, the axis's first day: its search lag band is that one day, so
+    // the summary's one-day form is "Google has no data yet for Sep 26." The visits line keeps
+    // "55 on each of the 1 day drawn", the wording the round-2 review filed as not folded.
+    expect(
+      summaries(
+        trendsFromDaily(
+          run(N, 32, (d) => (d === "2026-09-26" ? { traffic: traffic(trafficBlock(d)) } : {})),
+          NOW,
+        ),
+      ),
+    ).toEqual([
+      "Engaged visits: 55 on each of the 1 day drawn, 55 on Sep 26. 30 days have no point; the table gives why. Sep 26 is still being counted.",
+      "Times shown in Google: no day drawn. 31 days have no point; the table gives why. Google has no data yet for Sep 26.",
+      "Clicks through from Google: no day drawn. 31 days have no point; the table gives why. Google has no data yet for Sep 26.",
+    ]);
+  });
+
+  it("the clicks chart counts days, not nights, and a partial point keeps its value in its slot title (minor 4, minor 5)", () => {
+    const clicks = TF(v, DAYS.clicks);
+    expect(clicks.slotHeading).toBe("Day");
+    expect(clicks.summary).toContain("3 days have no point");
+    expect(clicks.summary).not.toContain("nights");
+    expect(trendGeometry(TF(v, DAYS.visits)).slots.at(-1)!.title).toBe(
+      "Oct 26: Engaged visits: 55, still being counted",
+    );
+  });
+
+  it("no traffic block anywhere: every day is blank with its words, and the summary says no day drawn", () => {
+    const none = TF(trendsFromDaily(run(N, 32), NOW), DAYS.visits);
+    expect(none.series[0]!.points.every((q) => q.value === null)).toBe(true);
+    expect(none.series[0]!.points.every((q) => q.note === "not yet collected")).toBe(true);
+    expect(none.summary).toContain("Engaged visits: no day drawn");
+  });
+
+  it("the axis for clicks is its own: roundUp of its largest day, not impressions'", () => {
+    // Clicks: 623 over 28 days, the largest day 23 (roundUp: 40); impressions' largest 448 (600).
+    expect(TF(v, DAYS.clicks).high).toBe(40);
+    expect(TF(v, DAYS.searchTimes).high).toBe(600);
+  });
+
+  it("geometry: visits has 30 columns, the last partial; each search chart has one 3-day lag band and no column there", () => {
+    const gv = trendGeometry(TF(v, DAYS.visits));
+    expect(gv.bars).toHaveLength(30);
+    expect(gv.bars.at(-1)).toMatchObject({ partial: true });
+    expect(gv.lag).toHaveLength(0);
+    for (const i of [DAYS.searchTimes, DAYS.clicks]) {
+      const g = trendGeometry(TF(v, i));
+      expect(g.lag).toHaveLength(1);
+      expect(g.bars).toHaveLength(28);
+      expect(g.bars.every((b) => b.x < g.lag[0]!.x)).toBe(true);
+      // The band starts at the 29th day's left edge and runs to the plot's right edge: three
+      // days wide, exactly (PR 7b review round 1, tests major 1). Rounded, as the SVG gets it.
+      expect(g.lag[0]).toEqual({ x: 286.6, width: 27.4 });
+      expect(g.lag[0]!.x).toBe(g.slots[28]!.left);
+    }
+  });
+
+  it("How we count: the reworded Engaged visits and Times shown texts are pinned, and no text says lighter (PR 7b review round 2, T4)", () => {
+    const how = (term: string) => HOW_WE_COUNT.find((h) => h.term === term)!.text;
+    expect(how("Engaged visits")).toContain("so its column is drawn in outline");
+    expect(how("Times shown in Google")).toContain(
+      "the days Google has no data for yet are hatched",
+    );
+    // Nothing describes the partial column as lighter, in the definitions or in any chart's
+    // note or summary: the round-1 wording that a test did not hold.
+    const charts = trendsFromDaily(withBlock(trafficBlock(N)), NOW).charts!;
+    const said = [
+      ...HOW_WE_COUNT.map((h) => h.text),
+      ...charts.flatMap((c) => [c.note, c.summary]),
+    ];
+    expect(said.filter((t) => t.includes("lighter"))).toEqual([]);
+  });
+
+  it("How we count: the Trends text says the search window ends three days before the night", () => {
+    const trends = HOW_WE_COUNT.find((h) => h.term === "Trends")!.text;
+    expect(trends).toContain(
+      "Google's data lags about three days, so each search chart's 28 days end three days before the night, and the days Google has no data for yet are hatched.",
+    );
+    expect(trends).toContain("the last 31 calendar nights");
+    const terms = HOW_WE_COUNT.map((h) => h.term);
+    expect(terms).toContain("Engaged visits");
+    expect(terms).toContain("Times shown in Google");
+  });
+});
+
+describe("P1-87 PR 7b item 1: y-axis ticks fit in four characters", () => {
+  it("tickLabel shortens thousands, millions and billions, and leaves smaller counts whole", () => {
+    expect(tickLabel(0)).toBe("0");
+    expect(tickLabel(6)).toBe("6");
+    expect(tickLabel(600)).toBe("600");
+    expect(tickLabel(1000)).toBe("1k");
+    expect(tickLabel(6000)).toBe("6k");
+    expect(tickLabel(10000)).toBe("10k");
+    expect(tickLabel(300000)).toBe("300k");
+    expect(tickLabel(600000)).toBe("600k");
+    expect(tickLabel(1000000)).toBe("1M");
+    expect(tickLabel(2000000)).toBe("2M");
+    expect(tickLabel(4000000000)).toBe("4B");
   });
 });

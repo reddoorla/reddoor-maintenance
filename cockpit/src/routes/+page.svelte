@@ -6,6 +6,7 @@
     launchingClauses,
     listWords,
     sparkGeometry,
+    tickLabel,
     trendGeometry,
   } from "../lib/overview/view.js";
   import { tickerSeconds } from "../lib/overview/ticker.js";
@@ -627,6 +628,23 @@
   <h2 id="ov-trends">Trends</h2>
   <p>{v.trends.status}.</p>
   {#if v.trends.charts}
+    {#if v.trends.charts.some((c) => trendGeometry(c).lag.length > 0)}
+      <!-- One hatch pattern for the trends: the days Search Console has no data for yet. -->
+      <svg class="ov-lag-defs" width="0" height="0" aria-hidden="true" focusable="false">
+        <defs>
+          <pattern
+            id="ov-lag-hatch"
+            class="ov-lag-hatch"
+            width="6"
+            height="6"
+            patternUnits="userSpaceOnUse"
+            patternTransform="rotate(45)"
+          >
+            <line x1="0" y1="0" x2="0" y2="6" />
+          </pattern>
+        </defs>
+      </svg>
+    {/if}
     <div class="ov-trends">
       {#each v.trends.charts as c, ci (c.title)}
         {@const g = trendGeometry(c)}
@@ -677,22 +695,34 @@
             {/each}
             <line class="ov-grid" x1={g.plotLeft} x2={g.plotRight} y1={g.top} y2={g.top} />
             <line class="ov-axis" x1={g.plotLeft} x2={g.plotRight} y1={g.zero} y2={g.zero} />
-            <text class="ov-tick" x={g.plotLeft - 4} y={g.top + 4} text-anchor="end">{c.high}</text>
+            <text class="ov-tick" x={g.plotLeft - 4} y={g.top + 4} text-anchor="end"
+              >{tickLabel(c.high)}</text
+            >
             {#if c.mid !== null && g.midY !== null}
               <line class="ov-grid" x1={g.plotLeft} x2={g.plotRight} y1={g.midY} y2={g.midY} />
               <text class="ov-tick" x={g.plotLeft - 4} y={g.midY + 4} text-anchor="end"
-                >{c.mid}</text
+                >{tickLabel(c.mid)}</text
               >
             {/if}
             <text class="ov-tick" x={g.plotLeft - 4} y={g.baseline + 4} text-anchor="end"
-              >{c.low}</text
+              >{tickLabel(c.low)}</text
             >
             <text class="ov-tick" x={g.plotLeft} y={g.height - 4}>{c.nights[0]}</text>
             <text class="ov-tick" x={g.plotRight} y={g.height - 4} text-anchor="end"
               >{c.nights.at(-1)}</text
             >
             {#each g.bars as b, bi (bi)}
-              <path class="ov-bar" d={b.d} />
+              <path class="ov-bar{b.partial ? ' partial' : ''}" d={b.d} />
+            {/each}
+            {#each g.lag as l, li (li)}
+              <rect
+                class="ov-lag"
+                fill="url(#ov-lag-hatch)"
+                x={l.x}
+                y={g.top}
+                width={l.width}
+                height={g.baseline - g.top}
+              />
             {/each}
             {#each g.lines as l, li (li)}
               <path
@@ -722,7 +752,8 @@
             <table class="ov-table">
               <thead
                 ><tr
-                  ><th>Night</th>{#each c.series as s (s.name)}<th>{s.name}</th>{/each}</tr
+                  ><th>{c.slotHeading}</th>{#each c.series as s (s.name)}<th>{s.name}</th
+                    >{/each}</tr
                 ></thead
               >
               <tbody>
@@ -732,7 +763,11 @@
                     {#each c.series as s (s.name)}
                       {@const q = s.points[pi]!}
                       <td data-label={s.name} class={q.value === null ? "unknown" : ""}
-                        >{q.value === null ? q.note : q.value}</td
+                        >{q.value === null
+                          ? q.note
+                          : q.note
+                            ? `${q.value}, ${q.note}`
+                            : q.value}</td
                       >
                     {/each}
                   </tr>
