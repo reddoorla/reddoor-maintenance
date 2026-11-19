@@ -938,7 +938,7 @@
   },
   {
     "id": "71-dragend-settles-true",
-    "why": "r8 C.3: dragend settles the flag true wherever the drop lands. Red: the drag released outside (B.2)",
+    "why": "r8 C.3: dragend settles the flag true wherever the drop lands. Red: the drag released outside and a Shift at once (r10 B.3, the count test: 0 of 10 still at each width, against the threshold of at least 8)",
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
@@ -1048,6 +1048,58 @@
         "file": "cockpit/src/routes/+page.svelte",
         "find": "      disarmDoc();\n    };",
         "replace": "    };"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "survives"
+  },
+  {
+    "id": "82-doc-out-listener-not-added",
+    "why": "r10 C.2: the document mouseout listener is not added when armed, so a move straight off the page after a drag sends nothing and the flag stays true. Red: B.1 (the drop 1 px inside the bottom edge, then a step or jump off the page, then a Shift)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      document.addEventListener(\"mouseout\", onDocOut, true);\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "83-doc-out-any-target-clears",
+    "why": "r10 C.3: onDocOut clears the flag on every mouseout, whatever its related target, not only one with no related target. Measured: the test named in the run log decides it; see the table in the PR body",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      if (e.relatedTarget !== null) return;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "84-doc-pointer-no-recheck",
+    "why": "r10 C.4: the page listener's onDocPointer loses its requestAnimationFrame(recheck). A mouse that moves off the row into the page after a drop and rests, with a Shift already pressed, is not re-checked. Red: B.2 (the drop inside, a Shift while resting, then one move off the row into the page)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      finePointerOver = el !== undefined && el.contains(e.target as Node);\n      disarmDoc();\n      requestAnimationFrame(recheck);\n",
+        "replace": "      finePointerOver = el !== undefined && el.contains(e.target as Node);\n      disarmDoc();\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "85-doc-out-not-removed-on-disarm",
+    "why": "r10 C.5: disarmDoc does not remove the document mouseout listener. Expected equivalent: a mouseout with no related target clears a flag that the pointer has already left the page with, and armDoc's guard keeps a re-arm from adding it twice. The run's result decides it; see the table in the PR body",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      document.removeEventListener(\"mouseout\", onDocOut, true);\n",
+        "replace": ""
       }
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
