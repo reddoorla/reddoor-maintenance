@@ -628,5 +628,57 @@
     ],
     "test": "cockpit/tests/overview/page.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "65-clicks-note-reads-impressions",
+    "why": "PR 7b review round 1 (tests major 2): the clicks chart's note totals impressions",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "searchNote(\"clicks through from Google\", (r) => r.clicks),",
+        "replace": "searchNote(\"clicks through from Google\", (r) => r.impressions),"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "66-chart-reason-always-not-collected",
+    "why": "PR 7b review round 1 (minor 3): every unmeasured day says not yet collected, whatever the stored reason",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      reason: (r) => trafficReasonWords(r, source),",
+        "replace": "      reason: () => trafficReasonWords(\"not collected\", source),"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "67-clicks-slot-night",
+    "why": "PR 7b review round 1 (minor 4): the clicks chart's table and summary say night, not day",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "        searchNote(\"clicks through from Google\", (r) => r.clicks),\n        { term: \"Times shown in Google\", slot: \"day\" },",
+        "replace": "        searchNote(\"clicks through from Google\", (r) => r.clicks),\n        { term: \"Times shown in Google\" },"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "68-say-drops-value",
+    "why": "PR 7b review round 1 (minor 5): a partial point's slot title drops its value",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "q.note ? `${q.value}, ${q.note}` : String(q.value);",
+        "replace": "q.note ? q.note : String(q.value);"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
   }
 ]

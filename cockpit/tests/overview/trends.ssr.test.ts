@@ -879,6 +879,56 @@ describe("P1-87 PR 7b: 31 nights and the three traffic charts", () => {
     ]);
   });
 
+  it("an unmeasured reason, visits half (PR 7b review round 1, minor 3): every visits day says Google Analytics", () => {
+    const rows = run(N, 32, (_, i) =>
+      i === 0
+        ? {
+            traffic: traffic({
+              visits: { value: null, reason: "GA not configured" },
+              search: { value: null, reason: "not in this row" },
+              sites: [],
+            }),
+          }
+        : {},
+    );
+    const c = TF(trendsFromDaily(rows, NOW), DAYS.visits);
+    expect(c.series[0]!.points.map((p) => p.note)).toEqual(
+      Array(TREND_AXIS_NIGHTS).fill("not readable: Google Analytics is not set up for the nightly"),
+    );
+  });
+
+  it("an unmeasured reason, search half (minor 3): every search day names Google, not Analytics", () => {
+    const rows = run(N, 32, (_, i) =>
+      i === 0
+        ? {
+            traffic: traffic({
+              visits: { value: null, reason: "not in this row" },
+              search: { value: null, reason: "GA not configured" },
+              sites: [],
+            }),
+          }
+        : {},
+    );
+    const late = trendsFromDaily(rows, NOW);
+    for (const i of [DAYS.searchTimes, DAYS.clicks]) {
+      const c = TF(late, i);
+      expect(c.series[0]!.points.map((p) => p.note)).toEqual(
+        Array(TREND_AXIS_NIGHTS).fill("not readable: Google is not set up for the nightly"),
+      );
+      expect(c.note + c.summary).not.toContain("Analytics");
+    }
+  });
+
+  it("the clicks chart counts days, not nights, and a partial point keeps its value in its slot title (minor 4, minor 5)", () => {
+    const clicks = TF(v, DAYS.clicks);
+    expect(clicks.slotHeading).toBe("Day");
+    expect(clicks.summary).toContain("3 days have no point");
+    expect(clicks.summary).not.toContain("nights");
+    expect(trendGeometry(TF(v, DAYS.visits)).slots.at(-1)!.title).toBe(
+      "Oct 26: Engaged visits: 55, still being counted",
+    );
+  });
+
   it("no traffic block anywhere: every day is blank with its words, and the summary says no day drawn", () => {
     const none = TF(trendsFromDaily(run(N, 32), NOW), DAYS.visits);
     expect(none.series[0]!.points.every((q) => q.value === null)).toBe(true);
