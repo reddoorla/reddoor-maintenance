@@ -57,6 +57,7 @@ function report(over: Partial<ReportRow> = {}): ReportRow {
     withdrawnAt: null,
     withdrawnBy: null,
     sendStartedAt: null,
+    dueOn: null,
     ...over,
   };
 }
@@ -82,8 +83,10 @@ describe("findDueReports", () => {
     expect(due[0]!.dueDate.toISOString().slice(0, 10)).toBe("2026-05-26");
   });
 
-  it("does NOT flag as due when last Sent at + freq is in the future", () => {
-    const due = findDueReports([site()], [report({ sentAt: "2026-05-01T12:00:00.000Z" })], TODAY);
+  // P1-117 moved this case's input: a due date 6 days out (sent 05-01) is now inside
+  // the 7-day draft window. 15 days out is still not due.
+  it("does NOT flag as due when last Sent at + freq is beyond the 7-day draft window", () => {
+    const due = findDueReports([site()], [report({ sentAt: "2026-05-10T12:00:00.000Z" })], TODAY);
     expect(due).toEqual([]);
   });
 
@@ -421,7 +424,9 @@ describe("a withdrawn draft consumes its cycle, measured from when it was drafte
   it("overdue catch-up in one click: sent 02-15, the 2026-03 draft made 09-01, withdrawn 09-30 → due 10-01", () => {
     const reports = [sent("2026-02-15"), withdrawn("2026-03", "2026-09-01", "2026-09-30")];
     expect(ymd(nextDueDate(site(), reports, "Maintenance", on("2026-09-30")))).toBe("2026-10-01");
-    expect(duePeriods(site(), reports, "2026-09-30")).toEqual([]);
+    // P1-117: the draft window opens 7 days before the 10-01 due date.
+    expect(duePeriods(site(), reports, "2026-09-23")).toEqual([]);
+    expect(duePeriods(site(), reports, "2026-09-24")).toEqual(["2026-10"]);
     expect(duePeriods(site(), reports, "2026-10-01")).toEqual(["2026-10"]);
   });
 
@@ -582,5 +587,61 @@ describe("a Testing report sent within a month of Maintenance pushes Maintenance
     const s = site({ testingFreq: "Quarterly", testingDay: "2026-07-01" });
     const reports = [maint("2026-09-30")];
     expect(ymd(nextDueDate(s, reports, "Testing", on("2026-09-02")))).toBe("2026-10-01");
+  });
+});
+
+/**
+ * P1-117 (the operator, 2026-11-19: "can we set up pre approving drafts? and
+ * lock the data to the approval (limit to a week ahead of time)"). The nightly
+ * drafts up to DRAFT_LEAD_DAYS before the due date; the send holds the approval
+ * until the date itself (orchestrate.test.ts), so the next due date, counted
+ * from the send, never moves.
+ */
+describe("P1-117: the draft window opens 7 days before the due date", () => {
+  // TODAY is 2026-05-26. The maintenance-day anchor + 1 month is the due date.
+  it("drafts a report due in 7 days tonight, carrying its real due date", () => {
+    const due = findDueReports([site({ maintenanceDay: "2026-05-02" })], [], TODAY);
+    expect(due).toHaveLength(1);
+    expect(due[0]!.dueDate.toISOString().slice(0, 10)).toBe("2026-06-02");
+    // The period is the due month, not the month it was drafted in.
+    expect(reportPeriodKey(due[0]!.dueDate)).toBe("2026-06");
+  });
+
+  it("does not draft a report due in 8 days", () => {
+    expect(findDueReports([site({ maintenanceDay: "2026-05-03" })], [], TODAY)).toEqual([]);
+  });
+
+  it("counts the window in UTC days: late on the 7th day before still drafts", () => {
+    const late = new Date("2026-05-26T23:59:00Z");
+    expect(findDueReports([site({ maintenanceDay: "2026-05-02" })], [], late)).toHaveLength(1);
+  });
+
+  it("an on-time send counts the next due date from the send, as before: not the approval", () => {
+    // Drafted 05-26, approved 05-27, held, sent in the 8:07am PT send on its due date.
+    const sent = report({
+      sentAt: "2026-06-02T15:07:00.000Z",
+      approvedAt: "2026-05-27T18:00:00.000Z",
+      dueOn: "2026-06-02",
+      period: "2026-06",
+    });
+    const next = nextDueDate(site(), [sent], "Maintenance", new Date("2026-06-03T12:00:00Z"));
+    expect(next?.toISOString().slice(0, 10)).toBe("2026-07-02");
+  });
+
+  it("an early-approved, unsent Testing report still pushes Maintenance past its due date", () => {
+    // Testing due 06-02, approved 05-26 (7 days early), still held on 05-30 (4 days
+    // after approval, past the 3-day grace). It goes out on 06-02, so it covers a
+    // Maintenance report due 06-02.
+    const testing = report({
+      id: "rec_testing",
+      reportType: "Testing",
+      sentAt: null,
+      approvedToSend: true,
+      approvedAt: "2026-05-26T12:00:00.000Z",
+      dueOn: "2026-06-02",
+    });
+    const s = site({ maintenanceDay: "2026-05-02", testingFreq: "Quarterly" });
+    const next = nextDueDate(s, [testing], "Maintenance", new Date("2026-05-30T12:00:00Z"));
+    expect(next?.toISOString().slice(0, 10)).toBe("2026-07-02");
   });
 });

@@ -39,6 +39,9 @@ export type DraftInput = {
   checklistTicks?: string[];
   /** Auto-tick evidence snapshot to persist (keyed by checklist field). */
   autoEvidence?: Record<string, EvidenceRecord>;
+  /** P1-117: the due date the nightly drafted this report for. Written only
+   *  when supplied; the manual and recipe drafts have none. */
+  dueOn?: Date;
 };
 
 /** `YYYY-MM-DD`, the date shape every report date column stores. Re-exported
@@ -76,6 +79,7 @@ export function draftFields(input: DraftInput): Record<string, unknown> {
   if (input.searchFoundPage1 !== undefined) fields["Search found page 1"] = input.searchFoundPage1;
   if (input.searchPosition !== undefined) fields["Search position"] = input.searchPosition;
   if (input.period !== undefined) fields["Period"] = input.period;
+  if (input.dueOn !== undefined) fields["Due on"] = ymd(input.dueOn);
   if (input.subjectOverride !== undefined) fields["Subject override"] = input.subjectOverride;
   // Auto-ticked checklist boxes + the evidence snapshot. The booleans are the same columns the
   // operator/dashboard toggle; the JSON is what the health gate reads (isHealthGateClear/gatingHealth)

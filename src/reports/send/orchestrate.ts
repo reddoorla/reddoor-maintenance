@@ -6,6 +6,7 @@ import { defaultResendClient, isDefiniteRejection, type ResendClient } from "./r
 import { isIdempotencyConflict } from "./idempotency.js";
 import { gatingHealth, isHealthGateClear, isSendOverridden } from "../checklist.js";
 import { recordFleetEventsBestEffort } from "../../audits/fleet-events-writer.js";
+import { heldUntilDue } from "../due.js";
 import type { SiteMirror } from "../../db/site-mirror.js";
 import {
   GLOBAL_REPORT_CC,
@@ -65,7 +66,11 @@ export type OrchestrateOptions = {
    *  queue returned "No reports ready to send." with exit 0 whether or not an
    *  approval existed. The CLI wires it; a test that omits it skips the check. */
   approvedUnqueued?: () => Promise<Array<{ id: string; reportId: string }>>;
+  /** The clock the due-date hold reads (P1-117). Defaults to the real time;
+   *  tests pin it. */
+  now?: () => Date;
 };
+
 
 export async function sendApprovedReports(
   options: OrchestrateOptions,
@@ -108,11 +113,18 @@ export async function sendApprovedReports(
 
   const lines: string[] = [...invisibleLines];
   let anyFailed = invisibleLines.length > 0;
+  const now = (options.now ?? (() => new Date()))();
   for (const report of sendable) {
     // P1-28: the queue's WHERE already drops a withdrawn row; this is the
     // backstop for any other `sendable` source.
     if (report.withdrawnAt !== null) {
       lines.push(`• skipped (withdrawn): ${report.reportId}`);
+      continue;
+    }
+    if (heldUntilDue(report, now)) {
+      lines.push(
+        `• held (approved before its due date; sends on or after ${report.dueOn} PT): ${report.reportId}`,
+      );
       continue;
     }
     const site = sites.get(report.siteId);

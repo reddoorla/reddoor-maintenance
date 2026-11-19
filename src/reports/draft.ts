@@ -94,6 +94,10 @@ export type DraftOptions = {
   enrich?: boolean;
   /** UTC "YYYY-MM" recurrence key; falls back to periodEnd's month when omitted. */
   period?: string;
+  /** P1-117: the due date the nightly drafts this report for, stored on the row
+   *  so the send can hold an early approval until it. Omitted by the manual and
+   *  recipe drafts, whose rows send at the next send as before. */
+  dueOn?: Date;
   /** Id of an EXISTING (not-ready) row to COMPLETE in place rather than creating
    *  a new one. When set, we skip the create and only re-render → store the body
    *  → flip Draft ready on this row. Used by the --due re-draft path to finish a
@@ -267,8 +271,21 @@ export async function draftReportForSite(
   // gate, for suites that run the real path and would otherwise pay a real
   // chromium launch per case. Production leaves it unset and gets the real
   // refresh. Best-effort — see refreshHeaderImage.
+  //
+  // P1-117: the plate is site-wide, and the send reads it at send time. While an
+  // approved report for this site waits to send (up to a week, when approved
+  // before its due date), the plate it was approved with is the one it must ship
+  // with, so no draft for the site replaces it until that report is sent,
+  // withdrawn or unapproved.
   if (!options.previewOnly && options.refreshHeader !== false) {
-    await refreshHeaderImage(siteRow, options.refreshHeader ?? {});
+    const holding = (await store!.forSite(siteRow.id)).find(isApprovedUnsent);
+    if (holding) {
+      console.log(
+        `• header image kept for ${siteRow.name}: ${holding.reportId} is approved and not yet sent`,
+      );
+    } else {
+      await refreshHeaderImage(siteRow, options.refreshHeader ?? {});
+    }
   }
 
   // Auto-tick the checklist boxes the system can prove (Phase 1: Google Indexed via the
@@ -382,6 +399,7 @@ export async function draftReportForSite(
       ...searchEnrichment(search),
       checklistTicks,
       autoEvidence,
+      ...(options.dueOn ? { dueOn: options.dueOn } : {}),
     },
     { create: store!.create },
   );
@@ -402,6 +420,11 @@ export async function draftReportForSite(
     queued: outcome.queued,
     supersededIds: outcome.supersededIds,
   };
+}
+
+/** Approved and waiting to send: what freezes the site's header plate. */
+function isApprovedUnsent(r: ReportRow): boolean {
+  return r.approvedToSend && r.sentAt === null && r.withdrawnAt === null;
 }
 
 /** Store the rendered HTML on the report row, then queue it (Draft ready + the

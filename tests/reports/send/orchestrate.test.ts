@@ -915,3 +915,96 @@ describe("sendApprovedReports", () => {
     expect(h.siteWrites.map((w) => w.id)).toEqual(["rec_site_acme"]);
   });
 });
+
+/**
+ * P1-117: hold to due date (the operator's answer, workspace
+ * decisions/2026-11-19-1752-p1-117-pre-approve-reports-send-timing.md). An
+ * approved report goes out in the first 8:07am PT send on or after its due date,
+ * counted in PACIFIC days: the send's fallback can run hours late, past midnight
+ * UTC, while it is still the day before in Los Angeles.
+ */
+describe("sendApprovedReports — P1-117 hold to due date", () => {
+  const DUE = "2026-11-21";
+  const sendAt = (iso: string) => () => new Date(iso);
+
+  it("holds an approved report due in 3 days, with a logged reason, a green run, and no claim", async () => {
+    const h = harness({ Reports: [reportRow({ "Due on": DUE })], Websites: [siteRow()] });
+    const { client, captured } = captureClient();
+    const claims: string[] = [];
+    const res = await sendApprovedReports({
+      ...h.io,
+      resend: client,
+      claimForSend: async (id) => {
+        claims.push(id);
+        return true;
+      },
+      now: sendAt("2026-11-18T16:07:00.000Z"), // Wed 11-18, 8:07am PT
+    });
+    expect(captured).toHaveLength(0);
+    expect(claims).toEqual([]);
+    expect(h.stamps).toEqual([]);
+    expect(res.output).toContain(
+      "• held (approved before its due date; sends on or after 2026-11-21 PT): Acme Co — Maintenance — 2026-05-26",
+    );
+    expect(res.code).toBe(0);
+  });
+
+  it("sends it in the 8:07am PT send on its due date", async () => {
+    const h = harness({ Reports: [reportRow({ "Due on": DUE })], Websites: [siteRow()] });
+    const { client, captured } = captureClient();
+    const res = await sendApprovedReports({
+      ...h.io,
+      resend: client,
+      now: sendAt("2026-11-21T16:07:00.000Z"), // Sat 11-21, 8:07am PT
+    });
+    expect(captured).toHaveLength(1);
+    expect(h.stamps).toHaveLength(1);
+    expect(res.output).toContain("✓ sent:");
+    expect(res.code).toBe(0);
+  });
+
+  it("sends one held past its due date (a missed send) at the next send", async () => {
+    const h = harness({ Reports: [reportRow({ "Due on": DUE })], Websites: [siteRow()] });
+    const { client, captured } = captureClient();
+    await sendApprovedReports({ ...h.io, resend: client, now: sendAt("2026-11-23T16:07:00.000Z") });
+    expect(captured).toHaveLength(1);
+  });
+
+  it("holds it at 11:30pm PT the night before, when the UTC date is already the due date", async () => {
+    const h = harness({ Reports: [reportRow({ "Due on": DUE })], Websites: [siteRow()] });
+    const { client, captured } = captureClient();
+    const res = await sendApprovedReports({
+      ...h.io,
+      resend: client,
+      now: sendAt("2026-11-21T07:30:00.000Z"), // Fri 11-20, 11:30pm PT
+    });
+    expect(captured).toHaveLength(0);
+    expect(res.output).toContain("• held");
+  });
+
+  it("never holds a row with no due date (legacy, Launch, Announcement)", async () => {
+    const h = harness({ Reports: [reportRow()], Websites: [siteRow()] });
+    const { client, captured } = captureClient();
+    await sendApprovedReports({ ...h.io, resend: client, now: sendAt("2026-11-18T16:07:00.000Z") });
+    expect(captured).toHaveLength(1);
+  });
+
+  it("holds one report and sends another in the same run", async () => {
+    const h = harness({
+      Reports: [
+        reportRow({ "Due on": DUE }),
+        reportRow({ "Due on": "2026-11-18", "Report ID": "Acme Co — Maintenance — due today" }),
+      ].map((r, i) => ({ ...r, id: `rec_report_${i}` })),
+      Websites: [siteRow()],
+    });
+    const { client, captured } = captureClient();
+    const res = await sendApprovedReports({
+      ...h.io,
+      resend: client,
+      now: sendAt("2026-11-18T16:07:00.000Z"),
+    });
+    expect(captured).toHaveLength(1);
+    expect(h.stamps.map((s) => s.id)).toEqual(["rec_report_1"]);
+    expect(res.output).toContain("• held");
+  });
+});

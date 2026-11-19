@@ -9,6 +9,7 @@ import { refreshHeaderImage, draftReportForSite } from "../../src/reports/draft.
 import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import { makeFakeReportWriter } from "./_helpers/fake-report-writer.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
+import { mapRow } from "../../src/reports/report-fields.js";
 
 // Stand in for the real capture so the wiring tests below never launch a browser.
 // The tests in the first describe don't touch this — they inject their own deps.
@@ -162,4 +163,46 @@ describe("draftReportForSite header-refresh wiring", () => {
     expect(result.reportRow).toBeNull();
     expect(generateHeaderImage).not.toHaveBeenCalled();
   });
+
+  // P1-117: an approved report can wait up to a week for its due date, and the
+  // send reads the site's plate when it goes. No draft for the site replaces the
+  // plate in between.
+  it("keeps the plate while an approved report for the site is unsent", async () => {
+    const site = scoredSite();
+    const approved = mapRow({
+      id: "rec_approved",
+      fields: {
+        Site: [site.id],
+        "Report ID": "Acme Co — Testing — 2026-11-14",
+        "Report type": "Testing",
+        "Draft ready": true,
+        "Approved to send": true,
+        "Due on": "2026-11-21",
+      },
+    });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    await draftReportForSite(site, "Maintenance", {
+      reportMirror: makeFakeReportWriter([approved]),
+    });
+    expect(generateHeaderImage).not.toHaveBeenCalled();
+    expect(log.mock.calls.flat().join("\n")).toContain(
+      "header image kept for Acme Co: Acme Co — Testing — 2026-11-14 is approved and not yet sent",
+    );
+    log.mockRestore();
+  });
+
+  it("refreshes again once that report is sent, or for a pending (unapproved) one", async () => {
+    const site = scoredSite();
+    const row = (id: string, fields: Record<string, unknown>) =>
+      mapRow({ id, fields: { Site: [site.id], "Report type": "Testing", ...fields } });
+    await draftReportForSite(site, "Maintenance", {
+      reportMirror: makeFakeReportWriter([
+        row("rec_sent", { "Approved to send": true, "Sent at": "2026-11-21T16:07:00.000Z" }),
+        row("rec_pending", { "Draft ready": true }),
+        row("rec_withdrawn", { "Approved to send": true, "Withdrawn at": "2026-11-20T00:00:00Z" }),
+      ]),
+    });
+    expect(generateHeaderImage).toHaveBeenCalledTimes(1);
+  });
 });
+

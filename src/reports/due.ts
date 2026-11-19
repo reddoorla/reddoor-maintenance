@@ -1,6 +1,7 @@
 import type { WebsiteRow, Frequency, Status } from "../fleet/site-row.js";
 import type { ReportRow } from "./report-fields.js";
 import type { ReportType } from "./types.js";
+import { pacificYmd } from "../util/date.js";
 
 /** Statuses where recurring Maintenance/Testing reports are appropriate. Only
  * LIVE sites: "maintained" and "hosted-only". Pre-launch
@@ -24,6 +25,13 @@ export type DueItem = {
   /** ISO date of the last `Sent at` for this (site, type), or null if there's never been one. */
   lastSent: string | null;
 };
+
+/** P1-117 (the operator, 2026-11-19: "limit to a week ahead of time"): the
+ *  nightly drafts a report up to this many days before its due date, so it can
+ *  be approved early. The send still waits for the due date (`dueOn`). */
+export const DRAFT_LEAD_DAYS = 7;
+
+const DAY_MS = 86_400_000;
 
 /** Calendar months per report cycle. */
 export const MONTHS: Record<Exclude<Frequency, "None">, number> = {
@@ -150,7 +158,9 @@ const APPROVED_UNSENT_GRACE_DAYS = 3;
  * dated by its approval, for {@link APPROVED_UNSENT_GRACE_DAYS} after it:
  * `daily-reports` drafts before it sends, so on the day the approved Testing
  * report goes out, Maintenance is decided while it is still unsent (Sonder,
- * 2026-10-01).
+ * 2026-10-01). P1-117: a report approved before its due date is held until
+ * then, so it is dated by the later of its approval and its `dueOn`, the day it
+ * will go out.
  */
 function pushPastTesting(
   reports: ReportRow[],
@@ -160,13 +170,15 @@ function pushPastTesting(
   months: number,
   today: Date,
 ): Date {
-  const graceFrom = startOfDay(today).getTime() - APPROVED_UNSENT_GRACE_DAYS * 86_400_000;
+  const graceFrom = startOfDay(today).getTime() - APPROVED_UNSENT_GRACE_DAYS * DAY_MS;
   const testingDays = reports
     .filter((r) => r.siteId === siteId && r.reportType === "Testing" && r.withdrawnAt === null)
     .map((r) => {
       if (r.sentAt !== null) return startOfDay(new Date(r.sentAt)).getTime();
       if (!r.approvedToSend || r.approvedAt === null) return null;
-      const t = startOfDay(new Date(r.approvedAt)).getTime();
+      const approved = startOfDay(new Date(r.approvedAt)).getTime();
+      const due = r.dueOn === null ? Number.NaN : startOfDay(new Date(r.dueOn)).getTime();
+      const t = Number.isNaN(due) ? approved : Math.max(approved, due);
       return t >= graceFrom ? t : null;
     })
     .filter((t): t is number => t !== null && !Number.isNaN(t));
@@ -220,7 +232,9 @@ export function nextDueDates(
  *  3. If no baseDate exists at all, the site is due now.
  *  4. dueDate = baseDate + frequency months; for Maintenance, pushed past any
  *     Testing report within a month of it ({@link nextDueDate}).
- *  5. Due iff startOfDay(today) >= startOfDay(dueDate).
+ *  5. Draftable iff startOfDay(today) + {@link DRAFT_LEAD_DAYS} days >=
+ *     startOfDay(dueDate) (P1-117). The item carries the real due date, so the
+ *     period key and the stored `dueOn` are the due date's, not the draft day's.
  */
 export function findDueReports(
   websites: WebsiteRow[],
@@ -228,7 +242,7 @@ export function findDueReports(
   today: Date,
 ): DueItem[] {
   const out: DueItem[] = [];
-  const todayStart = startOfDay(today);
+  const horizon = startOfDay(today).getTime() + DRAFT_LEAD_DAYS * DAY_MS;
 
   for (const site of websites) {
     // Skip explicitly-non-active statuses ("archived", "external").
@@ -250,7 +264,7 @@ export function findDueReports(
       // proved a schedule exists, so dueDate is non-null; a no-anchor site returns
       // `today`, so the comparison below pushes it as due-now (the prior behavior).
       const dueDate = nextDueDate(site, reports, type, today);
-      if (dueDate !== null && todayStart.getTime() >= startOfDay(dueDate).getTime()) {
+      if (dueDate !== null && horizon >= startOfDay(dueDate).getTime()) {
         out.push({ site, reportType: type, dueDate, lastSent });
       }
     }
@@ -270,4 +284,15 @@ export function reportPeriodKey(dueDate: Date): string {
   const year = dueDate.getUTCFullYear();
   const month = String(dueDate.getUTCMonth() + 1).padStart(2, "0");
   return `${year}-${month}`;
+}
+
+/**
+ * P1-117 (the operator's answer: hold to due date). An approved report waits for
+ * its due date: it goes out in the first send on or after that date, counted in
+ * Pacific days, so the next due date (counted from the send) never moves
+ * earlier. A row with no `dueOn` (legacy, Launch, Announcement) is never held.
+ * The send (`orchestrate.ts`) and the cockpit's "sends <date>" line both ask this.
+ */
+export function heldUntilDue(report: Pick<ReportRow, "dueOn">, now: Date): boolean {
+  return report.dueOn !== null && pacificYmd(now) < report.dueOn;
 }

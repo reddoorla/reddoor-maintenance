@@ -75,6 +75,11 @@ export type ReportRow = {
   /** #1262: when the send batch claimed the row, right before Resend. A claimed,
    *  unsent row is mid-send, and an unapprove refuses it. */
   sendStartedAt: string | null;
+  /** P1-117: the due date (`YYYY-MM-DD`) the nightly drafted this report for. It
+   *  can be drafted and approved up to a week before; the send holds it until the
+   *  Pacific date reaches this. Null on rows without a schedule (legacy, Launch,
+   *  Announcement), which send at the next send. */
+  dueOn: string | null;
 };
 
 /**

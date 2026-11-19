@@ -262,6 +262,10 @@ export interface ReportsTable {
   /** #1262 (migration 0043): when the send batch claimed the row, right before
    *  calling Resend. NULL until a send starts. */
   send_started_at: string | null;
+  /** P1-117 (migration 0058): the due date a scheduled draft was made for,
+   *  `YYYY-MM-DD`. The send holds an approved row until the Pacific date reaches
+   *  it. NULL on rows drafted before P1-117 and on Launch/Announcement rows. */
+  due_on: string | null;
 }
 
 /** One prospect-audit run (migration 0009). `token` is the 128-bit unguessable

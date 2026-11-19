@@ -672,6 +672,7 @@ export async function draftDueReports(
       // into a later month than the dueDate.
       const result = await draftReportForSite(item.site, item.reportType, {
         period,
+        dueOn: item.dueDate,
         ...mirrorOpt,
       });
       lines.push(draftLine(result.reportRow?.reportId, result.queued, result.supersededIds));

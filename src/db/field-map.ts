@@ -405,5 +405,6 @@ export function mapReportRecord(rec: RawRecord, renderedHtml: string | null): Re
     unapproved_at: s(f["Unapproved at"]),
     unapproved_by: s(f["Unapproved by"]),
     send_started_at: s(f["Send started at"]),
+    due_on: s(f["Due on"]),
   };
 }
