@@ -1435,8 +1435,9 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       expect(await page.locator(".ov-leads-sites tbody th", { hasText: LONG_NAME }).count()).toBe(
         1,
       );
-      // P1-78h: section 8 draws its four charts, so they are laid out here too.
-      expect(await page.locator("figure.ov-trend svg.ov-chart").count()).toBe(4);
+      // P1-78h: section 8 draws its charts, so they are laid out here too: four, and the
+      // three traffic charts (P1-87 PR 7b).
+      expect(await page.locator("figure.ov-trend svg.ov-chart").count()).toBe(7);
       await page.locator(".ov-trend-table summary").first().click();
       const fit = await page.evaluate(() => ({
         scroll: document.documentElement.scrollWidth,
