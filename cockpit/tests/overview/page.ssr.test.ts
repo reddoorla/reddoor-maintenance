@@ -2135,12 +2135,21 @@ describe("P1-87 PR 7b: the traffic charts on the page", () => {
     const doc = parse(pageHtml(ST.view));
     const words = pageText(doc);
     const shown = new Set(shownNumbers(doc));
+    // Arrays are keyed by letter, so charts 4 and 5 are [e] and [f]. The count keeps
+    // this loop from passing on no leaves at all, as it did when it read "charts.4".
+    let checked = 0;
     for (const [path, v] of ST.at) {
-      if (!path.startsWith("trends.charts.4") && !path.startsWith("trends.charts.5")) continue;
+      if (!path.startsWith("trends.charts[e]") && !path.startsWith("trends.charts[f]")) continue;
       if (path.endsWith(".term")) continue;
-      const on = v.startsWith("⟦") ? words.includes(v) : shown.has(v);
+      checked++;
+      const on = v.startsWith("⟦")
+        ? words.includes(v)
+        : TICK_PATH.test(path)
+          ? words.includes(tickLabel(Number(v)))
+          : shown.has(v);
       expect.soft(on, `${path} (${v}) is on the page`).toBe(true);
     }
+    expect(checked).toBeGreaterThan(20);
     const allowed = sentinelDigits(ST.at);
     expect(boundNumbers(doc, VIEW.reports.checks.length).filter((d) => !allowed.has(d))).toEqual(
       [],
