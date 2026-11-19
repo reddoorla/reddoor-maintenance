@@ -146,10 +146,15 @@ section {
 .ov-bar {
   fill: var(--ink-muted);
 }
-/* P1-87 PR 7b: the newest day of a traffic column, still being counted, is lighter; the
- * days Search Console has no data for yet are hatched: the rect's fill names the one pattern. */
+/* P1-87 PR 7b: the newest day of a traffic column, still being counted, is drawn in outline
+ * (its fill is the band, its stroke the muted ink, dashed, so its shape differs from a
+ * solid column); the days Search Console has no data for yet are hatched: the rect's fill
+ * names the one pattern. */
 .ov-bar.partial {
   fill: var(--band);
+  stroke: var(--ink-muted);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 2;
 }
 .ov-lag-defs {
   position: absolute;

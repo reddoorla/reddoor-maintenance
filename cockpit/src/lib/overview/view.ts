@@ -1480,7 +1480,7 @@ export type TrendPoint = {
   note: string | null;
   /** Counted on an earlier ladder version: shaded as a break, never drawn. */
   earlier: boolean;
-  /** The newest day of a traffic column, still being counted: drawn lighter. Set only on
+  /** The newest day of a traffic column, still being counted: drawn in outline. Set only on
    *  the traffic charts' points; absent (read as false) on the others. */
   partial?: boolean;
   /** A traffic day Search Console has no data for yet: hatched, never drawn. Set only on
@@ -1738,7 +1738,7 @@ export function trendsFromDaily(nights: OverviewNight[] | null, now: Date): Tren
     const visitsNote =
       vr.value === null
         ? "Each column is that day's engaged visits. A day with no reading says why in the table."
-        : `Each column is that day's engaged visits across ${count(vr.value.sitesRead, "site", "sites")}; the 30 columns add up to the tile's ${WHOLE.format(vr.value.current)}. The night of ${nightLabel(vr.value.night)} is still being counted, so its column is lighter.${short(vis.dropped, 30, vr.value.night)}`;
+        : `Each column is that day's engaged visits across ${count(vr.value.sitesRead, "site", "sites")}; the 30 columns add up to the tile's ${WHOLE.format(vr.value.current)}. The night of ${nightLabel(vr.value.night)} is still being counted, so its column is drawn in outline.${short(vis.dropped, 30, vr.value.night)}`;
     const searchNote = (what: string, total: (r: SearchReading) => number) =>
       sr.value === null
         ? `Each column is that day's ${what}. A day with no reading says why in the table.`
@@ -2825,7 +2825,7 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Engaged visits",
-    text: "The engaged sessions Google Analytics counts on each site, for each day, as the nightly writes them and added across the sites it could read (the first screen's tile says how many). The tile counts the last 30 days and sets them against the 30 before; each column is one day, and the newest day is still being counted, so its column is lighter.",
+    text: "The engaged sessions Google Analytics counts on each site, for each day, as the nightly writes them and added across the sites it could read (the first screen's tile says how many). The tile counts the last 30 days and sets them against the 30 before; each column is one day, and the newest day is still being counted, so its column is drawn in outline.",
   },
   {
     term: "Times shown in Google",

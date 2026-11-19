@@ -586,5 +586,18 @@
       "cockpit/tests/overview/page.ssr.test.ts"
     ],
     "expect": "red"
+  },
+  {
+    "id": "62-partial-column-no-outline",
+    "why": "PR 7b review round 1 (accessibility major): the partial column has no outline, so it reads as a gap (WCAG 1.4.11)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "  fill: var(--band);\n  stroke: var(--ink-muted);\n  stroke-width: 1.5;",
+        "replace": "  fill: var(--band);\n  stroke-width: 1.5;"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
   }
 ]

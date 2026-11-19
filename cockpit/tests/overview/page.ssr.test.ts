@@ -2124,6 +2124,19 @@ describe("P1-87 PR 7b: the traffic charts on the page", () => {
     expect(head[0]).toBe("Day");
   });
 
+  it("the partial column is drawn in outline: a muted stroke, dashed, so its shape differs from a solid column", () => {
+    const css = readFileSync(
+      new URL("../../src/lib/overview/overview.css", import.meta.url),
+      "utf8",
+    ).replace(/\/\*[\s\S]*?\*\//g, "");
+    const partial =
+      [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].find(
+        ([, s]) => s!.trim() === ".ov-bar.partial",
+      )?.[2] ?? "";
+    expect(partial).toMatch(/stroke:\s*var\(--ink-muted\)/);
+    expect(partial).toMatch(/stroke-dasharray:\s*[1-9]/);
+  });
+
   it("the visits table's last row says the column is still being counted", () => {
     const rows = figs[4]!.querySelectorAll(".ov-trend-table tbody tr");
     expect(rows.at(-1)!.querySelectorAll("th, td").map(text).join(" ")).toBe(
