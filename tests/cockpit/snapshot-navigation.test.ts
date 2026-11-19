@@ -2002,6 +2002,13 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     await page.locator('.ov-ticker-window[data-js="true"]').waitFor({ state: "attached" });
   };
 
+  /** #2152 round 1: a looping test closes the previous run's pages before opening the next, so one
+   *  run's page is alive at a time (a run that leaves 20 pages animating starves the later runs). */
+  const nextRun = async (user?: string, options?: BrowserContextOptions) => {
+    for (const c of contexts.splice(0)) await c.close();
+    return signedIn(user, options);
+  };
+
   it("moves, with the seeded sites in its row", async () => {
     const page = await signedIn();
     await page.setViewportSize({ width: 1280, height: 900 });
@@ -2212,7 +2219,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
         };
       });
     for (const width of [1280, 390]) {
-      const page = await signedIn();
+      const page = await nextRun();
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`${origin}/`);
       await tickerReady(page);
@@ -2261,7 +2268,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
   // layout must hold while focus moves between links inside the window.
   it("a mouse press on link 2 in the still list keeps the row still and the click lands, at 1280, 768 and 390px", async () => {
     for (const width of [1280, 768, 390]) {
-      const page = await signedIn();
+      const page = await nextRun();
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`${origin}/`);
       await tickerReady(page);
@@ -2303,7 +2310,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
   // gone, so the link cannot scroll out of the window.
   it("a right press on link 1, Escape, then the pointer leaving the window stills the row with link 1 in view, at 1280px and 390px", async () => {
     for (const width of [1280, 390]) {
-      const page = await signedIn();
+      const page = await nextRun();
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`${origin}/`);
       await tickerReady(page);
@@ -2378,7 +2385,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
   // the link under the pointer's own x and y.
   it("a key press after a mouse press on a link leaves the row moving and the link under the pointer, at 1280px and 390px", async () => {
     for (const width of [1280, 390]) {
-      const page = await signedIn();
+      const page = await nextRun();
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`${origin}/`);
       await tickerReady(page);
@@ -2653,7 +2660,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
       { width: 390, touch: true, n: 2 },
     ];
     for (const { width, touch, n } of cases) {
-      const page = await signedIn("op", { hasTouch: true, isMobile: touch });
+      const page = await nextRun("op", { hasTouch: true, isMobile: touch });
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`${origin}/`);
       await tickerReady(page, 3);
@@ -2742,7 +2749,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
   // row. A window blur and a context menu each clear the press.
   it("a left press with no release is cleared by the window's blur, and a right press by its context menu", async () => {
     for (const button of ["left", "right"] as const) {
-      const page = await signedIn();
+      const page = await nextRun();
       await page.setViewportSize({ width: 1280, height: 900 });
       await page.goto(`${origin}/`);
       await tickerReady(page);
@@ -3027,7 +3034,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
         return a.left >= w.left && a.right <= w.right && a.top >= w.top && a.bottom <= w.bottom;
       });
     for (const width of [1280, 390]) {
-      const page = await signedIn("op", { hasTouch: true });
+      const page = await nextRun("op", { hasTouch: true });
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`${origin}/`);
       await tickerReady(page);
@@ -3075,7 +3082,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
   // after the release, with the link in the window.
   it("a touch press and release inside the window, then a Tab to a link within 200 ms, stands the row still by 1.6 s after the release, at 1280px and 390px", async () => {
     for (const width of [1280, 390]) {
-      const page = await signedIn("op", { hasTouch: true });
+      const page = await nextRun("op", { hasTouch: true });
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`${origin}/`);
       await tickerReady(page);
@@ -3260,7 +3267,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
   it("a mouse resting on link 1 after a right press and Escape keeps the row moving through a touch swipe and a Shift, on the heading or the window's edge, at 1280px and 390px", async () => {
     for (const width of [1280, 390]) {
       for (const on of ["heading", "edge"] as const) {
-        const page = await signedIn("op", { hasTouch: true });
+        const page = await nextRun("op", { hasTouch: true });
         await page.setViewportSize({ width, height: 900 });
         await page.goto(`${origin}/`);
         await tickerReady(page);
@@ -3394,7 +3401,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
   // after a Shift. Playwright's page.mouse sends no pen, so these go through CDP.
   it("a pen tap outside the ticker, then a Tab into it within 300 ms, stands the row still with the link in the window, at 1280px and 390px", async () => {
     for (const width of [1280, 390]) {
-      const page = await signedIn();
+      const page = await nextRun();
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`${origin}/`);
       await tickerReady(page);
@@ -3461,7 +3468,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
 
   it("a pen resting on link 1, a right press on it, Escape, then a Shift keeps the row moving under the pen, at 1280px and 390px", async () => {
     for (const width of [1280, 390]) {
-      const page = await signedIn();
+      const page = await nextRun();
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`${origin}/`);
       await tickerReady(page);
@@ -3586,7 +3593,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
   it("a press on link 1 that drags it, then a rest and a Shift, keeps the row moving under the resting mouse, at 1280px and 390px", async () => {
     for (const width of [1280, 390]) {
       for (let run = 1; run <= 5; run++) {
-        const page = await signedIn();
+        const page = await nextRun();
         await page.setViewportSize({ width, height: 900 });
         await page.goto(`${origin}/`);
         await tickerReady(page);
@@ -3627,7 +3634,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
 
   it("a press on link 1 dragged out of the window and released there, then a Shift at once, stands the row still with link 1 in the window, at 1280px and 390px", async () => {
     for (const width of [1280, 390]) {
-      const page = await signedIn();
+      const page = await nextRun();
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`${origin}/`);
       await tickerReady(page);
@@ -3740,7 +3747,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     for (const width of [1280, 768, 390]) {
       for (const variant of ["one-move", "bottom-edge"] as const) {
         for (let run = 1; run <= 5; run++) {
-          const page = await signedIn();
+          const page = await nextRun();
           await page.setViewportSize({ width, height: 900 });
           await page.goto(`${origin}/`);
           await tickerReady(page);
@@ -3842,7 +3849,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     for (const width of [1280, 768, 390]) {
       for (const variant of ["step-off", "jump-off"] as const) {
         for (let run = 1; run <= 5; run++) {
-          const page = await signedIn();
+          const page = await nextRun();
           await page.setViewportSize({ width, height: 900 });
           await page.goto(`${origin}/`);
           await tickerReady(page);
@@ -3885,7 +3892,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
   it("a drag dropped inside the window, a Shift while the mouse rests, then one move from the row into the page with no key, stands the row still with link 1 in the window, at 1280px and 390px", async () => {
     for (const width of [1280, 390]) {
       for (let run = 1; run <= 5; run++) {
-        const page = await signedIn();
+        const page = await nextRun();
         await page.setViewportSize({ width, height: 900 });
         await page.goto(`${origin}/`);
         await tickerReady(page);
@@ -3954,7 +3961,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     for (const width of [1280, 390]) {
       for (const variant of ["step-off", "jump-off"] as const) {
         for (let run = 1; run <= 5; run++) {
-          const page = await signedIn();
+          const page = await nextRun();
           await page.setViewportSize({ width, height: 900 });
           await page.goto(`${origin}/`);
           await tickerReady(page);
@@ -4073,7 +4080,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     for (const width of [1280, 390]) {
       let stillRuns = 0;
       for (let run = 1; run <= 10; run++) {
-        const page = await signedIn();
+        const page = await nextRun();
         await page.setViewportSize({ width, height: 900 });
         await page.goto(`${origin}/`);
         await tickerReady(page);
@@ -4124,7 +4131,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
   // element. The window's pointermove is the only event that sees it (pointerover does not fire).
   it("a mouse that rests after a pen has left, then moves 1 px within one element, keeps the row moving: pointermove alone is seen, at 1280px and 390px", async () => {
     for (const width of [1280, 390]) {
-      const page = await signedIn();
+      const page = await nextRun();
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`${origin}/`);
       await tickerReady(page);
@@ -4182,7 +4189,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
   // flag that only a mouse leave clears. The press and the keys are real.
   it("a pen resting on link 1, a right press, Escape, then the pen leaving the window stands the row still with link 1 in the window, at 1280px and 390px", async () => {
     for (const width of [1280, 390]) {
-      const page = await signedIn();
+      const page = await nextRun();
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`${origin}/`);
       await tickerReady(page);
