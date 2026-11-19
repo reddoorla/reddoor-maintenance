@@ -613,7 +613,7 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "Google's data lags about three days, so each search chart's 28 days end three days before the night and its last three days are hatched. ",
+        "find": "Google's data lags about three days, so each search chart's 28 days end three days before the night, and the days Google has no data for yet are hatched. ",
         "replace": ""
       }
     ],
@@ -726,11 +726,11 @@
   },
   {
     "id": "56-no-longer-add-up-omitted",
-    "why": "The 'no longer add up to the tile' sentence is omitted (plan 26)",
+    "why": "The short-axis sentence (\"The chart starts on ... so N of the tile's days fall before it, and the columns add up to less than the tile's ...\") is omitted (plan 26; retargeted in PR 7b review round 1 B from the old \"no longer add up\" sentence)",
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": " and the columns no longer add up to the tile.",
+        "find": ". The chart starts on ${first}, so ${dropped} of the tile's ${tile} days ${dropped === 1 ? \"falls\" : \"fall\"} before it, and the columns add up to less than the tile's ${total}.",
         "replace": "."
       }
     ],

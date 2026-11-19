@@ -661,8 +661,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "        searchNote(\"clicks through from Google\", (r) => r.clicks),\n        { term: \"Times shown in Google\", slot: \"day\" },",
-        "replace": "        searchNote(\"clicks through from Google\", (r) => r.clicks),\n        { term: \"Times shown in Google\" },"
+        "find": "slot: \"day\", extra: lagSaid(clk.slots)",
+        "replace": "extra: lagSaid(clk.slots)"
       }
     ],
     "test": "cockpit/tests/overview/trends.ssr.test.ts",
