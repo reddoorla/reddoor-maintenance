@@ -938,7 +938,7 @@
   },
   {
     "id": "71-dragend-settles-true",
-    "why": "r8 C.3: dragend settles the flag true wherever the drop lands. Red: the drag released outside and a Shift at once (r10 B.3, the count test: 0 of 10 still at each width, against the threshold of at least 8)",
+    "why": "r8 C.3: dragend settles the flag true wherever the drop lands. Red: the drag released outside and a Shift at once (r10 B.3, the count test: 0 of 10 still at each width, against the threshold of at least 5)",
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
