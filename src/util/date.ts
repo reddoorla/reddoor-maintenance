@@ -23,3 +23,17 @@ export function formatIsoDate(iso: string): string {
     timeZone: "UTC",
   });
 }
+
+const PACIFIC_YMD = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/Los_Angeles",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+/** The Pacific calendar date of an instant, `YYYY-MM-DD`. The report send runs at
+ *  8:07am PT and its fallback can run hours late, past midnight UTC, so "is this
+ *  report due yet?" is asked of the Pacific day, never the UTC one (P1-117). */
+export function pacificYmd(d: Date): string {
+  return PACIFIC_YMD.format(d);
+}

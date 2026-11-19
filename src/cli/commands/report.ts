@@ -15,6 +15,7 @@ import type { ReportMirror } from "../../reports/report-mirror.js";
 import type { SiteMirror } from "../../db/site-mirror.js";
 import { operatorEmail } from "../../util/operator.js";
 import { lazyFleetDb } from "../../db/lazy-fleet-db.js";
+import { ymd } from "../../util/date.js";
 
 export type ReportCommandOptions = {
   due?: boolean;
@@ -584,6 +585,30 @@ export async function draftDueReports(
         lines.push(`• skipped (withdrawn ${period}): ${item.site.name} ${item.reportType}`);
         continue;
       }
+      // P1-117: a row that is not draft-ready (half-made, or superseded and
+      // waiting) takes the cycle's current due date before it is completed, so its
+      // body and its send hold carry the same date. A READY row keeps the date it
+      // was drafted with: its stored body (the preview the operator approves) shows
+      // that date, and moving it here would make the send disagree with the
+      // preview. Its cycle can move inside one period only on an anchor edit
+      // before the first send or a manual same-type send mid-cycle (a Testing push
+      // always lands in a later period); it then sends on its drafted date, and
+      // the next cycle counts from that send. Rows drafted before P1-117 included.
+      const dueOn = ymd(item.dueDate);
+      if (existing.sentAt === null && !existing.draftReady && existing.dueOn !== dueOn) {
+        try {
+          await deps.reportMirror.patch(existing.id, { due_on: dueOn });
+          lines.push(
+            `• due date ${existing.dueOn ?? "(none)"} → ${dueOn}: ${item.site.name} ${item.reportType}`,
+          );
+          existing.dueOn = dueOn;
+        } catch (e) {
+          lines.push(
+            `✗ due date not updated: ${item.site.name} ${item.reportType} — ${(e as Error).message}`,
+          );
+          continue;
+        }
+      }
       if (existing.draftReady) {
         skipped++;
         lines.push(`• skipped (already drafted ${period}): ${item.site.name} ${item.reportType}`);
@@ -672,6 +697,7 @@ export async function draftDueReports(
       // into a later month than the dueDate.
       const result = await draftReportForSite(item.site, item.reportType, {
         period,
+        dueOn: item.dueDate,
         ...mirrorOpt,
       });
       lines.push(draftLine(result.reportRow?.reportId, result.queued, result.supersededIds));

@@ -660,6 +660,7 @@ function reportRowFromDb(
     withdrawnAt: r.withdrawn_at,
     withdrawnBy: r.withdrawn_by,
     sendStartedAt: r.send_started_at,
+    dueOn: r.due_on,
   };
 }
 
@@ -707,6 +708,7 @@ export const REPORT_LIST_COLUMNS = [
   "unapproved_at",
   "unapproved_by",
   "send_started_at",
+  "due_on",
 ] as const;
 
 /** The one thing a list read still needs from the body: whether there IS one.
@@ -836,6 +838,9 @@ export type ReportMirrorPatch = Partial<
     // P1-28: the dashboard's "Don't send".
     | "withdrawn_at"
     | "withdrawn_by"
+    // P1-117: the nightly keeps a drafted row's due date current when its cycle
+    // moves inside the period, so the send holds it to the right day.
+    | "due_on"
   >
 >;
 

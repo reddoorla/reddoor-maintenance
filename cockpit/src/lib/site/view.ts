@@ -15,6 +15,7 @@ import {
   isHealthGateClear,
 } from "../../../../src/reports/checklist.js";
 import { rendersCommentary } from "../../../../src/reports/template-for.js";
+import { heldUntilDue } from "../../../../src/reports/due.js";
 import { approveBlockers, type PreflightFinding } from "../../../../src/reports/preflight.js";
 import { parseAddresses, withGlobalCc } from "../../../../src/reports/send/addresses.js";
 import { isVisibleInStrip } from "../../../../src/dashboard/submission-rules.js";
@@ -85,7 +86,14 @@ export type HistoryAction =
   | { kind: "none" }
   | { kind: "withdrawn"; date: string }
   | { kind: "approve"; approve: ApproveView }
-  | { kind: "approved"; rerenderUrl: string | null; unapprove: { url: string; confirm: string } }
+  | {
+      kind: "approved";
+      rerenderUrl: string | null;
+      unapprove: { url: string; confirm: string };
+      /** P1-117: approved before its due date, so held until then, e.g.
+       *  "Sat 11-21, 8:07am PT". Null when it goes in the next send. */
+      sendsOn: string | null;
+    }
   | { kind: "sending"; at: string };
 
 export type HistoryRow = {
@@ -207,6 +215,23 @@ function preflight(findings: PreflightFinding[]): PendingView["preflight"] {
   };
 }
 
+/** A due date as the send that delivers it: "Sat 11-21, 8:07am PT". The send
+ *  clock runs at 16:07 UTC, which is 8:07am in PST and 9:07am in PDT. */
+export function sendDayLabel(dueOn: string): string {
+  const run = new Date(`${dueOn}T16:07:00Z`);
+  if (Number.isNaN(run.getTime())) return dueOn;
+  const weekday = run.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
+  const time = run
+    .toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: "America/Los_Angeles",
+    })
+    .replace(/\s/u, "")
+    .toLowerCase();
+  return `${weekday} ${dueOn.slice(5)}, ${time} PT`;
+}
+
 /** The next 16:07 UTC send run strictly after `now`. */
 function nextDailyRun(now: Date): Date {
   const run = new Date(now);
@@ -216,8 +241,13 @@ function nextDailyRun(now: Date): Date {
 }
 
 /** The send-timing line: honest about today's run possibly being in flight,
- *  and a countdown that floors. Same as render.ts's `sendTimingLine`. */
-function sendTimingLine(now: Date): string {
+ *  and a countdown that floors. */
+function sendTimingLine(now: Date, r: Pick<ReportRow, "dueOn">): string {
+  // P1-117: a report drafted before its due date is held until then however
+  // early it is approved.
+  if (heldUntilDue(r, now)) {
+    return `approve ≠ send: due ${sendDayLabel(r.dueOn!)} — approving now holds it until that day's send`;
+  }
   const minuteOfDay = now.getUTCHours() * 60 + now.getUTCMinutes();
   const RUN_START = 16 * 60 + 7;
   const GRACE_END = 17 * 60 + 15;
@@ -299,14 +329,14 @@ function pendingView(r: ReportRow, site: WebsiteRow, now: Date): PendingView {
       confirm: withdrawConfirmText(r),
     },
     recipients: recipients(site),
-    sendLine: sendTimingLine(now),
+    sendLine: sendTimingLine(now, r),
     checklist: checklist(r),
     commentary: commentaryView(r),
     overrideUrl: gateClear ? null : `/api/reports/${encodeURIComponent(r.id)}/approve?override=1`,
   };
 }
 
-function historyRow(r: ReportRow, site: WebsiteRow): HistoryRow {
+function historyRow(r: ReportRow, site: WebsiteRow, now: Date): HistoryRow {
   let ga: HistoryRow["ga"] = null;
   if (r.gaUsersCurrent !== null) {
     if (r.gaUsersPrevious === null) ga = { current: String(r.gaUsersCurrent), delta: null };
@@ -337,6 +367,8 @@ function historyRow(r: ReportRow, site: WebsiteRow): HistoryRow {
                   url: `/api/reports/${encodeURIComponent(r.id)}/unapprove`,
                   confirm: UNAPPROVE_CONFIRM_TEXT,
                 },
+                // A row that is not draft-ready never sends, so it names no send day.
+                sendsOn: r.draftReady && heldUntilDue(r, now) ? sendDayLabel(r.dueOn!) : null,
               }
             : {
                 kind: "sending",
@@ -345,6 +377,8 @@ function historyRow(r: ReportRow, site: WebsiteRow): HistoryRow {
           : { kind: "none" };
   return {
     id: r.id,
+    // The "Completed" column: the day it was drafted, which the table sorts by.
+    // An early report's send day is on its "approved, sends …" line (P1-117).
     date: r.completedOn ? r.completedOn : DASH,
     type: r.reportType,
     reportId: r.reportId,
@@ -664,7 +698,7 @@ export function buildSiteView(
     advisories: [...(site.securityAdvisories ?? [])]
       .sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity])
       .map(advisory),
-    history: recent.map((r) => historyRow(r, site)),
+    history: recent.map((r) => historyRow(r, site, now)),
     details: {
       url: `/api/sites/${slug}/details`,
       triggerUrl: site.gitRepo?.trim() ? `/api/sites/${slug}/trigger-renovate` : null,

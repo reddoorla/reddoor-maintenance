@@ -15,7 +15,7 @@ import {
   fetchGaVisits,
   fetchSearch,
   lookupFields,
-  refreshHeaderImage,
+  refreshHeaderUnlessHeld,
 } from "../reports/draft.js";
 import type { RefreshHeaderDeps } from "../reports/draft.js";
 import { announcementSiteExtras } from "../reports/announcement-email/template.js";
@@ -101,10 +101,10 @@ export async function announce(deps: AnnounceDeps): Promise<AnnounceResult> {
 
       // Refresh BEFORE the render so a queued announcement always has a current header
       // stored — the send re-reads it, so a stale one here reaches the
-      // client. Best-effort by construction: refreshHeaderImage returns false and never
+      // client. Best-effort by construction: refreshHeaderUnlessHeld returns false and never
       // throws, so a capture failure leaves the stored image and the draft continues.
       if (deps.refreshHeader !== false) {
-        await refreshHeaderImage(w, deps.refreshHeader ?? {});
+        await refreshHeaderUnlessHeld(w, writer, deps.refreshHeader ?? {});
       }
 
       // Traffic + search snapshot: engaged visits over the last 30 complete days in the

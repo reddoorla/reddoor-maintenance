@@ -986,3 +986,72 @@ describe("rerenderReport — analytics line (P1-73)", () => {
     expect(r).toMatchObject({ ga: "skipped" });
   });
 });
+
+/**
+ * P1-117: approving freezes the report. Approval can now come up to a week
+ * before the send, so a refresh in between must change nothing a client sees:
+ * every live source below has moved since the draft (health, Search Console,
+ * Lighthouse, GA), and none of it reaches the stored row or the render. The
+ * header plate is held separately, at draft time (draft-header-image.test.ts).
+ */
+describe("rerenderReport — P1-117 an approved report is frozen", () => {
+  const GOOGLE = "Maint: Google Indexed";
+  const APPROVED = report({
+    reportType: "Testing",
+    approvedToSend: true,
+    approvedAt: "2026-09-27T18:00:00.000Z",
+    dueOn: "2026-10-02",
+    periodStart: "2026-08-31",
+    periodEnd: "2026-09-27",
+    lighthouse: { performance: 61, accessibility: 70, bestPractices: 80, seo: 90 },
+    gaUsersCurrent: 100,
+    gaUsersPrevious: 90,
+    searchFoundPage1: false,
+    searchPosition: null,
+    autoEvidence: Object.fromEntries([...GATING, GOOGLE].map((f) => [f, NOT_MEASURED])),
+    checklist: {},
+  });
+  const MOVED_SITE = makeWebsiteRow({
+    ...MEASURED_SITE,
+    searchConsoleProperty: "https://acme.com/",
+    pScore: 99,
+    rScore: 99,
+    bpScore: 99,
+    seoScore: 99,
+  });
+
+  it("a refresh after approval writes nothing to the report and renders exactly the approved row", async () => {
+    const writes: string[] = [];
+    const rendered: ReportRow[] = [];
+    const before = structuredClone(APPROVED);
+    const r = await rerenderReport(
+      deps({
+        getReport: async () => APPROVED,
+        getSite: async () => MOVED_SITE,
+        measureSearch: async () => ({
+          value: { foundOnPage1: true, position: 1, propertyFound: true },
+          softFailed: false,
+          notConfigured: false,
+        }),
+        measureVisits: async () => ({ value: { current: 999, previous: 1 } }),
+        storeEvidence: async () => (writes.push("evidence"), true),
+        storeScores: async () => (writes.push("scores"), true),
+        storeVisits: async () => (writes.push("ga"), true),
+        render: async (_s, rep) => {
+          rendered.push(rep);
+          return { html: "x" };
+        },
+      }),
+      "recREP",
+    );
+    expect(writes).toEqual([]);
+    expect(rendered).toEqual([before]);
+    expect(r).toMatchObject({
+      status: "rendered",
+      evidence: "locked",
+      search: "skipped",
+      scores: "locked",
+      ga: "locked",
+    });
+  });
+});

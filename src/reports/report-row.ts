@@ -75,6 +75,11 @@ export type ReportRow = {
   /** #1262: when the send batch claimed the row, right before Resend. A claimed,
    *  unsent row is mid-send, and an unapprove refuses it. */
   sendStartedAt: string | null;
+  /** P1-117: the due date (`YYYY-MM-DD`) the nightly drafted this report for. It
+   *  can be drafted and approved up to a week before; the send holds it until the
+   *  Pacific date reaches this. Null on rows without a schedule (legacy, Launch,
+   *  Announcement), which send at the next send. */
+  dueOn: string | null;
 };
 
 /**
@@ -117,4 +122,17 @@ export function parseAutoEvidence(raw: unknown): Record<string, EvidenceRecord> 
     };
   }
   return Object.keys(out).length > 0 ? out : null;
+}
+
+/**
+ * P1-117 (the operator, 2026-11-19: "Due date"): the date at the top of a report
+ * email and in its default subject's month. A report the nightly drafted for a due
+ * date is dated by that due date, which is the day it is held to (a report
+ * approved after its due date keeps that date); any other report (legacy, Launch,
+ * Announcement) by the day it was drafted. The draft's first render and every
+ * render from the row (send, re-render, test send) read it, so they agree.
+ */
+export function emailDate(report: Pick<ReportRow, "dueOn" | "completedOn">): Date {
+  const iso = report.dueOn ?? report.completedOn;
+  return iso ? new Date(iso) : new Date();
 }

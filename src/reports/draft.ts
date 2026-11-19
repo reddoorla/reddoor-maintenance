@@ -12,6 +12,7 @@ import type { SearchConsoleOutcome } from "../fleet/search-console-evidence.js";
 import { resolveCopy } from "./copy.js";
 import type { WebsiteRow } from "../fleet/site-row.js";
 import { searchEnrichment, type ReportRow } from "./report-fields.js";
+import { emailDate } from "./report-row.js";
 import { createReportDraft } from "./create-report.js";
 import type { ReportMirror } from "./report-mirror.js";
 import type { SiteMirror } from "../db/site-mirror.js";
@@ -94,6 +95,10 @@ export type DraftOptions = {
   enrich?: boolean;
   /** UTC "YYYY-MM" recurrence key; falls back to periodEnd's month when omitted. */
   period?: string;
+  /** P1-117: the due date the nightly drafts this report for, stored on the row
+   *  so the send can hold an early approval until it. Omitted by the manual and
+   *  recipe drafts, whose rows send at the next send as before. */
+  dueOn?: Date;
   /** Id of an EXISTING (not-ready) row to COMPLETE in place rather than creating
    *  a new one. When set, we skip the create and only re-render → store the body
    *  → flip Draft ready on this row. Used by the --due re-draft path to finish a
@@ -267,8 +272,14 @@ export async function draftReportForSite(
   // gate, for suites that run the real path and would otherwise pay a real
   // chromium launch per case. Production leaves it unset and gets the real
   // refresh. Best-effort — see refreshHeaderImage.
+  //
+  // P1-117: the plate is site-wide, and the send reads it at send time. While an
+  // approved report for this site waits to send (up to a week, when approved
+  // before its due date), the plate it was approved with is the one it must ship
+  // with, so no draft for the site replaces it until that report is sent,
+  // withdrawn or unapproved.
   if (!options.previewOnly && options.refreshHeader !== false) {
-    await refreshHeaderImage(siteRow, options.refreshHeader ?? {});
+    await refreshHeaderUnlessHeld(siteRow, store!, options.refreshHeader ?? {});
   }
 
   // Auto-tick the checklist boxes the system can prove (Phase 1: Google Indexed via the
@@ -283,7 +294,10 @@ export async function draftReportForSite(
     siteName: siteRow.name,
     siteUrl: siteRow.url,
     reportType,
-    completedOn,
+    // P1-117: dated as the send will date it (`emailDate`). The completing path
+    // reads the row's due date, which the nightly stamps first.
+    completedOn:
+      options.dueOn ?? (options.existingRow ? emailDate(options.existingRow) : completedOn),
     lighthouse: scores,
     gaUsersCurrent: gaUsers?.current,
     gaUsersPrevious: gaUsers?.previous,
@@ -382,6 +396,7 @@ export async function draftReportForSite(
       ...searchEnrichment(search),
       checklistTicks,
       autoEvidence,
+      ...(options.dueOn ? { dueOn: options.dueOn } : {}),
     },
     { create: store!.create },
   );
@@ -402,6 +417,44 @@ export async function draftReportForSite(
     queued: outcome.queued,
     supersededIds: outcome.supersededIds,
   };
+}
+
+/** Approved, queued and waiting to send: what freezes the site's header plate.
+ *  A row that is not draft-ready never sends, so it holds nothing. */
+function isApprovedUnsent(r: ReportRow): boolean {
+  return r.approvedToSend && r.draftReady && r.sentAt === null && r.withdrawnAt === null;
+}
+
+/**
+ * P1-117: the plate is site-wide, and the send reads it at send time. While an
+ * approved report for the site waits to send (up to a week, when approved before
+ * its due date), the plate it was approved with is the one it must ship with, so
+ * a draft or an announcement for the site keeps the stored plate until that
+ * report is sent, withdrawn or unapproved. `header-image --write-back` is the
+ * operator replacing the plate on purpose, and is not held. Best-effort like the
+ * refresh: a failed read keeps the stored plate. Returns whether it refreshed.
+ */
+export async function refreshHeaderUnlessHeld(
+  site: WebsiteRow,
+  store: Pick<ReportMirror, "forSite">,
+  deps: RefreshHeaderDeps = {},
+): Promise<boolean> {
+  let holding: ReportRow | undefined;
+  try {
+    holding = (await store.forSite(site.id)).find(isApprovedUnsent);
+  } catch (e) {
+    console.warn(
+      `⚠ header-image refresh skipped for ${site.name}: could not check for an approved report (${(e as Error).message}) — keeping the stored image`,
+    );
+    return false;
+  }
+  if (holding) {
+    console.log(
+      `• header image kept for ${site.name}: ${holding.reportId} is approved and not yet sent`,
+    );
+    return false;
+  }
+  return refreshHeaderImage(site, deps);
 }
 
 /** Store the rendered HTML on the report row, then queue it (Draft ready + the
