@@ -1033,8 +1033,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "      disarmDoc();\n      requestAnimationFrame(recheck);\n    };",
-        "replace": "      requestAnimationFrame(recheck);\n    };"
+        "find": "      finePointerOver = el !== undefined && el.contains(e.target as Node);\n      disarmDoc();\n",
+        "replace": "      finePointerOver = el !== undefined && el.contains(e.target as Node);\n"
       }
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
