@@ -47,6 +47,7 @@ import type { WebsiteRow } from "../../../../src/fleet/site-row.js";
 import { siteSlug } from "../../../../src/fleet/site-row.js";
 import type { OverviewNight } from "../../../../src/fleet-daily/read.js";
 import type { StepResult } from "../../../../src/fleet-daily/types.js";
+import { tickerView, type TickerEntry } from "./ticker.js";
 import { TRIAGE_PATH } from "../../../../src/dashboard/home-path.js";
 import { NETLIFY_SITE_NOT_FOUND } from "../../../../src/fleet/roster-url-probe.js";
 import { OVERVIEW_NIGHTS } from "../../../../src/fleet-daily/types.js";
@@ -140,7 +141,7 @@ const PACIFIC_DAY = new Intl.DateTimeFormat("en-US", {
 });
 
 /** "Nov 2", the Pacific calendar day of an instant. */
-const pacificDay = (d: Date): string => PACIFIC_DAY.format(d);
+export const pacificDay = (d: Date): string => PACIFIC_DAY.format(d);
 
 /** "2026-11-02", the Pacific calendar day of an instant, with its year: for grouping. */
 const pacificYmd = (d: Date): string =>
@@ -226,7 +227,7 @@ function plainWords(it: AttentionItem, site: WebsiteRow | undefined, now: Date):
   return BROKEN_IN_PLAIN_WORDS[it.kind] ?? it.title;
 }
 
-function plainReasons(
+export function plainReasons(
   items: readonly AttentionItem[],
   site: WebsiteRow | undefined,
   now: Date,
@@ -2627,6 +2628,8 @@ export type OverviewView = {
   trends: TrendsView;
   /** P1-87 PR 4: the first screen's third panel, the Lately feed. */
   lately: Lately;
+  /** P1-87 PR 5b: the site ticker, one entry per maintained site, worst first. */
+  ticker: TickerEntry[];
   /** P1-87 PR 5a: the first screen's "The nightly audit" bar (cycle.ts). */
   cycle: CycleView;
   /** How many `fleet_daily` nights the page has, in words ("1 night", "at least 32
@@ -2656,6 +2659,7 @@ export function overviewFromSnapshot(s: CockpitSnapshot, now: Date): OverviewVie
     prsMerged: overNights(s.nights, (c) => c.prsMerged.value, now),
     trends,
     lately: latelyView(s, (id) => names.get(id) ?? null, now),
+    ticker: tickerView(model, s.slugById, now),
     cycle: cycleView(s, now, NIGHTLY_STEPS, outcomeText),
     // The reader takes the newest OVERVIEW_NIGHTS rows, so a full read is a floor.
     nightsCollected:
@@ -2838,5 +2842,9 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   {
     term: "The nightly audit bar",
     text: "The nightly audit's eight steps, in the order they run: Backup, CMS check, CMS sync, Security, Site checks, Build and tests, Live forms, Report drafts. Once the night is recorded, a filled step ran to the end, and any other step says how it ended. Before that, a filled step is shown as finished, from the sites' stamps, because a stamp proves a step finished, not that it passed. Mid-run, a step counts as finished once at least two maintained sites carry its stamp from tonight, or one when the last night that counted it reached only one site, or when only one site is in our care, so a single site re-tested by hand does not move the bar. A step with a time is one that stamps the sites, and it shows a time only when a stamp from that night is in; Backup, CMS sync and Report drafts leave no time. The striped span is the step running now, or one of two steps when a step that leaves no time sits before the next. During the run the page re-reads every 2 minutes while the tab is visible, and again once the run's five hours are up or the next start has come, so a page left open shows the result. Five hours after the run started, with no record for its night, the bar says the run was not recorded.",
+  },
+  {
+    term: "Every site (the ticker)",
+    text: "Every site in our care, worst first: a site that is not OK says why, and an OK site gives its Google Lighthouse performance score, or its last deploy when it has no score. It moves slowly, stops while you point at it, and has a pause button. While you move through it with the keyboard it stands still as a list. For anyone whose device asks for less motion it stands still, and the sites are listed one after another.",
   },
 ];

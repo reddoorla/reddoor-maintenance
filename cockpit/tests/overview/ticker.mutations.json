@@ -1,0 +1,1121 @@
+[
+  {
+    "id": "1-reduced-motion-keeps-moving",
+    "why": "(floor) The ticker keeps moving under prefers-reduced-motion: the media block's animation:none is dropped",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "  .ov-ticker-run {\n    animation: none;\n    display: block;",
+        "replace": "  .ov-ticker-run {\n    display: block;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "2-copy-loses-aria-hidden",
+    "why": "The loop's copy is read aloud twice unless it is aria-hidden",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "<ul class=\"ov-ticker-list copy\" aria-hidden=\"true\" inert>",
+        "replace": "<ul class=\"ov-ticker-list copy\" inert>"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "3-copy-loses-inert",
+    "why": "The loop's copy takes focus and is reachable by keyboard unless it is inert",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "<ul class=\"ov-ticker-list copy\" aria-hidden=\"true\" inert>",
+        "replace": "<ul class=\"ov-ticker-list copy\" aria-hidden=\"true\">"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "4-fact-ignores-state",
+    "why": "The fact is always the speed score, whatever the tier",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "fact: tier === \"ok\" ? okFact(card) : notOkFact(card, now),",
+        "replace": "fact: `speed ${card.site.pScore} of 100`,"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "5-not-ok-no-reason",
+    "why": "A not-OK site shows no reason (empty fact)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "fact: tier === \"ok\" ? okFact(card) : notOkFact(card, now),",
+        "replace": "fact: tier === \"ok\" ? okFact(card) : \"\","
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "6-pscore-by-truthiness",
+    "why": "pScore read by truthiness, so a score of 0 is dropped",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "  if (pScore !== null) return `speed ${pScore} of 100`;",
+        "replace": "  if (pScore) return `speed ${pScore} of 100`;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "7-link-from-name",
+    "why": "The link is made from the site's name, not its stored slug",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "import { pacificDay, plainReasons } from \"./view.js\";",
+        "replace": "import { pacificDay, plainReasons } from \"./view.js\";\nimport { siteSlug } from \"../../../../src/fleet/site-row.js\";"
+      },
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "      href: slug === undefined || slug === \"\" ? null : `/s/${slug}`,",
+        "replace": "      href: `/s/${siteSlug(site.name)}`,"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "8-order-by-name-only",
+    "why": "The order is by name only, so a Broken site can sit after an OK one",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "rows.sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name));",
+        "replace": "rows.sort((a, b) => a.name.localeCompare(b.name));"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "9-launching-included",
+    "why": "A launching (pre-launch) site is included in the ticker",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "if (site.status !== \"maintained\") continue;",
+        "replace": "if (site.status !== \"maintained\" && false) continue;"
+      },
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "    if (tier === null) continue;",
+        "replace": "    if (tier === null && false) continue;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "10-pause-does-not-pause",
+    "why": "The pause button sets aria-pressed but the run never gets the paused class",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "<div class=\"ov-ticker-run\" class:paused style=",
+        "replace": "<div class=\"ov-ticker-run\" style="
+      }
+    ],
+    "test": ["tests/cockpit/snapshot-navigation.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "11-hover-pause-dropped",
+    "why": "The pause on hover is dropped from the stylesheet (browser-only)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-ticker-window:hover .ov-ticker-run,\n",
+        "replace": ""
+      }
+    ],
+    "test": ["tests/cockpit/snapshot-navigation.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "12-more-off-by-one",
+    "why": "'and N more' is shown from two candidates on, dropping the second one's count",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "return uniq.length > 1 ?",
+        "replace": "return uniq.length > 2 ?"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "13-still-ticker-does-not-wrap",
+    "why": "Under reduced motion the ticker stands still; a long name that cannot break pushes the page sideways at 390px.",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "    min-width: 0;\n    overflow-wrap: anywhere;\n",
+        "replace": "    min-width: 0;\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "14-deploy-guard-removed",
+    "why": "The deploy date is read without checking it parses, so a value that matches the shape but names no day (2026-13-01T12:00:00Z) gives a RangeError from toISOString and takes the overview down",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "  if (!Number.isFinite(ms)) return null;\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "cockpit/tests/overview/ticker.ssr.test.ts",
+      "cockpit/tests/overview/page.ssr.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "15-deploy-day-utc",
+    "why": "The deploy day is read in UTC, so a deploy at 03:00 UTC reads as the next day, not the Pacific day it fell on",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "pacificDay(deployed)",
+        "replace": "deployed.toLocaleDateString(\"en-US\", { timeZone: \"UTC\", month: \"short\", day: \"numeric\" })"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "16-sort-deleted",
+    "why": "The rows are not sorted, so the ticker shows the cards in the order the model gave them, not Broken first",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "  rows.sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name));",
+        "replace": "  void rows;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "17-tie-break-by-key",
+    "why": "Sites of one tier are ordered by their record id, not their name",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "a.rank - b.rank || a.name.localeCompare(b.name)",
+        "replace": "a.rank - b.rank || a.key.localeCompare(b.key)"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "18-maintained-filter-dropped",
+    "why": "A launching site is listed in the ticker when its tier is broken, a piercing alarm the pre-launch site must not raise",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "    if (site.status !== \"maintained\") continue;",
+        "replace": "    if (site.status !== \"maintained\" && false) continue;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "19-watch-items-dropped",
+    "why": "A Watch site's fact names only its watch reasons, not the watch-level item a reader can act on first",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "  return summarise([...at(\"watch\").map((it) => it.title), ...card.watchReasons]);",
+        "replace": "  return summarise([...card.watchReasons]);"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "20-ok-pill-class",
+    "why": "The OK pill takes the class ok, which the stylesheet does not style, so the OK pill loses its healthy look",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "{:else}<span>{t.name}</span>{/if}\n              <span class=\"pill {t.tier === 'ok' ? 'healthy' : t.tier}\">",
+        "replace": "{:else}<span>{t.name}</span>{/if}\n              <span class=\"pill {t.tier === 'ok' ? 'ok' : t.tier}\">"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "21-focus-still-layout-removed",
+    "why": "A focus inside the window no longer stops the row (the run rule is gone from both halves), so a focused link moves out of the window (r4 A: the held state rewrites the r3 selector)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-ticker-window[data-still] .ov-ticker-run,\n.ov-ticker-window:not([data-js]):has(:focus-visible) .ov-ticker-run {\n  animation: none;\n  display: block;\n  width: auto;\n}\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "22-window-padding-block-removed",
+    "why": "The window has no vertical padding, so a focus ring at the top or bottom of a link is clipped by the window",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "  padding-block: 0.25rem;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "23-pressed-style-removed",
+    "why": "The pause button shows no pressed state, so a paused ticker looks the same as a moving one",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-ticker-pause[aria-pressed=\"true\"] {\n  background: var(--ink);\n  color: var(--on-ink);\n}\n",
+        "replace": ""
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "24-speed-floor-removed",
+    "why": "A short row loops faster than 20 seconds, too fast to read",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "  return Math.max(20, Math.round(chars * 0.15));",
+        "replace": "  return Math.round(chars * 0.15);"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "25-keyboard-still-keyed-on-focus-within",
+    "why": "r2 A, rewritten for r4 A: the four keyboard still rules are keyed on any focus within the window, so a mouse focus reflows the row under the pointer and a click on a moving link opens nothing. All four change together; the run rule alone is mutant 25b",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-ticker-window[data-still] .ov-ticker-run,\n.ov-ticker-window:not([data-js]):has(:focus-visible) .ov-ticker-run {",
+        "replace": ".ov-ticker-window:focus-within .ov-ticker-run {"
+      },
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-ticker-window[data-still] .ov-ticker-list,\n.ov-ticker-window:not([data-js]):has(:focus-visible) .ov-ticker-list {",
+        "replace": ".ov-ticker-window:focus-within .ov-ticker-list {"
+      },
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-ticker-window[data-still] .ov-ticker-list li,\n.ov-ticker-window:not([data-js]):has(:focus-visible) .ov-ticker-list li {",
+        "replace": ".ov-ticker-window:focus-within .ov-ticker-list li {"
+      },
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-ticker-window[data-still] .ov-ticker-list.copy,\n.ov-ticker-window:not([data-js]):has(:focus-visible) .ov-ticker-list.copy {",
+        "replace": ".ov-ticker-window:focus-within .ov-ticker-list.copy {"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "25b-run-selector-only-focus-within",
+    "why": "r3 B, rewritten for r4 A: only the run rule is keyed on :focus-within, so a mouse focus stills the row and it snaps back before link 2's press lands. The click test must catch it",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-ticker-window[data-still] .ov-ticker-run,\n.ov-ticker-window:not([data-js]):has(:focus-visible) .ov-ticker-run {",
+        "replace": ".ov-ticker-window:focus-within .ov-ticker-run {"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "26-iso-shape-check-removed",
+    "why": "r2 B: Date.parse is lenient, so \"0\" and \"12\" read as believable deploy dates again (the shape check is the first guard)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "  if (value === null || !/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}/.test(value)) return null;",
+        "replace": "  if (value === null) return null;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "27-round-trip-day-check-removed",
+    "why": "r2 B: \"2026-02-30T12:00:00Z\" rolls over into March and reads as a deploy date (the round trip is the last guard)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "  return d.toISOString().slice(0, 10) === value.slice(0, 10) ? d : null;",
+        "replace": "  return d;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "28-forced-pressed-border-removed",
+    "why": "r2 C: under forced colours the pressed pause button has no fill and no thicker border, so pressed and not pressed look alike",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "  .ov-ticker-pause[aria-pressed=\"true\"] {\n    border-width: 3px;\n    padding: max(0px, calc(0.2em - 2px)) max(0px, calc(0.7em - 2px));\n  }\n",
+        "replace": ""
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "29-empty-slug-check-removed",
+    "why": "r2 C: a stored slug of \"\" makes a link to /s/ with no slug, rather than no link",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "slug === undefined || slug === \"\"",
+        "replace": "slug === undefined"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "30-still-gap-back-to-half-rem",
+    "why": "r2 C: the still layout's gap between entries goes back to 0.5rem, so the entries run together again (the keyboard block)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-ticker-window[data-still] .ov-ticker-list,\n.ov-ticker-window:not([data-js]):has(:focus-visible) .ov-ticker-list {\n  flex-direction: column;\n  gap: 1rem;",
+        "replace": ".ov-ticker-window[data-still] .ov-ticker-list,\n.ov-ticker-window:not([data-js]):has(:focus-visible) .ov-ticker-list {\n  flex-direction: column;\n  gap: 0.5rem;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "31-seconds-ignore-name",
+    "why": "r2 E (R2-4): the row's loop time counts the text without the names, so a row of long names loops at the speed of a short one. The unit fixture is named A, which hid it",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "  const chars = entries.reduce((n, e) => n + e.name.length + e.tierWord.length + e.fact.length, 0);",
+        "replace": "  const chars = entries.reduce((n, e) => n + e.tierWord.length + e.fact.length, 0);"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "32-page-computes-its-own-speed",
+    "why": "r2 E (R2-6): the page sets its loop time from its own count of entries, not from tickerSeconds, so a row of long text loops at the speed of a short one",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "{tickerSeconds(v.ticker)}s",
+        "replace": "{Math.max(20, v.ticker.length * 10)}s"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "33-copy-not-hidden-while-focused",
+    "why": "r2 E (B3), rewritten for r4 A: the loop's copy is not hidden while the row is still, so it shows as a second, inert row in the still layout",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-ticker-window[data-still] .ov-ticker-list.copy,\n.ov-ticker-window:not([data-js]):has(:focus-visible) .ov-ticker-list.copy {\n  display: none;\n}\n",
+        "replace": ""
+      }
+    ],
+    "test": ["tests/cockpit/snapshot-navigation.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "34-deploy-day-in-new-york",
+    "why": "r2 E (R2-10): the deploy day is read in New York time, so 06:00 UTC on Oct 21 reads Oct 21 when it fell on Oct 20 in Pacific time",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "pacificDay(deployed)",
+        "replace": "deployed.toLocaleDateString(\"en-US\", { timeZone: \"America/New_York\", month: \"short\", day: \"numeric\" })"
+      }
+    ],
+    "test": ["cockpit/tests/overview/ticker.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "35-pause-baseline-without-animation-wait",
+    "why": "r2 E (the race): the pause test takes its baseline with no wait for the animation to report paused, so a frame still in flight reads as a row that never stopped. Expected to survive, but it is a race: the one-frame race failed in CI once at f554677c, red 3 of 3 in the round-4 fixer's runs and red 1 of 7 in round 5's, so the full run's exit can flip on it. The wait stays as the fix; a red here is the race reproducing.",
+    "edits": [
+      {
+        "file": "tests/cockpit/snapshot-navigation.test.ts",
+        "find": "    await settledPaused(page);\n    const paused = await transform(page);",
+        "replace": "    const paused = await transform(page);"
+      }
+    ],
+    "test": ["tests/cockpit/snapshot-navigation.test.ts"],
+    "expect": "survives"
+  },
+  {
+    "id": "38-hover-pause-keyed-on-the-list",
+    "why": "r3 C (X11): the hover pause is keyed on the real list, so a pointer on the window's padding no longer stops the row",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-ticker-window:hover .ov-ticker-run,\n",
+        "replace": ".ov-ticker-run:has(.ov-ticker-list:not(.copy):hover),\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "39-forced-pressed-padding-at-base",
+    "why": "r3 D: under forced colours the pressed button keeps the base padding, so its 3px border makes it 4px taller and the ticker below jumps on each press",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "    padding: max(0px, calc(0.2em - 2px)) max(0px, calc(0.7em - 2px));\n",
+        "replace": "    padding: 0.2em 0.7em;\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "40-page-bad-date-guard-removed",
+    "why": "r3 C: the Number.isFinite guard is removed and only page.ssr runs: a deploy date that matches the shape but names no day (2026-13-01T12:00:00Z) gives a RangeError from toISOString and takes the page down",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/ticker.ts",
+        "find": "  if (!Number.isFinite(ms)) return null;\n",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "41-a-still-on-every-focusin",
+    "why": "r4 A control: a focus from outside the window stills the row whatever the press state, so a mouse press on a link stills it under the pointer (the M2 test and the mouse-then-key test go red)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      if (!(from instanceof Node) || !el?.contains(from)) still = !pressed();",
+        "replace": "      if (!(from instanceof Node) || !el?.contains(from)) still = true;"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "42-a-leave-still-on-any-focusout",
+    "why": "r4 A control: focus moving between two links inside the window drops the still state, so the row moves under a press on link 2 (the M2 test goes red)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      if (to instanceof Node && el?.contains(to)) return;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "43-a-no-pointerleave-recheck",
+    "why": "r4 A control: the window's pointerleave listener is not registered, so a visible focus is never re-checked when the pointer leaves. The red is the key-press test \"a key press after a mouse press on a link leaves the row moving and the link under the pointer\" and the listener-count test. The M1 test (a right press, Escape, then the pointer leaving) stays green and does not pin this rule",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "    el?.addEventListener(\"pointerleave\", onLeave);\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "44-a-pressing-never-cleared",
+    "why": "r4 A control: a release never clears the press state, so a keyboard focus from outside after any press leaves the row moving (the press-in-padding then Shift+Tab test goes red)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      pressing = false;\n      if (counted) {",
+        "replace": "      if (counted) {"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "45-run-still-half-removed",
+    "why": "r4 A: the [data-still] half is removed from the run rule, so a held still state does not stop the row under JS (the M2 and nit tests go red)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ".ov-ticker-window[data-still] .ov-ticker-run,\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "46-no-script-fallback-removed",
+    "why": "r4 A: the :not([data-js]) no-script fallback is removed from the four keyboard rules, so with no script a Tab to a link no longer stills the row (the no-script test goes red)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ",\n.ov-ticker-window:not([data-js]):has(:focus-visible) .ov-ticker-run {",
+        "replace": " {"
+      },
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ",\n.ov-ticker-window:not([data-js]):has(:focus-visible) .ov-ticker-list {",
+        "replace": " {"
+      },
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ",\n.ov-ticker-window:not([data-js]):has(:focus-visible) .ov-ticker-list li {",
+        "replace": " {"
+      },
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": ",\n.ov-ticker-window:not([data-js]):has(:focus-visible) .ov-ticker-list.copy {",
+        "replace": " {"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "47-recheck-reads-focus-not-focus-visible",
+    "why": "r4 A: the key and pointer re-check reads :focus, not :focus-visible, so a mouse focus with no ring goes still once the pointer leaves (the no-ring test goes red)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "!a.matches(\":focus-visible\")",
+        "replace": "!a.matches(\":focus\")"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "48-listeners-left-on-document",
+    "why": "r4 C (x4), retargeted r7 C.7: the effect's cleanup does not remove the document listeners, so after a round trip the document has two of each (the listener-count test goes red)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      document.removeEventListener(\"keydown\", onKey);\n      document.removeEventListener(\"pointerup\", onRelease);\n      document.removeEventListener(\"pointercancel\", onRelease);\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "49-touch-tap-window-removed",
+    "why": "r5 A: the touch and pen window is removed from the press test (only pressing counts), so a tap's focus, which arrives after its pointerup, stills the row and the tap is lost (the touch-tap test goes red)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "pressing || (lastRelease.type !== \"mouse\" && performance.now() - lastRelease.at < 1000)",
+        "replace": "pressing"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "50-mount-recheck-removed",
+    "why": "r5 correctness major 1: the re-check on mount is removed, so a keyboard focus made before the script ran never stills the row (the hydration test goes red)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "    requestAnimationFrame(recheck);\n    return () => {\n",
+        "replace": "    return () => {\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "51-contextmenu-listener-removed",
+    "why": "r5 accessibility major: the contextmenu listener on the window is removed, so a right press with no release holds the row moving (the right-press case of the no-release test goes red; Chromium on Linux fires a native contextmenu for it)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "    el?.addEventListener(\"contextmenu\", onAbandon);\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "52-blur-listener-removed",
+    "why": "r5 accessibility major: the window blur listener is removed, so a left press with no release holds the row moving (the left case of the no-release test goes red)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "    addEventListener(\"blur\", onAbandon);\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "53-focusout-ignores-pressing",
+    "why": "r5 correctness major 3: the focusout ignores the press, so a press on non-link text in the still list snaps the row back (the non-link press test goes red)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      if (pressing && !(to instanceof Node)) return;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "54-release-keeps-still-outside",
+    "why": "r5 correctness major 3: the release does not clear the still state when focus has gone outside the window, so the row stays still after a press on text beside it (the non-link press test's end state goes red)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      if (\n        still &&\n        !(document.activeElement instanceof Node && el?.contains(document.activeElement))\n      )\n        still = false;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "55-onkey-noop",
+    "why": "r5 tests major 1: the key re-check is a no-op, so a key press after a mouse-focused link and the pointer leaving does not still the row (the keydown re-check test goes red)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "    const onKey = () => {\n      requestAnimationFrame(recheck);\n    };\n",
+        "replace": "    const onKey = () => {};\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "56-focusout-ignores-null-target",
+    "why": "r5 tests major 2: the focusout ignores a null related target, so focus leaving to nowhere (a click on the page background) never restarts the row (the nowhere test goes red)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      if (pressing && !(to instanceof Node)) return;\n      still = false;\n",
+        "replace": "      if (!(to instanceof Node)) return;\n      still = false;\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "57-pointercancel-keeps-pressing",
+    "why": "r5 nit 5: pointercancel does not clear the press, so a cancelled press in the window's padding holds the row moving (the pointercancel test goes red)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "    document.addEventListener(\"pointercancel\", onRelease);\n    el?.",
+        "replace": "    document.addEventListener(\"pointercancel\", () => {});\n    el?."
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "58-pointerleave-no-recheck",
+    "why": "r6 C: onLeave loses its re-check (requestAnimationFrame(recheck)), so a keyboard focus left under a pointer that then leaves stays moving. Red: the key-press test \"a key press after a mouse press on a link leaves the row moving and the link under the pointer\". The M1 test stays green",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "    const onLeave = (e: PointerEvent) => {\n      if (e.pointerType !== \"touch\") finePointerOver = false;\n      requestAnimationFrame(recheck);\n    };",
+        "replace": "    const onLeave = (e: PointerEvent) => {\n      if (e.pointerType !== \"touch\") finePointerOver = false;\n    };"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "59-release-counted-regardless",
+    "why": "r6 A.1: lastRelease is written for every release again, ignoring whether the press began in the window, so a tap outside the window still holds the row moving for 1 s. Red: the tap-outside test (B.1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      const counted = pressing;",
+        "replace": "      const counted = true;"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "60-no-window-end-recheck",
+    "why": "r6 A.2: the window-end re-check is removed, so a focus taken during a touch's window is never stood still at its end. Red: the press-in-window test (B.2)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "        if (e.pointerType !== \"mouse\") releaseTimer = setTimeout(recheck, 1000 + 50);",
+        "replace": "        void releaseTimer;"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "61-window-stretched-1e9",
+    "why": "r6 D.3: the touch window is stretched to 1e9 ms, so a touch's press holds the row moving for good. Red: the press-in-window test (B.2) only; the tap-outside test (B.1) stays green under it, so B.1 does not pin the window's length",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "performance.now() - lastRelease.at < 1000)",
+        "replace": "performance.now() - lastRelease.at < 1e9)"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "62-hover-refused-for-touch",
+    "why": "r6 A.4, retargeted r7 C.7: the re-check refuses on :hover as well as the presence flag, so a touch's leftover :hover on the window blocks the window-end re-check for good. Red: the press-in-window test (B.2)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      if (finePointerOver) return;",
+        "replace": "      if (finePointerOver || el.matches(\":hover\")) return;"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "63-page-wide-type-back",
+    "why": "r7 C.1: the flag is set from the document's pointerover and pointerdown only, from the last non-touch-or-touch pointer (the page-wide type, no pointermove, no window events). A mouse that rests after a touch is no longer seen. Red: route 1 (the mouse resting on link 1 through a touch swipe and a Shift)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "    const onFinePointer = (e: PointerEvent) => {\n      if (e.pointerType !== \"touch\") finePointerOver = true;\n    };",
+        "replace": "    const onFinePointer = (e: PointerEvent) => {\n      finePointerOver = e.pointerType !== \"touch\";\n    };"
+      },
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "    el?.addEventListener(\"pointerover\", onFinePointer);\n    el?.addEventListener(\"pointerenter\", onFinePointer);\n    el?.addEventListener(\"pointermove\", onFinePointer);",
+        "replace": "    document.addEventListener(\"pointerover\", onFinePointer);\n    document.addEventListener(\"pointerdown\", onFinePointer);"
+      },
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      el?.removeEventListener(\"pointerover\", onFinePointer);\n      el?.removeEventListener(\"pointerenter\", onFinePointer);\n      el?.removeEventListener(\"pointermove\", onFinePointer);",
+        "replace": "      document.removeEventListener(\"pointerover\", onFinePointer);\n      document.removeEventListener(\"pointerdown\", onFinePointer);"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "64-pointermove-not-registered",
+    "why": "r7 C.2, corrected r8 C.2: the window does not listen for pointermove, so a mouse that rests and then moves within one element sets no presence. Red through the listener count (the count reads the window's pointermove listener) and, after round 8 B.3, the pointermove test (a mouse's 1 px move after a pen has left, with pointerover not firing). The route 2 test stays green without it.",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "    el?.addEventListener(\"pointermove\", onFinePointer);\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "65-flag-kept-on-leave",
+    "why": "r7 C.3: the flag is never cleared when a mouse or pen leaves the window, so the row keeps the mouse's presence after it has gone. Red: the right press on link 1, Escape, then the pointer leaving the window stills the row (the M1 test)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      if (e.pointerType !== \"touch\") finePointerOver = false;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "66-flag-set-by-touch",
+    "why": "r7 C.4: a touch sets the flag as a mouse does, so a touch's leftover :hover and its presence keep the row moving. Red: the touch press in the window, then a Tab within 200 ms (round 6's B.2)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      if (e.pointerType !== \"touch\") finePointerOver = true;",
+        "replace": "      finePointerOver = true;"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "67-hover-refusal-removed",
+    "why": "r7 C.5: the re-check does not refuse for a mouse or pen over the window at all. Red: the key press after a mouse press on a link leaves the row moving and the link under the pointer",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      if (finePointerOver) return;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "68-window-listener-not-removed",
+    "why": "equivalent: the effect reads only `windowEl`, so it re-runs only when the window element is replaced or detached; a listener left on the detached element can never fire, and the listener-count test reads `document.querySelector`, which is null on the site page.",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      el?.removeEventListener(\"pointermove\", onFinePointer);\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "survives"
+  },
+  {
+    "id": "70-dragend-does-not-settle",
+    "why": "r8 C.3: dragend does not settle the flag from the drop point, so a drag released outside keeps the flag it had from the leave suppressed during the drag. Red: the drag released outside (B.2), which presses Shift before Chromium's hover update",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "        finePointerOver = drop !== null && el !== undefined && el.contains(drop);",
+        "replace": "        void drop;"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "71-dragend-settles-true",
+    "why": "r8 C.3: dragend settles the flag true wherever the drop lands. Red: the drag released outside and a Shift at once (r10 B.3, the count test: 0 of 10 still at each width, against the threshold of at least 5)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "        finePointerOver = drop !== null && el !== undefined && el.contains(drop);",
+        "replace": "        finePointerOver = true;"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "73-dragend-listener-not-removed",
+    "why": "equivalent: as 68. The effect re-runs only when the window element is replaced, so a dragend listener left on the detached element can never fire",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      el?.removeEventListener(\"dragend\", onDragEnd);\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "survives"
+  },
+  {
+    "id": "74-only-mouse-sets-flag",
+    "why": "r8 C.4: only a mouse sets the flag; a pen over the window does not. Red: the pen-resting test (a pen hover, then a right press and a Shift)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      if (e.pointerType !== \"touch\") finePointerOver = true;",
+        "replace": "      if (e.pointerType === \"mouse\") finePointerOver = true;"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "75-only-mouse-leave-clears",
+    "why": "r8 C.5: only a mouse leave clears the flag; a pen leaving does not. Red: the pen leaving the window after a right press and Escape (the pen-leave test)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      if (e.pointerType !== \"touch\") finePointerOver = false;",
+        "replace": "      if (e.pointerType === \"mouse\") finePointerOver = false;"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "76-doc-listener-never-armed",
+    "why": "r9 C.1: the drag's end never arms the document listener, so after a drag the first move out leaves the flag as the drop set it, and the row stays still-blocked under a pointer that has left. Red: B.1 (the drop inside, then the mouse out).",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      armDoc();\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "77-doc-listener-sets-true",
+    "why": "r9 C.2: the document listener sets the flag true whatever the target, so the first move out after a drag keeps the row moving. Red: B.1.",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      finePointerOver = el !== undefined && el.contains(e.target as Node);\n",
+        "replace": "      finePointerOver = true;\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "78-doc-listener-ignores-pointermove",
+    "why": "r9 C.3, measured: the document listener registers pointerover only. Survives the full snapshot-navigation file (70 of 70 green): Chromium sends pointerover to the element under the pointer on the first move into it, so the listener still settles the flag on that move. No test can see the difference in this browser.",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      document.addEventListener(\"pointermove\", onDocPointer, true);\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "survives"
+  },
+  {
+    "id": "79-doc-listener-not-disarmed",
+    "why": "equivalent (r9 C.4; re-measured r10 at the bar of 5: survived): a page listener left armed after its first event only sets the flag to whether the window contains the next pointer event's target, which the window's own pointerover/pointerleave already say. Its red at the bar of 8 was the stale-hover flake, not a kill",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      finePointerOver = el !== undefined && el.contains(e.target as Node);\n      disarmDoc();\n",
+        "replace": "      finePointerOver = el !== undefined && el.contains(e.target as Node);\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "survives"
+  },
+  {
+    "id": "80-doc-listener-not-removed",
+    "why": "r9 C.5, measured: the cleanup does not disarm the document listener. Survives the full snapshot-navigation file (70 of 70 green). Equivalent like 68 and 73: the effect re-runs only when the window element is replaced, and a listener armed at that moment can only read a detached element.",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      disarmDoc();\n    };",
+        "replace": "    };"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "survives"
+  },
+  {
+    "id": "82-doc-out-listener-not-added",
+    "why": "r10 C.2: the document mouseout listener is not added when armed, so a move straight off the page after a drag sends nothing and the flag stays true. Red: B.1 (the drop 1 px inside the bottom edge, then a step or jump off the page, then a Shift)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      document.addEventListener(\"mouseout\", onDocOut, true);\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "83-doc-out-any-target-clears",
+    "why": "equivalent in Chromium (r10 C.3; survived at the bar of 5): a mouseout with a related target is preceded by the pointerover for the same move, and that pointerover disarms the page listener first, so clearing on any mouseout never sees one. Its red at the bar of 8 was the stale-hover flake, not a kill",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      if (e.relatedTarget !== null) return;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "survives"
+  },
+  {
+    "id": "84-doc-pointer-no-recheck",
+    "why": "r10 C.4: the page listener's onDocPointer loses its requestAnimationFrame(recheck). A mouse that moves off the row into the page after a drop and rests, with a Shift already pressed, is not re-checked. Red: B.2 (the drop inside, a Shift while resting, then one move off the row into the page)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      finePointerOver = el !== undefined && el.contains(e.target as Node);\n      disarmDoc();\n      requestAnimationFrame(recheck);\n",
+        "replace": "      finePointerOver = el !== undefined && el.contains(e.target as Node);\n      disarmDoc();\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "85-doc-out-not-removed-on-disarm",
+    "why": "r10 C.5, measured: disarmDoc does not remove the document mouseout listener. Survives (0 of 73 red). Equivalent here: a mouseout with no related target means the pointer has left the page, which is the answer the flag already holds, and armDoc's guard keeps a re-arm from adding the listener twice",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      document.removeEventListener(\"mouseout\", onDocOut, true);\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "survives"
+  },
+  {
+    "id": "86-doc-out-no-recheck",
+    "why": "r11 E4 (B.4): onDocOut loses its requestAnimationFrame(recheck). The mouse leaves the page after a drop 1 px inside the bottom edge, with a Shift already pressed and no key after the leave: the flag clears but the row is not re-checked, so it keeps moving. Red: B.4 (a 3 px step off the bottom, or a jump to x = -30)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      finePointerOver = false;\n      disarmDoc();\n      requestAnimationFrame(recheck);\n",
+        "replace": "      finePointerOver = false;\n      disarmDoc();\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  }
+]

@@ -9,6 +9,7 @@
     tickLabel,
     trendGeometry,
   } from "../lib/overview/view.js";
+  import { tickerSeconds } from "../lib/overview/ticker.js";
   import { markerAt, untilWords } from "../lib/overview/cycle.js";
   import { startCycleClock } from "../lib/overview/cycle-clock.js";
   import PageStyles from "../lib/PageStyles.svelte";
@@ -24,6 +25,171 @@
     v.health.tiers.watch + v.health.tiers.attention + v.health.tiers.broken === 0,
   );
   const launching = $derived(launchingClauses(v.health.launching));
+  // P1-87 PR 5b: the ticker moves until a visitor pauses it (or points at it, in CSS).
+  let paused = $state(false);
+  // P1-87 PR 5b review r4 A: the ticker's still layout is a state this component holds, not a
+  // CSS guess. `still` is on from a keyboard focus that arrives from outside the window until
+  // focus leaves the window, and also once a focused link is in view with the pointer gone.
+  // `pressing` is set by a press in the window and cleared by a release anywhere, so a mouse
+  // focus (which Chromium gives without :focus-visible) never stills the row under the pointer.
+  // `js` marks a page with script: the CSS's no-script fallback keys on its absence.
+  let still = $state(false);
+  let js = $state(false);
+  let pressing = false;
+  // The last counted release: a press that began in the window and ended with a pointerup or
+  // pointercancel. A tap's focus arrives after its pointerup, when pressing is already false, so a
+  // touch or pen release is a press for 1000 ms. A release whose press began outside the window, or
+  // whose press contextmenu or blur already cleared, is not counted and never opens that window.
+  let lastRelease = { type: "", at: -Infinity };
+  const pressed = () =>
+    pressing || (lastRelease.type !== "mouse" && performance.now() - lastRelease.at < 1000);
+  let windowEl: HTMLElement | undefined = $state();
+  $effect(() => {
+    const el = windowEl;
+    js = true;
+    // Still once the focus is a visible one inside the window, the pointer is not over the
+    // window, and no press is in progress. Chromium updates :focus-visible after a key, so the
+    // key re-check waits a frame. The pointer re-check (pointerleave) waits a frame only for
+    // symmetry with the key one.
+    let releaseTimer: ReturnType<typeof setTimeout> | undefined;
+    // A mouse or pen is over the ticker. Chromium keeps :hover on the element a touch tapped, and a
+    // mouse that rests fires no pointerover, so the flag is set only by the window's own pointer
+    // events (a touch never sets it) and cleared when a pointer leaves the window. A drag fires a
+    // cancel and a leave while the pointer stays over the window; dragend settles the flag from
+    // the drop point instead. After a drag Chromium sends the window no leave for the first move out,
+    // so the next mouse or pen event on the page settles the flag (onDocPointer). A move straight off
+    // the page after a drag sends no pointer event at all, but it does send a mouseout with no related
+    // target, so that clears the flag (onDocOut).
+    let finePointerOver = false;
+    const onFinePointer = (e: PointerEvent) => {
+      if (e.pointerType !== "touch") finePointerOver = true;
+    };
+    // Armed by a drag's end: the first mouse or pen pointerover or pointermove anywhere on the page
+    // says whether the pointer is over the window, then the listener disarms. A touch leaves it armed.
+    let docArmed = false;
+    const onDocPointer = (e: PointerEvent) => {
+      if (e.pointerType === "touch") return;
+      finePointerOver = el !== undefined && el.contains(e.target as Node);
+      disarmDoc();
+      requestAnimationFrame(recheck);
+    };
+    // While armed, a mouseout with no related target means the pointer has left the page: the flag clears.
+    const onDocOut = (e: MouseEvent) => {
+      if (e.relatedTarget !== null) return;
+      finePointerOver = false;
+      disarmDoc();
+      requestAnimationFrame(recheck);
+    };
+    const armDoc = () => {
+      if (docArmed) return;
+      docArmed = true;
+      document.addEventListener("pointerover", onDocPointer, true);
+      document.addEventListener("pointermove", onDocPointer, true);
+      document.addEventListener("mouseout", onDocOut, true);
+    };
+    const disarmDoc = () => {
+      docArmed = false;
+      document.removeEventListener("pointerover", onDocPointer, true);
+      document.removeEventListener("pointermove", onDocPointer, true);
+      document.removeEventListener("mouseout", onDocOut, true);
+    };
+    const onDragEnd = (e: DragEvent) => {
+      // Chromium was never seen reporting a dragend at 0,0 (0 of 1021 logged). The guard stays as a
+      // safety for an unknown position: the flag stays as it is there.
+      if (e.clientX !== 0 || e.clientY !== 0) {
+        const drop = document.elementFromPoint(e.clientX, e.clientY);
+        finePointerOver = drop !== null && el !== undefined && el.contains(drop);
+      }
+      armDoc();
+      requestAnimationFrame(recheck);
+    };
+    const recheck = () => {
+      if (!el || still || pressed()) return;
+      const a = document.activeElement;
+      if (!a || !el.contains(a) || !a.matches(":focus-visible")) return;
+      // A mouse or pen over the ticker keeps it moving under the pointer (rounds 3 and 4).
+      if (finePointerOver) return;
+      still = true;
+    };
+    const onKey = () => {
+      requestAnimationFrame(recheck);
+    };
+    const onFocusIn = (e: FocusEvent) => {
+      const from = e.relatedTarget;
+      if (!(from instanceof Node) || !el?.contains(from)) still = !pressed();
+    };
+    const onFocusOut = (e: FocusEvent) => {
+      const to = e.relatedTarget;
+      if (to instanceof Node && el?.contains(to)) return;
+      // A press on text in the still row takes focus to nowhere: the layout holds until the release.
+      if (pressing && !(to instanceof Node)) return;
+      still = false;
+    };
+    const onPress = () => {
+      pressing = true;
+    };
+    // Only a release whose press began in the window counts. A counted touch or pen release also
+    // schedules a re-check for when its 1000 ms ends, so a focus taken during it is stood still then
+    // (recheck still refuses a focus that is not :focus-visible, or one under the pointer).
+    const onRelease = (e: PointerEvent) => {
+      const counted = pressing;
+      pressing = false;
+      if (counted) {
+        lastRelease = { type: e.pointerType, at: performance.now() };
+        clearTimeout(releaseTimer);
+        releaseTimer = undefined;
+        if (e.pointerType !== "mouse") releaseTimer = setTimeout(recheck, 1000 + 50);
+      }
+      // Focus that went nowhere during the press leaves the row moving, not stuck still.
+      if (
+        still &&
+        !(document.activeElement instanceof Node && el?.contains(document.activeElement))
+      )
+        still = false;
+    };
+    // A press with no release (a context menu, a window that loses focus) must not stick.
+    const onAbandon = () => {
+      pressing = false;
+    };
+    // A touch leaves the window after its release, while a mouse may still rest over it: only a mouse
+    // or pen leaving clears the flag.
+    const onLeave = (e: PointerEvent) => {
+      if (e.pointerType !== "touch") finePointerOver = false;
+      requestAnimationFrame(recheck);
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("pointerup", onRelease);
+    document.addEventListener("pointercancel", onRelease);
+    el?.addEventListener("focusin", onFocusIn);
+    el?.addEventListener("focusout", onFocusOut);
+    el?.addEventListener("pointerdown", onPress);
+    el?.addEventListener("pointerleave", onLeave);
+    el?.addEventListener("pointerover", onFinePointer);
+    el?.addEventListener("pointerenter", onFinePointer);
+    el?.addEventListener("pointermove", onFinePointer);
+    el?.addEventListener("dragend", onDragEnd);
+    el?.addEventListener("contextmenu", onAbandon);
+    addEventListener("blur", onAbandon);
+    // A focus made before this script ran (keyboard, before hydration) gets the still layout.
+    requestAnimationFrame(recheck);
+    return () => {
+      clearTimeout(releaseTimer);
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerup", onRelease);
+      document.removeEventListener("pointercancel", onRelease);
+      el?.removeEventListener("focusin", onFocusIn);
+      el?.removeEventListener("focusout", onFocusOut);
+      el?.removeEventListener("pointerdown", onPress);
+      el?.removeEventListener("pointerleave", onLeave);
+      el?.removeEventListener("pointerover", onFinePointer);
+      el?.removeEventListener("pointerenter", onFinePointer);
+      el?.removeEventListener("pointermove", onFinePointer);
+      el?.removeEventListener("dragend", onDragEnd);
+      el?.removeEventListener("contextmenu", onAbandon);
+      removeEventListener("blur", onAbandon);
+      disarmDoc();
+    };
+  });
 
   // P1-87 PR 5a: the nightly bar's clock. Until the page mounts, the view's own instant
   // is the clock, so the server render says what the view says; then the clock moves the
@@ -276,6 +442,47 @@
     </ol>
   </section>
 </div>
+
+<section class="ov-ticker" aria-labelledby="ov-ticker-h" data-term="Every site (the ticker)">
+  <h2 id="ov-ticker-h">Every site</h2>
+  {#if v.ticker.length === 0}
+    <p class="muted">No sites in our care yet.</p>
+  {:else}
+    <button
+      type="button"
+      class="ov-ticker-pause"
+      aria-pressed={paused}
+      onclick={() => (paused = !paused)}>Pause the ticker</button
+    >
+    <div
+      class="ov-ticker-window"
+      bind:this={windowEl}
+      data-js={js ? "true" : null}
+      data-still={still ? "true" : null}
+    >
+      <div class="ov-ticker-run" class:paused style="--ov-ticker-s: {tickerSeconds(v.ticker)}s">
+        <ul class="ov-ticker-list">
+          {#each v.ticker as t (t.key)}
+            <li>
+              {#if t.href}<a href={t.href}>{t.name}</a>{:else}<span>{t.name}</span>{/if}
+              <span class="pill {t.tier === 'ok' ? 'healthy' : t.tier}">{t.tierWord}</span>
+              <span class="ov-ticker-fact">{t.fact}</span>
+            </li>
+          {/each}
+        </ul>
+        <ul class="ov-ticker-list copy" aria-hidden="true" inert>
+          {#each v.ticker as t (t.key)}
+            <li>
+              <span>{t.name}</span>
+              <span class="pill {t.tier === 'ok' ? 'healthy' : t.tier}">{t.tierWord}</span>
+              <span class="ov-ticker-fact">{t.fact}</span>
+            </li>
+          {/each}
+        </ul>
+      </div>
+    </div>
+  {/if}
+</section>
 
 <section aria-labelledby="ov-leads">
   <h2 id="ov-leads">Leads</h2>

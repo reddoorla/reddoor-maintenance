@@ -108,6 +108,7 @@ describe("the overview page, rendered from a real view (T1)", () => {
       "Lately",
       // P1-87 PR 5a: the nightly audit bar, under the three panels.
       "The nightly audit",
+      "Every site",
       "Leads",
       "Client reports",
       "Upkeep",
@@ -2193,4 +2194,239 @@ describe("P1-87 PR 7b item 1: a 600000 high is drawn as 600k and 300k", () => {
     const ticks = figs[5]!.querySelectorAll("svg.ov-chart text.ov-tick").map(text);
     expect(ticks.slice(0, 2)).toEqual(["600k", "300k"]);
   });
+});
+
+describe("the site ticker on the overview (P1-87 PR 5b)", () => {
+  // The ticker is the first screen's fourth block: one row of every maintained site.
+  const section = (doc: HTMLElement) => doc.querySelector("section.ov-ticker")!;
+  const lists = (doc: HTMLElement) => section(doc).querySelectorAll("ul.ov-ticker-list");
+  const real = (doc: HTMLElement) => lists(doc).find((l) => !l.classList.contains("copy"))!;
+  const copy = (doc: HTMLElement) => lists(doc).find((l) => l.classList.contains("copy"))!;
+
+  it("has a heading, a pause button that is not pressed, and one row per site", () => {
+    const sec = section(DOC);
+    expect(text(sec.querySelector("h2")!)).toBe("Every site");
+    const btn = sec.querySelector("button.ov-ticker-pause")!;
+    expect(text(btn)).toBe("Pause the ticker");
+    expect(btn.getAttribute("aria-pressed")).toBe("false");
+    expect(real(DOC).querySelectorAll("li")).toHaveLength(VIEW.ticker.length);
+    expect(VIEW.ticker.length).toBe(3);
+  });
+
+  it("gives the copy that loops the row aria-hidden and inert", () => {
+    expect(copy(DOC).getAttribute("aria-hidden")).toBe("true");
+    expect(copy(DOC).hasAttribute("inert")).toBe(true);
+    expect(real(DOC).hasAttribute("aria-hidden")).toBe(false);
+    expect(copy(DOC).querySelectorAll("li")).toHaveLength(VIEW.ticker.length);
+  });
+
+  it("shows each site's tier word and fact, the broken site first", () => {
+    const rows = real(DOC)
+      .querySelectorAll("li")
+      .map((li) => text(li));
+    expect(rows[0]).toContain("Bravo");
+    expect(rows[0]).toContain("Broken");
+    expect(rows[0]).toContain(VIEW.ticker[0]!.fact);
+    expect(real(DOC).querySelectorAll("li .pill").map(text)).toEqual(
+      VIEW.ticker.map((t) => t.tierWord),
+    );
+  });
+
+  it("names a site with no link without an anchor", () => {
+    const view: OverviewView = {
+      ...VIEW,
+      ticker: [{ key: "x", name: "Nolink", tier: "ok", tierWord: "OK", fact: "f", href: null }],
+    };
+    const doc = parse(pageHtml(view));
+    const li = real(doc).querySelector("li")!;
+    expect(li.querySelector("a")).toBeNull();
+    expect(text(li)).toContain("Nolink");
+  });
+
+  it("gives the OK pill the healthy class and a Broken pill the broken class", () => {
+    const view: OverviewView = {
+      ...VIEW,
+      ticker: [
+        { key: "a", name: "Okay", tier: "ok", tierWord: "OK", fact: "f", href: null },
+        { key: "b", name: "Badly", tier: "broken", tierWord: "Broken", fact: "f", href: null },
+      ],
+    };
+    const doc = parse(pageHtml(view));
+    expect(
+      real(doc)
+        .querySelectorAll("li .pill")
+        .map((p) => p.getAttribute("class")),
+    ).toEqual(["pill healthy", "pill broken"]);
+  });
+
+  it("says so when no site is in our care", () => {
+    const doc = parse(pageHtml({ ...VIEW, ticker: [] }));
+    expect(text(section(doc))).toContain("No sites in our care yet.");
+    expect(section(doc).querySelector("button")).toBeNull();
+    expect(lists(doc)).toHaveLength(0);
+  });
+
+  it("is a How-we-count term", () => {
+    expect(section(DOC).getAttribute("data-term")).toBe("Every site (the ticker)");
+    const entry = HOW_WE_COUNT.find((h) => h.term === "Every site (the ticker)");
+    expect(entry).toBeDefined();
+    // r2 C: the entry says the row stands still as a list while a visitor moves through it by keyboard.
+    expect(entry!.text).toContain(
+      "While you move through it with the keyboard it stands still as a list.",
+    );
+  });
+
+  it("renders its sentinels: every leaf of the ticker is on the page", () => {
+    // The moving list only: the loop's copy must not supply a leaf the real list dropped.
+    const shown = text(real(SDOC));
+    for (const [path, v] of S.at) {
+      if (!path.startsWith("ticker[")) continue;
+      if (/\.(key|href|tier)$/.test(path)) continue;
+      expect.soft(shown.includes(v), `${path} (${v}) is in the ticker`).toBe(true);
+    }
+  });
+});
+
+describe("the ticker's styles and speed (P1-87 PR 5b review r1 D)", () => {
+  const css = readFileSync(
+    new URL("../../src/lib/overview/overview.css", import.meta.url),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  /** The declarations of the reduced-motion block, which holds the still layout. */
+  const reduced = (() => {
+    const at = css.indexOf("@media (prefers-reduced-motion: reduce)");
+    const open = css.indexOf("{", at);
+    let depth = 0;
+    for (let i = open; i < css.length; i++) {
+      if (css[i] === "{") depth++;
+      else if (css[i] === "}" && --depth === 0) return css.slice(open + 1, i);
+    }
+    return "";
+  })();
+
+  /** The declarations of the forced-colours block, which holds the forced-colours rules. */
+  const forced = (() => {
+    const at = css.indexOf("@media (forced-colors: active)");
+    const open = css.indexOf("{", at);
+    let depth = 0;
+    for (let i = open; i < css.length; i++) {
+      if (css[i] === "{") depth++;
+      else if (css[i] === "}" && --depth === 0) return css.slice(open + 1, i);
+    }
+    return "";
+  })();
+
+  it("keeps the pressed pause button's border 3px under forced colours, where its ink fill is gone (r2 C)", () => {
+    const pressed = forced.match(/\.ov-ticker-pause\[aria-pressed="true"\]\s*\{([^}]*)\}/);
+    expect(pressed).not.toBeNull();
+    expect(pressed![1]).toMatch(/border-width:\s*3px/);
+  });
+
+  it("gives the pressed pause button 2px less padding on each side, so its outer size stays put (r3 D)", () => {
+    const pressed = forced.match(/\.ov-ticker-pause\[aria-pressed="true"\]\s*\{([^}]*)\}/);
+    expect(pressed).not.toBeNull();
+    // max(0px, …) clamps a font under 10px, where the calc() would go negative (r4 nit); it changes
+    // nothing at normal sizes.
+    expect(pressed![1]).toMatch(
+      /padding:\s*max\(0px,\s*calc\(0\.2em - 2px\)\)\s+max\(0px,\s*calc\(0\.7em - 2px\)\)/,
+    );
+  });
+
+  it("shows the pause button pressed: an ink fill with on-ink text", () => {
+    // Two rules name the pressed button now: this fill, and the forced-colours border (r2 C).
+    // The fill is the one that carries a background.
+    const pressed = [
+      ...css.matchAll(/(?<=^|\})\s*\.ov-ticker-pause\[aria-pressed="true"\]\s*\{([^}]*)\}/g),
+    ].find((m) => /background:/.test(m[1]!));
+    expect(pressed).toBeDefined();
+    expect(pressed![1]).toMatch(/background:\s*var\(--ink\)/);
+    expect(pressed![1]).toMatch(/color:\s*var\(--on-ink\)/);
+  });
+
+  it("lays the still entries one per line under reduced motion", () => {
+    const list = reduced.match(/(?<=^|\})\s*\.ov-ticker-list\s*\{([^}]*)\}/);
+    expect(list).not.toBeNull();
+    expect(list![1]).toMatch(/flex-direction:\s*column/);
+    // Entries stand apart: a rem between them (r2 C). The focus block keeps the same values.
+    expect(list![1]).toMatch(/gap:\s*1rem/);
+  });
+
+  it("gives each entry's own lines 0.25rem between them under reduced motion (r2 C)", () => {
+    const li = reduced.match(/(?<=^|\})\s*\.ov-ticker-list li\s*\{([^}]*)\}/);
+    expect(li).not.toBeNull();
+    expect(li![1]).toMatch(/row-gap:\s*0\.25rem/);
+  });
+
+  it("lays the still entries one per line while a focus is inside the window", () => {
+    // Held by the component (data-still) from a keyboard focus, with the no-script fallback
+    // keyed on :focus-visible, not on any focus: r2 A, r4 A.
+    const list = css.match(
+      /\.ov-ticker-window\[data-still\] \.ov-ticker-list,\s*\.ov-ticker-window:not\(\[data-js\]\):has\(:focus-visible\) \.ov-ticker-list\s*\{([^}]*)\}/,
+    );
+    expect(list).not.toBeNull();
+    expect(list![1]).toMatch(/flex-direction:\s*column/);
+    expect(list![1]).toMatch(/gap:\s*1rem/);
+  });
+
+  it("gives each entry's own lines 0.25rem between them while a focus is inside the window (r2 C)", () => {
+    const li = css.match(
+      /\.ov-ticker-window\[data-still\] \.ov-ticker-list li,\s*\.ov-ticker-window:not\(\[data-js\]\):has\(:focus-visible\) \.ov-ticker-list li\s*\{([^}]*)\}/,
+    );
+    expect(li).not.toBeNull();
+    expect(li![1]).toMatch(/row-gap:\s*0\.25rem/);
+  });
+
+  it("sets the row's speed by its text, with a floor of 20 seconds", () => {
+    const entry = (i: number) => ({
+      key: `k${i}`,
+      name: "A",
+      tier: "ok" as const,
+      tierWord: "OK" as const,
+      fact: "f".repeat(37),
+      href: null,
+    });
+    const view: OverviewView = { ...VIEW, ticker: [entry(1), entry(2), entry(3)] };
+    const doc = parse(pageHtml(view));
+    expect(doc.querySelector("div.ov-ticker-run")!.getAttribute("style")).toContain(
+      "--ov-ticker-s: 20s",
+    );
+  });
+
+  // r2 E (R2-6): the page takes its speed from tickerSeconds, not from its own count. Three
+  // entries of unequal length give 120 + 40 + 80 = 240 characters, so 36 seconds: a count, or
+  // any per-entry formula that ignores the text, would not give 36.
+  it("takes its speed from the ticker's text: three entries of unequal length give 36s", () => {
+    const entry = (i: number, fact: number) => ({
+      key: `k${i}`,
+      name: "A",
+      tier: "ok" as const,
+      tierWord: "OK" as const,
+      fact: "f".repeat(fact),
+      href: null,
+    });
+    const view: OverviewView = {
+      ...VIEW,
+      ticker: [entry(1, 117), entry(2, 37), entry(3, 77)],
+    };
+    const doc = parse(pageHtml(view));
+    expect(doc.querySelector("div.ov-ticker-run")!.getAttribute("style")).toContain(
+      "--ov-ticker-s: 36s",
+    );
+  });
+});
+
+describe("the overview renders with an unreadable deploy date (P1-87 PR 5b)", () => {
+  // r2 E nit: every bad date renders the page, not only "garbage".
+  it.each(["garbage", "", "2026-13-45", "0", "12", "2026-02-30T12:00:00Z", "2026-13-01T12:00:00Z"])(
+    "renders the page, and the ticker says no deploy is recorded, for a deploy date of %j",
+    (bad) => {
+      const s = snapshot({
+        sites: [healthy({ id: "recK", name: "Kiln", pScore: null, lastDeployAt: bad })],
+      });
+      const doc = parse(pageHtml(overviewFromSnapshot(s, NOW)));
+      const rows = doc.querySelectorAll("ul.ov-ticker-list:not(.copy) > li");
+      expect(rows).toHaveLength(1);
+      expect(text(rows[0]!)).toContain("no speed score or deploy recorded yet");
+    },
+  );
 });
