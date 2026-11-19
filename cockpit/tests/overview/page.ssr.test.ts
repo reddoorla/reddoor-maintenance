@@ -1000,7 +1000,7 @@ describe("P1-78h: section 8 drawn, once fleet_daily holds 14 nights", () => {
     }
   });
 
-  it("draws the focus ring and the hover line from tokens, and the line in CanvasText when forced", () => {
+  it("draws the focus ring and the hover line from tokens, and in the system text colour when forced", () => {
     const css = readFileSync(
       new URL("../../src/lib/overview/overview.css", import.meta.url),
       "utf8",
@@ -1008,7 +1008,7 @@ describe("P1-78h: section 8 drawn, once fleet_daily holds 14 nights", () => {
     expect(css).toMatch(/\.ov-chart:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--focus\)/);
     expect(css).toMatch(/\.ov-trend-cursor\s*\{[^}]*stroke:\s*var\(--ink\)/);
     expect(css).toMatch(
-      /@media \(forced-colors: active\)\s*\{[^}]*\.ov-trend-cursor\s*\{\s*stroke:\s*CanvasText[\s\S]*?\.ov-chart:focus-visible\s*\{\s*outline-color:\s*CanvasText/,
+      /@media \(forced-colors: active\)\s*\{[^}]*\.ov-trend-cursor\s*\{\s*stroke:\s*currentColor[\s\S]*?\.ov-chart:focus-visible\s*\{\s*outline-color:\s*currentColor/,
     );
   });
 

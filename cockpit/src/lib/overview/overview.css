@@ -193,7 +193,8 @@ section {
   fill-opacity: 0.5;
 }
 /* P1-87 PR 8a, item 5: the hover line and the focus ring. The line is drawn over the hit
-   targets and never takes a pointer; under forced colours the line and the ring are CanvasText. */
+   targets and never takes a pointer; under forced colours the line and the ring are the system
+   text colour (currentColor, which forced colours sets to CanvasText; how.css does the same). */
 .ov-trend-cursor {
   stroke: var(--ink);
   stroke-width: 1;
@@ -463,6 +464,8 @@ section {
     animation: ov-spark-draw var(--spark-ms) ease-out both;
   }
   .ov-tiles[data-intro] .ov-spark circle {
+    transform-box: fill-box;
+    transform-origin: center;
     animation: ov-spark-dot 200ms ease-out var(--spark-ms) both;
   }
   @keyframes ov-spark-draw {
@@ -473,12 +476,13 @@ section {
       stroke-dashoffset: 0;
     }
   }
+  /* The dot grows in rather than fading: text and marks are never dimmed (the style guide). */
   @keyframes ov-spark-dot {
     from {
-      opacity: 0;
+      transform: scale(0);
     }
     to {
-      opacity: 1;
+      transform: scale(1);
     }
   }
 }
@@ -491,11 +495,11 @@ section {
   @keyframes ov-feed-in {
     from {
       transform: translateY(-0.5rem);
-      opacity: 0;
+      clip-path: inset(0 0 100% 0);
     }
     to {
       transform: translateY(0);
-      opacity: 1;
+      clip-path: inset(0);
     }
   }
 }
@@ -937,9 +941,9 @@ section {
    forced-colours block of this file). */
 @media (forced-colors: active) {
   .ov-trend-cursor {
-    stroke: CanvasText;
+    stroke: currentColor;
   }
   .ov-chart:focus-visible {
-    outline-color: CanvasText;
+    outline-color: currentColor;
   }
 }
