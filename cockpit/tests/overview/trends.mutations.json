@@ -252,8 +252,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "                height={g.baseline - g.top}\n",
-        "replace": "                height={0}\n"
+        "find": "                width={e.width}\n                height={g.baseline - g.top}\n",
+        "replace": "                width={e.width}\n                height={0}\n"
       }
     ],
     "test": "cockpit/tests/overview/page.ssr.test.ts",
