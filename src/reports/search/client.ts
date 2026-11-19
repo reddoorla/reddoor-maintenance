@@ -5,6 +5,8 @@ import { ymd } from "../../util/date.js";
 
 const WEBMASTERS_READONLY = "https://www.googleapis.com/auth/webmasters.readonly";
 const SC_BASE = "https://searchconsole.googleapis.com/webmasters/v3";
+/** Per request in the traffic read: a stalled socket must not hold the job open (P1-87, PR 6). */
+const READ_TIMEOUT_MS = 30_000;
 /** Average-position threshold for "on page 1" (10 organic results per page). */
 const PAGE_1_MAX_POSITION = 10;
 /** Rows to pull for the brand `contains` match. searchAnalytics has no orderBy and returns
@@ -131,7 +133,7 @@ export function selectBrandPosition(
  *  empty list with no auth error at all — so this opts into subject failover explicitly.
  *  When EVERY subject resolves empty, `fetchSearchPresence` restores the pre-failover
  *  behavior: a plain not-found result, not a throw. */
-class NoPropertyForSubjectError extends Error {
+export class NoPropertyForSubjectError extends Error {
   readonly failoverToNextSubject = true;
   constructor(subject: string, host: string) {
     super(`no Search Console property matching ${host} is visible to ${subject}`);
@@ -231,4 +233,82 @@ export async function fetchSearchPresence(
       return { foundOnPage1: false, position: null, propertyFound: false };
     throw e;
   }
+}
+
+/** The query {@link fetchSearchDaily} takes: the same property and site as
+ *  {@link SearchPresenceQuery}, without a brand query. */
+export type SearchDailyQuery = Omit<SearchPresenceQuery, "query">;
+
+/**
+ * Search Console clicks and impressions for each day of `range`, across all search types
+ * and queries (no filter group), so the numbers are the property's own totals (P1-87,
+ * PR 6). Keys are `YYYY-MM-DD`; a day Search Console omits is absent, not 0.
+ *
+ * Property resolution and subject failover are {@link fetchSearchPresence}'s: an explicit
+ * `property` is used alone, else every `sites.list` match is tried in order. The first
+ * candidate that returns rows gives the map; when every candidate answers with none, the map
+ * is empty (a true 0). Throws when no property resolves for any subject,
+ * or when every candidate fails. It never returns an empty map for a failed read.
+ */
+export async function fetchSearchDaily(
+  q: SearchDailyQuery,
+  range: { startDate: string; endDate: string },
+): Promise<Map<string, { clicks: number; impressions: number }>> {
+  const key = JSON.parse(readFileSync(q.keyPath, "utf8")) as {
+    client_email: string;
+    private_key: string;
+  };
+
+  return withSubjectFailover(q.subjects, "Search Console", async (subject) => {
+    const jwt = new JWT({
+      email: key.client_email,
+      key: key.private_key,
+      scopes: [WEBMASTERS_READONLY],
+      subject,
+    });
+
+    const explicit = q.property?.trim();
+    let candidates: string[];
+    if (explicit) {
+      candidates = [explicit];
+    } else {
+      const list = await jwt.request<{ siteEntry?: SiteEntry[] }>({
+        url: `${SC_BASE}/sites`,
+        method: "GET",
+        timeout: READ_TIMEOUT_MS,
+      });
+      candidates = resolvePropertyCandidates(list.data.siteEntry ?? [], q.host);
+      if (candidates.length === 0) throw new NoPropertyForSubjectError(subject, q.host);
+    }
+
+    // The candidates in order until one returns rows, as fetchSearchPresence does: an
+    // empty Domain property is not a true 0 while a URL-prefix property holds the data.
+    // A request that fails propagates, so a 5xx is not read as "no rows" (P1-87, PR 6).
+    for (const property of candidates) {
+      const res = await jwt.request<{
+        rows?: Array<{ keys?: string[]; clicks?: number; impressions?: number }>;
+      }>({
+        url: `${SC_BASE}/sites/${encodeURIComponent(property)}/searchAnalytics/query`,
+        method: "POST",
+        data: {
+          startDate: range.startDate,
+          endDate: range.endDate,
+          dimensions: ["date"],
+          rowLimit: 1000,
+        },
+        timeout: READ_TIMEOUT_MS,
+      });
+      const rows = res.data.rows ?? [];
+      if (rows.length === 0) continue;
+      const days = new Map<string, { clicks: number; impressions: number }>();
+      for (const row of rows) {
+        const date = row.keys?.[0];
+        if (!date) throw new Error(`Search Console returned a row with no date for ${property}`);
+        days.set(date, { clicks: row.clicks ?? 0, impressions: row.impressions ?? 0 });
+      }
+      return days;
+    }
+    // Every candidate answered, and none had rows: each day is a true 0.
+    return new Map<string, { clicks: number; impressions: number }>();
+  });
 }

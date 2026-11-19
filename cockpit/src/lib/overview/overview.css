@@ -239,7 +239,8 @@ section {
 }
 .ov-health,
 .ov-happening,
-.ov-lately {
+.ov-lately,
+.ov-cycle {
   margin: 0;
   padding: 1rem 1.25rem;
   background: var(--surface);
@@ -411,6 +412,8 @@ section {
   margin: 0;
   padding: 0;
   min-width: 0;
+  /* A long figure sizes to its tile in container units (P1-87 PR 7a, review round 2, B.1). */
+  container-type: inline-size;
 }
 .ov-num {
   margin: 0;
@@ -418,10 +421,36 @@ section {
   font-weight: var(--weight-bold);
   line-height: 1.1;
 }
-.ov-num.unknown {
+/* A figure of eight or more characters (a seven-digit count with its commas) sizes to its tile
+ *  so "1,234,567" never runs past it (P1-87 PR 7a, review rounds 1 and 3). Its size is
+ *  clamp(1rem, 16.5cqi, 1.4rem) of its tile (`cqi` is 1% of the tile's inline size):
+ *  - the 1.4rem ceiling is round 1's size, so a wide tile keeps it;
+ *  - the 1rem floor is the body text, so the figure grows with the reader's text size and never
+ *    falls below its own label (WCAG 1.4.4); where the floor is wider than the tile, the figure
+ *    wraps only after a comma (the `<wbr>` the page renders after each one, `+page.svelte`);
+ *  - 16.5cqi is N. The shipped font is Pragmatica 700 (Adobe kit noj4tji), where "12,345,678" is
+ *    5.84em wide in Chromium and WebKit and 5.965em in Firefox, the same at every size (measured
+ *    in review round 5): 100/5.965 = 16.76cqi is the most that fits a tile in all three, and 16.5
+ *    leaves about 1.6%. (The browser harness has no brand font; its Liberation Sans fallback is
+ *    5.00em, so its test scales each figure by its own measured ratio to the shipped font.)
+ *  At 320px with a 32px default the trailing comma of "345," hangs up to 7px past its tile. The
+ *  search tile is the grid's right column, so the comma hangs past the grid's edge into the
+ *  page's side margin, never over another tile (hanging punctuation, round 4: no CSS for it; the
+ *  test asserts the page gains no sideways scroll).
+ *  The 1.4rem line before the clamp is the fallback for a browser without container units. */
+.ov-num.long {
+  font-size: 1.4rem;
+  font-size: clamp(1rem, 16.5cqi, 1.4rem);
+}
+/* An unmeasured figure and a long one share the row's height and its bottom edge, so a long
+ *  figure beside a short one keeps both labels level (P1-87 PR 7a, review round 2, B.2). */
+.ov-num.unknown,
+.ov-num.long {
   display: flex;
   align-items: flex-end;
   min-height: calc(1.9rem * 1.1);
+}
+.ov-num.unknown {
   font-size: 0.95rem;
   font-weight: var(--weight-text);
   color: var(--ink-muted);
@@ -515,6 +544,155 @@ section {
   .ov-ticker-pause[aria-pressed="true"] {
     border-width: 3px;
     padding: max(0px, calc(0.2em - 2px)) max(0px, calc(0.7em - 2px));
+  }
+  /* P1-87 PR 5a: the nightly bar's fills are the page colour under forced colours, so each
+     state is a border: done a solid bar as thick as the bar, a problem dotted like Attention,
+     none dashed, the waiting bars a thin solid outline, and the wait track a double one. */
+  .ov-cycle-bar {
+    box-sizing: border-box;
+  }
+  .ov-cycle-seg.done .ov-cycle-bar {
+    background: none;
+    border: 0;
+    border-top: 0.625rem solid;
+  }
+  .ov-cycle-seg.problem .ov-cycle-bar {
+    background: none;
+    box-shadow: none;
+    border: 2px dotted;
+  }
+  .ov-cycle-seg.none .ov-cycle-bar {
+    background: none;
+    box-shadow: none;
+    border: 2px dashed;
+  }
+  .ov-cycle-seg.waiting .ov-cycle-bar {
+    box-shadow: none;
+    border: 1px solid;
+  }
+  /* The Next-run track is double, 3px, so it differs from a waiting step's 1px solid. */
+  .ov-cycle-seg.wait .ov-cycle-bar {
+    box-shadow: none;
+    border: 3px double;
+  }
+  .ov-cycle-marker {
+    background: none;
+    width: 0;
+    border-left: 2px solid;
+  }
+}
+
+/* P1-87 PR 5a: the nightly audit bar, a full-width panel under the first screen's three.
+   Eight steps and the wait, one column each from 48rem; below that, one row each: a bar,
+   the name, the time. Tokens only; square corners; nothing animates (the running stripes
+   are a static SVG pattern, decision 1), so there is no transition or gradient. */
+.ov-cycle {
+  grid-column: 1 / -1;
+}
+.ov-cycle-line {
+  margin: 0 0 0.75rem;
+}
+.ov-cycle-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+.ov-cycle-defs line {
+  stroke: var(--ink);
+  stroke-width: 2px;
+}
+.ov-cycle-track {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ov-cycle-seg {
+  display: grid;
+  grid-template-columns: 3rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+}
+.ov-cycle-bar {
+  position: relative;
+  display: block;
+  box-sizing: border-box;
+  height: 0.625rem;
+  background: var(--band);
+}
+.ov-cycle-stripes {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+/* Done is solid; a problem is the Attention segment's fill inside a panel-coloured frame,
+   so it differs by shape as well as tone (never red: red is Broken alone); none is an
+   outline; waiting and running sit on the band. */
+.ov-cycle-seg.done .ov-cycle-bar {
+  background: var(--ink);
+  color: var(--on-ink);
+}
+.ov-cycle-seg.problem .ov-cycle-bar {
+  background: var(--ink-dark);
+  box-shadow: inset 0 0 0 3px var(--surface);
+}
+/* None is a dashed outline and waiting a solid one, so the two differ by shape in light and
+   dark alike. Off forced colours only: this rule comes after the forced block and has the
+   same specificity, so unwrapped it would beat the forced block's 2px dashed border. */
+.ov-cycle-seg.none .ov-cycle-bar {
+  background: transparent;
+}
+@media not all and (forced-colors: active) {
+  .ov-cycle-seg.none .ov-cycle-bar {
+    border: 1px dashed var(--ink-muted);
+  }
+}
+/* Waiting bars sit on the band, which is faint in dark: a thin outline keeps them seen. */
+.ov-cycle-seg.waiting .ov-cycle-bar {
+  box-shadow: inset 0 0 0 1px var(--ink-muted);
+}
+/* The Next-run track is outlined like a waiting bar, so it shows in dark mode while a run
+   is going. */
+.ov-cycle-seg.wait .ov-cycle-bar {
+  box-shadow: inset 0 0 0 1px var(--ink-muted);
+}
+/* The marker: a 2px rule a little above and below the bar, where the wait is now. */
+.ov-cycle-marker {
+  position: absolute;
+  top: -0.3rem;
+  bottom: -0.3rem;
+  width: 2px;
+  background: var(--ink);
+  color: var(--on-ink);
+  transform: translateX(-1px);
+}
+.ov-cycle-name {
+  min-width: 0;
+}
+.ov-cycle-time {
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: normal;
+}
+.ov-cycle-when,
+.ov-cycle-until {
+  display: block;
+  white-space: nowrap;
+}
+@media (min-width: 48rem) {
+  .ov-cycle-track {
+    grid-template-columns: repeat(8, minmax(0, 1fr)) minmax(0, 1.6fr);
+    column-gap: 0.4rem;
+    /* From the top: the bars line up whatever the height of a name or a time. */
+    align-items: start;
+  }
+  .ov-cycle-seg {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 0.35rem;
   }
 }
 

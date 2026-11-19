@@ -51,6 +51,8 @@ import { tickerView, type TickerEntry } from "./ticker.js";
 import { TRIAGE_PATH } from "../../../../src/dashboard/home-path.js";
 import { NETLIFY_SITE_NOT_FOUND } from "../../../../src/fleet/roster-url-probe.js";
 import { OVERVIEW_NIGHTS } from "../../../../src/fleet-daily/types.js";
+import { cycleView, type CycleView } from "./cycle.js";
+import { readSearch, readVisits, type TrafficReason } from "./traffic.js";
 
 /**
  * P1-78g: the overview at `/` as render-ready data (workspace
@@ -1069,6 +1071,9 @@ type StampField = keyof Pick<
  *  stamps no site says what it reaches in `reach` instead. */
 export const NIGHTLY_STEPS: ReadonlyArray<{
   file: string;
+  /** How long the conductor waits for the step before it moves on (its NIGHTLIES
+   *  `waitMinutes`; P1-87 PR 5a, the nightly audit bar). */
+  waitMinutes: number;
   /** The step's name in two words, for a diagram (P1-87, How this works). */
   short: string;
   label: string;
@@ -1078,6 +1083,7 @@ export const NIGHTLY_STEPS: ReadonlyArray<{
 }> = [
   {
     file: "fleet-db-backup.yml",
+    waitMinutes: 15,
     short: "Backup",
     label: "Backup, with a restore rehearsal (the copy is restored to prove it works)",
     coverage: [],
@@ -1086,6 +1092,7 @@ export const NIGHTLY_STEPS: ReadonlyArray<{
   },
   {
     file: "fleet-prismic-drift.yml",
+    waitMinutes: 20,
     short: "CMS check",
     label: "Prismic (the CMS, where content is edited) check: its content models match the code",
     coverage: ["prismic_models_checked_at"],
@@ -1093,6 +1100,7 @@ export const NIGHTLY_STEPS: ReadonlyArray<{
   },
   {
     file: "fleet-prismic-sync.yml",
+    waitMinutes: 20,
     short: "CMS sync",
     label: "Prismic (the CMS) sync: a change made there comes back to the site's code for review",
     coverage: [],
@@ -1101,6 +1109,7 @@ export const NIGHTLY_STEPS: ReadonlyArray<{
   },
   {
     file: "fleet-security.yml",
+    waitMinutes: 30,
     short: "Security",
     label: "Security (known vulnerabilities, and packages behind)",
     coverage: ["security_audit_at", "deps_behind_packages_at"],
@@ -1108,6 +1117,7 @@ export const NIGHTLY_STEPS: ReadonlyArray<{
   },
   {
     file: "fleet-lighthouse.yml",
+    waitMinutes: 50,
     short: "Site checks",
     label:
       "Site checks: Lighthouse (Google's speed and quality audit), the domain and certificate, browsers (each site opened in a real browser), the deploy, server functions, and the URL probe (does the address answer)",
@@ -1130,6 +1140,7 @@ export const NIGHTLY_STEPS: ReadonlyArray<{
   },
   {
     file: "fleet-smoke.yml",
+    waitMinutes: 50,
     short: "Build and tests",
     label: "Smoke (the site's own tests on a fresh build)",
     coverage: ["last_smoke_at"],
@@ -1137,6 +1148,7 @@ export const NIGHTLY_STEPS: ReadonlyArray<{
   },
   {
     file: "fleet-form-e2e.yml",
+    waitMinutes: 40,
     short: "Live forms",
     label: "The live form test",
     coverage: ["form_e2e_checked_at"],
@@ -1144,6 +1156,7 @@ export const NIGHTLY_STEPS: ReadonlyArray<{
   },
   {
     file: "daily-reports.yml",
+    waitMinutes: 30,
     short: "Report drafts",
     label: "Report drafts",
     coverage: [],
@@ -1866,7 +1879,7 @@ export type HealthView = {
   launching: Array<{ level: "broken" | "attention" | "watch"; count: number; kind: keyof OffCare }>;
 };
 export type NumberTile = {
-  key: "leads" | "spam" | "checks" | "deps" | "reports" | "shipped";
+  key: "visits" | "search" | "leads" | "spam" | "checks" | "deps" | "reports" | "shipped";
   /** Digits, or the model's NOT_YET / UNREADABLE words; never a 0 for a missing count. */
   value: string;
   measured: boolean;
@@ -2077,6 +2090,83 @@ function checksOverWindow(
   return `${total} over the last ${span} nights${missing > 0 ? `; ${missing} with no count` : ""}`;
 }
 
+/** P1-87 PR 7a: what a traffic tile says when its series is not shown (a stored reason is
+ *  never printed: a Google error's text can carry an account, so it maps to words or none). */
+const TRAFFIC_UNMEASURED: Record<TrafficReason, { value: string; context: string | null }> = {
+  "not collected": { value: NOT_YET, context: null },
+  "not readable": { value: UNREADABLE, context: null },
+  "not configured": {
+    value: UNREADABLE,
+    context: "Google Analytics is not set up for the nightly",
+  },
+  "no site read": { value: UNREADABLE, context: "no site could be read" },
+  malformed: { value: UNREADABLE, context: "the stored reading is not in the expected shape" },
+};
+
+const WHOLE = new Intl.NumberFormat("en-US");
+
+/** The engaged visits' comparison with the 30 days before, in words: "up 9%", "down 8%",
+ *  "about the same" at 0% after rounding, and "none" when the 30 days before had none. */
+function againstBefore(current: number, previous: number): string {
+  if (previous === 0) return "none in the 30 days before";
+  // Multiply before dividing: (x / y) * 100 can land just under a half (14.499…), which rounds
+  // down, where (x * 100) / y is exact (P1-87 PR 7a, review round 1).
+  const p = Math.round((Math.abs(current - previous) * 100) / previous);
+  if (p === 0) return "about the same as the 30 days before";
+  return `${current > previous ? "up" : "down"} ${WHOLE.format(p)}% on the 30 days before`;
+}
+
+/** The night a traffic series is as of, said only when it is older than the expected night
+ *  (a series on a newer, pre-6am row counts with no clause, as the trend axis does). */
+const asOfClause = (night: string, expected: string): string =>
+  night < expected ? `; as of the night of ${nightLabel(night)}` : "";
+
+/** The two traffic tiles, from the guarded reads (traffic.ts), each from its own series. */
+function trafficTiles(nights: OverviewNight[] | null, now: Date): [NumberTile, NumberTile] {
+  const expected = expectedNight(now);
+  const visits = readVisits(nights);
+  const search = readSearch(nights);
+  const visitsTile: NumberTile =
+    visits.value === null
+      ? {
+          key: "visits",
+          label: "engaged visits, last 30 days",
+          measured: false,
+          spark: null,
+          ...TRAFFIC_UNMEASURED[visits.reason],
+        }
+      : {
+          key: "visits",
+          label: "engaged visits, last 30 days",
+          measured: true,
+          value: WHOLE.format(visits.value.current),
+          context: `${againstBefore(visits.value.current, visits.value.previous)} · ${count(visits.value.sitesRead, "site", "sites")}${asOfClause(visits.value.night, expected)}`,
+          spark: null,
+        };
+  const searchTile: NumberTile =
+    search.value === null
+      ? {
+          key: "search",
+          label: "times shown in Google, 28 days",
+          measured: false,
+          spark: null,
+          // This tile is Search Console, not Analytics: the GA words would name the wrong source.
+          ...TRAFFIC_UNMEASURED[search.reason],
+          ...(search.reason === "not configured"
+            ? { context: "Google is not set up for the nightly" }
+            : {}),
+        }
+      : {
+          key: "search",
+          label: "times shown in Google, 28 days",
+          measured: true,
+          value: WHOLE.format(search.value.impressions),
+          context: `${WHOLE.format(search.value.clicks)} clicks through · ${count(search.value.sitesRead, "site", "sites")}${asOfClause(search.value.night, expected)}`,
+          spark: null,
+        };
+  return [visitsTile, searchTile];
+}
+
 export function numbersView(
   s: CockpitSnapshot,
   leads: LeadsView,
@@ -2173,7 +2263,15 @@ export function numbersView(
     context: shipped.context,
     spark: null,
   };
-  return [leadsTile, spamTile, checksTile, depsTile, reportsTile, shippedTile];
+  return [
+    ...trafficTiles(s.nights, now),
+    leadsTile,
+    spamTile,
+    checksTile,
+    depsTile,
+    reportsTile,
+    shippedTile,
+  ];
 }
 
 /** A sparkline's marks, in its own viewBox units: one polyline per run of nights with a
@@ -2410,6 +2508,8 @@ export type OverviewView = {
   lately: Lately;
   /** P1-87 PR 5b: the site ticker, one entry per maintained site, worst first. */
   ticker: TickerEntry[];
+  /** P1-87 PR 5a: the first screen's "The nightly audit" bar (cycle.ts). */
+  cycle: CycleView;
   /** How many `fleet_daily` nights the page has, in words ("1 night", "at least 32
    *  nights" once the reader's cap is reached); null when they could not be read. */
   nightsCollected: string | null;
@@ -2438,6 +2538,7 @@ export function overviewFromSnapshot(s: CockpitSnapshot, now: Date): OverviewVie
     trends,
     lately: latelyView(s, (id) => names.get(id) ?? null, now),
     ticker: tickerView(model, s.slugById, now),
+    cycle: cycleView(s, now, NIGHTLY_STEPS, outcomeText),
     // The reader takes the newest OVERVIEW_NIGHTS rows, so a full read is a floor.
     nightsCollected:
       s.nights === null
@@ -2607,6 +2708,10 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   {
     term: "Lately",
     text: "The newest 8 lines from the last 7 days, Pacific time: fleet events (a dependency update merged, a vulnerability cleared, a certificate renewed, and the like), reports sent, leads delivered, and the night the tiles count (before 6am, the night before last). A lead line names its site and how many, never who sent it. The nightly is one line saying how many of its steps ran to the end, naming up to two steps that did not run to the end and how many more did not; a sweep is shown only as those steps. A line from six Pacific calendar days back carries its date (Wed Oct 21, 12:00pm), so two days with the same weekday never read alike. A test send and a withdrawn report are not listed. When a source could not be read, the panel says so, and does not read as nothing recorded.",
+  },
+  {
+    term: "The nightly audit bar",
+    text: "The nightly audit's eight steps, in the order they run: Backup, CMS check, CMS sync, Security, Site checks, Build and tests, Live forms, Report drafts. Once the night is recorded, a filled step ran to the end, and any other step says how it ended. Before that, a filled step is shown as finished, from the sites' stamps, because a stamp proves a step finished, not that it passed. Mid-run, a step counts as finished once at least two maintained sites carry its stamp from tonight, or one when the last night that counted it reached only one site, or when only one site is in our care, so a single site re-tested by hand does not move the bar. A step with a time is one that stamps the sites, and it shows a time only when a stamp from that night is in; Backup, CMS sync and Report drafts leave no time. The striped span is the step running now, or one of two steps when a step that leaves no time sits before the next. During the run the page re-reads every 2 minutes while the tab is visible, and again once the run's five hours are up or the next start has come, so a page left open shows the result. Five hours after the run started, with no record for its night, the bar says the run was not recorded.",
   },
   {
     term: "Every site (the ticker)",

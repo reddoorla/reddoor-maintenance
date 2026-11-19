@@ -7,8 +7,8 @@
  */
 import { sql } from "kysely";
 import type { Db } from "../db/client.js";
-import type { FleetDailyCounts, Measured } from "./types.js";
-import { OVERVIEW_NIGHTS } from "./types.js";
+import type { FleetDailyCounts, Measured, TrafficCounts } from "./types.js";
+import { MALFORMED_HALF, OVERVIEW_NIGHTS } from "./types.js";
 import type { DepsReading, StoredRow } from "./core.js";
 import type { LatestDeps } from "../alerts/production-signals.js";
 
@@ -57,13 +57,34 @@ export async function readLatestDeps(db: Db): Promise<LatestDeps | null> {
 /** P1-78g: one night as the overview reads it: the row without its per-site package
  *  lists (the deps alarm reads those through `readLatestDeps`), so a month of nights
  *  costs the snapshot about 1.5 KB each instead of about 7 KB. */
+/** A traffic value with its per-day series optional: an older night on the overview has
+ *  none (P1-87, PR 6 review round 1). */
+type WithOptionalDaily<T extends { daily: unknown }> = Omit<T, "daily"> & {
+  daily?: T["daily"];
+};
+
+/** The traffic block as the overview reads it. Each half's per-day series is on the newest
+ *  night that read that half, which may be an older night than the newest row (a newest night
+ *  whose read failed has none), and the per-site array is on the newest night that read a
+ *  half. So a reader finds a series by looking for `daily`, never by taking the first row.
+ *  Any night may lack `daily` or `sites`, and a half may be unmeasured, so the page ships
+ *  one copy of each series, not one per night (P1-87, PR 6 review rounds 1 and 3). */
+export type OverviewTraffic = Measured<
+  Omit<TrafficCounts, "visits" | "search" | "sites"> & {
+    visits: Measured<WithOptionalDaily<NonNullable<TrafficCounts["visits"]["value"]>>>;
+    search: Measured<WithOptionalDaily<NonNullable<TrafficCounts["search"]["value"]>>>;
+    sites?: TrafficCounts["sites"];
+  }
+>;
+
 export type OverviewNight = {
   night: string;
   /** `run` is null on a row that does not carry it (review round 2). */
-  counts: Omit<FleetDailyCounts, "deps" | "run"> & {
+  counts: Omit<FleetDailyCounts, "deps" | "run" | "traffic"> & {
     /** `sitesRead`: how many sites' package lists that night's count adds up. */
     deps: Measured<{ behind: number; sitesRead: number }>;
     run: FleetDailyCounts["run"] | null;
+    traffic: OverviewTraffic;
   };
 };
 
@@ -71,6 +92,9 @@ export { OVERVIEW_NIGHTS };
 
 /** A block an older or partial row does not carry: unmeasured, never a thrown page. */
 const NOT_IN_ROW = { value: null, reason: "not in this row" } as const;
+
+/** A half the row carries whose value is not a reading (P1-87 PR 7a, review round 1). */
+const MALFORMED = { value: null, reason: MALFORMED_HALF } as const;
 
 /** A block as the reader hands it on: one that is not an object holding `value`
  *  (missing, or hand-written as `{}`) is unmeasured, never passed through to throw
@@ -84,9 +108,155 @@ function measured<T extends { value: unknown }>(b: T | null | undefined): T | ty
  *  reads is guarded the way `readLatestDeps` guards `deps`: a row written before a
  *  block existed (or hand-written) reads it as unmeasured, so `/`, the sign-in
  *  landing, never fails on one (review round 1). */
+const isPlain = (x: unknown): x is Record<string, unknown> =>
+  x !== null && typeof x === "object" && !Array.isArray(x);
+
+/** A count the page can show: a finite number, not negative. */
+const isCount = (x: unknown): x is number => typeof x === "number" && Number.isFinite(x) && x >= 0;
+
+/** A half as stored: a non-array object that holds `value` (the writer always stores it). */
+const isHalf = (h: unknown): h is Record<string, unknown> => isPlain(h) && "value" in h;
+
+/** A failed half, with its stored reason when it is a string. */
+const unmeasuredHalf = (h: Record<string, unknown>): { value: null; reason: string } => ({
+  value: null,
+  reason: typeof h.reason === "string" ? h.reason : "not readable",
+});
+
+/** The visits half, normalised: its exact keys as stored, and `daily` only when `keepDaily`
+ *  is set and it was stored. A half the row does not carry is not in the row; one it carries
+ *  with a value that is not a reading is malformed (P1-87 PR 7a, review round 1). */
+function visitsHalf(h: unknown, keepDaily: boolean): unknown {
+  if (h === undefined) return NOT_IN_ROW;
+  if (!isHalf(h)) return MALFORMED;
+  const v = h.value;
+  if (v === null) return unmeasuredHalf(h);
+  if (!isPlain(v) || !isCount(v.current) || !isCount(v.previous)) return MALFORMED;
+  const out: Record<string, unknown> = {
+    current: v.current,
+    previous: v.previous,
+    currentWindow: v.currentWindow,
+    previousWindow: v.previousWindow,
+    sitesRead: v.sitesRead,
+    sitesWithProperty: v.sitesWithProperty,
+  };
+  if (keepDaily && Array.isArray(v.daily)) out.daily = v.daily;
+  return { value: out };
+}
+
+/** The search half, normalised the way `visitsHalf` is. */
+function searchHalf(h: unknown, keepDaily: boolean): unknown {
+  if (h === undefined) return NOT_IN_ROW;
+  if (!isHalf(h)) return MALFORMED;
+  const v = h.value;
+  if (v === null) return unmeasuredHalf(h);
+  if (!isPlain(v) || !isCount(v.clicks) || !isCount(v.impressions)) return MALFORMED;
+  const out: Record<string, unknown> = {
+    clicks: v.clicks,
+    impressions: v.impressions,
+    window: v.window,
+    sitesRead: v.sitesRead,
+    sitesWithProperty: v.sitesWithProperty,
+  };
+  if (keepDaily && Array.isArray(v.daily)) out.daily = v.daily;
+  return { value: out };
+}
+
+/** The traffic block's value when it is a plain object, else null (not in the row, or failed). */
+function trafficValue(traffic: unknown): Record<string, unknown> | null {
+  const m = measured(traffic as Measured<unknown> | undefined);
+  return m.value !== null && isPlain(m.value) ? m.value : null;
+}
+
+/** Which night holds each series: rows come newest first, so the first match is the newest. */
+function seriesNights(rows: StoredRow[]): { visitsAt: number; searchAt: number; sitesAt: number } {
+  const find = (ok: (row: StoredRow) => boolean): number => rows.findIndex(ok);
+  const halves = (row: StoredRow) => {
+    const v = trafficValue(row.counts.traffic);
+    return {
+      visits: visitsHalf(v?.visits, true) as { value: Record<string, unknown> | null },
+      search: searchHalf(v?.search, true) as { value: Record<string, unknown> | null },
+      hasSites: v !== null && Array.isArray(v.sites),
+    };
+  };
+  return {
+    visitsAt: find((row) => {
+      const h = halves(row).visits.value;
+      return h !== null && "daily" in h;
+    }),
+    searchAt: find((row) => {
+      const h = halves(row).search.value;
+      return h !== null && "daily" in h;
+    }),
+    sitesAt: find((row) => {
+      const h = halves(row);
+      return h.hasSites && (h.visits.value !== null || h.search.value !== null);
+    }),
+  };
+}
+
+/** One half of a site's traffic (P1-87 PR 7a, #2103), rebuilt from the fields `pick` keeps. A
+ *  half the row does not carry is unmeasured; a present half that is not a reading is null. */
+function siteHalf(
+  h: unknown,
+  pick: (v: Record<string, unknown>) => Record<string, number> | null,
+): unknown {
+  if (h === undefined) return NOT_IN_ROW;
+  if (!isHalf(h)) return null;
+  if (h.value === null) return unmeasuredHalf(h);
+  if (!isPlain(h.value)) return null;
+  const v = pick(h.value);
+  return v === null ? null : { value: v };
+}
+
+/** One site's traffic as the overview reads it (#2103): its id, and each half's counts rebuilt
+ *  from their own fields, never passed through. An entry whose id is not a string, or whose
+ *  present half is not a reading, is left out (null). */
+function siteEntry(e: unknown): { siteId: string; visits: unknown; search: unknown } | null {
+  if (!isPlain(e) || typeof e.siteId !== "string") return null;
+  const visits = siteHalf(e.visits, (v) =>
+    isCount(v.current) && isCount(v.previous) ? { current: v.current, previous: v.previous } : null,
+  );
+  const search = siteHalf(e.search, (v) =>
+    isCount(v.clicks) && isCount(v.impressions)
+      ? { clicks: v.clicks, impressions: v.impressions }
+      : null,
+  );
+  return visits === null || search === null ? null : { siteId: e.siteId, visits, search };
+}
+
+/** The traffic block for the page: each half normalised, and the series and sites kept only on
+ *  the nights `keep` names (review round 3, Group A). A block that is not measured passes
+ *  through as unmeasured; a value that is not a plain object is not in the row. */
+function overviewTraffic(
+  block: unknown,
+  keep: { visits: boolean; search: boolean; sites: boolean },
+): OverviewTraffic {
+  const m = measured(block as Measured<TrafficCounts> | undefined);
+  if (m.value === null) return m as OverviewTraffic;
+  if (!isPlain(m.value)) return NOT_IN_ROW;
+  const v = m.value;
+  return {
+    value: {
+      visits: visitsHalf(v.visits, keep.visits),
+      search: searchHalf(v.search, keep.search),
+      ...(keep.sites && Array.isArray(v.sites)
+        ? {
+            sites: v.sites
+              .map(siteEntry)
+              .filter((x): x is NonNullable<typeof x> => x !== null) as TrafficCounts["sites"],
+          }
+        : {}),
+    },
+  } as OverviewTraffic;
+}
+
 export async function readOverviewNights(db: Db): Promise<OverviewNight[]> {
   const rows = await readRecentRows(db, OVERVIEW_NIGHTS);
-  return rows.map(({ night, counts }) => {
+  // Each half's series, and the sites, sit on the newest night that holds them (review round 3,
+  // Group A): a failed or malformed newest night does not take them from an older one.
+  const at = seriesNights(rows);
+  return rows.map(({ night, counts }, i) => {
     const { deps, ...rest } = counts as Partial<FleetDailyCounts>;
     return {
       night,
@@ -102,6 +272,11 @@ export async function readOverviewNights(db: Db): Promise<OverviewNight[]> {
         screenouts: measured(rest.screenouts),
         events: measured(rest.events),
         prsMerged: measured(rest.prsMerged),
+        traffic: overviewTraffic(rest.traffic, {
+          visits: i === at.visitsAt,
+          search: i === at.searchAt,
+          sites: i === at.sitesAt,
+        }),
         deps:
           deps?.value != null
             ? {

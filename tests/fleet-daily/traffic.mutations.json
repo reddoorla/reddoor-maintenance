@@ -1,0 +1,813 @@
+[
+  {
+    "id": "1-visits-throw-writes-zero",
+    "why": "A site whose GA read threw writes 0 visits (an empty map, so 0 on both windows) instead of null",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "visitsRead.set(s.id, { value: null, reason: reasonOf(e) });",
+        "replace": "visitsRead.set(s.id, { value: new Map() });"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2-hostname-filter-dropped",
+    "why": "fetchDailyEngaged drops the site's hostname filter, so localhost and preview hosts are counted",
+    "edits": [
+      {
+        "file": "src/reports/ga/client.ts",
+        "find": "...reportRequest(property, range, \"engagedSessions\", query.hostnames),\n        dimensions",
+        "replace": "...reportRequest(property, range, \"engagedSessions\", []),\n        dimensions"
+      }
+    ],
+    "test": "tests/reports/ga/client.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "3-no-property-counted-in-sitesRead",
+    "why": "A site with no GA4 property is counted as read, with an empty map",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "visitsRead.set(s.id, { value: null, reason: NO_GA_PROPERTY });",
+        "replace": "visitsRead.set(s.id, { value: new Map(), reason: NO_GA_PROPERTY });"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "4-no-search-property-counted-in-sitesRead",
+    "why": "A site with no Search Console property is counted in search's sitesRead",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "    } else {\n      searchRead.set(s.id, { value: null, reason: NO_SEARCH_PROPERTY });",
+        "replace": "    } else {\n      searchRead.set(s.id, { value: new Map(), reason: NO_SEARCH_PROPERTY });"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "5-search-throw-writes-zero",
+    "why": "A search read that threw writes 0 clicks and 0 impressions instead of null",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "searchRead.set(s.id, { value: null, reason: reasonOf(e) });",
+        "replace": "searchRead.set(s.id, { value: new Map() });"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "6-windows-read-clock",
+    "why": "trafficWindows reads the clock's date rather than the night",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "return new Date(Date.parse(`${night}T00:00:00Z`) + offset * MS_PER_DAY)",
+        "replace": "return new Date(Date.now() + offset * MS_PER_DAY)"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "7-previous-overlaps-current",
+    "why": "previous ends one day late, so 2026-10-18 counts in both windows",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "    previous: window(-59, -30),",
+        "replace": "    previous: window(-59, -29),"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "8-search-ignores-lag",
+    "why": "The search window ends on the night instead of 3 days before it",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "    search: window(-30, -3),",
+        "replace": "    search: window(-30, 0),"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "9-no-timeout",
+    "why": "The per-read timeout is removed, so a read that never resolves blocks its site forever",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "    const timer = setTimeout(() => reject(new Error(`read timed out after ${ms / 1000} s`)), ms);",
+        "replace": "    const timer = setTimeout(() => {}, ms);"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "10-one-throw-fails-block",
+    "why": "The visits catch rethrows, so one site's failed read fails the whole block instead of being null",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "visitsRead.set(s.id, { value: null, reason: reasonOf(e) });",
+        "replace": "throw e;"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "11-traffic-not-whitelisted",
+    "why": "readOverviewNights drops the traffic block, so the overview cannot read it",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "        traffic: overviewTraffic(rest.traffic, {\n          visits: i === at.visitsAt,\n          search: i === at.searchAt,\n          sites: i === at.sitesAt,\n        }),",
+        "replace": "        traffic: undefined,"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "12-daily-skips-empty-days",
+    "why": "The daily visits series keeps only days some read site reported, so it is not 60 entries",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "            daily: datesOf(visitRange).map((date) => ({",
+        "replace": "            daily: datesOf(visitRange).filter((d) => readVisits.some((m) => m.has(d))).map((date) => ({"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "13-key-written-with-echo",
+    "why": "The workflow writes the GA key with echo, which can reach the log",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-daily.yml",
+        "find": "printf '%s' \"$GA_SA_KEY_JSON\" > \"$GA_SA_KEY_PATH\"",
+        "replace": "echo \"$GA_SA_KEY_JSON\" > \"$GA_SA_KEY_PATH\""
+      }
+    ],
+    "test": "tests/build/fleet-daily-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "14-runreport-failure-empty-map",
+    "why": "fetchDailyEngaged returns an empty map when runReport rejects, so a failed read reads as 0 visits",
+    "edits": [
+      {
+        "file": "src/reports/ga/client.ts",
+        "find": "      { timeout: READ_TIMEOUT_MS },\n    );",
+        "replace": "      { timeout: READ_TIMEOUT_MS },\n    ).catch(() => [{}]);"
+      }
+    ],
+    "test": "tests/reports/ga/client.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "15-search-first-candidate-when-empty",
+    "why": "Search returns the first candidate that answers, even when it has no rows (Group A)",
+    "edits": [
+      {
+        "file": "src/reports/search/client.ts",
+        "find": "      if (rows.length === 0) continue;",
+        "replace": "      if (false) continue;"
+      }
+    ],
+    "test": "tests/reports/search/client.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "16-search-5xx-falls-through",
+    "why": "A failed candidate read is read as no rows and falls through to the next property (Group A)",
+    "edits": [
+      {
+        "file": "src/reports/search/client.ts",
+        "find": "      });\n      const rows = res.data.rows ?? [];",
+        "replace": "      }).catch(() => ({ data: { rows: [] } }));\n      const rows = res.data.rows ?? [];"
+      }
+    ],
+    "test": "tests/reports/search/client.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "17-no-property-counted-in-sitesWithProperty",
+    "why": "A site with no Search Console property is counted in search's sitesWithProperty (Group B)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "sitesWithProperty: sites.filter((s) => hasSearch(s) && !noSearchProperty.has(s.id))",
+        "replace": "sitesWithProperty: sites.filter(hasSearch)"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "18-reasonOf-does-not-mask-email",
+    "why": "reasonOf stores a subject's address unmasked (Group B)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "(msg.trim().replace(/\\S+@\\S+/g, \"<account>\") || \"read failed\")",
+        "replace": "(msg.trim() || \"read failed\")"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "19-search-query-no-timeout",
+    "why": "The Search Console query request has no timeout (Group C)",
+    "edits": [
+      {
+        "file": "src/reports/search/client.ts",
+        "find": "        timeout: READ_TIMEOUT_MS,\n      });\n      const rows = res.data.rows ?? [];",
+        "replace": "      });\n      const rows = res.data.rows ?? [];"
+      }
+    ],
+    "test": "tests/reports/search/client.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "20-search-sites-list-no-timeout",
+    "why": "The Search Console sites.list request has no timeout (Group C)",
+    "edits": [
+      {
+        "file": "src/reports/search/client.ts",
+        "find": "        method: \"GET\",\n        timeout: READ_TIMEOUT_MS,",
+        "replace": "        method: \"GET\","
+      }
+    ],
+    "test": "tests/reports/search/client.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "21-ga-runreport-no-timeout",
+    "why": "The GA runReport call has no timeout (Group C)",
+    "edits": [
+      {
+        "file": "src/reports/ga/client.ts",
+        "find": "      { timeout: READ_TIMEOUT_MS },",
+        "replace": "      {},"
+      }
+    ],
+    "test": "tests/reports/ga/client.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "22-trafficReaders-ignores-missing-key",
+    "why": "trafficReaders builds readers when the key file is missing (Group C)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic-wiring.ts",
+        "find": "if (!cfg || !deps.existsSync(cfg.keyPath)) return null;",
+        "replace": "if (!cfg) return null;"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "23-wiring-hostnames-empty",
+    "why": "The visits reader drops the site's hostname filter (E12)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic-wiring.ts",
+        "find": "hostnames: measuredHostnames(site.url),",
+        "replace": "hostnames: [],"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "24-wiring-host-is-url",
+    "why": "The search reader passes the URL as the host (E13)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic-wiring.ts",
+        "find": "host: hostnameOf(site.url),",
+        "replace": "host: site.url,"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "25-wiring-maintained-filter-removed",
+    "why": "The traffic sites include launching and archived sites (E14)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic-wiring.ts",
+        "find": ".filter((s) => s.status === \"maintained\")",
+        "replace": ".filter(() => true)"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "26-wiring-night-from-clock",
+    "why": "The night is taken from the UTC clock, not the run's creation time (E15)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic-wiring.ts",
+        "find": "return nightOf(env.RUN_CREATED_AT);",
+        "replace": "return new Date().toISOString().slice(0, 10);"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "27-wiring-readers-built-when-config-null",
+    "why": "Readers are built when GA is not configured (E16)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic-wiring.ts",
+        "find": "if (!cfg || !deps.existsSync(cfg.keyPath)) return null;",
+        "replace": "if (cfg && !deps.existsSync(cfg.keyPath)) return null;"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "28-visits-timeout-30ms",
+    "why": "The per-site timeout is 30 ms, not 30 s (E1)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "const DEFAULT_TIMEOUT_MS = 30_000;",
+        "replace": "const DEFAULT_TIMEOUT_MS = 30;"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "29-default-concurrency-2",
+    "why": "The default concurrency is 2, not 4 (E3)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "const DEFAULT_CONCURRENCY = 4;",
+        "replace": "const DEFAULT_CONCURRENCY = 2;"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "30-search-read-without-timeout",
+    "why": "The search read has no per-site timeout, so a hung read holds the block (E4)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "await withTimeout(\n            Promise.resolve().then(() => readers.search(s, windows.search)),\n            opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,\n          );",
+        "replace": "await (\n            Promise.resolve().then(() => readers.search(s, windows.search))\n          );"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "31-search-no-site-read-check-removed",
+    "why": "Search with every read failed is not 'no site read' (E5)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "readSearch.length === 0",
+        "replace": "false"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "32-search-daily-skips-empty-days",
+    "why": "The search daily series skips days with no rows, instead of writing 0 (E6)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "daily: datesOf(windows.search).map((date) => ({",
+        "replace": "daily: datesOf(windows.search).filter((d) => readSearch.some((m) => m.has(d))).map((date) => ({"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "33-ga-first-subject-only",
+    "why": "fetchDailyEngaged tries the first subject only (E8)",
+    "edits": [
+      {
+        "file": "src/reports/ga/client.ts",
+        "find": "  const key = readKey(query.keyPath);\n  const property = `properties/${query.propertyId.trim()}`;\n\n  return withSubjectFailover(query.subjects, \"GA\"",
+        "replace": "  const key = readKey(query.keyPath);\n  const property = `properties/${query.propertyId.trim()}`;\n\n  return withSubjectFailover([query.subjects[0]!], \"GA\""
+      }
+    ],
+    "test": "tests/reports/ga/client.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "34-search-first-subject-only",
+    "why": "fetchSearchDaily tries the first subject only (E11)",
+    "edits": [
+      {
+        "file": "src/reports/search/client.ts",
+        "find": "  return withSubjectFailover(q.subjects, \"Search Console\"",
+        "replace": "  return withSubjectFailover([q.subjects[0]!], \"Search Console\""
+      }
+    ],
+    "test": "tests/reports/search/client.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "35-workflow-key-guard-removed",
+    "why": "The key write is not guarded by a non-empty GA_SA_KEY_JSON (E17)",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-daily.yml",
+        "find": "          if [ -n \"$GA_SA_KEY_JSON\" ]; then",
+        "replace": "          if true; then"
+      }
+    ],
+    "test": "tests/build/fleet-daily-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "36-unparseable-metric-read-as-0",
+    "why": "A non-numeric GA metric is read as 0 instead of failing the read (E20)",
+    "edits": [
+      {
+        "file": "src/reports/ga/client.ts",
+        "find": "if (!/^\\d+$/.test(metric))",
+        "replace": "if (false)"
+      },
+      {
+        "file": "src/reports/ga/client.ts",
+        "find": "Number(metric));",
+        "replace": "Number(metric) || 0);"
+      }
+    ],
+    "test": "tests/reports/ga/client.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "37-older-rows-keep-daily",
+    "why": "An older overview row keeps the visits per-day series (the keepDaily check is ignored; Group F, repointed in review round 3)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "  if (keepDaily && Array.isArray(v.daily)) out.daily = v.daily;\n  return { value: out };\n}\n\n/** The search half",
+        "replace": "  if (Array.isArray(v.daily)) out.daily = v.daily;\n  return { value: out };\n}\n\n/** The search half"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "38-half-guard-removed",
+    "why": "The half guard is removed, so a block with no half (or a null one) throws reading its value, and the page with it (repointed in review round 3)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "const isHalf = (h: unknown): h is Record<string, unknown> => isPlain(h) && \"value\" in h;",
+        "replace": "const isHalf = (h: unknown): h is Record<string, unknown> => true;"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "40-search-two-candidates",
+    "why": "The Search Console daily read looks at two matching properties, not all of them (X1)",
+    "edits": [
+      {
+        "file": "src/reports/search/client.ts",
+        "find": "    for (const property of candidates) {\n      const res = await jwt.request<{\n        rows?: Array<{ keys?: string[]; clicks?: number",
+        "replace": "    for (const property of candidates.slice(0, 2)) {\n      const res = await jwt.request<{\n        rows?: Array<{ keys?: string[]; clicks?: number"
+      }
+    ],
+    "test": "tests/reports/search/client.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "41-mask-not-global",
+    "why": "The address mask masks only the first address in a message (X5)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": ".replace(/\\S+@\\S+/g, \"<account>\")",
+        "replace": ".replace(/\\S+@\\S+/, \"<account>\")"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "42-mask-leaves-domain",
+    "why": "The address mask leaves the domain after the @ (X6)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": ".replace(/\\S+@\\S+/g, \"<account>\")",
+        "replace": ".replace(/\\S+@(?=\\S)/g, \"<account>\")"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "43-key-check-given-subject",
+    "why": "The key file's existence is checked at the first subject, not the key path (X10)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic-wiring.ts",
+        "find": "deps.existsSync(cfg.keyPath)",
+        "replace": "deps.existsSync(cfg.subjects[0]!)"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic-wiring.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "44-ga-metric-unanchored",
+    "why": "GA's whole-number check is not anchored, so 1.5 and 3x are read as numbers (X18)",
+    "edits": [
+      {
+        "file": "src/reports/ga/client.ts",
+        "find": "if (!/^\\d+$/.test(metric))",
+        "replace": "if (!/\\d+/.test(metric))"
+      }
+    ],
+    "test": "tests/reports/ga/client.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "45-reasonOf-syntaxerror-removed",
+    "why": "A malformed key file's parse error is stored with the text it quoted (Group C)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "  if (e instanceof SyntaxError && /JSON/.test(e.message)) return \"GA key file unreadable\";\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "46-umask-removed",
+    "why": "The key file is written with the default umask, so it can be world-readable (Group C)",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-daily.yml",
+        "find": "            umask 077\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/build/fleet-daily-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-series-night-first-valued-row",
+    "why": "The series night is the first row whose block value is non-null, the round-2 rule, so a failed newest night takes the slot from the night before (Group A, the writer-shape test)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "  const find = (ok: (row: StoredRow) => boolean): number => rows.findIndex(ok);",
+        "replace": "  const find = (_ok: (row: StoredRow) => boolean): number =>\n    rows.findIndex(({ counts }) => measured(counts.traffic as Measured<TrafficCounts> | undefined).value !== null);"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-search-night-shares-visits-index",
+    "why": "The search series night is the newest row with either half read, so one index serves both halves and the per-half test goes red",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "    searchAt: find((row) => {\n      const h = halves(row).search.value;\n      return h !== null && \"daily\" in h;\n    }),",
+        "replace": "    searchAt: find((row) => halves(row).visits.value !== null || halves(row).search.value !== null),"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-visits-required-count-removed",
+    "why": "visitsHalf accepts a visits value with no previous (or current) count, so a partial newest row passes its half through",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "  if (!isPlain(v) || !isCount(v.current) || !isCount(v.previous)) return NOT_IN_ROW;",
+        "replace": "  if (!isPlain(v)) return NOT_IN_ROW;"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-stored-null-visits-half-not-in-row",
+    "why": "A stored visits half with value null is returned as not in the row, so its failure reason is lost (tests x3)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "  if (v === null) return unmeasuredHalf(h);\n  if (!isPlain(v) || !isCount(v.current)",
+        "replace": "  if (v === null) return NOT_IN_ROW;\n  if (!isPlain(v) || !isCount(v.current)"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-unknown-block-keys-copied",
+    "why": "The block's unknown keys are copied (...v), and a string value is spread into character keys (\"0\", ...), so the string-value test goes red",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "  if (!isPlain(m.value)) return NOT_IN_ROW;\n  const v = m.value;\n  return {\n    value: {\n      visits:",
+        "replace": "  const v = m.value as Record<string, unknown>;\n  return {\n    value: {\n      ...v,\n      visits:"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-mask-at-only",
+    "why": "The address mask is /@\\S+/g, so the mailbox name survives as john.smith<account> and the exact reason fails (x13)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": ".replace(/\\S+@\\S+/g, \"<account>\")",
+        "replace": ".replace(/@\\S+/g, \"<account>\")"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-mask-eats-host-after-dot",
+    "why": "The address mask is /\\S+@[^\\s.]+/g, so the host's tail (.com) is left behind as <account>.com (x12)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": ".replace(/\\S+@\\S+/g, \"<account>\")",
+        "replace": ".replace(/\\S+@[^\\s.]+/g, \"<account>\")"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-mask-eats-dotted-words",
+    "why": "The address mask is /\\S+@\\S+|\\S+\\.\\S+/g, so any dotted word (the host name b.com) is masked too (x14)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": ".replace(/\\S+@\\S+/g, \"<account>\")",
+        "replace": ".replace(/\\S+@\\S+|\\S+\\.\\S+/g, \"<account>\")"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-key-file-no-json-check",
+    "why": "Every SyntaxError maps to GA key file unreadable, so a SyntaxError that does not say JSON loses its message (x8)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "if (e instanceof SyntaxError && /JSON/.test(e.message)) return \"GA key file unreadable\";",
+        "replace": "if (e instanceof SyntaxError) return \"GA key file unreadable\";"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r3-key-file-instanceof-error",
+    "why": "Any Error whose message says JSON maps to GA key file unreadable, not only a SyntaxError, so a plain JSON error loses its message (x7)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/traffic.ts",
+        "find": "if (e instanceof SyntaxError && /JSON/.test(e.message)) return \"GA key file unreadable\";",
+        "replace": "if (e instanceof Error && /JSON/.test(e.message)) return \"GA key file unreadable\";"
+      }
+    ],
+    "test": "tests/fleet-daily/traffic.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4-visits-half-drops-currentWindow",
+    "why": "visitsHalf keeps every visits key but currentWindow, so the page loses the current window's dates (the round-4 major 1 key pin)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "    currentWindow: v.currentWindow,\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4-search-half-drops-sitesWithProperty",
+    "why": "searchHalf keeps every search key but sitesWithProperty, so the page loses the search property count (the round-4 major 1 key pin)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "    window: v.window,\n    sitesRead: v.sitesRead,\n    sitesWithProperty: v.sitesWithProperty,\n",
+        "replace": "    window: v.window,\n    sitesRead: v.sitesRead,\n"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4-search-half-required-counts-removed",
+    "why": "searchHalf no longer checks its required counts, so a newest search half of {} or with one count is read as a half and the night before's series is lost (the round-4 major 2)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "!isPlain(v) || !isCount(v.clicks) || !isCount(v.impressions)",
+        "replace": "!isPlain(v)"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4-search-half-clicks-check-removed",
+    "why": "searchHalf checks impressions but not clicks, so a newest search half with only impressions is read as a half (the round-4 major 2, the clicks part alone)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "!isPlain(v) || !isCount(v.clicks) || !isCount(v.impressions)",
+        "replace": "!isPlain(v) || !isCount(v.impressions)"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4-visits-half-current-check-removed",
+    "why": "visitsHalf checks previous but not current, so a newest visits half with only previous is read as a half (the round-4 major 2, the current check alone)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "!isCount(v.current) || !isCount(v.previous)",
+        "replace": "!isCount(v.previous)"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4-sitesAt-keyed-on-visits-only",
+    "why": "The night that holds sites is found by a visits read only, so a newest night that read search and failed visits does not hold them (the round-4 major 3, the mirror case)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "return h.hasSites && (h.visits.value !== null || h.search.value !== null);",
+        "replace": "return h.hasSites && h.visits.value !== null;"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "r4-sites-keep-flag-takes-visitsAt",
+    "why": "The sites keep flag is set on the night the visits series sits on, not the night that holds sites, so a newest night with search read and failed visits drops its sites (the round-4 major 3, the mirror case)",
+    "edits": [
+      {
+        "file": "src/fleet-daily/read.ts",
+        "find": "sites: i === at.sitesAt,",
+        "replace": "sites: i === at.visitsAt,"
+      }
+    ],
+    "test": "tests/fleet-daily/read-overview.test.ts",
+    "expect": "red"
+  }
+]

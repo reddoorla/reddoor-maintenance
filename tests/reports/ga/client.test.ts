@@ -18,6 +18,7 @@ vi.mock("google-auth-library", () => ({
 }));
 
 import {
+  fetchDailyEngaged,
   fetchPeriodUsers,
   fetchReportVisits,
   measuredHostnames,
@@ -358,5 +359,104 @@ describe("fetchReportVisits (P1-73)", () => {
     ).rejects.toThrow("backend error");
     expect(adminRequest).toHaveBeenCalledTimes(1);
     expect(runReport).not.toHaveBeenCalled();
+  });
+});
+
+describe("fetchDailyEngaged", () => {
+  const range = { startDate: "2026-11-01", endDate: "2026-11-02" };
+  const query = {
+    propertyId: "471880366",
+    subjects: ["tucker@reddoorla.com"],
+    keyPath,
+    hostnames: measuredHostnames("https://reddoorla.com/"),
+  };
+
+  it("runs one daily engagedSessions report over the range, on the site's own hosts", async () => {
+    runReport.mockResolvedValueOnce([{ rows: [] }]);
+    await fetchDailyEngaged(query, range);
+
+    expect(runReport).toHaveBeenCalledTimes(1);
+    const req = runReport.mock.calls[0]![0];
+    expect(req.property).toBe("properties/471880366");
+    expect(req.dateRanges).toEqual([range]);
+    expect(req.dimensions).toEqual([{ name: "date" }]);
+    expect(req.metrics).toEqual([{ name: "engagedSessions" }]);
+    expect(req.dimensionFilter.filter.fieldName).toBe("hostName");
+    expect(req.dimensionFilter.filter.inListFilter.values).toEqual(
+      expect.arrayContaining(["reddoorla.com"]),
+    );
+  });
+
+  it("maps GA's YYYYMMDD dates to YYYY-MM-DD counts", async () => {
+    runReport.mockResolvedValueOnce([
+      {
+        rows: [
+          { dimensionValues: [{ value: "20261101" }], metricValues: [{ value: "12" }] },
+          { dimensionValues: [{ value: "20261102" }], metricValues: [{ value: "7" }] },
+        ],
+      },
+    ]);
+    const out = await fetchDailyEngaged(query, range);
+    expect(out).toEqual(
+      new Map([
+        ["2026-11-01", 12],
+        ["2026-11-02", 7],
+      ]),
+    );
+  });
+
+  it("throws, rather than returning an empty map, when runReport rejects", async () => {
+    runReport.mockRejectedValueOnce(new Error("quota blew up"));
+    await expect(fetchDailyEngaged(query, range)).rejects.toThrow("quota blew up");
+  });
+
+  // Review round 1, Group E: the metric must be a whole number, or the read fails.
+  it("throws, rather than reading 0, when a day's metric is not a whole number", async () => {
+    runReport.mockResolvedValueOnce([
+      { rows: [{ dimensionValues: [{ value: "20261101" }], metricValues: [{ value: "abc" }] }] },
+    ]);
+    await expect(fetchDailyEngaged(query, range)).rejects.toThrow(/non-numeric/);
+  });
+
+  // Review round 2, Group B (X18): a decimal or a suffixed number is a failed read too.
+  it.each(["1.5", "3x"])(
+    "throws, rather than reading a number, when a metric is %s",
+    async (bad) => {
+      runReport.mockResolvedValueOnce([
+        { rows: [{ dimensionValues: [{ value: "20261101" }], metricValues: [{ value: bad }] }] },
+      ]);
+      await expect(fetchDailyEngaged(query, range)).rejects.toThrow(/non-numeric/);
+    },
+  );
+
+  it("throws when a row's date is not YYYYMMDD", async () => {
+    runReport.mockResolvedValueOnce([
+      { rows: [{ dimensionValues: [{ value: "2026-11-01" }], metricValues: [{ value: "3" }] }] },
+    ]);
+    await expect(fetchDailyEngaged(query, range)).rejects.toThrow(/non-date row/);
+  });
+
+  // Review round 1, Group E: one subject's auth failure falls through to the next.
+  it("fails over to the next subject on an auth error, and reads the second subject's rows", async () => {
+    runReport
+      .mockRejectedValueOnce(Object.assign(new Error("PERMISSION_DENIED"), { code: 7 }))
+      .mockResolvedValueOnce([
+        { rows: [{ dimensionValues: [{ value: "20261101" }], metricValues: [{ value: "9" }] }] },
+      ]);
+    const out = await fetchDailyEngaged(
+      { ...query, subjects: ["first@reddoorla.com", "second@reddoorla.com"] },
+      range,
+    );
+    expect(out).toEqual(new Map([["2026-11-01", 9]]));
+    expect(runReport).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(JWT).mock.calls[0]![0]).toMatchObject({ subject: "first@reddoorla.com" });
+    expect(vi.mocked(JWT).mock.calls[1]![0]).toMatchObject({ subject: "second@reddoorla.com" });
+  });
+
+  // Group C: a stalled GA call must not hold the job open after its row is written.
+  it("passes a 30 s timeout as the call options of runReport", async () => {
+    runReport.mockResolvedValueOnce([{ rows: [] }]);
+    await fetchDailyEngaged(query, range);
+    expect(runReport.mock.calls[0]![1]).toEqual({ timeout: 30_000 });
   });
 });

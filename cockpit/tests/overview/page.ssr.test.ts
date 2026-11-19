@@ -15,8 +15,19 @@ import {
 import { buildCockpitView } from "../../src/lib/cockpit/view.js";
 import { cockpitModelFromSnapshot } from "../../../src/dashboard/snapshot-views.js";
 import { makeSubmissionRow } from "../../../tests/_helpers/submission-row.js";
+import { makeWebsiteRow } from "../../../tests/_helpers/website-row.js";
 import { withoutComments } from "../legacy/render.js";
-import { NOW, FRESH, STALE, event, healthy, night, report, snapshot } from "./fixtures.js";
+import {
+  NOW,
+  FRESH,
+  STALE,
+  event,
+  healthy,
+  night,
+  report,
+  snapshot,
+  trafficBlock,
+} from "./fixtures.js";
 
 /**
  * P1-78g review round 1 (T1, T2, T6, T7): the overview page itself, rendered inside
@@ -94,6 +105,8 @@ describe("the overview page, rendered from a real view (T1)", () => {
       "Fleet health · 3 sites",
       "How much is happening",
       "Lately",
+      // P1-87 PR 5a: the nightly audit bar, under the three panels.
+      "The nightly audit",
       "Every site",
       "Leads",
       "Client reports",
@@ -386,6 +399,13 @@ describe("the sentinel render: each leaf in its labelled element (T1, T2; round 
       /^(live|nightly)(\.|\[)/.test(p) ||
       // The page shows a stamp's date and time apart (P1-87 PR 4, review round 2 B).
       /^lately\.lines\[[a-z]+\]\.when$/.test(p) ||
+      // P1-87 PR 5a: the bar's mode, its running label and instants are read as
+      // attributes or inside its line; the marker is a style the page computes; a
+      // step's file and state are its class and its inferred place.
+      /^cycle\.(mode|runningLabel|nowIso|windowEndIso|staleAfterIso|marker|refresh\.(fromIso|untilIso)|next\.startIso)$/.test(
+        p,
+      ) ||
+      /^cycle\.steps\[[a-z]+\]\.(file|state)$/.test(p) ||
       // The Upkeep section keeps only Open now and the major upgrades (the operator,
       // 11-16): the two counts on /how and the tiles are not shown here.
       p === "upkeep.automerged" ||
@@ -950,7 +970,8 @@ describe("the first screen (P1-87 PR 3)", () => {
 
   it("shows no site name in the panels on a quiet day", () => {
     const panels = parse(screen(quiet));
-    expect(panels.querySelectorAll("section").length).toBe(3);
+    // The three panels and, since P1-87 PR 5a, the nightly audit bar under them.
+    expect(panels.querySelectorAll("section").length).toBe(4);
     for (const name of quietSites) expect(screen(quiet)).not.toContain(name);
     // Control: the same scan finds a name when a site is broken and listed in the strip.
     expect(text(DOC.querySelector("section.ov-status")!)).toContain("Bravo");
@@ -1030,14 +1051,14 @@ describe("the first screen (P1-87 PR 3)", () => {
       ),
     );
     const nums = none.querySelectorAll(".ov-tile .ov-num").map(text);
-    expect(nums.length).toBe(6);
+    expect(nums.length).toBe(8);
     expect(nums).not.toContain("0");
     expect(nums.every((n) => n === "not readable")).toBe(true);
   });
 
   it("each tile names its number, its label and its context; the sparkline is hidden from readers", () => {
     const tiles = DOC.querySelectorAll(".ov-tile");
-    expect(tiles.length).toBe(6);
+    expect(tiles.length).toBe(8);
     for (const t of tiles) {
       expect(t.querySelector(".ov-label")).not.toBeNull();
       const svg = t.querySelector("svg");
@@ -1065,9 +1086,10 @@ describe("the first screen (P1-87 PR 3)", () => {
       ),
     ).reverse();
     const page = parse(pageHtml(overviewFromSnapshot(snapshot({ nights: fourteen }), NOW)));
-    // The checks tile is the third (round 1, fix 6 removed the leads sparkline): its
-    // sixth night has no count, so the line breaks there: a run of 5, then a run of 8.
-    const checks = page.querySelectorAll(".ov-tile")[2]!;
+    // The checks tile is the fifth (round 1, fix 6 removed the leads sparkline; PR 7a put the
+    // two traffic tiles first): its sixth night has no count, so the line breaks there: a run
+    // of 5, then a run of 8.
+    const checks = page.querySelectorAll(".ov-tile")[4]!;
     const runs = [...checks.querySelectorAll("polyline")];
     expect(runs.length).toBe(2);
     expect(runs[0]!.getAttribute("points")!.split(" ").length).toBe(5);
@@ -1218,7 +1240,7 @@ describe("the first screen's bars and launching line (P1-87 PR 3, round 1)", () 
         ),
       ),
     );
-    expect(none.querySelectorAll(".ov-tile .ov-num.unknown").length).toBe(6);
+    expect(none.querySelectorAll(".ov-tile .ov-num.unknown").length).toBe(8);
     // On the page fixture, exactly the numbers that are words (not digits) carry the class.
     const nums = DOC.querySelectorAll(".ov-tile .ov-num");
     const words = nums.filter((n) => !/^\d+$/.test(text(n)));
@@ -1362,7 +1384,13 @@ describe("the first screen's layout and tones, pinned in the stylesheet (review 
   });
 
   it("lines an unmeasured tile's label up with its neighbours: the measured line box (I, nit 10)", () => {
-    expect(ruleOf(".ov-num.unknown")).toMatch(/min-height:\s*calc\(1\.9rem \* 1\.1\)/);
+    // Review round 2, B.2: the rule is shared with `.long`, so its selector is the pair.
+    // Review round 3, B.5: the shared rule also keeps the figure's bottom edge (the alignment),
+    // so dropping `align-items` cannot pass silently.
+    const shared = ruleOf(".ov-num.unknown,\n.ov-num.long");
+    expect(shared).toMatch(/min-height:\s*calc\(1\.9rem \* 1\.1\)/);
+    expect(shared).toMatch(/display:\s*flex/);
+    expect(shared).toMatch(/align-items:\s*flex-end/);
   });
 });
 
@@ -1472,7 +1500,7 @@ describe("the Lately feed on the page (P1-87 PR 4)", () => {
   it("is the third panel beside the first screen, headed Lately, with no All activity link", () => {
     expect(
       DOC.querySelectorAll(".ov-first > section").map((el) => el.getAttribute("class")),
-    ).toEqual(["ov-health", "ov-happening", "ov-lately"]);
+    ).toEqual(["ov-health", "ov-happening", "ov-lately", "ov-cycle"]);
     expect(text(DOC.querySelector(".ov-lately > h2")!)).toBe("Lately");
     expect(HTML).not.toMatch(/All activity/i);
   });
@@ -1628,6 +1656,418 @@ describe("the Lately feed on the page (P1-87 PR 4)", () => {
     expect(text(empty.querySelector(".ov-lately")!)).toContain(
       "Nothing recorded in the last 7 days.",
     );
+  });
+});
+
+/** P1-87 PR 5a: the nightly audit bar, the first screen's section under the three panels. */
+describe("the nightly audit bar on the page (P1-87 PR 5a)", () => {
+  const RUN_NOW = new Date("2026-10-27T07:30:00.000Z");
+  // A run in progress: CMS check stamped at 11:10pm PT, so CMS sync or Security runs.
+  const RUNNING = overviewFromSnapshot(
+    snapshot({
+      nights: [],
+      // Two sites carry the CMS check's stamp: a step counts mid-run on two sites (P1-87
+      // PR 5a, review round 1, Group B).
+      sites: ["recA", "recB"].map((id) =>
+        makeWebsiteRow({
+          id,
+          name: id === "recA" ? "Acme" : "Beta",
+          status: "maintained",
+          urlCheckedAt: null,
+          prismicModelsCheckedAt: "2026-10-27T06:10:00.000Z",
+        }),
+      ),
+    }),
+    RUN_NOW,
+  );
+  const RDOC = parse(pageHtml(RUNNING));
+  // A recorded night, with the CMS check's own stamp inside that run.
+  const RECORDED = overviewFromSnapshot(
+    snapshot({
+      nights: [night("2026-10-26")],
+      sites: [
+        makeWebsiteRow({
+          id: "recA",
+          name: "Acme",
+          status: "maintained",
+          urlCheckedAt: null,
+          prismicModelsCheckedAt: "2026-10-27T06:15:00.000Z",
+        }),
+      ],
+    }),
+    NOW,
+  );
+  const EDOC = parse(pageHtml(RECORDED));
+
+  it("is a full-width section under the three panels, headed The nightly audit, with its line", () => {
+    const sec = RDOC.querySelector(".ov-first > section.ov-cycle")!;
+    expect(sec).not.toBeNull();
+    expect(sec.getAttribute("aria-labelledby")).toBe("ov-cycle-h");
+    expect(text(sec.querySelector("h2")!)).toBe("The nightly audit");
+    expect(text(sec.querySelector("p.ov-cycle-line")!)).toBe(RUNNING.cycle.line);
+    expect(RUNNING.cycle.line).toBe("Running since 11:07pm PT · now on CMS sync or Security");
+  });
+
+  it("draws nine segments in run order: eight steps, then the wait to the next run", () => {
+    const items = RDOC.querySelectorAll(".ov-cycle-track > li");
+    expect(items).toHaveLength(9);
+    expect(items.slice(0, 8).map((li) => text(li.querySelector(".ov-cycle-name")!))).toEqual([
+      "Backup",
+      "CMS check",
+      "CMS sync",
+      "Security",
+      "Site checks",
+      "Build and tests",
+      "Live forms",
+      "Report drafts",
+    ]);
+    expect(items[8]!.getAttribute("class")).toBe("ov-cycle-seg wait");
+    expect(text(items[8]!)).toContain("Next run");
+    expect(text(items[8]!)).toContain("11:07pm PT");
+  });
+
+  it("stripes only the running bars, through one pattern on the page", () => {
+    const running = RDOC.querySelectorAll(".ov-cycle-seg.running");
+    expect(running.map((li) => text(li.querySelector(".ov-cycle-name")!))).toEqual([
+      "CMS sync",
+      "Security",
+    ]);
+    expect(RDOC.querySelectorAll(".ov-cycle pattern#ov-cycle-stripes")).toHaveLength(1);
+    expect(RDOC.querySelectorAll('.ov-cycle rect[fill="url(#ov-cycle-stripes)"]')).toHaveLength(2);
+    // A recorded night has nothing running, so it draws no stripes.
+    expect(EDOC.querySelectorAll(".ov-cycle pattern")).toHaveLength(0);
+    expect(EDOC.querySelectorAll(".ov-cycle-seg.running")).toHaveLength(0);
+  });
+
+  it("says each step's words to a screen reader, after its name", () => {
+    const words = RDOC.querySelectorAll(".ov-cycle-track > li")
+      .slice(0, 8)
+      .map((li) => text(li.querySelector(".visually-hidden")!));
+    expect(words).toEqual(RUNNING.cycle.steps.map((x) => `: ${x.words}`));
+    expect(words[1]).toBe(": finished at 11:10pm PT");
+    expect(words[2]).toBe(": running now, or the step beside it");
+  });
+
+  it("shows a step's time where it has one, and none where it does not", () => {
+    const times = EDOC.querySelectorAll(".ov-cycle-track > li")
+      .slice(0, 8)
+      .map((li) => text(li.querySelector(".ov-cycle-time")!));
+    expect(times).toEqual(RECORDED.cycle.steps.map((x) => x.time ?? ""));
+    expect(times[1]).toBe("11:15pm");
+    expect(times[0]).toBe("");
+  });
+
+  it("places the marker along the wait, and says when the next run starts", () => {
+    const marker = EDOC.querySelector(".ov-cycle .ov-cycle-marker")!;
+    expect(marker.getAttribute("style")).toMatch(/^left: 36\.2\d*%$/);
+    // A running bar has no marker: the wait to the next run has not begun.
+    expect(RDOC.querySelector(".ov-cycle .ov-cycle-marker")).toBeNull();
+    expect(RDOC.querySelector(".ov-cycle-seg.running .ov-cycle-marker")).toBeNull();
+  });
+
+  it("is explained in How we count, under its own term", () => {
+    const entry = HOW_WE_COUNT.find((h) => h.term === "The nightly audit bar");
+    expect(entry).toBeDefined();
+    expect(entry!.text).toContain("Backup, CMS sync and Report drafts leave no time");
+    expect(entry!.text).toContain("every 2 minutes");
+    // P1-87 PR 5a, review round 1, Group D: what a step needs mid-run, and when a page left open
+    // checks again.
+    expect(entry!.text).toContain("a single site re-tested by hand does not move the bar");
+    expect(entry!.text).toContain("once the run's five hours are up or the next start has come");
+    expect(
+      RDOC.querySelector('section.ov-cycle[data-term="The nightly audit bar"]'),
+    ).not.toBeNull();
+  });
+
+  // P1-87 PR 5a, review round 1, Group C: forced colours replace every bar's fill, so each
+  // state is a border; a waiting bar is seen on the page; and each step's time is read once.
+  it("gives every state its own border under forced colours, and a waiting bar a visible outline (review round 1, C)", () => {
+    const raw = readFileSync(
+      new URL("../../src/lib/overview/overview.css", import.meta.url),
+      "utf8",
+    ).replace(/\/\*[\s\S]*?\*\//g, "");
+    const at = raw.indexOf("@media (forced-colors: active)");
+    expect(at).toBeGreaterThan(-1);
+    let depth = 0;
+    let end = raw.indexOf("{", at);
+    for (let i = end; i < raw.length; i++) {
+      if (raw[i] === "{") depth++;
+      else if (raw[i] === "}" && --depth === 0) {
+        end = i;
+        break;
+      }
+    }
+    const forced = raw.slice(at, end + 1);
+    const block = (sel: string) =>
+      [...forced.matchAll(/([^{}]+)\{([^}]*)\}/g)].find(([, s]) => s!.trim() === sel)?.[2] ?? "";
+    expect(block(".ov-cycle-bar")).toMatch(/box-sizing:\s*border-box/);
+    expect(block(".ov-cycle-seg.done .ov-cycle-bar")).toMatch(/border-top:\s*0?\.625rem solid/);
+    expect(block(".ov-cycle-seg.problem .ov-cycle-bar")).toMatch(/border:\s*2px dotted/);
+    expect(block(".ov-cycle-seg.none .ov-cycle-bar")).toMatch(/border:\s*2px dashed/);
+    expect(block(".ov-cycle-seg.waiting .ov-cycle-bar")).toMatch(/border:\s*1px solid/);
+    // Round 2 (accessibility minor 1): the Next-run track is 3px double, so it differs from a
+    // waiting step's 1px solid under forced colours.
+    expect(block(".ov-cycle-seg.wait .ov-cycle-bar")).toMatch(/border:\s*3px double/);
+    expect(block(".ov-cycle-marker")).toMatch(/border-left:\s*2px solid/);
+    // Outside the forced block, a waiting bar keeps the band fill and an inset outline.
+    const plain = raw.slice(0, at) + raw.slice(end + 1);
+    const outlined = [...plain.matchAll(/([^{}]+)\{([^}]*)\}/g)].some(
+      ([, sel, body]) =>
+        sel!.trim() === ".ov-cycle-seg.waiting .ov-cycle-bar" &&
+        /box-shadow:\s*inset 0 0 0 1px var\(--ink-muted\)/.test(body!),
+    );
+    expect(outlined).toBe(true);
+  });
+
+  // P1-87 PR 5a, review round 2 (accessibility minors 1 and 2): in light and dark alike, the
+  // Next-run track is outlined like a waiting bar, and a none step is a dashed outline, so the
+  // two differ by shape.
+  it("outlines the Next-run track and dashes a none step's outline in light and dark (review round 2)", () => {
+    const raw = readFileSync(
+      new URL("../../src/lib/overview/overview.css", import.meta.url),
+      "utf8",
+    ).replace(/\/\*[\s\S]*?\*\//g, "");
+    // The base rules alone: the forced-colours block is cut out first, and the wrapper of
+    // the base none border (`@media not all and (forced-colors: active)`, P1-87 PR 5a round 3) is
+    // taken off, so its rule still reads as a base rule.
+    const plain = raw
+      .replace(/@media \(forced-colors: active\)\s*\{[\s\S]*?\n\}/, "")
+      .replace(/@media not all and \(forced-colors: active\)\s*\{/g, "");
+    const bodies = (sel: string) =>
+      [...plain.matchAll(/([^{}]+)\{([^}]*)\}/g)]
+        .filter(([, s]) => s!.trim() === sel)
+        .map(([, , body]) => body!);
+    expect(bodies(".ov-cycle-seg.wait .ov-cycle-bar").join(" ")).toMatch(
+      /box-shadow:\s*inset 0 0 0 1px var\(--ink-muted\)/,
+    );
+    expect(bodies(".ov-cycle-seg.none .ov-cycle-bar").join(" ")).toMatch(
+      /border:\s*1px dashed var\(--ink-muted\)/,
+    );
+    expect(bodies(".ov-cycle-seg.none .ov-cycle-bar").join(" ")).not.toMatch(/box-shadow/);
+  });
+
+  // P1-87 PR 5a, review round 2 (accessibility nit): the words a screen reader hears have no
+  // space before the colon, and the Next-run item has its ", " before the time. Pinned as the
+  // rendered text of one step's list item, with the aria-hidden time left out.
+  it("reads one step as 'Backup: ran to the end', and the Next-run item with a comma (review round 2)", () => {
+    const li = EDOC.querySelectorAll(".ov-cycle-track > li")[0]!;
+    const spoken = li.childNodes
+      .filter((n) => n.nodeType !== 1 || (n as HTMLElement).getAttribute("aria-hidden") !== "true")
+      .map((n) => n.textContent)
+      .join("")
+      .replace(/\s+/g, " ")
+      .trim();
+    expect(spoken).toBe("Backup: ran to the end");
+    const next = EDOC.querySelector(".ov-cycle-track > li.wait")!;
+    expect(next.querySelector(".visually-hidden")!.textContent).toBe(",");
+    expect(text(next).startsWith("Next run, 11:07pm PT")).toBe(true);
+  });
+
+  it("gives each step its own class: done, problem, none, running and waiting (review round 1, Group E)", () => {
+    // A recorded night with a done step, a problem (Security failed), and a none (no CMS
+    // check result).
+    const n = night("2026-10-26");
+    const recorded = overviewFromSnapshot(
+      snapshot({
+        nights: [
+          {
+            ...n,
+            counts: {
+              ...n.counts,
+              steps: {
+                ...n.counts.steps,
+                "fleet-security.yml": { outcome: "completed", runId: 1, conclusion: "failure" },
+                "fleet-prismic-drift.yml": null,
+              },
+            },
+          },
+        ],
+        sites: [],
+      }),
+      new Date("2026-10-27T09:00:00.000Z"),
+    );
+    const classes = (view: OverviewView) =>
+      parse(pageHtml(view))
+        .querySelectorAll(".ov-cycle-track > li")
+        .map((li) => li.getAttribute("class"));
+    expect(classes(recorded)).toEqual([
+      "ov-cycle-seg done",
+      "ov-cycle-seg none",
+      "ov-cycle-seg done",
+      "ov-cycle-seg problem",
+      "ov-cycle-seg done",
+      "ov-cycle-seg done",
+      "ov-cycle-seg done",
+      "ov-cycle-seg done",
+      "ov-cycle-seg wait",
+    ]);
+    // Mid-run, two sites stamp the CMS check: Backup and CMS check are done, CMS sync and
+    // Security are running, and the rest wait.
+    expect(classes(RUNNING)).toEqual([
+      "ov-cycle-seg done",
+      "ov-cycle-seg done",
+      "ov-cycle-seg running",
+      "ov-cycle-seg running",
+      "ov-cycle-seg waiting",
+      "ov-cycle-seg waiting",
+      "ov-cycle-seg waiting",
+      "ov-cycle-seg waiting",
+      "ov-cycle-seg wait",
+    ]);
+  });
+
+  it("reads each step's time once: the visible time is hidden, and the next run's time stays readable", () => {
+    const steps = RDOC.querySelectorAll(".ov-cycle-track > li:not(.wait) .ov-cycle-time");
+    expect(steps).toHaveLength(8);
+    for (const t of steps) expect(t.getAttribute("aria-hidden")).toBe("true");
+    const next = RDOC.querySelector(".ov-cycle-seg.wait .ov-cycle-time")!;
+    expect(next.getAttribute("aria-hidden") ?? null).toBeNull();
+    expect(text(next.querySelector(".ov-cycle-when")!)).toBe(RUNNING.cycle.next.startsAt);
+  });
+
+  it("keeps its own rules in the stylesheet: no animation, no gradient, and full width", () => {
+    const css = readFileSync(
+      new URL("../../src/lib/overview/overview.css", import.meta.url),
+      "utf8",
+    ).replace(/\/\*[\s\S]*?\*\//g, "");
+    const rules = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)];
+    expect(css).toMatch(/\.ov-health,\s*\.ov-happening,\s*\.ov-lately,\s*\.ov-cycle\s*\{/);
+    expect(css).toMatch(/\.ov-cycle\s*\{[^}]*grid-column:\s*1 \/ -1/);
+    const own = rules.filter(([, sel]) => sel!.includes("ov-cycle"));
+    expect(own.length).toBeGreaterThan(5);
+    for (const [, , body] of own) {
+      expect(body).not.toMatch(/transition|animation|gradient/);
+    }
+    expect(css).not.toMatch(/@keyframes\s+ov-cycle/);
+  });
+});
+
+/** P1-87 PR 7a: the two traffic tiles on the page, from a newest night with the probe's block. */
+describe("P1-87 PR 7a: the traffic tiles on the page", () => {
+  const PNIGHT = "2026-10-26";
+  const PV = overviewFromSnapshot(
+    snapshot({
+      nights: [night(PNIGHT, { traffic: { value: trafficBlock(PNIGHT) } as never })],
+    }),
+    NOW,
+  );
+  const PD = parse(pageHtml(PV));
+
+  it("the first two tiles read the sketch's lines, as measured numbers", () => {
+    const tiles = PD.querySelectorAll(".ov-tile");
+    const [visits, search] = [tiles[0]!, tiles[1]!];
+    expect(text(visits.querySelector(".ov-num")!)).toBe("1,674");
+    expect(visits.querySelector(".ov-num")!.classList.contains("unknown")).toBe(false);
+    expect(text(visits.querySelector(".ov-label")!)).toBe("engaged visits, last 30 days");
+    expect(text(visits.querySelector(".ov-context")!)).toBe(
+      "up 9% on the 30 days before · 16 sites",
+    );
+    expect(text(search.querySelector(".ov-num")!)).toBe("12,521");
+    expect(text(search.querySelector(".ov-label")!)).toBe("times shown in Google, 28 days");
+    expect(text(search.querySelector(".ov-context")!)).toBe("623 clicks through · 16 sites");
+  });
+
+  it("an unmeasured traffic tile says its words in the unknown class, never 0", () => {
+    const none = parse(pageHtml(overviewFromSnapshot(snapshot({ nights: [night(PNIGHT)] }), NOW)));
+    const first = none.querySelectorAll(".ov-tile")[0]!;
+    expect(text(first.querySelector(".ov-num")!)).toBe("not yet collected");
+    expect(first.querySelector(".ov-num")!.classList.contains("unknown")).toBe(true);
+  });
+
+  it("over the sentinel render: each traffic leaf is on the page, and no digit is typed in", () => {
+    const ST = sentinelize(PV);
+    const doc = parse(pageHtml(ST.view));
+    const shown = new Set(shownNumbers(doc));
+    const words = doc.text;
+    let checked = 0;
+    for (const [path, v] of ST.at) {
+      if (!/^numbers\[[ab]\]\.(value|label|context)$/.test(path)) continue;
+      checked++;
+      const on = v.startsWith("⟦") ? words.includes(v) : shown.has(v);
+      expect.soft(on, `${path} (${v}) is on the page`).toBe(true);
+    }
+    expect(checked).toBe(6);
+    const allowed = new Set(ST.at.values());
+    expect(boundNumbers(doc, PV.reports.checks.length).filter((d) => !allowed.has(d))).toEqual([]);
+  });
+});
+
+// P1-87 PR 7a, review round 2 (B.3, B.4): which figures carry the `long` class. A figure over
+// seven characters (eight with the commas) gets it, so "1,234,567" (nine) does and "123,456"
+// (seven) does not; an unmeasured tile never does, even when its words are long.
+describe("a long figure carries the long class (review round 2, B.3, B.4)", () => {
+  /** The overview with its first tile's figure set to `value`, measured or not. */
+  const firstFigure = (value: string, measured = true) => {
+    const view = {
+      ...VIEW,
+      numbers: VIEW.numbers.map((n, i) => (i === 0 ? { ...n, value, measured } : n)),
+    };
+    return parse(pageHtml(view)).querySelector(".ov-tile .ov-num")!;
+  };
+
+  it.each(["1,234,567", "12,345,678"])("%s is long", (value) => {
+    expect(firstFigure(value).classList.contains("long")).toBe(true);
+  });
+
+  it("123,456 is not long: seven characters is the most a figure holds at its size", () => {
+    expect(firstFigure("123,456").classList.contains("long")).toBe(false);
+  });
+
+  it("an unmeasured tile is never long, even with words longer than a figure", () => {
+    const words = firstFigure("no count for last night", false);
+    expect(words.classList.contains("unknown")).toBe(true);
+    expect(words.classList.contains("long")).toBe(false);
+  });
+});
+
+// P1-87 PR 7a, review round 3 (B.1, B.2, B.5): a long figure's size is clamped between the body
+// text (1rem) and round 1's 1.4rem, with 1.4rem before the clamp for a browser without container
+// units; a long figure breaks only at the `<wbr>` after each comma, never mid-group; a short or
+// unmeasured figure has none.
+describe("a long figure is sized, and breaks only after a comma (review round 3, B.1, B.2, B.5)", () => {
+  const firstFigure = (value: string, measured = true) => {
+    const view = {
+      ...VIEW,
+      numbers: VIEW.numbers.map((n, i) => (i === 0 ? { ...n, value, measured } : n)),
+    };
+    return parse(pageHtml(view)).querySelector(".ov-tile .ov-num")!;
+  };
+
+  it.each(["1,234,567", "12,345,678"])(
+    "%s renders a <wbr> after each comma and no other",
+    (value) => {
+      const figure = firstFigure(value);
+      expect(figure.textContent).toBe(value);
+      expect(figure.querySelectorAll("wbr")).toHaveLength(value.split(",").length - 1);
+      // The pieces sit in one span, the flex item the text wraps inside (review round 4, major 1).
+      expect(figure.children).toHaveLength(1);
+      expect(figure.children[0]!.tagName).toBe("SPAN");
+      expect(figure.innerHTML).toBe(
+        `<span>${value.replace(/,/g, ",<wbr>").replace(/<wbr>$/, "")}</span>`,
+      );
+    },
+  );
+
+  it("123,456 (short) and an unmeasured figure render no <wbr>", () => {
+    expect(firstFigure("123,456").querySelectorAll("wbr")).toHaveLength(0);
+    expect(firstFigure("no count for last night", false).querySelectorAll("wbr")).toHaveLength(0);
+  });
+
+  // Comments are cut first, so a selector never carries the comment above it.
+  const css = readFileSync(
+    new URL("../../src/lib/overview/overview.css", import.meta.url),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  const ruleOf = (sel: string) =>
+    [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].find(([, s]) => s!.trim() === sel)?.[2] ?? "";
+
+  it("sizes a long figure between 1rem and 1.4rem, with 1.4rem first as the fallback, and no nowrap", () => {
+    const long = ruleOf(".ov-num.long");
+    expect(long).toMatch(
+      /font-size:\s*1\.4rem;\s*font-size:\s*clamp\(1rem,\s*16\.5cqi,\s*1\.4rem\)/,
+    );
+    expect(long).not.toMatch(/white-space/);
+    expect(ruleOf(".ov-tile")).toMatch(/container-type:\s*inline-size/);
   });
 });
 

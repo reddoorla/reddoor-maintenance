@@ -4,7 +4,11 @@
 // is only the IO: the GitHub REST reads (GITHUB_TOKEN, `actions: read` and `contents: read`)
 // and the Turso connection (the nightly steps' existing TURSO_* secrets).
 import { openDb, readDbConfig } from "../src/db/client.js";
+import { listSites } from "../src/db/fleet-state.js";
+import { readTraffic } from "../src/fleet-daily/traffic.js";
+import { trafficNight, trafficReaders, trafficSites } from "../src/fleet-daily/traffic-wiring.js";
 import { writeFleetDaily, type GitHubReads } from "../src/fleet-daily/write.js";
+import { readGaConfig } from "../src/reports/ga/config.js";
 import { loadCredentialsIntoEnv } from "../src/util/credentials.js";
 import { isMain } from "./lib/cli.mjs";
 import { NIGHTLIES } from "./nightly-conductor.mjs";
@@ -127,6 +131,13 @@ async function main(): Promise<void> {
         // newest stored night's; tonight's row is still being written) are not dropped.
         return nightCockpit(db, now);
       },
+      // P1-87 PR 6: the same night the writer keys the row by.
+      traffic: async () =>
+        readTraffic(
+          trafficSites(await listSites(db)),
+          trafficNight(process.env),
+          trafficReaders(readGaConfig()),
+        ),
       now,
       log: (l) => process.stdout.write(`${l}\n`),
     });
@@ -139,8 +150,17 @@ async function main(): Promise<void> {
 }
 
 if (isMain(import.meta.url)) {
-  main().catch((e) => {
-    process.stderr.write(`fleet-daily: ${(e as Error)?.stack ?? String(e)}\n`);
-    process.exitCode = 1;
-  });
+  // The outcome is process.exitCode. A normal run exits on its own once the event loop
+  // empties, so every write flushes (a pipe's stdout is asynchronous past 64 KB, and an exit
+  // called at once cut a long stack trace short). The timer exits only a run that a stalled
+  // handle (google-auth-library's token POST has no timeout) holds open after main settles
+  // (P1-87 PR 6 review r3, Group C).
+  main()
+    .catch((e) => {
+      process.stderr.write(`fleet-daily: ${(e as Error)?.stack ?? String(e)}\n`);
+      process.exitCode = 1;
+    })
+    .finally(() => {
+      setTimeout(() => process.exit(process.exitCode ?? 0), 10_000).unref();
+    });
 }
