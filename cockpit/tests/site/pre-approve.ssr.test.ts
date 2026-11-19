@@ -42,6 +42,8 @@ describe("/s/:slug — P1-117 an early-approved report shows its send day", () =
   it("an approved report due Sat 11-21 reads 'approved, sends Sat 11-21, 8:07am PT'", () => {
     const row = view([early()]).history.find((h) => h.id === "recEARLY")!;
     expect(row.action).toMatchObject({ kind: "approved", sendsOn: "Sat 11-21, 8:07am PT" });
+    // The history's date is the email's date: the due date.
+    expect(row.date).toBe("2026-11-21");
     expect(html([early()])).toContain("approved, sends Sat 11-21, 8:07am PT");
   });
 

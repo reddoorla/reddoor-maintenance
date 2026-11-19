@@ -687,36 +687,45 @@ describe("draftDueReports — P1-117 early drafts", () => {
       id: "rec_halfmade",
       patch: { due_on: "2026-06-02" },
     });
+    // The row handed to the completing render already carries the date, so the
+    // body it stores is dated as the send will date it.
     expect(draftReportForSite).toHaveBeenCalledWith(
       expect.anything(),
       "Maintenance",
-      expect.objectContaining({ completeRowId: "rec_halfmade" }),
+      expect.objectContaining({
+        completeRowId: "rec_halfmade",
+        existingRow: expect.objectContaining({ dueOn: "2026-06-02" }),
+      }),
     );
     expect(res.output).toContain("• due date (none) → 2026-06-02: Acme Co Maintenance");
   });
 
-  it("moves a drafted row's due date when its cycle moved inside the period", async () => {
-    // Drafted for 06-02; the cycle now says 06-02 is still right → no patch. Then
-    // a stored 06-01 (stale) is moved to 06-02.
+  it("keeps a ready row's drafted due date: its stored body shows it, so the send must too", async () => {
+    // The cycle now says 06-02; the ready, approved row was drafted for 06-01.
     rosterRows = [siteRow({ maintenanceDay: "2026-05-02" })];
-    const row = (dueOn: string): RawRow => ({
-      id: "rec_drafted",
-      fields: {
-        Site: ["rec_site_acme"],
-        "Report type": "Maintenance",
-        Period: "2026-06",
-        "Draft ready": true,
-        "Approved to send": true,
-        "Due on": dueOn,
-      },
-    });
-    const same = makeFakeReportWriter();
-    await draftDueReports(TODAY, dueDeps([row("2026-06-02")], { reportMirror: same }));
-    expect(same.patches).toEqual([]);
-    const stale = makeFakeReportWriter();
-    await draftDueReports(TODAY, dueDeps([row("2026-06-01")], { reportMirror: stale }));
-    expect(stale.patches).toEqual([{ id: "rec_drafted", patch: { due_on: "2026-06-02" } }]);
+    const w = makeFakeReportWriter();
+    const res = await draftDueReports(
+      TODAY,
+      dueDeps(
+        [
+          {
+            id: "rec_drafted",
+            fields: {
+              Site: ["rec_site_acme"],
+              "Report type": "Maintenance",
+              Period: "2026-06",
+              "Draft ready": true,
+              "Approved to send": true,
+              "Due on": "2026-06-01",
+            },
+          },
+        ],
+        { reportMirror: w },
+      ),
+    );
+    expect(w.patches).toEqual([]);
     expect(draftReportForSite).not.toHaveBeenCalled();
+    expect(res.output).toContain("skipped (already drafted 2026-06)");
   });
 
   it("leaves a ready row drafted before P1-117 (no due date) as it is", async () => {

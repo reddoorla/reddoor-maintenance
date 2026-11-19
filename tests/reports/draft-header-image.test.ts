@@ -229,4 +229,18 @@ describe("draftReportForSite email date (P1-117)", () => {
     expect(writer.bodies[0]!.html).toContain("03.07.2099");
     expect(writer.inserts[0]!.fields["Due on"]).toBe("2099-03-07");
   });
+
+  it("completing a half-made row dates its body by that row's due date", async () => {
+    const half = mapRow({
+      id: "rec_half",
+      fields: { Site: ["recSITE"], "Report type": "Maintenance", "Due on": "2099-04-09" },
+    });
+    const writer = makeFakeReportWriter([half]);
+    await draftReportForSite(
+      makeWebsiteRow({ pScore: 87, rScore: 91, bpScore: 100, seoScore: 95 }),
+      "Maintenance",
+      { reportMirror: writer, refreshHeader: false, completeRowId: "rec_half", existingRow: half },
+    );
+    expect(writer.bodies[0]!.html).toContain("04.09.2099");
+  });
 });

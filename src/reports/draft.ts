@@ -12,6 +12,7 @@ import type { SearchConsoleOutcome } from "../fleet/search-console-evidence.js";
 import { resolveCopy } from "./copy.js";
 import type { WebsiteRow } from "../fleet/site-row.js";
 import { searchEnrichment, type ReportRow } from "./report-fields.js";
+import { emailDate } from "./report-row.js";
 import { createReportDraft } from "./create-report.js";
 import type { ReportMirror } from "./report-mirror.js";
 import type { SiteMirror } from "../db/site-mirror.js";
@@ -293,9 +294,10 @@ export async function draftReportForSite(
     siteName: siteRow.name,
     siteUrl: siteRow.url,
     reportType,
-    // P1-117: dated the due date it will be sent on (see `emailDate`). The
-    // completing path reads the row's due date, which the nightly set first.
-    completedOn: options.dueOn ?? dueOnOf(options.existingRow) ?? completedOn,
+    // P1-117: dated as the send will date it (`emailDate`). The completing path
+    // reads the row's due date, which the nightly stamps first.
+    completedOn:
+      options.dueOn ?? (options.existingRow ? emailDate(options.existingRow) : null) ?? completedOn,
     lighthouse: scores,
     gaUsersCurrent: gaUsers?.current,
     gaUsersPrevious: gaUsers?.previous,
@@ -415,10 +417,6 @@ export async function draftReportForSite(
     queued: outcome.queued,
     supersededIds: outcome.supersededIds,
   };
-}
-
-function dueOnOf(row: ReportRow | undefined): Date | null {
-  return row?.dueOn ? new Date(row.dueOn) : null;
 }
 
 /** Approved, queued and waiting to send: what freezes the site's header plate.

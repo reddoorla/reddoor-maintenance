@@ -123,3 +123,16 @@ export function parseAutoEvidence(raw: unknown): Record<string, EvidenceRecord> 
   }
   return Object.keys(out).length > 0 ? out : null;
 }
+
+/**
+ * P1-117 (the operator, 2026-11-19: "Due date"): the date at the top of a report
+ * email and in its default subject's month. A report the nightly drafted for a due
+ * date is dated by that due date, which is the day it is held to (a report
+ * approved after its due date keeps that date); any other report (legacy, Launch,
+ * Announcement) by the day it was drafted. The draft's first render and every
+ * render from the row (send, re-render, test send) read it, so they agree.
+ */
+export function emailDate(report: Pick<ReportRow, "dueOn" | "completedOn">): Date {
+  const iso = report.dueOn ?? report.completedOn;
+  return iso ? new Date(iso) : new Date();
+}

@@ -585,19 +585,17 @@ export async function draftDueReports(
         lines.push(`• skipped (withdrawn ${period}): ${item.site.name} ${item.reportType}`);
         continue;
       }
-      // P1-117: the send holds a row until its stored due date, so that date must
-      // follow the cycle. It moves inside one period when the site's anchor day is
-      // edited before the first send, or when a report of the same type is sent by
-      // hand mid-cycle. (A Testing push always lands in a later period, so it never
-      // reaches this row.) A row that is not draft-ready (half-made, or superseded
-      // and waiting) is stamped too, so it carries its date when it is completed.
-      // A ready row drafted before P1-117 (no due date) is left as it is.
+      // P1-117: a row that is not draft-ready (half-made, or superseded and
+      // waiting) takes the cycle's current due date before it is completed, so its
+      // body and its send hold carry the same date. A READY row keeps the date it
+      // was drafted with: its stored body (the preview the operator approves) shows
+      // that date, and moving it here would make the send disagree with the
+      // preview. Its cycle can move inside one period only on an anchor edit
+      // before the first send or a manual same-type send mid-cycle (a Testing push
+      // always lands in a later period); it then sends on its drafted date, and
+      // the next cycle counts from that send. Rows drafted before P1-117 included.
       const dueOn = ymd(item.dueDate);
-      if (
-        existing.sentAt === null &&
-        existing.dueOn !== dueOn &&
-        (existing.dueOn !== null || !existing.draftReady)
-      ) {
+      if (existing.sentAt === null && !existing.draftReady && existing.dueOn !== dueOn) {
         try {
           await deps.reportMirror.patch(existing.id, { due_on: dueOn });
           lines.push(
