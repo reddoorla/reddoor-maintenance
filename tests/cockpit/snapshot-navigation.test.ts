@@ -4857,4 +4857,144 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
       });
     expect(stroke.stroke).toBe(stroke.canvasText);
   });
+
+  // P1-87 PR 8a, item 7: a new feed line slides in on a data refresh. The refresh is the page's own:
+  // its cycle clock re-reads the snapshot once the view is stale, so the test moves the page's clock
+  // past that point (no hook in product code). The new event is written to the test DB and removed.
+  const oneLine = (s: string | null) => (s ?? "").replace(/\s+/g, " ").trim();
+  /** Records, from before the page's script, each line the page marks new (`data-new`). The
+   *  observer sees a mark however short its life, so a 400 ms slide cannot be missed. */
+  const watchNewLines = (page: Page) =>
+    page.addInitScript(() => {
+      const w = window as unknown as { __newMarks: string[] };
+      w.__newMarks = [];
+      const note = (el: Element) => {
+        if (el.matches(".ov-lately li[data-new]"))
+          w.__newMarks.push((el.textContent ?? "").replace(/\s+/g, " ").trim());
+      };
+      new MutationObserver((records) => {
+        for (const r of records) {
+          if (r.type === "attributes") note(r.target as Element);
+          else
+            for (const n of r.addedNodes) {
+              if (!(n instanceof Element)) continue;
+              note(n);
+              n.querySelectorAll(".ov-lately li[data-new]").forEach((el) => note(el));
+            }
+        }
+      }).observe(document, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: ["data-new"],
+      });
+    });
+  const newMarks = (page: Page) =>
+    page.evaluate(() => (window as unknown as { __newMarks: string[] }).__newMarks);
+  /** Adds one feed event, then moves the page's clock a day on, so the next tick re-reads. */
+  const refreshFeed = async (page: Page, id: string) => {
+    const db = await openDb({ url: dbUrl });
+    try {
+      await recordFleetEvent(db, {
+        id,
+        ts: new Date().toISOString(),
+        type: "vuln_cleared",
+        siteId: null,
+        siteName: "Hillcrest Veterinary",
+        summary: "cleared",
+        data: null,
+      });
+    } finally {
+      await db.destroy();
+    }
+    const now = await page.evaluate(() => Date.now());
+    await page.clock.setSystemTime(now + 25 * 3_600_000);
+    await page.clock.runFor(60_000);
+  };
+  const removeFeedEvent = async (id: string) => {
+    const db = await openDb({ url: dbUrl });
+    try {
+      await db.deleteFrom("fleet_events").where("id", "=", id).execute();
+    } finally {
+      await db.destroy();
+    }
+  };
+
+  it("slides the one new feed line in on a data refresh, and no other line moves (item 7)", async () => {
+    const id = "pr8a-feed-refresh";
+    const page = await signedIn();
+    await watchNewLines(page);
+    await page.clock.install();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    // The first load marks no line new.
+    expect(await newMarks(page)).toEqual([]);
+    // Each row names its place, so a row can be followed across the refresh.
+    await page
+      .locator(".ov-lately li")
+      .evaluateAll((lis) => lis.forEach((li, i) => li.setAttribute("data-probe", String(i))));
+    const oldFirst = oneLine(await page.locator('.ov-lately li[data-probe="0"]').textContent());
+    try {
+      await refreshFeed(page, id);
+      // The refresh has landed when the new line is in the list (before any marking is judged).
+      await expect
+        .poll(() => page.locator(".ov-lately li", { hasText: "Vulnerability cleared" }).count(), {
+          timeout: 10_000,
+        })
+        .toBe(1);
+      await expect.poll(() => newMarks(page), { timeout: 10_000 }).toHaveLength(1);
+      expect((await newMarks(page))[0]).toContain("Vulnerability cleared");
+      expect(await page.locator(".ov-lately li[data-new]").count()).toBe(1);
+      // The new line slides in with the feed's animation.
+      const names = await page.waitForFunction(
+        () => {
+          const el = document.querySelector<HTMLElement>(".ov-lately li[data-new]");
+          const found = el ? el.getAnimations().map((a) => (a as CSSAnimation).animationName) : [];
+          return found.length > 0 ? found : null;
+        },
+        undefined,
+        { timeout: 5_000 },
+      );
+      expect(await names.jsonValue()).toEqual(["ov-feed-in"]);
+      // The other lines carry no animation.
+      const others = await page
+        .locator(".ov-lately li:not([data-new])")
+        .evaluateAll((lis) => lis.map((li) => li.getAnimations().length));
+      expect(others.length).toBeGreaterThan(0);
+      expect(others.every((n) => n === 0)).toBe(true);
+      // The line that was first is still the same row, one place down: keyed by its line, not its place.
+      expect(oneLine(await page.locator('.ov-lately li[data-probe="0"]').textContent())).toBe(
+        oldFirst,
+      );
+    } finally {
+      await removeFeedEvent(id);
+    }
+  });
+
+  it("under reduced motion the new feed line is marked but nothing animates (item 7)", async () => {
+    const id = "pr8a-feed-still";
+    const page = await signedIn("op", { reducedMotion: "reduce" });
+    await watchNewLines(page);
+    await page.clock.install();
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    expect(await newMarks(page)).toEqual([]);
+    try {
+      await refreshFeed(page, id);
+      await expect
+        .poll(() => page.locator(".ov-lately li", { hasText: "Vulnerability cleared" }).count(), {
+          timeout: 10_000,
+        })
+        .toBe(1);
+      await expect.poll(() => newMarks(page), { timeout: 10_000 }).toHaveLength(1);
+      expect(await page.locator(".ov-lately li[data-new]").count()).toBe(1);
+      const running = await page
+        .locator(".ov-lately li")
+        .evaluateAll((lis) => lis.map((li) => li.getAnimations().length));
+      expect(running.every((n) => n === 0)).toBe(true);
+    } finally {
+      await removeFeedEvent(id);
+    }
+  });
 });

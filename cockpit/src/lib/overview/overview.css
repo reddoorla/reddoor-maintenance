@@ -482,6 +482,23 @@ section {
     }
   }
 }
+/* P1-87 PR 8a, item 7: a feed line the page marks new (data-new, for FEED_MS) slides in from just
+   above and fades up. The rule lives only in the no-preference query: reduced motion shows the line. */
+@media (prefers-reduced-motion: no-preference) {
+  .ov-lately li[data-new] {
+    animation: ov-feed-in var(--feed-ms) ease-out both;
+  }
+  @keyframes ov-feed-in {
+    from {
+      transform: translateY(-0.5rem);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+}
 .ov-lighthouse-line {
   font-size: 0.85rem;
   margin: 0.4rem 0 0;

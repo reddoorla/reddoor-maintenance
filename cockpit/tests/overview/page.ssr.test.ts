@@ -14,7 +14,7 @@ import {
   HEALTH_CHECK_NAMES,
   type OverviewView,
 } from "../../src/lib/overview/view.js";
-import { BAR_MS, BAR_STAGGER_MS, SPARK_MS } from "../../src/lib/overview/motion.js";
+import { BAR_MS, BAR_STAGGER_MS, SPARK_MS, FEED_MS } from "../../src/lib/overview/motion.js";
 import { buildCockpitView } from "../../src/lib/cockpit/view.js";
 import { cockpitModelFromSnapshot } from "../../../src/dashboard/snapshot-views.js";
 import { makeSubmissionRow } from "../../../tests/_helpers/submission-row.js";
@@ -2680,5 +2680,30 @@ describe("the number tiles' motion, on the server render (P1-87 PR 8a, item 4)",
     for (const block of mediaBodies(css, "@media (prefers-reduced-motion: no-preference)"))
       outside = outside.replace(block, "");
     expect(outside).not.toMatch(/ov-spark-draw|ov-failsafe|data-counting|ov-spark-dot/);
+  });
+});
+
+/** P1-87 PR 8a, item 7: a new feed line slides in on a refresh (server render and CSS). */
+describe("the Lately feed's motion, on the server render (P1-87 PR 8a, item 7)", () => {
+  const css = readFileSync(new URL("../../src/lib/overview/overview.css", import.meta.url), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\s+/g, " ");
+
+  it("marks no line new on the first render, and gives the list the feed's duration", () => {
+    const doc = parse(pageHtml(VIEW));
+    expect(doc.querySelectorAll(".ov-lately li[data-new]")).toHaveLength(0);
+    expect(doc.querySelector(".ov-lately ol")!.getAttribute("style")).toContain(
+      `--feed-ms: ${FEED_MS}ms`,
+    );
+  });
+
+  it("keeps the slide-in inside the no-preference query (the floor: reduced motion has none)", () => {
+    const motion = mediaBodies(css, "@media (prefers-reduced-motion: no-preference)").join("\n");
+    expect(motion).toMatch(/\.ov-lately li\[data-new\]\s*\{[^}]*animation:\s*ov-feed-in/);
+    expect(motion).toMatch(/@keyframes ov-feed-in\s*\{/);
+    let outside = css;
+    for (const block of mediaBodies(css, "@media (prefers-reduced-motion: no-preference)"))
+      outside = outside.replace(block, "");
+    expect(outside).not.toMatch(/ov-feed-in|data-new/);
   });
 });

@@ -154,5 +154,31 @@
     ],
     "test": ["cockpit/tests/overview/motion.ssr.test.ts"],
     "expect": "red"
+  },
+  {
+    "id": "7-3-slide-under-reduced-motion",
+    "why": "The feed's slide-in leaves the no-preference query (the floor: reduced motion moves nothing)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "@media (prefers-reduced-motion: no-preference) {\n  .ov-lately li[data-new] {",
+        "replace": "@media all {\n  .ov-lately li[data-new] {"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "7-4-key-leaves-out-the-site",
+    "why": "The line key leaves out the site, so two same-minute lines of two sites with one text collide and the page's dedupe hides it",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      const base = `${x.rank}|${x.line.atIso}|${x.line.site ?? \"\"}|${x.line.text}`;",
+        "replace": "      const base = `${x.rank}|${x.line.atIso}|${x.line.text}`;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
   }
 ]

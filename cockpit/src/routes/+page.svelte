@@ -15,6 +15,7 @@
   import {
     BAR_MS,
     BAR_STAGGER_MS,
+    FEED_MS,
     SPARK_MS,
     countable,
     countUp,
@@ -229,6 +230,24 @@
     };
   });
 
+  // P1-87 PR 8a, item 7: a line the last render did not have is new, and slides in for FEED_MS. The
+  // first render marks nothing; `known` (plain, not state) holds the keys the page last rendered.
+  let known: Set<string> | null = null;
+  let fresh = $state<Set<string>>(new Set());
+  let freshTimer: ReturnType<typeof setTimeout> | undefined;
+  $effect.pre(() => {
+    const keys = v.lately.lines.map((l) => l.key);
+    const prev = known;
+    known = new Set(keys);
+    if (prev === null) return;
+    const added = keys.filter((k) => !prev.has(k));
+    if (added.length === 0) return;
+    fresh = new Set(added);
+    clearTimeout(freshTimer);
+    freshTimer = setTimeout(() => {
+      fresh = new Set();
+    }, FEED_MS);
+  });
   // P1-87 PR 5a: the nightly bar's clock. Until the page mounts, the view's own instant
   // is the clock, so the server render says what the view says; then the clock moves the
   // marker once a minute and the bar re-reads the snapshot while the run is writing.
@@ -265,7 +284,10 @@
       setInterval,
       clearInterval,
     });
-    return () => cycle.stop();
+    return () => {
+      cycle.stop();
+      clearTimeout(freshTimer);
+    };
   });
 </script>
 
@@ -429,9 +451,9 @@
       <p class="muted">Nothing recorded in the last 7 days.</p>
     {/if}
     {#if v.lately.lines.length > 0}
-      <ol data-term="Lately">
-        {#each v.lately.lines as l, i (i)}
-          <li>
+      <ol data-term="Lately" style="--feed-ms: {FEED_MS}ms">
+        {#each v.lately.lines as l (l.key)}
+          <li data-new={fresh.has(l.key) ? "" : undefined}>
             <time datetime={l.atIso}><span>{l.whenDate}</span> <span>{l.whenTime}</span></time>
             <span>
               {l.text}{#if l.site !== null}<span aria-hidden="true">{" · "}</span><span
