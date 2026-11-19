@@ -1029,7 +1029,7 @@
   },
   {
     "id": "79-doc-listener-not-disarmed",
-    "why": "r9 C.4, re-measured in r10: on the round 10 fix the listener is not disarmed after the first event, so a stale pointerover or pointermove after an outside drop sets the flag again before the Shift. Red: the drag out, released outside, then a Shift at once (r10 B.3, the count test). Round 9 had this as equivalent, true on that page only",
+    "why": "equivalent (r9 C.4; re-measured r10 at the bar of 5: survived): a page listener left armed after its first event only sets the flag to whether the window contains the next pointer event's target, which the window's own pointerover/pointerleave already say. Its red at the bar of 8 was the stale-hover flake, not a kill",
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
@@ -1038,7 +1038,7 @@
       }
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
-    "expect": "red"
+    "expect": "survives"
   },
   {
     "id": "80-doc-listener-not-removed",
@@ -1068,7 +1068,7 @@
   },
   {
     "id": "83-doc-out-any-target-clears",
-    "why": "r10 C.3: onDocOut clears the flag on every mouseout, whatever its related target, not only one with no related target. Red: the drag out, released outside, then a Shift at once (r10 B.3, the count test); the table in the PR body names it. A move into the page and back over the row is not separately pinned",
+    "why": "equivalent in Chromium (r10 C.3; survived at the bar of 5): a mouseout with a related target is preceded by the pointerover for the same move, and that pointerover disarms the page listener first, so clearing on any mouseout never sees one. Its red at the bar of 8 was the stale-hover flake, not a kill",
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
@@ -1077,7 +1077,7 @@
       }
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
-    "expect": "red"
+    "expect": "survives"
   },
   {
     "id": "84-doc-pointer-no-recheck",
