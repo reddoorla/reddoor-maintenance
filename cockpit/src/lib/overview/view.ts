@@ -1735,20 +1735,26 @@ export function trendsFromDaily(nights: OverviewNight[] | null, now: Date): Tren
     /** What a traffic note says of its tile's sum. Whole when the axis shows the tile's
      *  window; when the axis starts after some of its days, it says where the axis starts,
      *  and does not blame the reading's date (PR 7b review round 1, correctness M1 and M2). */
-    const tally = (dropped: number, tile: number, total: string) =>
+    const tally = (dropped: number, droppedSum: number, tile: number, total: string) =>
       dropped === 0
         ? `; the ${tile} columns add up to the tile's ${total}.`
         : dropped >= tile
           ? `. All ${tile} of the tile's days fall before this chart starts on ${first}, so no column is drawn.`
-          : `. The chart starts on ${first}, so ${dropped} of the tile's ${tile} days ${dropped === 1 ? "falls" : "fall"} before it, and the columns add up to less than the tile's ${total}.`;
+          : droppedSum > 0
+            ? `. The chart starts on ${first}, so ${dropped} of the tile's ${tile} days ${dropped === 1 ? "falls" : "fall"} before it, and the columns add up to less than the tile's ${total}.`
+            : `. The chart starts on ${first}, so ${dropped} of the tile's ${tile} days ${dropped === 1 ? "falls" : "fall"} before it; ${dropped === 1 ? "it" : "they"} counted none, so the columns still add up to the tile's ${total}.`;
     const visitsNote =
       vr.value === null
         ? "Each column is that day's engaged visits. A day with no reading says why in the table."
-        : `Each column is that day's engaged visits across ${count(vr.value.sitesRead, "site", "sites")}${tally(vis.dropped, 30, WHOLE.format(vr.value.current))}${vis.slots.some((s) => s.partial) ? ` The night of ${nightLabel(vr.value.night)} is still being counted, so its column is drawn in outline.` : ""}`;
-    const searchNote = (what: string, total: (r: SearchReading) => number) =>
+        : `Each column is that day's engaged visits across ${count(vr.value.sitesRead, "site", "sites")}${tally(vis.dropped, vis.droppedSum, 30, WHOLE.format(vr.value.current))}${vis.slots.some((s) => s.partial) ? ` The night of ${nightLabel(vr.value.night)} is still being counted, so its column is drawn in outline.` : ""}`;
+    const searchNote = (
+      what: string,
+      total: (r: SearchReading) => number,
+      read: { slots: TrafficSlot[]; dropped: number; droppedSum: number },
+    ) =>
       sr.value === null
         ? `Each column is that day's ${what}. A day with no reading says why in the table.`
-        : `Each column is that day's ${what} across ${count(sr.value.sitesRead, "site", "sites")}${tally(imp.dropped, 28, WHOLE.format(total(sr.value)))} Google's data lags about 3 days: the hatched days have none yet.`;
+        : `Each column is that day's ${what} across ${count(sr.value.sitesRead, "site", "sites")}${tally(read.dropped, read.droppedSum, 28, WHOLE.format(total(sr.value)))} Google's data lags about 3 days: the hatched days have none yet.`;
     // The summary (the chart's description, for a screen reader) names the partial day and
     // the lag days too, so it says what the marks do not (PR 7b review round 1, E).
     const partialSaid = (slots: TrafficSlot[]) => {
@@ -1772,13 +1778,13 @@ export function trendsFromDaily(nights: OverviewNight[] | null, now: Date): Tren
       make(
         "Times shown in Google, each day",
         [series("Times shown in Google", asPoints(imp.slots), true)],
-        searchNote("times shown in Google", (r) => r.impressions),
+        searchNote("times shown in Google", (r) => r.impressions, imp),
         { term: "Times shown in Google", slot: "day", extra: lagSaid(imp.slots) },
       ),
       make(
         "Clicks through from Google, each day",
         [series("Clicks through from Google", asPoints(clk.slots), true)],
-        searchNote("clicks through from Google", (r) => r.clicks),
+        searchNote("clicks through from Google", (r) => r.clicks, clk),
         { term: "Times shown in Google", slot: "day", extra: lagSaid(clk.slots) },
       ),
     ];

@@ -693,5 +693,18 @@
     ],
     "test": "cockpit/tests/overview/trends.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "70-tally-less-than-always",
+    "why": "PR 7b review round 2 (correctness major R2C-1): the zero-sum branch is unreachable, so a tile whose dropped days counted 0 says the columns add up to less than the total",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "droppedSum > 0",
+        "replace": "true"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
   }
 ]

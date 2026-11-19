@@ -231,18 +231,19 @@ const blank = (note: string, lag = false): TrafficSlot => ({
 });
 
 /** The axis days (oldest first) that fall before `start`, which the window does not cover. */
-const droppedFrom = (w: Win, days: readonly string[]): number =>
-  datesBetween(w.startDate, w.endDate).filter((d) => d < days[0]!).length;
+const droppedDays = (w: Win, days: readonly string[]): string[] =>
+  datesBetween(w.startDate, w.endDate).filter((d) => d < days[0]!);
 
 /** The engaged-visits chart: each day's own count over the tile's 30 days. `dropped` is the
- *  window's days older than the axis (the chart cannot show them). */
+ *  window's days older than the axis (the chart cannot show them); `droppedSum` is what those
+ *  days counted, so the note can say whether the drawn columns still add up to the tile. */
 export function visitsSlots(
   r: Reading<VisitsSeries>,
   days: readonly string[],
   words: TrafficWords,
-): { slots: TrafficSlot[]; dropped: number } {
+): { slots: TrafficSlot[]; dropped: number; droppedSum: number } {
   if (r.value === null) {
-    return { slots: days.map(() => blank(words.reason(r.reason))), dropped: 0 };
+    return { slots: days.map(() => blank(words.reason(r.reason))), dropped: 0, droppedSum: 0 };
   }
   const s = r.value;
   const w = windowsFor(s.night).current;
@@ -254,19 +255,25 @@ export function visitsSlots(
     const partial = d === w.endDate;
     return { value: v, note: partial ? "still being counted" : null, partial, lag: false };
   });
-  return { slots, dropped: droppedFrom(w, days) };
+  const dropped = droppedDays(w, days);
+  return {
+    slots,
+    dropped: dropped.length,
+    droppedSum: dropped.reduce((sum, d) => sum + (s.daily.get(d) ?? 0), 0),
+  };
 }
 
 /** A search chart: clicks or impressions per day over the 28 days ending 3 days before the
- *  night; the last 3 days (after the window, up to the night) are lag, not blank. */
+ *  night; the last 3 days (after the window, up to the night) are lag, not blank. `dropped`
+ *  and `droppedSum` are as for visitsSlots, in the picked measure. */
 export function searchSlots(
   r: Reading<SearchSeries>,
   days: readonly string[],
   words: TrafficWords,
   pick: "clicks" | "impressions",
-): { slots: TrafficSlot[]; dropped: number } {
+): { slots: TrafficSlot[]; dropped: number; droppedSum: number } {
   if (r.value === null) {
-    return { slots: days.map(() => blank(words.reason(r.reason))), dropped: 0 };
+    return { slots: days.map(() => blank(words.reason(r.reason))), dropped: 0, droppedSum: 0 };
   }
   const s = r.value;
   const w = windowsFor(s.night).search;
@@ -278,5 +285,10 @@ export function searchSlots(
     if (day === undefined) return blank(words.reason("malformed"));
     return { value: day[pick], note: null, partial: false, lag: false };
   });
-  return { slots, dropped: droppedFrom(w, days) };
+  const dropped = droppedDays(w, days);
+  return {
+    slots,
+    dropped: dropped.length,
+    droppedSum: dropped.reduce((sum, d) => sum + (s.daily.get(d)?.[pick] ?? 0), 0),
+  };
 }

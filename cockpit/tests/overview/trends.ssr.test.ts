@@ -879,6 +879,79 @@ describe("P1-87 PR 7b: 31 nights and the three traffic charts", () => {
     ]);
   });
 
+  /** The traffic block for `night` with some days' counts set, each reading's total re-summed
+   *  over its own window, so a note's "tile's total" is what the window's days really add to. */
+  const edited = (
+    night: string,
+    visits: Record<string, number>,
+    search: Record<string, { clicks: number; impressions: number }>,
+  ) => {
+    type Day = { date: string; [k: string]: unknown };
+    const block = trafficBlock(night) as Record<string, { value: Record<string, unknown> }>;
+    const inWin = (date: string, w: { startDate: string; endDate: string }) =>
+      date >= w.startDate && date <= w.endDate;
+    const vv = block.visits!.value as {
+      current: number;
+      currentWindow: { startDate: string; endDate: string };
+      daily: Day[];
+    };
+    vv.daily = vv.daily.map((d) =>
+      visits[d.date] === undefined ? d : { ...d, visits: visits[d.date] },
+    );
+    vv.current = vv.daily
+      .filter((d) => inWin(d.date, vv.currentWindow))
+      .reduce((a, d) => a + (d.visits as number), 0);
+    const sv = block.search!.value as {
+      clicks: number;
+      impressions: number;
+      window: { startDate: string; endDate: string };
+      daily: Day[];
+    };
+    sv.daily = sv.daily.map((d) =>
+      search[d.date] === undefined ? d : { ...d, ...search[d.date] },
+    );
+    const inSearch = sv.daily.filter((d) => inWin(d.date, sv.window));
+    sv.clicks = inSearch.reduce((a, d) => a + (d.clicks as number), 0);
+    sv.impressions = inSearch.reduce((a, d) => a + (d.impressions as number), 0);
+    return block;
+  };
+
+  it("the dropped days count none: the note says so, and the columns still add up (review round 2, correctness major)", () => {
+    // The Oct 24 night's window is Sep 25 to Oct 24; the axis starts Sep 26, so Sep 25 is dropped
+    // and counted 0. The drawn columns sum to the whole tile, so "less than" would be false.
+    const block = edited("2026-10-24", { "2026-09-25": 0 }, {});
+    const late = trendsFromDaily(
+      run(N, 32, (d) => (d === "2026-10-24" ? { traffic: traffic(block) } : {})),
+      NOW,
+    );
+    expect(TF(late, DAYS.visits).note).toBe(
+      "Each column is that day's engaged visits across 16 sites. The chart starts on Sep 26, so 1 of the tile's 30 days falls before it; it counted none, so the columns still add up to the tile's 1,618. The night of Oct 24 is still being counted, so its column is drawn in outline.",
+    );
+  });
+
+  it("the same for search, per chart: clicks whose dropped days are 0 say counted none; impressions whose dropped days are not 0 say less than (review round 2, correctness major)", () => {
+    // The Oct 24 night's search window is Sep 24 to Oct 21; Sep 24 and 25 fall before the axis.
+    // Their clicks are 0 and their impressions are not.
+    const block = edited(
+      "2026-10-24",
+      {},
+      {
+        "2026-09-24": { clicks: 0, impressions: 300 },
+        "2026-09-25": { clicks: 0, impressions: 300 },
+      },
+    );
+    const late = trendsFromDaily(
+      run(N, 32, (d) => (d === "2026-10-24" ? { traffic: traffic(block) } : {})),
+      NOW,
+    );
+    expect(TF(late, DAYS.clicks).note).toBe(
+      "Each column is that day's clicks through from Google across 16 sites. The chart starts on Sep 26, so 2 of the tile's 28 days fall before it; they counted none, so the columns still add up to the tile's 577. Google's data lags about 3 days: the hatched days have none yet.",
+    );
+    expect(TF(late, DAYS.searchTimes).note).toBe(
+      "Each column is that day's times shown in Google across 16 sites. The chart starts on Sep 26, so 2 of the tile's 28 days fall before it, and the columns add up to less than the tile's 12,225. Google's data lags about 3 days: the hatched days have none yet.",
+    );
+  });
+
   it("an unmeasured reason, visits half (PR 7b review round 1, minor 3): every visits day says Google Analytics", () => {
     const rows = run(N, 32, (_, i) =>
       i === 0
