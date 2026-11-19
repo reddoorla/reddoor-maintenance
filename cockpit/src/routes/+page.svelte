@@ -59,8 +59,12 @@
   // null: none). The readout names it; the table below keeps every night at once.
   let trendSel = $state<Record<number, number | null>>({});
   const TREND_IDLE = "Point at a night, or focus the chart and use the arrow keys, to read it.";
-  const selectNight = (ci: number, k: number | null) => {
+  // How each chart's night was chosen: "key" fills the live region, "pointer" (hover, click) does not
+  // (P1-87 PR 8a, review round 1, D: a pointer moving across a chart announces nothing).
+  let trendSrc = $state<Record<number, "key" | "pointer" | null>>({});
+  const selectNight = (ci: number, k: number | null, src: "key" | "pointer" | null = null) => {
     trendSel[ci] = k;
+    trendSrc[ci] = src;
   };
   // An action, not onkeydown: Svelte delegates onkeydown to the document, which would add a
   // document listener on the first overview visit that outlives it (the ticker's listener count).
@@ -740,6 +744,9 @@
       {#each v.trends.charts as c, ci (c.title)}
         {@const g = trendGeometry(c)}
         {@const sel = trendSel[ci] ?? null}
+        {@const titles = g.slots.map((t) => t.title)}
+        {@const shown = sel ?? titles.length - 1}
+        {@const live = sel !== null && trendSrc[ci] === "key" ? trendReadout(titles, sel) : ""}
         <figure class="ov-trend">
           <figcaption id="ov-trend-{ci}">{c.title}</figcaption>
           {#if c.series.length > 1}
@@ -768,20 +775,24 @@
           {/if}
           <!-- P1-87 PR 8a, item 5: the chart stays an image for assistive tech; its keys and its
                pointer readout are the extra reading, and the table below has every night. -->
-          <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-          <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+          <!-- A slider: its value is the selected night (the newest when none is), and its text is that
+               night's words. The live region below speaks only a night chosen by the keys. -->
           <svg
             class="ov-chart"
             viewBox="0 0 {g.width} {g.height}"
-            role="img"
+            role="slider"
             tabindex="0"
-            aria-labelledby="ov-trend-{ci} ov-trend-{ci}-desc"
-            aria-describedby="ov-trend-{ci}-readout"
+            aria-labelledby="ov-trend-{ci}"
+            aria-describedby="ov-trend-{ci}-desc ov-trend-{ci}-hint"
+            aria-valuemin="1"
+            aria-valuemax={titles.length}
+            aria-valuenow={shown + 1}
+            aria-valuetext={trendReadout(titles, shown)}
             use:trendKeys={(e: KeyboardEvent) => {
               const next = trendKey(e.key, trendSel[ci] ?? null, g.slots.length);
               if (next === undefined) return;
               e.preventDefault();
-              selectNight(ci, next);
+              selectNight(ci, next, "key");
             }}
             onblur={() => selectNight(ci, null)}
             onpointerleave={(e) => {
@@ -860,9 +871,9 @@
                 height={g.baseline - g.top}
                 data-title={t.title}
                 onpointerenter={(e) => {
-                  if (e.pointerType === "mouse") selectNight(ci, ti);
+                  if (e.pointerType === "mouse") selectNight(ci, ti, "pointer");
                 }}
-                onclick={() => selectNight(ci, ti)}
+                onclick={() => selectNight(ci, ti, "pointer")}
               />
             {/each}
             {#if sel !== null && g.slots[sel]}
@@ -875,14 +886,13 @@
               />
             {/if}
           </svg>
-          <p id="ov-trend-{ci}-readout" class="muted ov-trend-readout" aria-live="polite">
-            {sel === null
-              ? TREND_IDLE
-              : trendReadout(
-                  g.slots.map((t) => t.title),
-                  sel,
-                )}
+          <!-- The visible readout: hover and keys both show here. It is hidden from assistive tech, which
+               reads the slider's value and the live region instead. -->
+          <p id="ov-trend-{ci}-readout" class="muted ov-trend-readout" aria-hidden="true">
+            {sel === null ? TREND_IDLE : trendReadout(titles, sel)}
           </p>
+          <span id="ov-trend-{ci}-hint" class="visually-hidden">{TREND_IDLE}</span>
+          <p id="ov-trend-{ci}-live" class="visually-hidden" aria-live="polite">{live}</p>
           {#if c.note}<p class="muted ov-trend-note">{c.note}</p>{/if}
           <details class="ov-trend-table">
             <summary>As a table</summary>

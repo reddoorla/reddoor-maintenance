@@ -822,7 +822,7 @@ describe("P1-78h: section 8 drawn, once fleet_daily holds 14 nights", () => {
   const TDOC = parse(pageHtml(TVIEW));
   const section = TDOC.querySelector('section[aria-labelledby="ov-trends"]')!;
 
-  it("draws seven charts, each an image with a name and a description", () => {
+  it("draws seven charts, each a slider with a name and a description", () => {
     expect(TVIEW.trends.charts).toHaveLength(7);
     const figs = section.querySelectorAll("figure.ov-trend");
     expect(figs.map((f) => text(f.querySelector("figcaption")!))).toEqual(
@@ -830,8 +830,9 @@ describe("P1-78h: section 8 drawn, once fleet_daily holds 14 nights", () => {
     );
     for (const [i, f] of figs.entries()) {
       const svg = f.querySelector("svg.ov-chart")!;
-      expect(svg.getAttribute("role")).toBe("img");
-      expect(svg.getAttribute("aria-labelledby")).toBe(`ov-trend-${i} ov-trend-${i}-desc`);
+      // P1-87 PR 8a, review round 1 (D): the chart is a slider, named by its caption and described by its summary.
+      expect(svg.getAttribute("role")).toBe("slider");
+      expect(svg.getAttribute("aria-labelledby")).toBe(`ov-trend-${i}`);
       expect(text(svg.querySelector("desc")!)).toBe(TVIEW.trends.charts![i]!.summary);
     }
   });
@@ -963,21 +964,37 @@ describe("P1-78h: section 8 drawn, once fleet_daily holds 14 nights", () => {
     }
   });
 
-  // P1-87 PR 8a, item 5: each chart is reachable by keyboard, is described by its own live
-  // readout, which is idle until a night is read.
-  it("makes each chart focusable, described by a polite live readout (P1-87 PR 8a, item 5)", () => {
+  // P1-87 PR 8a, item 5: each chart is reachable by keyboard and is a slider (review round 1, D): its
+  // value is the selected night, and its text is that night's words. Its visible readout is idle
+  // until a night is read, and the live region holds no prompt.
+  it("makes each chart a focusable slider over its nights (P1-87 PR 8a, item 5, review round 1 D)", () => {
     const figs = section.querySelectorAll("figure.ov-trend");
     expect(figs.length).toBe(TVIEW.trends.charts!.length);
     for (const [ci, f] of figs.entries()) {
       const svg = f.querySelector("svg.ov-chart")!;
+      const titles = svg.querySelectorAll("rect.ov-hit").map((h) => h.getAttribute("data-title"));
       expect(svg.getAttribute("tabindex"), `chart ${ci}`).toBe("0");
-      expect(svg.getAttribute("role"), `chart ${ci}`).toBe("img");
-      expect(svg.getAttribute("aria-describedby"), `chart ${ci}`).toBe(`ov-trend-${ci}-readout`);
+      expect(svg.getAttribute("role"), `chart ${ci}`).toBe("slider");
+      expect(svg.getAttribute("aria-labelledby"), `chart ${ci}`).toBe(`ov-trend-${ci}`);
+      expect(svg.getAttribute("aria-describedby"), `chart ${ci}`).toBe(
+        `ov-trend-${ci}-desc ov-trend-${ci}-hint`,
+      );
+      expect(svg.getAttribute("aria-valuemin"), `chart ${ci}`).toBe("1");
+      expect(svg.getAttribute("aria-valuemax"), `chart ${ci}`).toBe(String(titles.length));
+      expect(svg.getAttribute("aria-valuenow"), `chart ${ci}`).toBe(String(titles.length));
+      expect(svg.getAttribute("aria-valuetext"), `chart ${ci}`).toBe(titles.at(-1));
       const readout = f.querySelector("p.ov-trend-readout")!;
       expect(readout.getAttribute("id"), `chart ${ci}`).toBe(`ov-trend-${ci}-readout`);
-      expect(readout.getAttribute("aria-live"), `chart ${ci}`).toBe("polite");
+      expect(readout.getAttribute("aria-hidden"), `chart ${ci}`).toBe("true");
       expect(readout.getAttribute("class")).toContain("muted");
       expect(readout.text.trim(), `chart ${ci}`).toBe(
+        "Point at a night, or focus the chart and use the arrow keys, to read it.",
+      );
+      const live = f.querySelector(`#ov-trend-${ci}-live`)!;
+      expect(live.getAttribute("aria-live"), `chart ${ci}`).toBe("polite");
+      expect(live.text.trim(), `chart ${ci}: the live region is empty at rest`).toBe("");
+      const hint = f.querySelector(`#ov-trend-${ci}-hint`)!;
+      expect(hint.text.trim(), `chart ${ci}`).toBe(
         "Point at a night, or focus the chart and use the arrow keys, to read it.",
       );
     }

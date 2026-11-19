@@ -4919,6 +4919,43 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     ).toBe(0);
   });
 
+  // P1-87 PR 8a, review round 1 (D): the live region speaks a night the keys chose, and only that.
+  const liveText = async (page: Page, ci = 0) =>
+    ((await page.locator(`#ov-trend-${ci}-live`).textContent()) ?? "").trim();
+  it("the live region speaks a night the keys chose, and is empty once focus leaves (item 5, review round 1 D)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    expect(await liveText(page), "the live region is empty at rest").toBe("");
+    await chart(page).focus();
+    await page.keyboard.press("ArrowRight");
+    expect(await liveText(page), "a key speaks its night").toBe(titles[0]);
+    await page.keyboard.press("ArrowRight");
+    expect(await liveText(page)).toBe(titles[1]);
+    await page.keyboard.press("ArrowLeft");
+    await page.keyboard.press("Tab");
+    expect(await liveText(page), "leaving the chart speaks nothing, not the prompt").toBe("");
+    expect(await readoutText(page), "the visible readout is idle again").toBe(
+      "Point at a night, or focus the chart and use the arrow keys, to read it.",
+    );
+  });
+
+  it("a hover shows its night on screen and speaks nothing, and the slider reports it (item 5, review round 1 D)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    const k = 4;
+    await nightRects(page).nth(k).hover();
+    expect(await readoutText(page), "the visible readout shows the night").toBe(titles[k]);
+    expect(await liveText(page), "a pointer speaks nothing").toBe("");
+    expect(await chart(page).getAttribute("aria-valuenow")).toBe(String(k + 1));
+    expect(await chart(page).getAttribute("aria-valuetext")).toBe(titles[k]);
+  });
+
   it("a night with no reading reads as the model says, never as 0 (item 5)", async () => {
     const page = await signedIn();
     await page.setViewportSize({ width: 1280, height: 900 });
