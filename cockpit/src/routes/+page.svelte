@@ -239,9 +239,9 @@
 <section class="ov-status {v.status.cls}" aria-labelledby="ov-status">
   <h2 id="ov-status" class="visually-hidden">Status</h2>
   <p class="ov-line">
-    {#each v.status.parts as p, i (i)}{i > 0 ? " " : ""}<span data-term={p.term}
-        >{#if p.href}<a href={p.href}>{p.text}</a>{:else}{p.text}{/if}</span
-      >{/each}
+    {#each v.status.parts as p, i (i)}{i > 0 ? " " : ""}<span data-term={p.term}>
+        {#if p.href}<a href={p.href}>{p.text}</a>{:else}{p.text}{/if}
+      </span>{/each}
   </p>
   {#if v.status.broken.length > 0}
     <ul class="ov-list broken" data-term="Broken, attention, watch">
@@ -261,12 +261,12 @@
       {v.health.sites === 1 ? "site" : "sites"}
     </h2>
     <div class="ov-tierbar" aria-hidden="true">
-      {#if v.health.tiers.ok > 0}<span class="ov-seg ok" style="flex-grow: {v.health.tiers.ok}"
-          >{#if allOk}<span class="ov-tier-inside"
-              >{v.health.tiers.ok} OK · {v.health.tiers.watch} watch · {v.health.tiers.attention} attention
-              · {v.health.tiers.broken} broken</span
-            >{/if}</span
-        >{/if}
+      {#if v.health.tiers.ok > 0}<span class="ov-seg ok" style="flex-grow: {v.health.tiers.ok}">
+          {#if allOk}<span class="ov-tier-inside">
+              {v.health.tiers.ok} OK · {v.health.tiers.watch} watch · {v.health.tiers.attention} attention
+              · {v.health.tiers.broken} broken
+            </span>{/if}
+        </span>{/if}
       {#if v.health.tiers.watch > 0}<span
           class="ov-seg watch"
           style="flex-grow: {v.health.tiers.watch}"
@@ -285,33 +285,33 @@
         .health.tiers.broken} broken
     </p>
     {#if launching.length > 0}<p class="ov-tier-counts">
-        plus {#each launching as c, i (i)}{i > 0 ? " and " : ""}<span data-term={c.term}
-            >{c.text}</span
-          >{/each}
+        plus {#each launching as c, i (i)}{i > 0 ? " and " : ""}<span data-term={c.term}>
+            {c.text}
+          </span>{/each}
       </p>{/if}
     <h3>Sites passing each check</h3>
     <ul class="ov-checks-list" data-term="Sites passing each check">
       {#each v.health.checks as c (c.name)}
         <li class="ov-check">
           <span class="ov-check-name">{c.name}</span>
-          <span class="ov-check-bar" aria-hidden="true"
-            >{#if c.pass > 0}<span class="ov-check-fill" style="width: {(100 * c.pass) / c.total}%"
+          <span class="ov-check-bar" aria-hidden="true">
+            {#if c.pass > 0}<span class="ov-check-fill" style="width: {(100 * c.pass) / c.total}%"
               ></span>{/if}{#if c.unknown > 0}<span
                 class="ov-check-unknown"
                 style="left: {c.total === 0 ? 0 : (100 * c.pass) / c.total}%; width: {(100 *
                   c.unknown) /
                   c.total}%"
-              ></span>{/if}</span
-          >
-          <span class="ov-check-count"
-            >{c.pass}{" "}<span class="visually-hidden">of {c.total}</span>{c.fail > 0
+              ></span>{/if}
+          </span>
+          <span class="ov-check-count">
+            {c.pass}{" "}<span class="visually-hidden">of {c.total}</span>{c.fail > 0
               ? ` · ${c.fail} failing`
               : ""}{c.testFailed > 0
               ? ` · ${c.testFailed} test failed, not yet a verdict`
               : ""}{c.noVerdict > 0 ? ` · ${c.noVerdict} no verdict` : ""}{c.notChecked > 0
               ? ` · ${c.notChecked} not checked`
-              : ""}</span
-          >
+              : ""}
+          </span>
         </li>
       {/each}
     </ul>
@@ -338,9 +338,9 @@
           <p class="ov-num{n.measured ? '' : ' unknown'}{long ? ' long' : ''}">
             {#if long}
               {@const parts = n.value.split(",")}
-              <span
-                >{#each parts as part, i (i)}{#if i > 0},<wbr />{/if}{part}{/each}</span
-              >
+              <span>
+                {#each parts as part, i (i)}{#if i > 0},<wbr />{/if}{part}{/each}
+              </span>
             {:else}
               {n.value}
             {/if}
@@ -349,15 +349,16 @@
           {#if n.context}<p class="muted ov-context">{n.context}</p>{/if}
           {#if n.spark}
             {@const g = sparkGeometry(n.spark)}
-            <svg class="ov-spark" viewBox="0 0 120 24" preserveAspectRatio="none" aria-hidden="true"
-              >{#each g.lines as l, li (li)}<polyline
-                  points={l}
-                />{/each}{#each g.dots as d, di (di)}<circle
-                  cx={d.x}
-                  cy={d.y}
-                  r="1.5"
-                />{/each}</svg
+            <svg
+              class="ov-spark"
+              viewBox="0 0 120 24"
+              preserveAspectRatio="none"
+              aria-hidden="true"
             >
+              {#each g.lines as l, li (li)}<polyline
+                  points={l}
+                />{/each}{#each g.dots as d, di (di)}<circle cx={d.x} cy={d.y} r="1.5" />{/each}
+            </svg>
           {/if}
         </div>
       {/each}
@@ -376,11 +377,13 @@
         {#each v.lately.lines as l, i (i)}
           <li>
             <time datetime={l.atIso}><span>{l.whenDate}</span> <span>{l.whenTime}</span></time>
-            <span
-              >{l.text}{#if l.site !== null}<span aria-hidden="true">{" · "}</span><span
-                  class="visually-hidden">{", "}</span
-                >{l.site}{/if}</span
-            >
+            <span>
+              {l.text}{#if l.site !== null}<span aria-hidden="true">{" · "}</span><span
+                  class="visually-hidden"
+                >
+                  {", "}
+                </span>{l.site}{/if}
+            </span>
           </li>
         {/each}
       </ol>
@@ -416,12 +419,13 @@
                 width="100%"
                 height="100%"
                 focusable="false"
-                ><rect width="100%" height="100%" fill="url(#ov-cycle-stripes)" /></svg
-              >{/if}
+              >
+                <rect width="100%" height="100%" fill="url(#ov-cycle-stripes)" />
+              </svg>{/if}
           </span>
-          <span class="ov-cycle-name">{step.short}</span><span class="visually-hidden"
-            >: {step.words}</span
-          >
+          <span class="ov-cycle-name">{step.short}</span><span class="visually-hidden">
+            : {step.words}
+          </span>
           <!-- The time is read once, in the hidden words after the name (P1-87 PR 5a). -->
           <span class="ov-cycle-time" aria-hidden="true">{step.time ?? ""}</span>
         </li>
@@ -434,9 +438,9 @@
         <span class="ov-cycle-name">Next run</span><span class="visually-hidden">,</span>
         <span class="ov-cycle-time">
           <span class="ov-cycle-when">{v.cycle.next.startsAt}</span>
-          {#if clock !== null}<span class="ov-cycle-until"
-              >{untilWords(v.cycle.next.startIso, nowMs)}</span
-            >{/if}
+          {#if clock !== null}<span class="ov-cycle-until">
+              {untilWords(v.cycle.next.startIso, nowMs)}
+            </span>{/if}
         </span>
       </li>
     </ol>
@@ -452,8 +456,10 @@
       type="button"
       class="ov-ticker-pause"
       aria-pressed={paused}
-      onclick={() => (paused = !paused)}>Pause the ticker</button
+      onclick={() => (paused = !paused)}
     >
+      Pause the ticker
+    </button>
     <div
       class="ov-ticker-window"
       bind:this={windowEl}
@@ -490,69 +496,69 @@
     <p class="muted">The submissions could not be read just now. Reload to try again.</p>
   {:else}
     <p>
-      <span data-term="Submissions"
-        >{v.leads.allTime.submissions}
+      <span data-term="Submissions">
+        {v.leads.allTime.submissions}
         {v.leads.allTime.submissions === 1
           ? "submission"
-          : "submissions"}{#if v.leads.since}&nbsp;since {v.leads.since}{/if}.</span
-      >
-      <span data-term="Accepted as real"
-        >{v.leads.allTime.accepted}
-        {v.leads.allTime.accepted === 1 ? "was" : "were"} accepted as real,</span
-      >
-      <span data-term="Client notified"
-        >and the client was notified of {v.leads.allTime.notified}.</span
-      >
-      {#if v.leads.biggest}<span data-term="Biggest share"
-          >Of the {v.leads.allTime.submissions} submissions, {v.leads.biggest.submissions} ({v.leads
+          : "submissions"}{#if v.leads.since}&nbsp;since {v.leads.since}{/if}.
+      </span>
+      <span data-term="Accepted as real">
+        {v.leads.allTime.accepted}
+        {v.leads.allTime.accepted === 1 ? "was" : "were"} accepted as real,
+      </span>
+      <span data-term="Client notified">
+        and the client was notified of {v.leads.allTime.notified}.
+      </span>
+      {#if v.leads.biggest}<span data-term="Biggest share">
+          Of the {v.leads.allTime.submissions} submissions, {v.leads.biggest.submissions} ({v.leads
             .biggest.share}%) came from one site, {v.leads.biggest.siteName}, through {v.leads
             .biggest.formKind}; {v.leads.biggest.accepted} of the {v.leads.allTime.accepted} accepted
           {v.leads.biggest.accepted === 1 ? "is" : "are"} from it. Every site's own count is in the table
-          below.</span
-        >{/if}
+          below.
+        </span>{/if}
     </p>
     <table class="ov-table ov-leads-totals">
       <thead><tr><td></td><th>This month</th><th>All time</th></tr></thead>
       <tbody>
-        <tr data-term="Accepted as real"
-          ><th scope="row">Accepted as real</th><td data-label="This month"
-            >{v.leads.thisMonth?.accepted}</td
-          ><td data-label="All time">{v.leads.allTime.accepted}</td></tr
-        >
-        <tr data-term="Client notified"
-          ><th scope="row">Client notified</th><td data-label="This month"
-            >{v.leads.thisMonth?.notified}</td
-          ><td data-label="All time">{v.leads.allTime.notified}</td></tr
-        >
-        <tr data-term="Screened as spam"
-          ><th scope="row">Screened as spam</th><td data-label="This month"
-            >{v.leads.thisMonth?.screened}</td
-          ><td data-label="All time">{v.leads.allTime.screened}</td></tr
-        >
-        <tr data-term="Marked spam by hand"
-          ><th scope="row">Marked spam by hand</th><td data-label="This month"
-            >{v.leads.thisMonth?.byHand}</td
-          ><td data-label="All time">{v.leads.allTime.byHand}</td></tr
-        >
-        <tr data-term="Stopped before storage"
-          ><th scope="row">Stopped before storage</th><td data-label="This month"
-            >{v.leads.stoppedThisMonth}</td
-          ><td data-label="All time"
-            >{v.leads.stoppedAllTime}{#if v.leads.stoppedAsOf}<span class="muted"
-                >, as of {v.leads.stoppedAsOf}</span
-              >{/if}</td
-          ></tr
-        >
+        <tr data-term="Accepted as real">
+          <th scope="row">Accepted as real</th><td data-label="This month">
+            {v.leads.thisMonth?.accepted}
+          </td><td data-label="All time">{v.leads.allTime.accepted}</td>
+        </tr>
+        <tr data-term="Client notified">
+          <th scope="row">Client notified</th><td data-label="This month">
+            {v.leads.thisMonth?.notified}
+          </td><td data-label="All time">{v.leads.allTime.notified}</td>
+        </tr>
+        <tr data-term="Screened as spam">
+          <th scope="row">Screened as spam</th><td data-label="This month">
+            {v.leads.thisMonth?.screened}
+          </td><td data-label="All time">{v.leads.allTime.screened}</td>
+        </tr>
+        <tr data-term="Marked spam by hand">
+          <th scope="row">Marked spam by hand</th><td data-label="This month">
+            {v.leads.thisMonth?.byHand}
+          </td><td data-label="All time">{v.leads.allTime.byHand}</td>
+        </tr>
+        <tr data-term="Stopped before storage">
+          <th scope="row">Stopped before storage</th><td data-label="This month">
+            {v.leads.stoppedThisMonth}
+          </td><td data-label="All time">
+            {v.leads.stoppedAllTime}{#if v.leads.stoppedAsOf}<span class="muted">
+                , as of {v.leads.stoppedAsOf}
+              </span>{/if}
+          </td>
+        </tr>
       </tbody>
     </table>
     <h3 data-term="Per site">Per site</h3>
     <table class="ov-table ov-leads-sites" data-term="Per site">
       <thead>
-        <tr
-          ><th>Site</th><th>Submissions</th><th>Accepted</th><th>Notified</th><th>Screened</th><th
-            >By hand</th
-          ></tr
-        >
+        <tr>
+          <th>Site</th><th>Submissions</th><th>Accepted</th><th>Notified</th><th>Screened</th><th>
+            By hand
+          </th>
+        </tr>
       </thead>
       <tbody>
         {#each v.leads.perSite as s (s.siteId)}
@@ -583,13 +589,15 @@
     </p>
   {/if}
   <table class="ov-table ov-due">
-    <thead
-      ><tr
-        ><th>Site</th><th data-term="Next report due">Next report due</th><th
-          data-term="Waiting for your yes">Waiting for your yes</th
-        ></tr
-      ></thead
-    >
+    <thead>
+      <tr>
+        <th>Site</th><th data-term="Next report due">Next report due</th><th
+          data-term="Waiting for your yes"
+        >
+          Waiting for your yes
+        </th>
+      </tr>
+    </thead>
     <tbody>
       {#each v.reports.perSite as r (r.siteId)}
         <tr>
@@ -654,8 +662,8 @@
             <ul class="ov-key">
               {#each c.series as s, si (s.name)}
                 <li>
-                  <svg class="ov-key-mark" viewBox="0 0 16 10" aria-hidden="true"
-                    >{#if s.bars}<rect
+                  <svg class="ov-key-mark" viewBox="0 0 16 10" aria-hidden="true">
+                    {#if s.bars}<rect
                         x="3"
                         y="1"
                         width="10"
@@ -668,8 +676,8 @@
                         x2="16"
                         y2="5"
                         class="ov-line-mark {s.broken ? 'broken' : ''} {si > 0 ? 'second' : ''}"
-                      />{/if}</svg
-                  >{s.name}
+                      />{/if}
+                  </svg>{s.name}
                 </li>
               {/each}
             </ul>
@@ -695,22 +703,22 @@
             {/each}
             <line class="ov-grid" x1={g.plotLeft} x2={g.plotRight} y1={g.top} y2={g.top} />
             <line class="ov-axis" x1={g.plotLeft} x2={g.plotRight} y1={g.zero} y2={g.zero} />
-            <text class="ov-tick" x={g.plotLeft - 4} y={g.top + 4} text-anchor="end"
-              >{tickLabel(c.high)}</text
-            >
+            <text class="ov-tick" x={g.plotLeft - 4} y={g.top + 4} text-anchor="end">
+              {tickLabel(c.high)}
+            </text>
             {#if c.mid !== null && g.midY !== null}
               <line class="ov-grid" x1={g.plotLeft} x2={g.plotRight} y1={g.midY} y2={g.midY} />
-              <text class="ov-tick" x={g.plotLeft - 4} y={g.midY + 4} text-anchor="end"
-                >{tickLabel(c.mid)}</text
-              >
+              <text class="ov-tick" x={g.plotLeft - 4} y={g.midY + 4} text-anchor="end">
+                {tickLabel(c.mid)}
+              </text>
             {/if}
-            <text class="ov-tick" x={g.plotLeft - 4} y={g.baseline + 4} text-anchor="end"
-              >{tickLabel(c.low)}</text
-            >
+            <text class="ov-tick" x={g.plotLeft - 4} y={g.baseline + 4} text-anchor="end">
+              {tickLabel(c.low)}
+            </text>
             <text class="ov-tick" x={g.plotLeft} y={g.height - 4}>{c.nights[0]}</text>
-            <text class="ov-tick" x={g.plotRight} y={g.height - 4} text-anchor="end"
-              >{c.nights.at(-1)}</text
-            >
+            <text class="ov-tick" x={g.plotRight} y={g.height - 4} text-anchor="end">
+              {c.nights.at(-1)}
+            </text>
             {#each g.bars as b, bi (bi)}
               <path class="ov-bar{b.partial ? ' partial' : ''}" d={b.d} />
             {/each}
@@ -741,34 +749,29 @@
               />
             {/each}
             {#each g.slots as t, ti (ti)}
-              <rect class="ov-hit" x={t.left} y={g.top} width={t.width} height={g.baseline - g.top}
-                ><title>{t.title}</title></rect
-              >
+              <rect class="ov-hit" x={t.left} y={g.top} width={t.width} height={g.baseline - g.top}>
+                <title>{t.title}</title>
+              </rect>
             {/each}
           </svg>
           {#if c.note}<p class="muted ov-trend-note">{c.note}</p>{/if}
           <details class="ov-trend-table">
             <summary>As a table</summary>
             <table class="ov-table">
-              <thead
-                ><tr
-                  ><th>{c.slotHeading}</th>{#each c.series as s (s.name)}<th>{s.name}</th
-                    >{/each}</tr
-                ></thead
-              >
+              <thead>
+                <tr>
+                  <th>{c.slotHeading}</th>{#each c.series as s (s.name)}<th>{s.name}</th>{/each}
+                </tr>
+              </thead>
               <tbody>
                 {#each c.nights as night, pi (pi)}
                   <tr>
                     <th scope="row">{night}</th>
                     {#each c.series as s (s.name)}
                       {@const q = s.points[pi]!}
-                      <td data-label={s.name} class={q.value === null ? "unknown" : ""}
-                        >{q.value === null
-                          ? q.note
-                          : q.note
-                            ? `${q.value}, ${q.note}`
-                            : q.value}</td
-                      >
+                      <td data-label={s.name} class={q.value === null ? "unknown" : ""}>
+                        {q.value === null ? q.note : q.note ? `${q.value}, ${q.note}` : q.value}
+                      </td>
                     {/each}
                   </tr>
                 {/each}
