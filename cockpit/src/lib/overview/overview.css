@@ -146,6 +146,24 @@ section {
 .ov-bar {
   fill: var(--ink-muted);
 }
+/* P1-87 PR 7b: the newest day of a traffic column, still being counted, is lighter; the
+ * days Search Console has no data for yet are hatched (the one pattern, in the trends). */
+.ov-bar.partial {
+  fill: var(--band);
+}
+.ov-lag-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+.ov-lag-hatch line {
+  stroke: var(--ink-muted);
+  stroke-width: 1px;
+}
+.ov-lag {
+  fill: url(#ov-lag-hatch);
+}
 .ov-line-mark {
   fill: none;
   stroke: var(--ink);

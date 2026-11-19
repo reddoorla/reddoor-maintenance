@@ -205,3 +205,78 @@ export function readSearch(nights: readonly OverviewNight[] | null): Reading<Sea
     },
   };
 }
+
+/** One day of a traffic chart: its count, or null and why. `partial`: the count is the
+ *  newest day, still being counted; `lag`: Search Console has no data for the day yet. */
+export type TrafficSlot = {
+  value: number | null;
+  note: string | null;
+  partial: boolean;
+  lag: boolean;
+};
+
+/** The words the view gives a day that has no count (view.ts owns the wording). */
+export type TrafficWords = {
+  /** A day after the series' night: no reading since that night. */
+  after: (night: string) => string;
+  /** A stored reason that shows no series at all, as words. */
+  reason: (r: TrafficReason) => string;
+};
+
+const blank = (note: string, lag = false): TrafficSlot => ({
+  value: null,
+  note,
+  partial: false,
+  lag,
+});
+
+/** The axis days (oldest first) that fall before `start`, which the window does not cover. */
+const droppedFrom = (w: Win, days: readonly string[]): number =>
+  datesBetween(w.startDate, w.endDate).filter((d) => d < days[0]!).length;
+
+/** The engaged-visits chart: each day's own count over the tile's 30 days. `dropped` is the
+ *  window's days older than the axis (the chart cannot show them). */
+export function visitsSlots(
+  r: Reading<VisitsSeries>,
+  days: readonly string[],
+  words: TrafficWords,
+): { slots: TrafficSlot[]; dropped: number } {
+  if (r.value === null) {
+    return { slots: days.map(() => blank(words.reason(r.reason))), dropped: 0 };
+  }
+  const s = r.value;
+  const w = windowsFor(s.night).current;
+  const slots = days.map((d): TrafficSlot => {
+    if (d > s.night) return blank(words.after(s.night));
+    if (d < w.startDate) return blank("before the 30 days the tile counts");
+    const v = s.daily.get(d);
+    if (v === undefined) return blank(words.reason("malformed"));
+    const partial = d === w.endDate;
+    return { value: v, note: partial ? "still being counted" : null, partial, lag: false };
+  });
+  return { slots, dropped: droppedFrom(w, days) };
+}
+
+/** A search chart: clicks or impressions per day over the 28 days ending 3 days before the
+ *  night; the last 3 days (after the window, up to the night) are lag, not blank. */
+export function searchSlots(
+  r: Reading<SearchSeries>,
+  days: readonly string[],
+  words: TrafficWords,
+  pick: "clicks" | "impressions",
+): { slots: TrafficSlot[]; dropped: number } {
+  if (r.value === null) {
+    return { slots: days.map(() => blank(words.reason(r.reason))), dropped: 0 };
+  }
+  const s = r.value;
+  const w = windowsFor(s.night).search;
+  const slots = days.map((d): TrafficSlot => {
+    if (d > s.night) return blank(words.after(s.night));
+    if (d > w.endDate) return blank("Google has no data yet", true);
+    if (d < w.startDate) return blank("before the 28 days the tile counts");
+    const day = s.daily.get(d);
+    if (day === undefined) return blank(words.reason("malformed"));
+    return { value: day[pick], note: null, partial: false, lag: false };
+  });
+  return { slots, dropped: droppedFrom(w, days) };
+}

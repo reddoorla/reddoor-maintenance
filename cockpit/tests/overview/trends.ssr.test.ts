@@ -5,7 +5,6 @@ import {
   TREND_AXIS_NIGHTS,
   TREND_NIGHTS,
   UNREADABLE,
-  WINDOW_NIGHTS,
   trendGeometry,
   trendsFromDaily,
   MIN_COLUMN,
@@ -711,7 +710,7 @@ describe("review round 4", () => {
 describe("P1-87 PR 7b: 31 nights and the three traffic charts", () => {
   const N = "2026-10-26";
   const traffic = (block: Record<string, unknown>) =>
-    ({ traffic: { value: block } }) as unknown as OverviewNight["counts"]["traffic"];
+    ({ value: block }) as unknown as OverviewNight["counts"]["traffic"];
   /** 32 nights to Oct 26, with the traffic block `block` on the newest row. */
   const withBlock = (block: Record<string, unknown>) =>
     run(N, 32, (_, i) => (i === 0 ? { traffic: traffic(block) } : {}));
@@ -754,12 +753,16 @@ describe("P1-87 PR 7b: 31 nights and the three traffic charts", () => {
   });
 
   it("a day is drawn at its own date, not its index: a spike on Oct 1 lands at Oct 1", () => {
-    const block = trafficBlock(N) as { search: { value: { daily: Array<Record<string, number>> } } };
+    const block = trafficBlock(N) as {
+      search: {
+        value: { daily: Array<{ date: string; clicks: number; impressions: number }> };
+      };
+    };
     const daily = block.search.value.daily.map((d) => ({ ...d }));
-    const oct1 = daily.findIndex((d) => d["date"] === "2026-10-01");
+    const oct1 = daily.findIndex((d) => d.date === "2026-10-01");
     const oct2 = oct1 + 1;
-    daily[oct1]!["impressions"]! += 300;
-    daily[oct2]!["impressions"]! -= 300;
+    daily[oct1]!.impressions += 300;
+    daily[oct2]!.impressions -= 300;
     const spiked = { ...block, search: { value: { ...block.search.value, daily } } };
     const c = TF(trendsFromDaily(withBlock(spiked), NOW), DAYS.searchTimes);
     const at = c.nights.indexOf("Oct 1");

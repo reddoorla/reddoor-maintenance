@@ -420,6 +420,23 @@
   <h2 id="ov-trends">Trends</h2>
   <p>{v.trends.status}.</p>
   {#if v.trends.charts}
+    {#if v.trends.charts.some((c) => trendGeometry(c).lag.length > 0)}
+      <!-- One hatch pattern for the trends: the days Search Console has no data for yet. -->
+      <svg class="ov-lag-defs" width="0" height="0" aria-hidden="true" focusable="false">
+        <defs>
+          <pattern
+            id="ov-lag-hatch"
+            class="ov-lag-hatch"
+            width="6"
+            height="6"
+            patternUnits="userSpaceOnUse"
+            patternTransform="rotate(45)"
+          >
+            <line x1="0" y1="0" x2="0" y2="6" />
+          </pattern>
+        </defs>
+      </svg>
+    {/if}
     <div class="ov-trends">
       {#each v.trends.charts as c, ci (c.title)}
         {@const g = trendGeometry(c)}
@@ -485,7 +502,10 @@
               >{c.nights.at(-1)}</text
             >
             {#each g.bars as b, bi (bi)}
-              <path class="ov-bar" d={b.d} />
+              <path class="ov-bar{b.partial ? ' partial' : ''}" d={b.d} />
+            {/each}
+            {#each g.lag as l, li (li)}
+              <rect class="ov-lag" x={l.x} y={g.top} width={l.width} height={g.baseline - g.top} />
             {/each}
             {#each g.lines as l, li (li)}
               <path
@@ -515,7 +535,8 @@
             <table class="ov-table">
               <thead
                 ><tr
-                  ><th>Night</th>{#each c.series as s (s.name)}<th>{s.name}</th>{/each}</tr
+                  ><th>{c.slotHeading}</th>{#each c.series as s (s.name)}<th>{s.name}</th
+                    >{/each}</tr
                 ></thead
               >
               <tbody>
@@ -525,7 +546,11 @@
                     {#each c.series as s (s.name)}
                       {@const q = s.points[pi]!}
                       <td data-label={s.name} class={q.value === null ? "unknown" : ""}
-                        >{q.value === null ? q.note : q.value}</td
+                        >{q.value === null
+                          ? q.note
+                          : q.note
+                            ? `${q.value}, ${q.note}`
+                            : q.value}</td
                       >
                     {/each}
                   </tr>

@@ -51,7 +51,16 @@ import { TRIAGE_PATH } from "../../../../src/dashboard/home-path.js";
 import { NETLIFY_SITE_NOT_FOUND } from "../../../../src/fleet/roster-url-probe.js";
 import { OVERVIEW_NIGHTS } from "../../../../src/fleet-daily/types.js";
 import { cycleView, type CycleView } from "./cycle.js";
-import { readSearch, readVisits, type TrafficReason } from "./traffic.js";
+import {
+  readSearch,
+  readVisits,
+  searchSlots,
+  visitsSlots,
+  type SearchSeries as SearchReading,
+  type TrafficReason,
+  type TrafficSlot,
+  type TrafficWords,
+} from "./traffic.js";
 
 /**
  * P1-78g: the overview at `/` as render-ready data (workspace
@@ -1470,6 +1479,12 @@ export type TrendPoint = {
   note: string | null;
   /** Counted on an earlier ladder version: shaded as a break, never drawn. */
   earlier: boolean;
+  /** The newest day of a traffic column, still being counted: drawn lighter. Set only on
+   *  the traffic charts' points; absent (read as false) on the others. */
+  partial?: boolean;
+  /** A traffic day Search Console has no data for yet: hatched, never drawn. Set only on
+   *  the traffic charts' points. */
+  lag?: boolean;
 };
 
 export type TrendSeries = {
@@ -1494,6 +1509,8 @@ export type TrendChart = {
   /** A tick halfway up when that is a whole number, so a small level reads off the axis
    *  on a phone, where there is no hover (review round 2); null otherwise. */
   mid: number | null;
+  /** The table's first column's heading: "Night", or "Day" for the traffic charts. */
+  slotHeading: string;
   /** For screen readers, and anyone not reading the marks. */
   summary: string;
   /** Said under the chart: what its marks count, and any break or blank nights. */
@@ -1630,17 +1647,24 @@ export function trendsFromDaily(nights: OverviewNight[] | null, now: Date): Tren
     points,
   });
   const labels = days.map(nightLabel);
-  const make = (title: string, s: TrendSeries[], note: string): TrendChart => {
+  const make = (
+    title: string,
+    s: TrendSeries[],
+    note: string,
+    o: { term?: string; slot?: "night" | "day" } = {},
+  ): TrendChart => {
+    const one = o.slot ?? "night";
+    const many = one === "day" ? "days" : "nights";
     const vals = s
       .flatMap((x) => x.points.map((p) => p.value))
       .filter((v): v is number => v !== null);
     const said = s.map((x) => {
       const drawn = x.points.flatMap((p) => (p.value === null ? [] : [p.value]));
-      if (drawn.length === 0) return `${x.name}: no night drawn`;
+      if (drawn.length === 0) return `${x.name}: no ${one} drawn`;
       const at = x.points.map((p) => p.value !== null).lastIndexOf(true);
       const lo = Math.min(...drawn);
       const hi = Math.max(...drawn);
-      const over = count(drawn.length, "night drawn", "nights drawn");
+      const over = count(drawn.length, `${one} drawn`, `${many} drawn`);
       return `${x.name}: ${lo === hi ? `${lo} on each of the ${over}` : `from ${lo} to ${hi} over the ${over}`}, ${x.points[at]!.value} on ${labels[at]}`;
     });
     const gaps = days.filter((_, i) => s.every((x) => x.points[i]!.value === null)).length;
@@ -1649,13 +1673,14 @@ export function trendsFromDaily(nights: OverviewNight[] | null, now: Date): Tren
     const high = roundUp(Math.max(1, ...vals));
     return {
       title,
-      term: "Trends",
+      term: o.term ?? "Trends",
       nights: labels,
       series: s,
       low: 0,
       high,
       mid: high >= 2 && high % 2 === 0 ? high / 2 : null,
-      summary: `${said.join(". ")}. ${gaps === 0 ? "Every night is drawn" : `${count(gaps, "night has", "nights have")} no point; the table gives why`}.`,
+      slotHeading: one === "day" ? "Day" : "Night",
+      summary: `${said.join(". ")}. ${gaps === 0 ? `Every ${one} is drawn` : `${count(gaps, `${one} has`, `${many} have`)} no point; the table gives why`}.`,
       note: [
         note,
         ...(earlier
@@ -1672,6 +1697,61 @@ export function trendsFromDaily(nights: OverviewNight[] | null, now: Date): Tren
     };
   };
 
+  /** The three traffic charts, one column a day, each from its own guarded series (traffic.ts).
+   *  The 14-night gate above applies to them too; a series that is not shown draws its days
+   *  as blanks with their words, never as an absent chart. */
+  const trafficCharts = (): TrendChart[] => {
+    const words = (source: "visits" | "search"): TrafficWords => ({
+      after: (night) => `no traffic reading since the night of ${nightLabel(night)}`,
+      reason: (r) => trafficReasonWords(r, source),
+    });
+    const vr = readVisits(sorted);
+    const sr = readSearch(sorted);
+    const vis = visitsSlots(vr, days, words("visits"));
+    const imp = searchSlots(sr, days, words("search"), "impressions");
+    const clk = searchSlots(sr, days, words("search"), "clicks");
+    const asPoints = (slots: TrafficSlot[]): TrendPoint[] =>
+      slots.map((x) => ({
+        value: x.value,
+        note: x.note,
+        earlier: false,
+        partial: x.partial,
+        lag: x.lag,
+      }));
+    /** Said when the axis is shorter than the tile's window, or the newest reading is late. */
+    const short = (dropped: number, tile: number, night: string) =>
+      dropped > 0
+        ? ` The newest reading is from the night of ${nightLabel(night)}, so ${dropped} of the tile's ${tile} days ${dropped === 1 ? "is" : "are"} before this chart and the columns no longer add up to the tile.`
+        : "";
+    const visitsNote =
+      vr.value === null
+        ? "Each column is that day's engaged visits. A day with no reading says why in the table."
+        : `Each column is that day's engaged visits across ${count(vr.value.sitesRead, "site", "sites")}; the 30 columns add up to the tile's ${WHOLE.format(vr.value.current)}. The night of ${nightLabel(vr.value.night)} is still being counted, so its column is lighter.${short(vis.dropped, 30, vr.value.night)}`;
+    const searchNote = (what: string, total: (r: SearchReading) => number) =>
+      sr.value === null
+        ? `Each column is that day's ${what}. A day with no reading says why in the table.`
+        : `Each column is that day's ${what} across ${count(sr.value.sitesRead, "site", "sites")}; the 28 columns add up to the tile's ${WHOLE.format(total(sr.value))}. Google's data lags about 3 days: the hatched days have none yet.${short(imp.dropped, 28, sr.value.night)}`;
+    return [
+      make(
+        "Engaged visits, each day",
+        [series("Engaged visits", asPoints(vis.slots), true)],
+        visitsNote,
+        { term: "Engaged visits", slot: "day" },
+      ),
+      make(
+        "Times shown in Google, each day",
+        [series("Times shown in Google", asPoints(imp.slots), true)],
+        searchNote("times shown in Google", (r) => r.impressions),
+        { term: "Times shown in Google", slot: "day" },
+      ),
+      make(
+        "Clicks through from Google, each day",
+        [series("Clicks through from Google", asPoints(clk.slots), true)],
+        searchNote("clicks through from Google", (r) => r.clicks),
+        { term: "Times shown in Google", slot: "day" },
+      ),
+    ];
+  };
   const lag = nightsBetween(newest, end);
   const missing = days.filter((d) => !byNight.has(d)).length;
   return {
@@ -1714,6 +1794,7 @@ export function trendsFromDaily(nights: OverviewNight[] | null, now: Date): Tren
         ],
         "The nightly does not count new vulnerabilities found, so the line shows sites whose vulnerability alert was on the Triage page that night. That leaves out a site whose alert is waiting on an automatic update and takes in sites still launching, so it need not match Open now. The columns are sites cleared that night: from one or more critical or high vulnerabilities to none.",
       ),
+      ...trafficCharts(),
     ],
   };
 }
@@ -1741,9 +1822,11 @@ export type TrendGeometry = {
   /** A night alone between gaps, and each line's newest point: a dot. */
   dots: Array<{ series: number; broken: boolean; x: number; y: number }>;
   /** A column per night with a value; a 0 is a low column, so it never reads as a gap. */
-  bars: Array<{ series: number; x: number; height: number; d: string }>;
+  bars: Array<{ series: number; x: number; height: number; d: string; partial: boolean }>;
   /** Shaded bands over the nights of an earlier ladder version: the break. */
   earlier: Array<{ x: number; width: number }>;
+  /** Hatched bands over the days Search Console has no data for yet (the traffic charts). */
+  lag: Array<{ x: number; width: number }>;
   /** A rule at each edge of a band inside the plot, so the break shows where the band's
    *  shade is faint against the page (review round 1). */
   breaks: number[];
@@ -1792,6 +1875,7 @@ export function trendGeometry(chart: TrendChart, width = 320, height = 132): Tre
           x: xAt(i),
           height: r1(zero - top),
           d: column(r1(xAt(i) - barW / 2), barW, zero, top),
+          partial: p.partial === true,
         });
       });
       return;
@@ -1822,10 +1906,19 @@ export function trendGeometry(chart: TrendChart, width = 320, height = 132): Tre
     earlier.push({ x: leftOf(i), width: leftOf(j + 1) - leftOf(i) });
     i = j;
   }
+  const lag: TrendGeometry["lag"] = [];
+  for (let i = 0; i < n; i++) {
+    if (!first[i]!.lag) continue;
+    let j = i;
+    while (j + 1 < n && first[j + 1]!.lag) j++;
+    lag.push({ x: leftOf(i), width: leftOf(j + 1) - leftOf(i) });
+    i = j;
+  }
   const breaks = earlier
     .flatMap((e) => [e.x, r1(e.x + e.width)])
     .filter((x) => x > plotLeft && x < r1(plotRight));
-  const say = (q: TrendPoint) => (q.value === null ? q.note! : String(q.value));
+  const say = (q: TrendPoint) =>
+    q.value === null ? q.note! : q.note ? `${q.value}, ${q.note}` : String(q.value);
   const slots = first.map((p, i) => ({
     left: leftOf(i),
     width: leftOf(i + 1) - leftOf(i),
@@ -1850,6 +1943,7 @@ export function trendGeometry(chart: TrendChart, width = 320, height = 132): Tre
     dots,
     bars,
     earlier,
+    lag,
     breaks,
     slots,
   };
@@ -2108,6 +2202,18 @@ const TRAFFIC_UNMEASURED: Record<TrafficReason, { value: string; context: string
 };
 
 const WHOLE = new Intl.NumberFormat("en-US");
+
+/** A traffic chart's word for a day with no count: the tile's words, in lower case. The
+ *  search chart's "not configured" names Google, not Analytics (as its tile does). */
+function trafficReasonWords(r: TrafficReason, source: "visits" | "search"): string {
+  const u = TRAFFIC_UNMEASURED[r];
+  const context =
+    source === "search" && r === "not configured"
+      ? "Google is not set up for the nightly"
+      : u.context;
+  const head = u.value.toLowerCase();
+  return context === null ? head : `${head}: ${context}`;
+}
 
 /** The engaged visits' comparison with the 30 days before, in words: "up 9%", "down 8%",
  *  "about the same" at 0% after rounding, and "none" when the 30 days before had none. */
@@ -2701,6 +2807,14 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   {
     term: "Trends",
     text: `Drawn from the nightly counts once ${TREND_NIGHTS} of the last ${TREND_AXIS_NIGHTS} nights have them; until then the section says how many it has, and when the nightly last counted if it has stopped. Each chart covers up to the last ${TREND_AXIS_NIGHTS} calendar nights, to the night expected by now, and the note under it says what its marks count. Google's data lags about three days, so each search chart's 28 days end three days before the night and its last three days are hatched. A night with no count, or a count that could not be read, is blank, never a zero, and the table under each chart says why; a column at the axis is a real 0. A count kept as an all-time total is drawn as its change over the night before, so the night after a blank night is blank too. The rules that sort sites into levels have changed twice (the ladder in October, then the live-site checks), so on the level chart a night sorted by earlier rules is shaded and left out rather than compared.`,
+  },
+  {
+    term: "Engaged visits",
+    text: "The engaged sessions Google Analytics counts on each site, for each day, as the nightly writes them and added across the sites it could read (the first screen's tile says how many). The tile counts the last 30 days and sets them against the 30 before; each column is one day, and the newest day is still being counted, so its column is lighter.",
+  },
+  {
+    term: "Times shown in Google",
+    text: "Search Console's impressions (how often a page of a site was shown in Google's search results) and clicks (how often a visitor clicked through from them), for each day, as the nightly writes them and added across the sites it could read. The tile and the charts count the 28 days that end three days before the night, because Google's data lags about three days; the last three days are hatched.",
   },
   {
     term: "Nights counted",
