@@ -586,10 +586,12 @@ export async function draftDueReports(
         continue;
       }
       // P1-117: the send holds a row until its stored due date, so that date must
-      // follow the cycle. It can move inside one period (a Testing send pushes
-      // Maintenance later), and a half-made row was created before it was known.
-      // A row drafted before P1-117 (no due date) is left as it is unless it is
-      // being completed here.
+      // follow the cycle. It moves inside one period when the site's anchor day is
+      // edited before the first send, or when a report of the same type is sent by
+      // hand mid-cycle. (A Testing push always lands in a later period, so it never
+      // reaches this row.) A row that is not draft-ready (half-made, or superseded
+      // and waiting) is stamped too, so it carries its date when it is completed.
+      // A ready row drafted before P1-117 (no due date) is left as it is.
       const dueOn = ymd(item.dueDate);
       if (
         existing.sentAt === null &&

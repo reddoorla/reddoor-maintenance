@@ -227,7 +227,7 @@ export function sendDayLabel(dueOn: string): string {
       minute: "2-digit",
       timeZone: "America/Los_Angeles",
     })
-    .replace(" ", "")
+    .replace(/\s/u, "")
     .toLowerCase();
   return `${weekday} ${dueOn.slice(5)}, ${time} PT`;
 }
@@ -241,7 +241,7 @@ function nextDailyRun(now: Date): Date {
 }
 
 /** The send-timing line: honest about today's run possibly being in flight,
- *  and a countdown that floors. Same as render.ts's `sendTimingLine`. */
+ *  and a countdown that floors. */
 function sendTimingLine(now: Date, r: Pick<ReportRow, "dueOn">): string {
   // P1-117: a report drafted before its due date is held until then however
   // early it is approved.

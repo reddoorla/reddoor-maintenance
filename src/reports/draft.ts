@@ -293,7 +293,9 @@ export async function draftReportForSite(
     siteName: siteRow.name,
     siteUrl: siteRow.url,
     reportType,
-    completedOn,
+    // P1-117: dated the due date it will be sent on (see `emailDate`). The
+    // completing path reads the row's due date, which the nightly set first.
+    completedOn: options.dueOn ?? dueOnOf(options.existingRow) ?? completedOn,
     lighthouse: scores,
     gaUsersCurrent: gaUsers?.current,
     gaUsersPrevious: gaUsers?.previous,
@@ -413,6 +415,10 @@ export async function draftReportForSite(
     queued: outcome.queued,
     supersededIds: outcome.supersededIds,
   };
+}
+
+function dueOnOf(row: ReportRow | undefined): Date | null {
+  return row?.dueOn ? new Date(row.dueOn) : null;
 }
 
 /** Approved, queued and waiting to send: what freezes the site's header plate.

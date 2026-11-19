@@ -65,7 +65,10 @@ export async function renderReportFromRow(
     siteName: site.name,
     siteUrl: site.url,
     reportType: report.reportType,
-    completedOn: report.completedOn ? new Date(report.completedOn) : new Date(),
+    // P1-117 (the operator, 2026-11-19: "Due date"): a report drafted before its
+    // due date is held until then, so its email is dated the day it is sent, as
+    // reports always were. The data still runs to the last refresh before approval.
+    completedOn: emailDate(report),
     lighthouse: requireLighthouse(report),
     gaUsersCurrent: report.gaUsersCurrent ?? undefined,
     gaUsersPrevious: report.gaUsersPrevious ?? undefined,
@@ -90,4 +93,12 @@ export async function renderReportFromRow(
     cidName,
     subjectOverride: report.subjectOverride ?? undefined,
   });
+}
+
+/** The date at the top of the email and in the default subject's month: the due
+ *  date when the nightly drafted the report for one (P1-117), else the day it was
+ *  drafted. Shared with the draft's first render so the preview matches the send. */
+export function emailDate(report: Pick<ReportRow, "dueOn" | "completedOn">): Date {
+  const iso = report.dueOn ?? report.completedOn;
+  return iso ? new Date(iso) : new Date();
 }

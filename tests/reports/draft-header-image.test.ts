@@ -215,3 +215,18 @@ describe("draftReportForSite header-refresh wiring", () => {
     expect(generateHeaderImage).toHaveBeenCalledTimes(1);
   });
 });
+
+/** P1-117: the body stored at draft time is the preview the operator approves, so
+ *  it carries the same date the send renders: the due date. */
+describe("draftReportForSite email date (P1-117)", () => {
+  it("dates the stored body by the due date the nightly drafted it for", async () => {
+    const writer = makeFakeReportWriter();
+    await draftReportForSite(
+      makeWebsiteRow({ pScore: 87, rScore: 91, bpScore: 100, seoScore: 95 }),
+      "Maintenance",
+      { reportMirror: writer, refreshHeader: false, dueOn: new Date("2099-03-07T00:00:00Z") },
+    );
+    expect(writer.bodies[0]!.html).toContain("03.07.2099");
+    expect(writer.inserts[0]!.fields["Due on"]).toBe("2099-03-07");
+  });
+});

@@ -104,6 +104,25 @@ describe("renderReportFromRow", () => {
     expect(after.html).not.toContain("first draft");
   });
 
+  // P1-117 (the operator, 2026-11-19: "Due date"): a report drafted before its due
+  // date is dated, at the top and in the subject's month, by the day it is sent.
+  it("dates an early-drafted report by its due date, in the body and the subject", async () => {
+    const r = await renderReportFromRow(
+      site(),
+      report({ completedOn: "2026-09-28", dueOn: "2026-10-03" }),
+      PLATE,
+    );
+    expect(r.html).toContain("10.03.2026");
+    expect(r.html).not.toContain("09.28.2026");
+    expect(r.subject).toContain("October 2026");
+  });
+
+  it("keeps the draft day for a report with no due date (legacy, Launch, Announcement)", async () => {
+    const r = await renderReportFromRow(site(), report({ completedOn: "2026-09-28" }), PLATE);
+    expect(r.html).toContain("09.28.2026");
+    expect(r.subject).toContain("September 2026");
+  });
+
   it("honours subjectOverride, and falls back to the default subject", async () => {
     const overridden = await renderReportFromRow(
       site(),

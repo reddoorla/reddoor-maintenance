@@ -839,7 +839,7 @@ export type ReportMirrorPatch = Partial<
     | "withdrawn_at"
     | "withdrawn_by"
     // P1-117: the nightly keeps a drafted row's due date current when its cycle
-    // moves (a Testing send pushes Maintenance), so the send holds it correctly.
+    // moves inside the period, so the send holds it to the right day.
     | "due_on"
   >
 >;

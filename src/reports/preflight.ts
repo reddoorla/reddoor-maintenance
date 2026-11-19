@@ -4,7 +4,7 @@ import { siteSlug } from "../fleet/site-row.js";
 import type { WebsiteRow } from "../fleet/site-row.js";
 import type { ReportRow } from "./report-row.js";
 import { parseAddresses, isProbablyEmail } from "./send/addresses.js";
-import { DRAFT_LEAD_DAYS, ELIGIBLE_STATUSES, reportPeriodKey } from "./due.js";
+import { DAY_MS, DRAFT_LEAD_DAYS, ELIGIBLE_STATUSES, reportPeriodKey } from "./due.js";
 import type { ReportType } from "./types.js";
 import { gatingHealth, isSendOverridden } from "./checklist.js";
 
@@ -258,7 +258,7 @@ export function preflightSite(
     const dueSoon = (r: ReportRow): boolean => {
       if (r.dueOn === null) return false;
       const ahead = Date.parse(r.dueOn) - today;
-      return ahead >= 0 && ahead <= DRAFT_LEAD_DAYS * 86_400_000;
+      return ahead >= 0 && ahead <= DRAFT_LEAD_DAYS * DAY_MS;
     };
     const isExpectedPayload = (r: ReportRow): boolean =>
       type !== "Announcement" &&
