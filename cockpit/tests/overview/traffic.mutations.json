@@ -606,5 +606,192 @@
     ],
     "test": "cockpit/tests/overview/traffic.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "31-lag-sentence-omitted",
+    "why": "The Trends text omits the three-day lag sentence (P1-87 PR 7b, the operator's brief)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "Google's data lags about three days, so each search chart's 28 days end three days before the night and its last three days are hatched. ",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "48-floor-day-after-night-as-zero",
+    "why": "(floor) a visits day after the series' night is drawn as 0 (plan 18)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "    if (d > s.night) return blank(words.after(s.night));\n    if (d < w.startDate)",
+        "replace": "    if (d > s.night) return { value: 0, note: null, partial: false, lag: false };\n    if (d < w.startDate)"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "49-lag-day-drawn-as-zero",
+    "why": "A search lag day is drawn as 0 (plan 19)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "    if (d > w.endDate) return blank(\"Google has no data yet\", true);",
+        "replace": "    if (d > w.endDate) return { value: 0, note: null, partial: false, lag: false };"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "50-search-placed-by-index-from-right",
+    "why": "Search days are placed by index from the right, not by date (plan 20)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "    const day = s.daily.get(d);",
+        "replace": "    const day = [...s.daily.values()][days.length - 1 - days.indexOf(d)];"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "51-visits-blank-shows-previous-day",
+    "why": "A visits day after the series' night shows the previous day's value (plan 21)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "    if (d > s.night) return blank(words.after(s.night));\n    if (d < w.startDate) return blank(\"before the 30 days the tile counts\");",
+        "replace": "    if (d > s.night) return { value: s.daily.get(shift(d, -1)) ?? null, note: words.after(s.night), partial: false, lag: false };\n    if (d < w.startDate) return blank(\"before the 30 days the tile counts\");"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "52-trend-axis-30",
+    "why": "TREND_AXIS_NIGHTS is 30, not 31 (plan 22)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "export const TREND_AXIS_NIGHTS = 31;",
+        "replace": "export const TREND_AXIS_NIGHTS = 30;"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "53-window-nights-31",
+    "why": "WINDOW_NIGHTS is 31: the 30-night uses move with it (plan 23)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "export const WINDOW_NIGHTS = 30;",
+        "replace": "export const WINDOW_NIGHTS = 31;"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "54-partial-never-set",
+    "why": "The newest visits column is never marked partial (plan 24)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "    const partial = d === w.endDate;",
+        "replace": "    const partial = false;"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "55-lag-bands-not-built",
+    "why": "The geometry builds no lag bands (plan 25)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    if (!first[i]!.lag) continue;",
+        "replace": "    continue;"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "56-no-longer-add-up-omitted",
+    "why": "The 'no longer add up to the tile' sentence is omitted (plan 26)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": " and the columns no longer add up to the tile.",
+        "replace": "."
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "57-collecting-line-typed-30",
+    "why": "The collecting line keeps a typed 30 (plan 27)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "nights${older ? ` in the last ${TREND_AXIS_NIGHTS}` : \"\"}",
+        "replace": "nights${older ? ` in the last 30` : \"\"}"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "58-clicks-take-impressions-high",
+    "why": "The clicks chart takes the impressions' axis: its high is the largest impressions day (448) rounded up (plan 28)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    const high = roundUp(Math.max(1, ...vals));",
+        "replace": "    const high = roundUp(Math.max(1, ...vals, ...(s[0]?.name === \"Clicks through from Google\" ? [448] : [])));"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "59-charts-read-series-from-newest-row",
+    "why": "The traffic charts read their series from the newest row only (plan 29)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    const vr = readVisits(sorted);",
+        "replace": "    const vr = readVisits(sorted.slice(0, 1));"
+      },
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    const sr = readSearch(sorted);",
+        "replace": "    const sr = readSearch(sorted.slice(0, 1));"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "60-partial-cell-drops-note",
+    "why": "A partial cell drops its note in the table (plan 30)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "? `${q.value}, ${q.note}`",
+        "replace": "? q.value"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
   }
 ]

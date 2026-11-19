@@ -140,12 +140,20 @@ describe("a count that could not be read is a gap, not a zero", () => {
   const v = trendsFromDaily(nights, NOW);
   const on = (c: TrendChart, s = 0) => c.series[s]!.points[c.nights.indexOf("Oct 22")]!;
 
-  it("every chart has no value that night, and says it could not be read", () => {
-    for (const c of v.charts!)
+  it("every chart has no value that night, and says why", () => {
+    // The fixture's rows carry no traffic block at all, so the three traffic charts are
+    // unmeasured (the tile's "not yet collected"), not unreadable. The four count charts
+    // read their own rows, which are unreadable that night (P1-87 PR 7b: the traffic charts
+    // added to the same loop).
+    v.charts!.forEach((c, ci) => {
+      const traffic = ci >= 4;
       for (let s = 0; s < c.series.length; s++) {
         expect(on(c, s).value, `${c.title} ${s}`).toBeNull();
-        expect(on(c, s).note, `${c.title} ${s}`).toBe("could not be read that night");
+        expect(on(c, s).note, `${c.title} ${s}`).toBe(
+          traffic ? "not yet collected" : "could not be read that night",
+        );
       }
+    });
   });
 
   it("a delta the night after an unread night is not taken across it", () => {
@@ -795,6 +803,7 @@ describe("P1-87 PR 7b: 31 nights and the three traffic charts", () => {
     expect(vis.series[0]!.points[oct("Oct 24")]).toMatchObject({ partial: true });
     expect(vis.series[0]!.points[oct("Oct 24")]!.value).not.toBeNull();
     expect(vis.note).toContain("1 of the tile's 30 days");
+    expect(vis.note).toContain("no longer add up to the tile");
 
     const srch = TF(late, DAYS.searchTimes);
     const at = (d: string) => srch.nights.indexOf(d);
