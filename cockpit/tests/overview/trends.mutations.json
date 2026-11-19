@@ -635,8 +635,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "searchNote(\"clicks through from Google\", (r) => r.clicks),",
-        "replace": "searchNote(\"clicks through from Google\", (r) => r.impressions),"
+        "find": "searchNote(\"clicks through from Google\", (r) => r.clicks, clk),",
+        "replace": "searchNote(\"clicks through from Google\", (r) => r.impressions, clk),"
       }
     ],
     "test": "cockpit/tests/overview/trends.ssr.test.ts",
