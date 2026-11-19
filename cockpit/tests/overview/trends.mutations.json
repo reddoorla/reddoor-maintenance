@@ -599,5 +599,34 @@
     ],
     "test": "cockpit/tests/overview/page.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "63-lag-band-two-days",
+    "why": "PR 7b review round 1 (tests major 1): the lag band is two days wide, not three",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    lag.push({ x: leftOf(i), width: r1(leftOf(j + 1) - leftOf(i)) });",
+        "replace": "    lag.push({ x: leftOf(i), width: r1(leftOf(j) - leftOf(i)) });"
+      }
+    ],
+    "test": [
+      "cockpit/tests/overview/trends.ssr.test.ts",
+      "cockpit/tests/overview/page.ssr.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "64-lag-rect-no-fill",
+    "why": "PR 7b review round 1 (tests major 1): the lag rect drops its hatch fill, so it paints solid black",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "                class=\"ov-lag\"\n                fill=\"url(#ov-lag-hatch)\"",
+        "replace": "                class=\"ov-lag\""
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
   }
 ]

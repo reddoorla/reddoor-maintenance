@@ -902,6 +902,10 @@ describe("P1-87 PR 7b: 31 nights and the three traffic charts", () => {
       expect(g.lag).toHaveLength(1);
       expect(g.bars).toHaveLength(28);
       expect(g.bars.every((b) => b.x < g.lag[0]!.x)).toBe(true);
+      // The band starts at the 29th day's left edge and runs to the plot's right edge: three
+      // days wide, exactly (PR 7b review round 1, tests major 1). Rounded, as the SVG gets it.
+      expect(g.lag[0]).toEqual({ x: 286.6, width: 27.4 });
+      expect(g.lag[0]!.x).toBe(g.slots[28]!.left);
     }
   });
 

@@ -1928,7 +1928,9 @@ export function trendGeometry(chart: TrendChart, width = 320, height = 132): Tre
     if (!first[i]!.lag) continue;
     let j = i;
     while (j + 1 < n && first[j + 1]!.lag) j++;
-    lag.push({ x: leftOf(i), width: leftOf(j + 1) - leftOf(i) });
+    // Rounded like every other coordinate: a difference of two rounded positions carries
+    // float noise (27.399999999999977 reached the SVG, review round 1, N1).
+    lag.push({ x: leftOf(i), width: r1(leftOf(j + 1) - leftOf(i)) });
     i = j;
   }
   const breaks = earlier

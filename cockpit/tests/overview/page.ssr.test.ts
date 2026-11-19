@@ -2095,7 +2095,7 @@ describe("a long figure is sized, and breaks only after a comma (review round 3,
 
 /**
  * P1-87 PR 7b: the three traffic charts on the page, over a 31-night axis. The search charts
- * hatch their last three days (the lag band); the visits chart's last day is a lighter column.
+ * hatch their last three days (the lag band); the visits chart's last day is drawn in outline.
  */
 describe("P1-87 PR 7b: the traffic charts on the page", () => {
   const N = "2026-10-26";
@@ -2113,6 +2113,26 @@ describe("P1-87 PR 7b: the traffic charts on the page", () => {
     for (const [i, f] of figs.entries()) {
       expect(f.querySelectorAll("svg.ov-chart rect.ov-lag"), `figure ${i}`).toHaveLength(
         i === 5 || i === 6 ? 1 : 0,
+      );
+    }
+  });
+
+  it("each lag band is drawn where the geometry puts it, hatched, every coordinate (PR 7b review round 1, tests major 1)", () => {
+    // Its own fixture has the lag bands: the earlier "marks the geometry gives" test has no
+    // traffic block, so it would pass with no band at all.
+    for (const [i, f] of figs.entries()) {
+      const g = trendGeometry(VIEW.trends.charts![i]!);
+      const bands = f
+        .querySelectorAll("svg.ov-chart rect.ov-lag")
+        .map((r) => ["x", "y", "width", "height", "fill"].map((n) => r.getAttribute(n)));
+      expect(bands, `figure ${i}`).toEqual(
+        g.lag.map((l) => [
+          String(l.x),
+          String(g.top),
+          String(l.width),
+          String(g.baseline - g.top),
+          "url(#ov-lag-hatch)",
+        ]),
       );
     }
   });
