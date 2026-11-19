@@ -14,7 +14,7 @@ import {
   HEALTH_CHECK_NAMES,
   type OverviewView,
 } from "../../src/lib/overview/view.js";
-import { BAR_MS, BAR_STAGGER_MS } from "../../src/lib/overview/motion.js";
+import { BAR_MS, BAR_STAGGER_MS, SPARK_MS } from "../../src/lib/overview/motion.js";
 import { buildCockpitView } from "../../src/lib/cockpit/view.js";
 import { cockpitModelFromSnapshot } from "../../../src/dashboard/snapshot-views.js";
 import { makeSubmissionRow } from "../../../tests/_helpers/submission-row.js";
@@ -2064,9 +2064,12 @@ describe("a long figure is sized, and breaks only after a comma (review round 3,
       expect(figure.textContent).toBe(value);
       expect(figure.querySelectorAll("wbr")).toHaveLength(value.split(",").length - 1);
       // The pieces sit in one span, the flex item the text wraps inside (review round 4, major 1).
-      expect(figure.children).toHaveLength(1);
-      expect(figure.children[0]!.tagName).toBe("SPAN");
-      expect(figure.innerHTML).toBe(
+      // P1-87 PR 8a, item 4: that item is `.ov-num-final`, which holds the model's figure, and the
+      // empty `.ov-num-count` (the count-up's digits) is its sibling.
+      const final = figure.querySelector(".ov-num-final")!;
+      expect(final.children).toHaveLength(1);
+      expect(final.children[0]!.tagName).toBe("SPAN");
+      expect(final.innerHTML).toBe(
         `<span>${value.replace(/,/g, ",<wbr>").replace(/<wbr>$/, "")}</span>`,
       );
     },
@@ -2555,5 +2558,82 @@ describe("the overview's motion, on the server render (P1-87 PR 8a, item 3)", ()
 
   it("does not mark the first render's page as motion-ready (the script sets it on mount)", () => {
     expect(doc.querySelector(".ov-first")!.getAttribute("data-motion-ready")).toBeUndefined();
+  });
+});
+
+/** P1-87 PR 8a, item 4: the count-up and the sparklines' draw-in (server render and CSS). */
+describe("the number tiles' motion, on the server render (P1-87 PR 8a, item 4)", () => {
+  const css = readFileSync(new URL("../../src/lib/overview/overview.css", import.meta.url), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    // Prettier wraps long selectors over lines: the rules are matched on one line.
+    .replace(/\s+/g, " ");
+  const doc = parse(pageHtml(VIEW));
+  const tiles = doc.querySelectorAll(".ov-tiles > .ov-tile");
+  const numOf = (t: HTMLElement) => t.querySelector(".ov-num")!;
+
+  it("gives every tile a visually hidden copy of the model's value, and hides the counting digits", () => {
+    expect(tiles.length).toBe(VIEW.numbers.length);
+    tiles.forEach((t, i) => {
+      const hidden = t.querySelector(":scope > .visually-hidden");
+      expect(hidden, `tile ${i} has its copy`).not.toBeNull();
+      expect(text(hidden!)).toBe(VIEW.numbers[i]!.value);
+      expect(numOf(t).getAttribute("aria-hidden")).toBe("true");
+      expect(
+        numOf(t).querySelector(".ov-num-final"),
+        `tile ${i} keeps the model's text`,
+      ).not.toBeNull();
+      expect(numOf(t).querySelector(".ov-num-count")!.textContent).toBe("");
+    });
+  });
+
+  it("keeps each figure's text the model's string, and marks only the measured countable ones", () => {
+    tiles.forEach((t, i) => {
+      const n = VIEW.numbers[i]!;
+      expect(text(numOf(t)), n.key).toBe(n.value);
+      const countable = n.measured && /^(\d+|\d{1,3}(,\d{3})+)$/.test(n.value);
+      expect(numOf(t).hasAttribute("data-countable"), n.key).toBe(countable);
+    });
+    expect(tiles.filter((t) => numOf(t).hasAttribute("data-countable")).length).toBeGreaterThan(1);
+  });
+
+  it("starts the tiles' intro on a full load, and sets each sparkline's draw length to the constant", () => {
+    const grid = doc.querySelector(".ov-tiles")!;
+    expect(grid.getAttribute("data-intro")).toBe("");
+    expect(grid.getAttribute("style")).toContain(`--spark-ms: ${SPARK_MS}ms`);
+  });
+
+  it("gives every sparkline polyline a path length of 1, so its dash runs the whole line", () => {
+    // The checks tile draws its sparkline only over a run of nights: a fourteen-night fixture.
+    const fourteen = Array.from({ length: 14 }, (_, i) =>
+      night(
+        new Date(Date.parse("2026-10-13T00:00:00Z") + i * 86_400_000).toISOString().slice(0, 10),
+        {
+          coverage: { value: { a: { value: i + 1 } } },
+        },
+      ),
+    ).reverse();
+    const sparkDoc = parse(pageHtml(overviewFromSnapshot(snapshot({ nights: fourteen }), NOW)));
+    const lines = sparkDoc.querySelectorAll(".ov-spark polyline");
+    expect(lines.length).toBeGreaterThan(0);
+    for (const l of lines) expect(l.getAttribute("pathLength")).toBe("1");
+  });
+
+  it("keeps the count and the draw-in inside the no-preference query (the floor: reduced motion has none)", () => {
+    const motion = mediaBodies(css, "@media (prefers-reduced-motion: no-preference)").join("\n");
+    expect(motion).toMatch(
+      /\.ov-num\[data-counting\] \.ov-num-final\s*\{[^}]*visibility:\s*hidden/,
+    );
+    expect(motion).toMatch(
+      /\.ov-tiles\[data-intro\] \.ov-spark polyline\s*\{[^}]*animation:\s*ov-spark-draw/,
+    );
+    expect(motion).toMatch(/@keyframes ov-spark-draw\s*\{/);
+    expect(motion).toMatch(
+      /html\.motion-intro \.ov-tiles\[data-intro\] \.ov-num\[data-countable\]/,
+    );
+    expect(motion).toMatch(/@keyframes ov-failsafe\s*\{/);
+    let outside = css;
+    for (const block of mediaBodies(css, "@media (prefers-reduced-motion: no-preference)"))
+      outside = outside.replace(block, "");
+    expect(outside).not.toMatch(/ov-spark-draw|ov-failsafe|data-counting|ov-spark-dot/);
   });
 });

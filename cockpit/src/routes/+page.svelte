@@ -12,7 +12,15 @@
   import { tickerSeconds } from "../lib/overview/ticker.js";
   import { markerAt, untilWords } from "../lib/overview/cycle.js";
   import { startCycleClock } from "../lib/overview/cycle-clock.js";
-  import { BAR_MS, BAR_STAGGER_MS, introPlayed, markIntroPlayed } from "../lib/overview/motion.js";
+  import {
+    BAR_MS,
+    BAR_STAGGER_MS,
+    SPARK_MS,
+    countable,
+    countUp,
+    introPlayed,
+    markIntroPlayed,
+  } from "../lib/overview/motion.js";
   import PageStyles from "../lib/PageStyles.svelte";
   import healthCss from "../lib/cockpit/health.css?inline";
   import overviewCss from "../lib/overview/overview.css?inline";
@@ -344,19 +352,29 @@
 
   <section class="ov-happening" aria-labelledby="ov-happening-h">
     <h2 id="ov-happening-h">How much is happening</h2>
-    <div class="ov-tiles">
+    <div class="ov-tiles" data-intro={intro ? "" : undefined} style="--spark-ms: {SPARK_MS}ms">
       {#each v.numbers as n (n.key)}
         {@const long = n.measured && n.value.length > 7}
         <div class="ov-tile">
-          <p class="ov-num{n.measured ? '' : ' unknown'}{long ? ' long' : ''}">
-            {#if long}
-              {@const parts = n.value.split(",")}
-              <span>
-                {#each parts as part, i (i)}{#if i > 0},<wbr />{/if}{part}{/each}
-              </span>
-            {:else}
-              {n.value}
-            {/if}
+          <!-- The model's value, for assistive tech from the first render: the figure below counts up
+               and is hidden from readers while it does (P1-87 PR 8a, item 4). -->
+          <p class="visually-hidden">{n.value}</p>
+          <p
+            class="ov-num{n.measured ? '' : ' unknown'}{long ? ' long' : ''}"
+            aria-hidden="true"
+            data-countable={n.measured && countable(n.value) ? "" : undefined}
+            use:countUp={{ to: n.value, enabled: intro }}
+          >
+            <span class="ov-num-final">
+              {#if long}
+                {@const parts = n.value.split(",")}
+                <span>
+                  {#each parts as part, i (i)}{#if i > 0},<wbr />{/if}{part}{/each}
+                </span>
+              {:else}
+                {n.value}
+              {/if}
+            </span><span class="ov-num-count"></span>
           </p>
           <p class="ov-label">{n.label}</p>
           {#if n.context}<p class="muted ov-context">{n.context}</p>{/if}
@@ -370,6 +388,7 @@
             >
               {#each g.lines as l, li (li)}<polyline
                   points={l}
+                  pathLength="1"
                 />{/each}{#each g.dots as d, di (di)}<circle cx={d.x} cy={d.y} r="1.5" />{/each}
             </svg>
           {/if}

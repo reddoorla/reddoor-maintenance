@@ -8,6 +8,8 @@ import {
   MAX_MOTION_MS,
   introPlayed,
   markIntroPlayed,
+  countable,
+  countFrame,
 } from "../../src/lib/overview/motion.js";
 import { HEALTH_CHECK_NAMES } from "../../src/lib/overview/view.js";
 
@@ -36,5 +38,44 @@ describe("the overview's motion module (P1-87 PR 8a)", () => {
     expect(introPlayed()).toBe(true);
     markIntroPlayed();
     expect(introPlayed()).toBe(true);
+  });
+});
+
+/** P1-87 PR 8a, item 4: the count-up's pure helpers. */
+describe("the count-up's helpers (P1-87 PR 8a, item 4)", () => {
+  it("counts only a figure of digits with optional thousands commas", () => {
+    for (const s of ["0", "248", "1,674", "12,345,678"]) expect(countable(s), s).toBe(true);
+    for (const s of [
+      "not yet collected",
+      "could not be read",
+      "—",
+      "",
+      "1,67",
+      "12,34",
+      "1234,567",
+    ])
+      expect(countable(s), s).toBe(false);
+  });
+
+  it("writes the model's string exactly at the last frame", () => {
+    for (const s of ["1,674", "248", "0", "12,345,678"]) expect(countFrame(s, 1), s).toBe(s);
+  });
+
+  it("counts from 0 with an ease-out curve, keeping the model's commas", () => {
+    expect(countFrame("1,674", 0)).toBe("0");
+    expect(countFrame("1,674", 0.5)).toBe("1,465");
+    expect(countFrame("248", 0.5)).toBe("217");
+    expect(countFrame("0", 0.5)).toBe("0");
+  });
+
+  it("never shows a number above the model's, nor a longer string", () => {
+    for (const s of ["1,674", "248", "12,345,678"]) {
+      const n = Number(s.replace(/,/g, ""));
+      for (let k = 0; k <= 100; k++) {
+        const f = countFrame(s, k / 100);
+        expect(Number(f.replace(/,/g, "")), `${s} at ${k}%`).toBeLessThanOrEqual(n);
+        expect(f.length, `${s} at ${k}%`).toBeLessThanOrEqual(s.length);
+      }
+    }
   });
 });

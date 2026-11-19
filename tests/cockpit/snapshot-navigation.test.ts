@@ -17,7 +17,12 @@ import { recordFleetEvent } from "../../src/db/fleet-events.js";
 import { NIGHTLIES } from "../../scripts/nightly-conductor.mjs";
 import { seededNights } from "../_helpers/bar-nights.js";
 import { expectedNight, HEALTH_CHECK_NAMES } from "../../cockpit/src/lib/overview/view.js";
-import { BAR_MS, BAR_STAGGER_MS, MAX_MOTION_MS } from "../../cockpit/src/lib/overview/motion.js";
+import {
+  BAR_MS,
+  BAR_STAGGER_MS,
+  MAX_MOTION_MS,
+  SPARK_MS,
+} from "../../cockpit/src/lib/overview/motion.js";
 import { trafficWindows } from "../../src/fleet-daily/traffic.js";
 
 /**
@@ -489,6 +494,15 @@ async function follow(page: Page, href: string, heading: string): Promise<void> 
     .toContain(heading);
 }
 
+/** P1-87 PR 8a, item 4: a measured figure's text is the count's until it has counted up (its digits
+ *  sit over the model's string meanwhile), so a test that reads a figure waits for every one to finish. */
+const figuresSettled = (page: Page) =>
+  expect
+    .poll(() => page.locator(".ov-num[data-countable]:not([data-counted])").count(), {
+      timeout: 10_000,
+    })
+    .toBe(0);
+
 /** The text of every page stylesheet in the head, in order. */
 function pageSheets(page: Page): Promise<string[]> {
   return page.$$eval("style[data-page-style]", (els) => els.map((e) => e.textContent ?? ""));
@@ -862,6 +876,7 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       await page.setViewportSize({ width, height: 844 });
       await page.goto(`${origin}/`);
       await expect.poll(() => page.locator(".ov-tile").count()).toBe(8);
+      await figuresSettled(page);
       const fit = await page.evaluate(() => {
         const num = [...document.querySelectorAll(".ov-num")].find(
           (e) => e.textContent?.trim() === "12,345,678",
@@ -1058,6 +1073,7 @@ describe("cockpit navigation, in a browser, against the built app", () => {
           }
           await page.goto(`${origin}/`);
           await expect.poll(() => page.locator(".ov-tile").count()).toBe(8);
+          await figuresSettled(page);
           return page;
         };
         // The sideways-scroll check is kept to the three cases the round-2 test checked: at
@@ -1611,6 +1627,7 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       // first tick, or one load can be read between hydration and the tick (P1-87 PR 5a:
       // CI at 9b296709 read erik after the tick and tim before it).
       await expect.poll(() => page.locator(".ov-cycle-until").count()).toBe(1);
+      await figuresSettled(page);
       const html = await page.evaluate(() =>
         [...document.querySelectorAll("h1, section")].map((e) => e.outerHTML).join("\n"),
       );
@@ -4428,9 +4445,235 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
         })),
     );
     expect(ends.length, "the bars animate").toBeGreaterThan(0);
+    // Item 4's draw-ins are in the same list: the sparklines' line draw and its dots' fade.
+    expect(ends.map((e) => e.name)).toEqual(expect.arrayContaining(["ov-spark-draw"]));
     for (const e of ends) {
       expect(Number.isFinite(e.end), `${e.name} has a finite end`).toBe(true);
       expect(e.end, `${e.name} ends`).toBeLessThanOrEqual(MAX_MOTION_MS);
     }
+  });
+
+  /** Every frame until each measured figure has finished counting (3 s at most). Per tile, the
+   *  counting digits, the visually hidden copy, the whole text of the figure and its flags, all read
+   *  in the page's own frames, so a sample is never a stale read. */
+  type TileFrame = {
+    counting: boolean;
+    counted: boolean;
+    countable: boolean;
+    unknown: boolean;
+    digits: string;
+    copy: string;
+    text: string;
+  };
+  const countFrames = (page: Page) =>
+    page.evaluate(
+      () =>
+        new Promise<TileFrame[][]>((done) => {
+          const out: TileFrame[][] = [];
+          const started = performance.now();
+          const frame = () => {
+            out.push(
+              [...document.querySelectorAll<HTMLElement>(".ov-tiles > .ov-tile")].map((t) => {
+                const num = t.querySelector<HTMLElement>(".ov-num")!;
+                return {
+                  counting: num.hasAttribute("data-counting"),
+                  counted: num.hasAttribute("data-counted"),
+                  countable: num.hasAttribute("data-countable"),
+                  unknown: num.classList.contains("unknown"),
+                  digits: num.querySelector(".ov-num-count")?.textContent ?? "",
+                  copy: (t.querySelector(":scope > .visually-hidden")?.textContent ?? "").replace(
+                    /\s+/g,
+                    "",
+                  ),
+                  text: (num.textContent ?? "").replace(/\s+/g, ""),
+                };
+              }),
+            );
+            const pending = document.querySelectorAll(
+              ".ov-num:not([data-counted])[data-countable]",
+            ).length;
+            if (pending === 0 || performance.now() - started > 3000) done(out);
+            else requestAnimationFrame(frame);
+          };
+          frame();
+        }),
+    );
+
+  it("counts each measured figure up once, from 0, to the model's own string (item 4)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const frames = await countFrames(page);
+    const first = frames[0]!;
+    const model = first.map((t) => t.copy);
+    // Measured from the model's own words (digits, with commas where they group), not from a marker.
+    const measured = model.flatMap((m, i) => (/^(\d+|\d{1,3}(,\d{3})+)$/.test(m) ? [i] : []));
+    expect(
+      measured.length,
+      "the seeded tiles include more than one measured figure",
+    ).toBeGreaterThan(1);
+    const counted = new Map<number, boolean>();
+    for (const [k, f] of frames.entries()) {
+      f.forEach((t, i) => {
+        const at = `frame ${k}, tile ${i} (${model[i]})`;
+        expect(t.copy, `${at}: the visually hidden copy`).toBe(model[i]);
+        if (t.counted) counted.set(i, true);
+        // Once counted, a figure never counts again.
+        if (counted.get(i)) expect(t.counting, `${at}: counted, then counting again`).toBe(false);
+        if (!t.counting) return;
+        expect(measured, `${at}: only a measured figure counts`).toContain(i);
+        expect(
+          t.digits.length,
+          `${at}: its digits are no longer than the model's`,
+        ).toBeLessThanOrEqual(model[i]!.length);
+        expect(
+          Number(t.digits.replace(/,/g, "")),
+          `${at}: its digits never pass the model's`,
+        ).toBeLessThanOrEqual(Number(model[i]!.replace(/,/g, "")));
+      });
+    }
+    const last = frames.at(-1)!;
+    for (const i of measured) {
+      expect(last[i]!.text, `tile ${i} ends on the model's string`).toBe(model[i]);
+    }
+    const below = frames.some((f) => f.some((t, i) => t.counting && t.digits !== model[i]));
+    expect(below, "a count-up frame shows a number below the model's").toBe(true);
+  });
+
+  it("a figure that reads a word never counts (item 4)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const frames = await countFrames(page);
+    const words = frames[0]!.flatMap((t, i) => (t.unknown ? [i] : []));
+    expect(words.length, "the seeded tiles include a figure that reads a word").toBeGreaterThan(0);
+    for (const f of frames) {
+      for (const i of words) {
+        expect(f[i]!.counting, `tile ${i} is counting`).toBe(false);
+        expect(f[i]!.countable, `tile ${i} is countable`).toBe(false);
+      }
+    }
+  });
+
+  it("under reduced motion no figure counts, and each reads its model's string at once (item 4)", async () => {
+    const page = await signedIn("op", { reducedMotion: "reduce" });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const frames = await countFrames(page);
+    expect(frames.length).toBe(1);
+    expect(frames.flat().some((t) => t.counting)).toBe(false);
+    expect(frames[0]!.every((t) => t.text === t.copy)).toBe(true);
+  });
+
+  it("a full load of /fleet, then its Overview link, plays no intro: no bar animates and no figure counts (item 3's correction, item 4)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/fleet`);
+    await expect
+      .poll(() => page.locator("h1").first().textContent(), { timeout: 10_000 })
+      .toContain("Sites");
+    await follow(page, "/", "Overview");
+    await motionReady(page);
+    expect(await page.locator(".ov-tiles").getAttribute("data-intro")).toBeNull();
+    expect(await barAnimations(page)).toBe(0);
+    const frames = await countFrames(page);
+    expect(frames.flat().some((t) => t.counting)).toBe(false);
+  });
+
+  it("a client return to / after a full load of / shows the final figures at once (item 4)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    await follow(page, "/fleet", "Sites");
+    await follow(page, "/", "Overview");
+    await motionReady(page);
+    const frames = await countFrames(page);
+    expect(frames.length).toBe(1);
+    expect(frames.flat().some((t) => t.counting)).toBe(false);
+    expect(frames[0]!.every((t) => t.text === t.copy)).toBe(true);
+  });
+
+  it("with no script, every figure reads its model's string and shows; the sparklines end drawn (item 4)", async () => {
+    const page = await signedIn("op", { javaScriptEnabled: false });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    const figures = await page.locator(".ov-tile").evaluateAll((tiles) =>
+      tiles.map((t) => {
+        const num = t.querySelector<HTMLElement>(".ov-num")!;
+        return {
+          text: (num.textContent ?? "").replace(/\s+/g, ""),
+          copy: (t.querySelector(":scope > .visually-hidden")?.textContent ?? "").replace(
+            /\s+/g,
+            "",
+          ),
+          visibility: getComputedStyle(num.querySelector(".ov-num-final")!).visibility,
+        };
+      }),
+    );
+    expect(figures.length).toBeGreaterThan(1);
+    for (const f of figures) {
+      expect(f.text).toBe(f.copy);
+      expect(f.visibility).toBe("visible");
+    }
+    await page.evaluate(() =>
+      Promise.all(
+        [...document.querySelectorAll(".ov-spark polyline")].flatMap((el) =>
+          el.getAnimations().map((a) => a.finished),
+        ),
+      ),
+    );
+    const offsets = await page
+      .locator(".ov-spark polyline")
+      .evaluateAll((els) => els.map((el) => getComputedStyle(el).strokeDashoffset));
+    expect(offsets.length).toBeGreaterThan(0);
+    for (const o of offsets) expect(o).toBe("0px");
+  });
+
+  it("the sparklines draw in over SPARK_MS and end whole; under reduced motion they do not move (item 4)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const lines = await page.locator(".ov-spark polyline").evaluateAll((els) =>
+      els.map((el) =>
+        el.getAnimations().map((a) => ({
+          name: (a as CSSAnimation).animationName,
+          duration: Number(a.effect!.getTiming().duration),
+        })),
+      ),
+    );
+    expect(lines.length).toBeGreaterThan(0);
+    for (const l of lines) {
+      expect(l).toEqual([{ name: "ov-spark-draw", duration: SPARK_MS }]);
+    }
+    await page.evaluate(() =>
+      Promise.all(
+        [...document.querySelectorAll(".ov-spark polyline")].map(
+          (el) => el.getAnimations()[0]!.finished,
+        ),
+      ),
+    );
+    const ends = await page
+      .locator(".ov-spark polyline")
+      .evaluateAll((els) => els.map((el) => getComputedStyle(el).strokeDashoffset));
+    for (const o of ends) expect(o).toBe("0px");
+
+    const still = await signedIn("op", { reducedMotion: "reduce" });
+    await still.setViewportSize({ width: 1280, height: 900 });
+    await still.goto(`${origin}/`);
+    await motionReady(still);
+    expect(
+      await still
+        .locator(".ov-spark polyline")
+        .evaluateAll((els) => els.reduce((n, el) => n + el.getAnimations().length, 0)),
+    ).toBe(0);
+    const stillEnds = await still
+      .locator(".ov-spark polyline")
+      .evaluateAll((els) => els.map((el) => getComputedStyle(el).strokeDashoffset));
+    for (const o of stillEnds) expect(o).toBe("0px");
   });
 });

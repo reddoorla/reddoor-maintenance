@@ -37,5 +37,57 @@
     ],
     "test": ["cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
+  },
+  {
+    "id": "4-2-last-frame-off-by-a-thousandth",
+    "why": "The count's last frame is the model's string (the plan's floor: it ends on the model's number, not another)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/motion.ts",
+        "find": "  if (t >= 1) return to;",
+        "replace": "  if (t >= 1) return to.includes(\",\") ? grouped(Math.round(Number(to.replace(/,/g, \"\")) * 0.999)) : String(Math.round(Number(to) * 0.999));"
+      }
+    ],
+    "test": ["cockpit/tests/overview/motion.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "4-3-final-string-drops-commas",
+    "why": "The count's last frame keeps the model's commas (a figure that drops them reads as a different number)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/motion.ts",
+        "find": "  if (t >= 1) return to;",
+        "replace": "  if (t >= 1) return String(Number(to.replace(/,/g, \"\")));"
+      }
+    ],
+    "test": ["cockpit/tests/overview/motion.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "4-5-a-word-counts",
+    "why": "Only a measured figure of digits counts; 'not yet collected' parsed as 0 would count up from 0 to nothing",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/motion.ts",
+        "find": "export const countable = (s: string): boolean => /^\\d+$/.test(s) || /^\\d{1,3}(,\\d{3})+$/.test(s);",
+        "replace": "export const countable = (_s: string): boolean => true;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/motion.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "4-7-sparkline-draws-under-reduced-motion",
+    "why": "The sparkline's draw-in leaves the no-preference query (the floor: reduced motion draws nothing)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "@media (prefers-reduced-motion: no-preference) {\n  .ov-num[data-counting] .ov-num-final {",
+        "replace": "@media all {\n  .ov-num[data-counting] .ov-num-final {"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
   }
 ]

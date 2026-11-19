@@ -20,3 +20,61 @@ export const introPlayed = (): boolean => played;
 export const markIntroPlayed = (): void => {
   played = true;
 };
+
+/** P1-87 PR 8a, item 4: a figure the count-up may run on: digits, with thousands commas where they
+ *  group. "not yet collected", "could not be read" and "—" are not figures, so they never count. */
+export const countable = (s: string): boolean => /^\d+$/.test(s) || /^\d{1,3}(,\d{3})+$/.test(s);
+
+const easeOut = (t: number): number => 1 - (1 - t) ** 3;
+const grouped = (n: number): string => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+
+/** The count-up's text at progress `t` (0 to 1). It never shows a number above the model's, and
+ *  at t >= 1 it is the model's own string, commas and all. */
+export function countFrame(to: string, t: number): string {
+  if (t >= 1) return to;
+  const n = Number(to.replace(/,/g, ""));
+  const v = Math.round(easeOut(Math.max(0, t)) * n);
+  return to.includes(",") ? grouped(v) : String(v);
+}
+
+/** Counts a measured figure up from 0 once per document load. The figure's own text is Svelte's,
+ *  so the action writes only `.ov-num-count` (empty at rest) and toggles attributes on the `p`.
+ *  It runs only when `enabled` (the intro), the figure is countable, and motion is allowed;
+ *  otherwise it marks the figure counted at once and does nothing else. */
+export function countUp(
+  node: HTMLElement,
+  params: { to: string; enabled: boolean },
+): { update(p: { to: string; enabled: boolean }): void; destroy(): void } {
+  let to = params.to;
+  let frame = 0;
+  const digits = node.querySelector<HTMLElement>(".ov-num-count");
+  const finish = () => {
+    cancelAnimationFrame(frame);
+    if (digits) digits.textContent = "";
+    node.removeAttribute("data-counting");
+    node.setAttribute("data-counted", "");
+  };
+  const motionAllowed = () => matchMedia("(prefers-reduced-motion: no-preference)").matches;
+  if (!(params.enabled && countable(to) && motionAllowed())) {
+    node.setAttribute("data-counted", "");
+  } else {
+    node.setAttribute("data-counting", "");
+    const start = performance.now();
+    const step = (now: number) => {
+      const t = (now - start) / COUNT_MS;
+      if (t >= 1) return finish();
+      if (digits) digits.textContent = countFrame(to, t);
+      frame = requestAnimationFrame(step);
+    };
+    frame = requestAnimationFrame(step);
+  }
+  return {
+    update(p) {
+      to = p.to;
+    },
+    destroy() {
+      if (node.hasAttribute("data-counting")) finish();
+      cancelAnimationFrame(frame);
+    },
+  };
+}

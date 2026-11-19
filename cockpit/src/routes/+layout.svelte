@@ -5,6 +5,7 @@
   import Shell from "../lib/Shell.svelte";
   import { reloadOnNextNavigation, reloadsOnNextNavigation, setOwnWrite } from "../lib/post.js";
   import { startFreshness, type FreshnessController } from "../lib/freshness.js";
+  import { markIntroPlayed } from "../lib/overview/motion.js";
   import type { CockpitSnapshot } from "../../../src/dashboard/snapshot-views.js";
 
   let {
@@ -63,6 +64,9 @@
     setOwnWrite(controller.aroundOwnWrite);
   };
   onMount(() => {
+    // P1-87 PR 8a: a full load of any page, not only the overview, has played its intro's chance
+    // (a child's onMount runs before this one, so a full load of / still plays it).
+    markIntroPlayed();
     startController();
     return () => {
       setOwnWrite(null);

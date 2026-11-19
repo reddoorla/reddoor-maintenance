@@ -413,6 +413,59 @@ section {
     }
   }
 }
+/* P1-87 PR 8a, item 4: the figures count up once on a full load, and the sparkline draws in. The
+   counting digits sit over the model's own figure (hidden while the count runs), so nothing moves.
+   `.ov-num-count` is empty at rest. Motion lives only in the no-preference query. */
+.ov-num {
+  position: relative;
+}
+.ov-num-count {
+  position: absolute;
+  inset-inline-start: 0;
+  top: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ov-num[data-counting] .ov-num-final {
+    visibility: hidden;
+  }
+  /* A page whose script never runs shows its figures at once after 2 s: the hidden state is only
+     for a figure the count is about to take, and this rule ends it if the count never starts. */
+  html.motion-intro
+    .ov-tiles[data-intro]
+    .ov-num[data-countable]:not([data-counted])
+    .ov-num-final {
+    visibility: hidden;
+    animation: ov-failsafe 0s linear 2s forwards;
+  }
+  @keyframes ov-failsafe {
+    to {
+      visibility: visible;
+    }
+  }
+  .ov-tiles[data-intro] .ov-spark polyline {
+    stroke-dasharray: 1;
+    animation: ov-spark-draw var(--spark-ms) ease-out both;
+  }
+  .ov-tiles[data-intro] .ov-spark circle {
+    animation: ov-spark-dot 200ms ease-out var(--spark-ms) both;
+  }
+  @keyframes ov-spark-draw {
+    from {
+      stroke-dashoffset: 1;
+    }
+    to {
+      stroke-dashoffset: 0;
+    }
+  }
+  @keyframes ov-spark-dot {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+}
 .ov-lighthouse-line {
   font-size: 0.85rem;
   margin: 0.4rem 0 0;
