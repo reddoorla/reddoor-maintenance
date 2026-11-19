@@ -48,5 +48,7 @@
   data-withdraw-url={url}
   data-confirm={confirmText}
   disabled={ui.withdrawDisabled}
-  {onclick}>{ui.withdrawLabel}</button
+  {onclick}
 >
+  {ui.withdrawLabel}
+</button>

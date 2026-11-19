@@ -92,6 +92,7 @@ describe("openDb", () => {
       "0055_site_health_deps_held_packages",
       "0056_sites_form_webhook",
       "0057_sites_form_webhook_types",
+      "0058_reports_due_on",
     ]);
     await db.destroy();
   });

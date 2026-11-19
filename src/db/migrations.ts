@@ -810,4 +810,12 @@ export const MIGRATIONS: Migration[] = [
     id: "0057_sites_form_webhook_types",
     sql: `ALTER TABLE sites ADD COLUMN form_webhook_types TEXT;`,
   },
+  {
+    // P1-117: the due date (`YYYY-MM-DD`) a scheduled draft was made for. The
+    // nightly drafts up to 7 days before it, and `--send-ready` holds an approved
+    // report until the Pacific date reaches it. NULL on legacy, Launch and
+    // Announcement rows, which send at the next send as before.
+    id: "0058_reports_due_on",
+    sql: `ALTER TABLE reports ADD COLUMN due_on TEXT;`,
+  },
 ];

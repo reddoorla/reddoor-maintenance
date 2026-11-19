@@ -47,6 +47,7 @@ function makeReportRow(over: Partial<ReportRow> = {}): ReportRow {
     withdrawnAt: null,
     withdrawnBy: null,
     sendStartedAt: null,
+    dueOn: null,
     ...over,
   };
 }
@@ -237,6 +238,38 @@ describe("preflightSite", () => {
     expect(pendings.map((p) => p.level).sort()).toEqual(["info", "warn"]);
     expect(pendings.find((p) => p.level === "info")?.message).toContain("current-cycle");
     expect(pendings.find((p) => p.level === "warn")?.message).toContain("Testing 2026-01");
+  });
+
+  // P1-117: the nightly drafts up to 7 days before the due date, so on the last
+  // days of a month the queued draft belongs to the NEXT month and is still this
+  // cycle's payload.
+  it("treats a draft due within 7 days as the current cycle's payload, not a stale draft (P1-117)", () => {
+    const due = new Date(NOW.getTime() + 5 * 86_400_000).toISOString().slice(0, 10);
+    const early = makeReportRow({
+      draftReady: true,
+      approvedToSend: true,
+      reportType: "Maintenance",
+      period: "2099-01",
+      dueOn: due,
+    });
+    const pendings = preflightSite(cleanSite(), [early], "Maintenance", NOW).findings.filter(
+      (x) => x.check === "pending-drafts",
+    );
+    expect(pendings.map((p) => p.level)).toEqual(["info"]);
+  });
+
+  it("still warns on a draft due more than 7 days out (P1-117)", () => {
+    const due = new Date(NOW.getTime() + 10 * 86_400_000).toISOString().slice(0, 10);
+    const far = makeReportRow({
+      draftReady: true,
+      reportType: "Maintenance",
+      period: "2099-01",
+      dueOn: due,
+    });
+    const pendings = preflightSite(cleanSite(), [far], "Maintenance", NOW).findings.filter(
+      (x) => x.check === "pending-drafts",
+    );
+    expect(pendings.map((p) => p.level)).toEqual(["warn"]);
   });
 
   it("fails on an unrecognized RAW frequency cell (mapRow coerces it to None before we see it)", () => {

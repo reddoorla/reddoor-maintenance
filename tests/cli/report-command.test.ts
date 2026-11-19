@@ -580,7 +580,9 @@ describe("draftDueReports — a withdrawn draft (P1-28)", () => {
           },
         },
       ];
-      const res = await draftDueReports(TODAY, dueDeps(reports));
+      // P1-117: the next period is due 06-02 and drafts from 05-26 (7 days before),
+      // so the "nothing yet" check runs on 05-25.
+      const res = await draftDueReports(new Date("2026-05-25T12:00:00Z"), dueDeps(reports));
       expect(draftReportForSite).not.toHaveBeenCalled();
       expect(res.output).toBe("No reports due.");
       await draftDueReports(new Date("2026-06-26T12:00:00Z"), dueDeps(reports));
@@ -645,5 +647,107 @@ describe("findExistingForPeriod (P1-28)", () => {
     expect(findExistingForPeriod(rows([w]), "x", "Maintenance", "2026-05")).toBeUndefined();
     expect(findExistingForPeriod(rows([w]), "s", "Testing", "2026-05")).toBeUndefined();
     expect(findExistingForPeriod(rows([w]), "s", "Maintenance", "2026-06")).toBeUndefined();
+  });
+});
+
+describe("draftDueReports — P1-117 early drafts", () => {
+  beforeEach(() => {
+    vi.mocked(draftReportForSite).mockReset();
+    rosterRows = [];
+    vi.mocked(draftReportForSite).mockResolvedValue({
+      reportRow: { reportId: "Acme Co — Maintenance — 2026-05-26" },
+      htmlPath: null,
+      html: "",
+      softFailures: [],
+      queued: true,
+      supersededIds: [],
+    } as unknown as Awaited<ReturnType<typeof draftReportForSite>>);
+  });
+
+  it("drafts a report due in 7 days tonight, with its due month as the period and its due date stored", async () => {
+    rosterRows = [siteRow({ maintenanceDay: "2026-05-02" })];
+    await draftDueReports(TODAY, dueDeps());
+    expect(draftReportForSite).toHaveBeenCalledTimes(1);
+    const opts = vi.mocked(draftReportForSite).mock.calls[0]![2]!;
+    expect(opts.period).toBe("2026-06");
+    expect(opts.dueOn?.toISOString().slice(0, 10)).toBe("2026-06-02");
+  });
+
+  it("re-completing a half-made row stores its due date (a row made before it was known)", async () => {
+    rosterRows = [siteRow({ maintenanceDay: "2026-05-02" })];
+    const reportMirror = makeFakeReportWriter();
+    const reports: RawRow[] = [
+      {
+        id: "rec_halfmade",
+        fields: { Site: ["rec_site_acme"], "Report type": "Maintenance", Period: "2026-06" },
+      },
+    ];
+    const res = await draftDueReports(TODAY, dueDeps(reports, { reportMirror }));
+    expect(reportMirror.patches).toContainEqual({
+      id: "rec_halfmade",
+      patch: { due_on: "2026-06-02" },
+    });
+    // The row handed to the completing render already carries the date, so the
+    // body it stores is dated as the send will date it.
+    expect(draftReportForSite).toHaveBeenCalledWith(
+      expect.anything(),
+      "Maintenance",
+      expect.objectContaining({
+        completeRowId: "rec_halfmade",
+        existingRow: expect.objectContaining({ dueOn: "2026-06-02" }),
+      }),
+    );
+    expect(res.output).toContain("• due date (none) → 2026-06-02: Acme Co Maintenance");
+  });
+
+  it("keeps a ready row's drafted due date: its stored body shows it, so the send must too", async () => {
+    // The cycle now says 06-02; the ready, approved row was drafted for 06-01.
+    rosterRows = [siteRow({ maintenanceDay: "2026-05-02" })];
+    const w = makeFakeReportWriter();
+    const res = await draftDueReports(
+      TODAY,
+      dueDeps(
+        [
+          {
+            id: "rec_drafted",
+            fields: {
+              Site: ["rec_site_acme"],
+              "Report type": "Maintenance",
+              Period: "2026-06",
+              "Draft ready": true,
+              "Approved to send": true,
+              "Due on": "2026-06-01",
+            },
+          },
+        ],
+        { reportMirror: w },
+      ),
+    );
+    expect(w.patches).toEqual([]);
+    expect(draftReportForSite).not.toHaveBeenCalled();
+    expect(res.output).toContain("skipped (already drafted 2026-06)");
+  });
+
+  it("leaves a ready row drafted before P1-117 (no due date) as it is", async () => {
+    rosterRows = [siteRow({ maintenanceDay: "2026-05-02" })];
+    const w = makeFakeReportWriter();
+    const legacy: RawRow = {
+      id: "rec_legacy",
+      fields: {
+        Site: ["rec_site_acme"],
+        "Report type": "Maintenance",
+        Period: "2026-06",
+        "Draft ready": true,
+      },
+    };
+    await draftDueReports(TODAY, dueDeps([legacy], { reportMirror: w }));
+    expect(w.patches).toEqual([]);
+  });
+
+  it("does not draft a report due in 8 days", async () => {
+    rosterRows = [siteRow({ maintenanceDay: "2026-05-03" })];
+    const res = await draftDueReports(TODAY, dueDeps());
+    expect(draftReportForSite).not.toHaveBeenCalled();
+    expect(res.output).toBe("No reports due.");
   });
 });

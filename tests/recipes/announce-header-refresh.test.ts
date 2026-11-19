@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { announce } from "../../src/recipes/announce.js";
 import { makeFakeReportWriter } from "../reports/_helpers/fake-report-writer.js";
 import { websiteRowsFrom } from "../_helpers/raw-rows.js";
+import { mapRow } from "../../src/reports/report-fields.js";
 
 // No network: GA/Search enrichment stubbed to "not configured".
 vi.mock("../../src/reports/draft.js", async (orig) => ({
@@ -89,5 +90,25 @@ describe("announce header-refresh wiring", () => {
     vi.mocked(generateHeaderImage).mockRejectedValueOnce(new Error("net::ERR_TIMED_OUT"));
     const res = await announce(deps());
     expect(res.results[0]?.status).toBe("drafted");
+  });
+
+  // P1-117: an approved report waiting for its due date ships the plate it was
+  // approved with, so an announcement run in between keeps it.
+  it("keeps the plate while an approved report for the site waits to send", async () => {
+    const held = mapRow({
+      id: "rec_held",
+      fields: {
+        Site: ["rec1"],
+        "Report ID": "Acme Co — Testing — 2026-06-12",
+        "Report type": "Testing",
+        "Draft ready": true,
+        "Approved to send": true,
+        "Due on": "2026-06-19",
+      },
+    });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    await announce({ ...deps(), reportMirror: makeFakeReportWriter([held]) });
+    expect(generateHeaderImage).not.toHaveBeenCalled();
+    log.mockRestore();
   });
 });

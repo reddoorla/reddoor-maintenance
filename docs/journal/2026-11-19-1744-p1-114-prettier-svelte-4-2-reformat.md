@@ -1,0 +1,17 @@
+# 2026-11-19 — P1-114: reformat the cockpit for prettier-plugin-svelte 4.2.0
+
+Landed in: this PR (branch `claude/p1-114-prettier-svelte-4-2-r2`). Brief: the workspace's `briefs/2026-11-18-p1-114-continue-1.md`; decisions: the workspace's `decisions/2026-11-18-1924-p1-114-prettier-reformat-vs-p1-87-5b.md`, `decisions/2026-11-18-1938-p1-114-recheck-cadence-defaulted.md` and `decisions/2026-11-19-1001-p1-114-second-p1-87-pr-on-page-svelte.md`. The cause and first build are in the workspace journal `journal/2026-11-18-1940-p1-114-prettier-svelte-cause-and-hold.md`.
+
+Renovate's lock-file PR reddoorla/reddoor-maintenance#2047 was red at `prettier --check` because its lockfile moves `prettier-plugin-svelte` from 4.1.1 to 4.2.0. That version stops hugging closing tags and puts element text on its own lines. This PR bumps the plugin (`^4.0.0` → `^4.2.0`) and reformats the 21 cockpit files it flags, so #2047 rebases green or empties.
+
+**Why it waited.** One of the 21, `cockpit/src/routes/+page.svelte`, was being changed by P1-87. The operator chose to wait for PR 5b (#2082). The session re-checked it by REST every 2 hours and did not subscribe, because a PR's events go to one session. #2082 merged at 12:13am PT. By then P1-87 had opened PR 7b (#2140), which changes the same file. A trial merge of this reformat into 7b gave 3 conflict hunks in that file, where 5b had shown none. I asked again. My pick was to hold back `+page.svelte` with a temporary `.prettierignore` line, and I proved it works: `prettier --check .` passed with the line and failed without it on that file alone. The operator chose that at 9:36am PT. But 7b had already merged at 2:45am PT, 44 minutes after the ask, and no other branch or PR touched the file. The hold-back no longer protected anything, so this PR formats all 21 files in one go, as the brief planned. The decision file records that.
+
+**Rendered output, proven.** Each file was compiled with the repo's own `svelte/compiler`, client and server, before and after, and the JS compared. The comparer passed its control: adding a visible ` x` to `ThemeToggle.svelte` gave DIFF, and restoring it gave SAME. 20 of 21 files are byte-identical. That includes `+page.svelte` with 5b's and 7b's lines, and the two submissions pages, which are the only places a `white-space: pre-wrap` rule exists. In `routes/how/+page.svelte`, the `PRs merged` span's `sends the⏎      reports` becomes `sends the reports`. That page loads only `how.css`, so it renders the same.
+
+**Mutations.** 1: with the bump, restoring `ThemeToggle.svelte` to its 4.1.1 form makes `pnpm lint` exit 1 on that file alone. Without the bump, 4.1.1 accepts both forms, which is why the bump and the reformat must land together. 2 does not apply: no pin was taken.
+
+**Beliefs corrected.** "Wait for 5b, then one PR" assumed 5b was the last P1-87 PR on that file. It was not: 7b followed within two hours. The branch moved from `claude/p1-114-prettier-svelte-4-2` (a81874a7) to `-r2`, because the force push over it was refused. My lease named a full SHA I had extended from the short one instead of reading it, so it would have failed anyway. The old branch is left unmerged.
+
+Checks: `pnpm lint` 0; `pnpm typecheck` 0 (svelte-check 1576 files, 0 errors, 0 warnings); `pnpm vitest run cockpit tests/cockpit` 71 files, 1802 tests passed.
+
+Usage: $8.54, 606/11629 tokens, 6275526/880574 cache, rate limit allowed (session total as read at the PR seam; it may lag).

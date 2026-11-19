@@ -44,5 +44,7 @@
   data-unapprove-url={url}
   data-confirm={confirmText}
   {disabled}
-  {onclick}>{label}</button
+  {onclick}
 >
+  {label}
+</button>

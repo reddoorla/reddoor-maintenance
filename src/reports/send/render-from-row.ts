@@ -1,6 +1,7 @@
 import { siteSlug } from "../../fleet/site-row.js";
 import type { WebsiteRow } from "../../fleet/site-row.js";
 import type { ReportRow } from "../report-fields.js";
+import { emailDate } from "../report-row.js";
 import { resolveCopy } from "../copy.js";
 import { announcementSiteExtras } from "../announcement-email/template.js";
 import { renderReportEmail, type RenderedReportEmail } from "./render-email.js";
@@ -65,7 +66,9 @@ export async function renderReportFromRow(
     siteName: site.name,
     siteUrl: site.url,
     reportType: report.reportType,
-    completedOn: report.completedOn ? new Date(report.completedOn) : new Date(),
+    // P1-117: dated by its due date when it has one (`emailDate`). The data still
+    // runs to the last refresh before approval.
+    completedOn: emailDate(report),
     lighthouse: requireLighthouse(report),
     gaUsersCurrent: report.gaUsersCurrent ?? undefined,
     gaUsersPrevious: report.gaUsersPrevious ?? undefined,

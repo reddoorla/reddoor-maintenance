@@ -25,6 +25,6 @@
   }
 </script>
 
-<button type="button" class="theme-toggle" data-theme-toggle onclick={cycle}
-  >{THEME_LABEL[choice]}</button
->
+<button type="button" class="theme-toggle" data-theme-toggle onclick={cycle}>
+  {THEME_LABEL[choice]}
+</button>
