@@ -8,6 +8,7 @@ import {
   trendGeometry,
   trendsFromDaily,
   MIN_COLUMN,
+  tickLabel,
   type TrendChart,
 } from "../../src/lib/overview/view.js";
 import { overviewFromSnapshot } from "../../src/lib/overview/view.js";
@@ -860,5 +861,21 @@ describe("P1-87 PR 7b: 31 nights and the three traffic charts", () => {
     const terms = HOW_WE_COUNT.map((h) => h.term);
     expect(terms).toContain("Engaged visits");
     expect(terms).toContain("Times shown in Google");
+  });
+});
+
+describe("P1-87 PR 7b item 1: y-axis ticks fit in four characters", () => {
+  it("tickLabel shortens thousands, millions and billions, and leaves smaller counts whole", () => {
+    expect(tickLabel(0)).toBe("0");
+    expect(tickLabel(6)).toBe("6");
+    expect(tickLabel(600)).toBe("600");
+    expect(tickLabel(1000)).toBe("1k");
+    expect(tickLabel(6000)).toBe("6k");
+    expect(tickLabel(10000)).toBe("10k");
+    expect(tickLabel(300000)).toBe("300k");
+    expect(tickLabel(600000)).toBe("600k");
+    expect(tickLabel(1000000)).toBe("1M");
+    expect(tickLabel(2000000)).toBe("2M");
+    expect(tickLabel(4000000000)).toBe("4B");
   });
 });

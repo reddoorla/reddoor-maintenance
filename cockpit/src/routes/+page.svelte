@@ -6,6 +6,7 @@
     launchingClauses,
     listWords,
     sparkGeometry,
+    tickLabel,
     trendGeometry,
   } from "../lib/overview/view.js";
   import { markerAt, untilWords } from "../lib/overview/cycle.js";
@@ -487,15 +488,17 @@
             {/each}
             <line class="ov-grid" x1={g.plotLeft} x2={g.plotRight} y1={g.top} y2={g.top} />
             <line class="ov-axis" x1={g.plotLeft} x2={g.plotRight} y1={g.zero} y2={g.zero} />
-            <text class="ov-tick" x={g.plotLeft - 4} y={g.top + 4} text-anchor="end">{c.high}</text>
+            <text class="ov-tick" x={g.plotLeft - 4} y={g.top + 4} text-anchor="end"
+              >{tickLabel(c.high)}</text
+            >
             {#if c.mid !== null && g.midY !== null}
               <line class="ov-grid" x1={g.plotLeft} x2={g.plotRight} y1={g.midY} y2={g.midY} />
               <text class="ov-tick" x={g.plotLeft - 4} y={g.midY + 4} text-anchor="end"
-                >{c.mid}</text
+                >{tickLabel(c.mid)}</text
               >
             {/if}
             <text class="ov-tick" x={g.plotLeft - 4} y={g.baseline + 4} text-anchor="end"
-              >{c.low}</text
+              >{tickLabel(c.low)}</text
             >
             <text class="ov-tick" x={g.plotLeft} y={g.height - 4}>{c.nights[0]}</text>
             <text class="ov-tick" x={g.plotRight} y={g.height - 4} text-anchor="end"

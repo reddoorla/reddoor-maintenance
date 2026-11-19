@@ -8,6 +8,7 @@ import OverviewPage from "../../src/routes/+page.svelte";
 import TriagePage from "../../src/routes/triage/+page.svelte";
 import {
   overviewFromSnapshot,
+  tickLabel,
   trendGeometry,
   HOW_WE_COUNT,
   type OverviewView,
@@ -352,6 +353,18 @@ function sentinelize(view: OverviewView): { view: OverviewView; at: Map<string, 
     return v;
   };
   return { view: walk(view, "") as OverviewView, at };
+}
+
+/** A y-axis tick is drawn as its count's short form (P1-87 PR 7b item 1), so sentinel
+ *  70001 on a tick reads "70.001k": the page shows that form, and its digits are the
+ *  sentinel's own. */
+const TICK_PATH = /^trends\.charts\[[a-z]+\]\.(high|mid|low)$/;
+/** The digit runs a sentinel render may show: each sentinel, and each y tick's short form. */
+function sentinelDigits(at: Map<string, string>): Set<string> {
+  const ticks = [...at]
+    .filter(([path, v]) => TICK_PATH.test(path) && !v.startsWith("⟦"))
+    .flatMap(([, v]) => tickLabel(Number(v)).match(/\d+/g) ?? []);
+  return new Set([...at.values(), ...ticks]);
 }
 
 /** The page's fixture, with an open vulnerability on Bravo, so "Open now" has a row. */
@@ -747,7 +760,7 @@ function boundNumbers(doc: HTMLElement, checks: number): string[] {
 describe("no count is typed into the page, over the sentinel render (review rounds 5 and 6)", () => {
   // In the sentinel render every number the view hands over is 70001 or above, so a
   // digit run that is not one of them was typed into the template, whatever its value.
-  const allowed = new Set(S.at.values());
+  const allowed = sentinelDigits(S.at);
   const n = SV.reports.checks.length;
   const stray = (html: string) => boundNumbers(parse(html), n).filter((d) => !allowed.has(d));
 
@@ -895,9 +908,9 @@ describe("P1-78h: section 8 drawn, once fleet_daily holds 14 nights", () => {
           String(g.midY! + 4),
         );
       expect(svg.querySelectorAll("text.ov-tick").map(text)).toEqual([
-        String(c.high),
-        ...(c.mid === null ? [] : [String(c.mid)]),
-        String(c.low),
+        tickLabel(c.high),
+        ...(c.mid === null ? [] : [tickLabel(c.mid)]),
+        tickLabel(c.low),
         c.nights[0],
         c.nights.at(-1),
       ]);
@@ -949,11 +962,15 @@ describe("P1-78h: section 8 drawn, once fleet_daily holds 14 nights", () => {
     for (const [path, v] of ST.at) {
       if (!path.startsWith("trends.") || path.endsWith(".term")) continue;
       checked++;
-      const on = v.startsWith("⟦") ? words.includes(v) : shown.has(v);
+      const on = v.startsWith("⟦")
+        ? words.includes(v)
+        : TICK_PATH.test(path)
+          ? words.includes(tickLabel(Number(v)))
+          : shown.has(v);
       expect.soft(on, `${path} (${v}) is on the page`).toBe(true);
     }
     expect(checked).toBeGreaterThan(150);
-    const allowed = new Set(ST.at.values());
+    const allowed = sentinelDigits(ST.at);
     const n = ST.view.reports.checks.length;
     expect(boundNumbers(doc, n).filter((d) => !allowed.has(d))).toEqual([]);
   });
@@ -1991,7 +2008,7 @@ describe("P1-87 PR 7a: the traffic tiles on the page", () => {
       expect.soft(on, `${path} (${v}) is on the page`).toBe(true);
     }
     expect(checked).toBe(6);
-    const allowed = new Set(ST.at.values());
+    const allowed = sentinelDigits(ST.at);
     expect(boundNumbers(doc, PV.reports.checks.length).filter((d) => !allowed.has(d))).toEqual([]);
   });
 });
@@ -2124,9 +2141,47 @@ describe("P1-87 PR 7b: the traffic charts on the page", () => {
       const on = v.startsWith("⟦") ? words.includes(v) : shown.has(v);
       expect.soft(on, `${path} (${v}) is on the page`).toBe(true);
     }
-    const allowed = new Set(ST.at.values());
+    const allowed = sentinelDigits(ST.at);
     expect(boundNumbers(doc, VIEW.reports.checks.length).filter((d) => !allowed.has(d))).toEqual(
       [],
     );
+  });
+});
+
+/** P1-87 PR 7b item 1: a six-digit high draws as "600k", so it fits left of the plot at 390px. */
+describe("P1-87 PR 7b item 1: a 600000 high is drawn as 600k and 300k", () => {
+  const N = "2026-10-26";
+  const nights = Array.from({ length: 32 }, (_, i) => {
+    const d = new Date(Date.parse(`${N}T00:00:00Z`) - i * 86_400_000).toISOString().slice(0, 10);
+    if (i !== 0) return night(d);
+    const block = trafficBlock(N) as {
+      search: {
+        value: {
+          impressions: number;
+          daily: Array<{ date: string; clicks: number; impressions: number }>;
+        };
+      };
+    };
+    const search = block.search.value;
+    const daily = search.daily.map((x) => ({ ...x }));
+    // Oct 1 is inside the 28 search days, so the impressions chart's largest day is 500000.
+    // The window total moves by the same amount: the reader checks the days against it.
+    const oct1 = daily.find((x) => x.date === "2026-10-01")!;
+    const impressions = search.impressions + (500000 - oct1.impressions);
+    oct1.impressions = 500000;
+    return night(d, {
+      traffic: {
+        value: { ...block, search: { value: { ...search, impressions, daily } } },
+      } as never,
+    });
+  });
+  const VIEW = overviewFromSnapshot({ ...SNAP, nights }, NOW);
+  const DOC = parse(pageHtml(VIEW));
+  const figs = DOC.querySelectorAll('section[aria-labelledby="ov-trends"] figure.ov-trend');
+
+  it("the impressions chart's high is 600000, and its first two y ticks read 600k and 300k", () => {
+    expect(VIEW.trends.charts![5]!.high).toBe(600000);
+    const ticks = figs[5]!.querySelectorAll("svg.ov-chart text.ov-tick").map(text);
+    expect(ticks.slice(0, 2)).toEqual(["600k", "300k"]);
   });
 });

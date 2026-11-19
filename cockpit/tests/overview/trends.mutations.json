@@ -570,5 +570,21 @@
     ],
     "test": "cockpit/tests/overview/trends.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "61-tick-label-unshortened",
+    "why": "7b item 1: the y-axis ticks print in full, so 600000 overflows left of the plot at 390px",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  if (n >= 1e9) return `${n / 1e9}B`;",
+        "replace": "  return String(n);"
+      }
+    ],
+    "test": [
+      "cockpit/tests/overview/trends.ssr.test.ts",
+      "cockpit/tests/overview/page.ssr.test.ts"
+    ],
+    "expect": "red"
   }
 ]

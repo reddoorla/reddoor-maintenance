@@ -1542,6 +1542,17 @@ function roundUp(n: number): number {
     for (const m of [2, 4, 6, 10]) if (m * step >= n) return m * step;
 }
 
+/** A y-axis tick in at most four characters, so it fits left of the plot at 390px:
+ *  1000 and up read in thousands (k), millions (M) or billions (B). roundUp makes
+ *  every high a 2, 4, 6 or 10 times a power of ten, and mid is half of it, so the
+ *  short form is exact; each chart's table keeps the full counts. */
+export function tickLabel(n: number): string {
+  if (n >= 1e9) return `${n / 1e9}B`;
+  if (n >= 1e6) return `${n / 1e6}M`;
+  if (n >= 1e3) return `${n / 1e3}k`;
+  return String(n);
+}
+
 /** A count as stored, or null: a field missing or malformed in a hand-written or
  *  older row reads as unread, never as a number (review round 1), and so does a
  *  count below 0, which no night can have (review round 4). */
@@ -1848,7 +1859,7 @@ function column(left: number, w: number, zero: number, top: number): string {
 }
 
 export function trendGeometry(chart: TrendChart, width = 320, height = 132): TrendGeometry {
-  const plotLeft = 30;
+  const plotLeft = 31;
   const plotRight = width - 6;
   const top = 8;
   const baseline = height - 22;
