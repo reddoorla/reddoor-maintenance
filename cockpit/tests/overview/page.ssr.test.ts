@@ -2149,12 +2149,25 @@ describe("P1-87 PR 7b: the traffic charts on the page", () => {
       new URL("../../src/lib/overview/overview.css", import.meta.url),
       "utf8",
     ).replace(/\/\*[\s\S]*?\*\//g, "");
-    const partial =
-      [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].find(
-        ([, s]) => s!.trim() === ".ov-bar.partial",
-      )?.[2] ?? "";
-    expect(partial).toMatch(/stroke:\s*var\(--ink-muted\)/);
-    expect(partial).toMatch(/stroke-dasharray:\s*[1-9]/);
+    // Every rule for the partial column, in source order. A later rule overrides an earlier
+    // one, so the value drawn is the last one for each property (PR 7b review round 2, T1).
+    const bodies = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)]
+      .filter(([, sel]) => sel!.trim() === ".ov-bar.partial")
+      .map(([, , body]) => body!);
+    expect(bodies.length).toBeGreaterThan(0);
+    const drawn = (prop: string) =>
+      bodies
+        .flatMap((b) =>
+          [...b.matchAll(new RegExp(`(?:^|[\\s;])${prop}:\\s*([^;]+)`, "g"))].map((m) =>
+            m[1]!.trim(),
+          ),
+        )
+        .at(-1);
+    expect(drawn("stroke")).toBe("var(--ink-muted)");
+    expect(Number(drawn("stroke-width"))).toBeGreaterThan(0);
+    const dash = (drawn("stroke-dasharray") ?? "").split(/\s+/).map(Number);
+    expect(dash).toHaveLength(2);
+    expect(dash.every((n) => n > 0)).toBe(true);
   });
 
   it("the visits table's last row says the column is still being counted", () => {
