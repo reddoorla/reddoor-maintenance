@@ -4341,6 +4341,11 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     expect(rows.map((r) => r.name)).toEqual([...HEALTH_CHECK_NAMES]);
     const filled = rows.filter((r) => r.fill !== null);
     expect(filled.length, "the seeded sites give more than one bar a fill").toBeGreaterThan(1);
+    // P1-87 PR 8a, review round 1 (n1): the unknown segments' order is pinned only if one exists.
+    expect(
+      rows.filter((r) => r.unknown !== null).length,
+      "the seeded sites give an unknown segment",
+    ).toBeGreaterThan(0);
     rows.forEach((r, i) => {
       if (r.fill !== null) {
         expect(r.fill, `${r.name}'s fill`).toHaveLength(1);
@@ -4954,6 +4959,50 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     expect(await liveText(page), "a pointer speaks nothing").toBe("");
     expect(await chart(page).getAttribute("aria-valuenow")).toBe(String(k + 1));
     expect(await chart(page).getAttribute("aria-valuetext")).toBe(titles[k]);
+  });
+
+  // P1-87 PR 8a, review round 1 (E): a chart clears on Tab away, a hover is its own chart's, and a pointer
+  // that leaves the chart clears it.
+  const IDLE = "Point at a night, or focus the chart and use the arrow keys, to read it.";
+  const cursors = (page: Page, ci: number) =>
+    page.locator("figure.ov-trend").nth(ci).locator("line.ov-trend-cursor").count();
+  it("Tab away from a focused chart clears its night and its cursor (item 5, review round 1 T2)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    await chart(page).focus();
+    await page.keyboard.press("ArrowRight");
+    expect(await readoutText(page)).toBe(titles[0]);
+    await page.keyboard.press("Tab");
+    expect(await readoutText(page), "the idle prompt is visible again").toBe(IDLE);
+    expect(await cursors(page, 0), "no cursor on chart 0").toBe(0);
+  });
+
+  it("a hover on one chart does not select a night on the next (item 5, review round 1 T3)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    await nightRects(page, 0).nth(5).hover();
+    expect(await readoutText(page, 0)).toBe(titles[5]);
+    expect(await cursors(page, 0)).toBe(1);
+    expect(await cursors(page, 1), "chart 1 draws no cursor").toBe(0);
+    expect(await readoutText(page, 1), "chart 1 reads idle").toBe(IDLE);
+  });
+
+  it("a pointer that moves off a chart clears its night and its cursor (item 5, review round 1 T4)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    await nightRects(page).nth(5).hover();
+    expect(await cursors(page, 0)).toBe(1);
+    await page.mouse.move(0, 0);
+    expect(await readoutText(page), "the idle prompt is back").toBe(IDLE);
+    expect(await cursors(page, 0), "no cursor after the pointer leaves").toBe(0);
   });
 
   it("a night with no reading reads as the model says, never as 0 (item 5)", async () => {
