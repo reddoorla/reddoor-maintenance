@@ -71,6 +71,9 @@ export function countUp(
   return {
     update(p) {
       to = p.to;
+      // A refresh to a value that is not a figure (a word) ends the count at once: no frame may
+      // write it, and the figure shows its own words (P1-87 PR 8a, review round 1, F1).
+      if (!countable(to)) finish();
     },
     destroy() {
       if (node.hasAttribute("data-counting")) finish();

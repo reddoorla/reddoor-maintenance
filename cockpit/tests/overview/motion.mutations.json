@@ -9,7 +9,9 @@
         "replace": "@media all {\n  .ov-checks-list[data-intro] .ov-check-fill {"
       }
     ],
-    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "test": [
+      "cockpit/tests/overview/page.ssr.test.ts"
+    ],
     "expect": "red"
   },
   {
@@ -22,7 +24,9 @@
         "replace": "<li class=\"ov-check\" style=\"--i: {[...v.health.checks].map((x) => x.name).sort().indexOf(c.name)}\">"
       }
     ],
-    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "test": [
+      "cockpit/tests/overview/page.ssr.test.ts"
+    ],
     "expect": "red"
   },
   {
@@ -35,7 +39,9 @@
         "replace": "style=\"width: {(100 * (c.pass + c.fail)) / c.total}%\""
       }
     ],
-    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "test": [
+      "cockpit/tests/overview/page.ssr.test.ts"
+    ],
     "expect": "red"
   },
   {
@@ -48,7 +54,9 @@
         "replace": "  if (t >= 1) return to.includes(\",\") ? grouped(Math.round(Number(to.replace(/,/g, \"\")) * 0.999)) : String(Math.round(Number(to) * 0.999));"
       }
     ],
-    "test": ["cockpit/tests/overview/motion.ssr.test.ts"],
+    "test": [
+      "cockpit/tests/overview/motion.ssr.test.ts"
+    ],
     "expect": "red"
   },
   {
@@ -61,7 +69,9 @@
         "replace": "  if (t >= 1) return String(Number(to.replace(/,/g, \"\")));"
       }
     ],
-    "test": ["cockpit/tests/overview/motion.ssr.test.ts"],
+    "test": [
+      "cockpit/tests/overview/motion.ssr.test.ts"
+    ],
     "expect": "red"
   },
   {
@@ -74,7 +84,9 @@
         "replace": "export const countable = (_s: string): boolean => true;"
       }
     ],
-    "test": ["cockpit/tests/overview/motion.ssr.test.ts"],
+    "test": [
+      "cockpit/tests/overview/motion.ssr.test.ts"
+    ],
     "expect": "red"
   },
   {
@@ -87,7 +99,9 @@
         "replace": "@media all {\n  .ov-num[data-counting] .ov-num-final {"
       }
     ],
-    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "test": [
+      "cockpit/tests/overview/page.ssr.test.ts"
+    ],
     "expect": "red"
   },
   {
@@ -100,7 +114,9 @@
         "replace": "(titles[k + 1] ?? \"\")"
       }
     ],
-    "test": ["cockpit/tests/overview/motion.ssr.test.ts"],
+    "test": [
+      "cockpit/tests/overview/motion.ssr.test.ts"
+    ],
     "expect": "red"
   },
   {
@@ -113,7 +129,9 @@
         "replace": "    q.value === null ? \"0\" : q.note ? `${q.value}, ${q.note}` : String(q.value);"
       }
     ],
-    "test": ["cockpit/tests/overview/trends.ssr.test.ts"],
+    "test": [
+      "cockpit/tests/overview/trends.ssr.test.ts"
+    ],
     "expect": "red"
   },
   {
@@ -126,7 +144,9 @@
         "replace": "            aria-labelledby=\"ov-trend-{ci} ov-trend-{ci}-desc\""
       }
     ],
-    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "test": [
+      "cockpit/tests/overview/page.ssr.test.ts"
+    ],
     "expect": "red"
   },
   {
@@ -139,7 +159,9 @@
         "replace": "<p id=\"ov-trend-{ci}-readout\" class=\"muted ov-trend-readout\">"
       }
     ],
-    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "test": [
+      "cockpit/tests/overview/page.ssr.test.ts"
+    ],
     "expect": "red"
   },
   {
@@ -152,7 +174,9 @@
         "replace": "return selected === null ? last : (selected - 1 + count) % count;"
       }
     ],
-    "test": ["cockpit/tests/overview/motion.ssr.test.ts"],
+    "test": [
+      "cockpit/tests/overview/motion.ssr.test.ts"
+    ],
     "expect": "red"
   },
   {
@@ -165,7 +189,9 @@
         "replace": "@media all {\n  .ov-lately li[data-new] {"
       }
     ],
-    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "test": [
+      "cockpit/tests/overview/page.ssr.test.ts"
+    ],
     "expect": "red"
   },
   {
@@ -178,7 +204,24 @@
         "replace": "      const base = `${x.rank}|${x.line.atIso}|${x.line.text}`;"
       }
     ],
-    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "test": [
+      "cockpit/tests/overview/view.ssr.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "A-1-update-sets-only-to",
+    "why": "A refresh to a word keeps counting, so the next frame writes NaN (F1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/motion.ts",
+        "find": "      to = p.to;\n      // A refresh to a value that is not a figure (a word) ends the count at once: no frame may\n      // write it, and the figure shows its own words (P1-87 PR 8a, review round 1, F1).\n      if (!countable(to)) finish();",
+        "replace": "      to = p.to;"
+      }
+    ],
+    "test": [
+      "cockpit/tests/overview/motion.ssr.test.ts"
+    ],
     "expect": "red"
   }
 ]

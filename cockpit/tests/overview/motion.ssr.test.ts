@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   BAR_MS,
   BAR_STAGGER_MS,
@@ -10,6 +10,7 @@ import {
   markIntroPlayed,
   countable,
   countFrame,
+  countUp,
   trendKey,
   trendReadout,
 } from "../../src/lib/overview/motion.js";
@@ -112,5 +113,74 @@ describe("the trend readout's helpers (P1-87 PR 8a, item 5)", () => {
     expect(trendReadout(titles, 1)).toBe("Oct 2: no count that night");
     expect(trendReadout(titles, 2)).toBe("Oct 3: Broken: 2");
     expect(trendReadout(titles, null)).toBe("");
+  });
+});
+
+/** P1-87 PR 8a, review round 1 (F1): the count-up action, run on a hand-cranked frame clock. The
+ *  node is a stand-in: the action reads only `.ov-num-count` and the node's attributes. */
+describe("the count-up action on a refresh (P1-87 PR 8a, review round 1, F1)", () => {
+  let now = 0;
+  let seq = 0;
+  let pending = new Map<number, FrameRequestCallback>();
+  /** Advances the clock and runs the frames requested so far, once each. */
+  const tick = (ms: number) => {
+    now += ms;
+    const cbs = [...pending.values()];
+    pending = new Map();
+    for (const cb of cbs) cb(now);
+  };
+  const setup = () => {
+    const writes: string[] = [];
+    let text = "";
+    const digits = {
+      get textContent() {
+        return text;
+      },
+      set textContent(v: string) {
+        text = v;
+        writes.push(v);
+      },
+    };
+    const attrs = new Set<string>();
+    const node = {
+      querySelector: () => digits,
+      setAttribute: (k: string) => void attrs.add(k),
+      removeAttribute: (k: string) => void attrs.delete(k),
+      hasAttribute: (k: string) => attrs.has(k),
+    } as unknown as HTMLElement;
+    return { node, writes, attrs, text: () => text };
+  };
+
+  it("a refresh to a word ends the count at once: no frame writes NaN, and the figure is marked counted", () => {
+    now = 0;
+    pending = new Map();
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+      const id = ++seq;
+      pending.set(id, cb);
+      return id;
+    });
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => void pending.delete(id));
+    vi.stubGlobal("matchMedia", () => ({ matches: true }));
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    try {
+      const { node, writes, attrs, text } = setup();
+      const action = countUp(node, { to: "1,674", enabled: true });
+      expect(attrs.has("data-counting")).toBe(true);
+      tick(300);
+      expect(text(), "the count is under way").not.toBe("");
+      expect(attrs.has("data-counting")).toBe(true);
+
+      action.update({ to: "could not be read", enabled: true });
+      tick(16);
+
+      expect(text(), "the count span is empty").toBe("");
+      expect(attrs.has("data-counted"), "the figure is marked counted").toBe(true);
+      expect(attrs.has("data-counting"), "the figure is no longer counting").toBe(false);
+      expect(writes.filter((w) => w.includes("NaN")), "no frame wrote NaN").toEqual([]);
+      expect(pending.size, "no frame is left to run").toBe(0);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    }
   });
 });
