@@ -505,7 +505,14 @@
               <path class="ov-bar{b.partial ? ' partial' : ''}" d={b.d} />
             {/each}
             {#each g.lag as l, li (li)}
-              <rect class="ov-lag" x={l.x} y={g.top} width={l.width} height={g.baseline - g.top} />
+              <rect
+                class="ov-lag"
+                fill="url(#ov-lag-hatch)"
+                x={l.x}
+                y={g.top}
+                width={l.width}
+                height={g.baseline - g.top}
+              />
             {/each}
             {#each g.lines as l, li (li)}
               <path
