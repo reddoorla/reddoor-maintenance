@@ -1110,6 +1110,22 @@ describe("P1-87 PR 7b: 31 nights and the three traffic charts", () => {
     }
   });
 
+  it("How we count: the reworded Engaged visits and Times shown texts are pinned, and no text says lighter (PR 7b review round 2, T4)", () => {
+    const how = (term: string) => HOW_WE_COUNT.find((h) => h.term === term)!.text;
+    expect(how("Engaged visits")).toContain("so its column is drawn in outline");
+    expect(how("Times shown in Google")).toContain(
+      "the days Google has no data for yet are hatched",
+    );
+    // Nothing describes the partial column as lighter, in the definitions or in any chart's
+    // note or summary: the round-1 wording that a test did not hold.
+    const charts = trendsFromDaily(withBlock(trafficBlock(N)), NOW).charts!;
+    const said = [
+      ...HOW_WE_COUNT.map((h) => h.text),
+      ...charts.flatMap((c) => [c.note, c.summary]),
+    ];
+    expect(said.filter((t) => t.includes("lighter"))).toEqual([]);
+  });
+
   it("How we count: the Trends text says the search window ends three days before the night", () => {
     const trends = HOW_WE_COUNT.find((h) => h.term === "Trends")!.text;
     expect(trends).toContain(

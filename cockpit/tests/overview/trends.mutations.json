@@ -784,5 +784,18 @@
     ],
     "test": "cockpit/tests/overview/trends.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "77-how-visits-lighter",
+    "why": "PR 7b review round 2 (tests nit T4): the Engaged visits How-we-count text says the partial column is lighter, and no test held the reworded text",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "the newest day is still being counted, so its column is drawn in outline.",
+        "replace": "the newest day is still being counted, so its column is lighter."
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
   }
 ]
