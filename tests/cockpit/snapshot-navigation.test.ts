@@ -4542,4 +4542,78 @@ describe("PR 8c, How this works motion", () => {
     );
     expect(await page.locator("section.how-lead .how-dot").isVisible(), "hidden").toBe(false);
   });
+
+  // PR 8c item 10: the ladder's levels are disclosures. Each opens its panel (today's sites and
+  // the 21-night line); Escape closes an open panel and returns focus to its button.
+  /** The script's marker on the ladder, set in the same effect that attaches its listeners. */
+  const ladderScripted = (page: Page) =>
+    page.locator('ol.how-ladder[data-js="true"]').waitFor({ state: "attached" });
+  const levelButton = (page: Page, tier: string) =>
+    page.locator(`ol.how-ladder button.how-level[data-level="${tier}"]`);
+  const levelPanel = (page: Page, tier: string) => page.locator(`#how-level-${tier}`);
+
+  it("each level's button opens its panel by click, Enter and Space, and Escape closes it and returns focus", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await ladderScripted(page);
+    for (const tier of ["ok", "watch", "attention", "broken"]) {
+      expect(
+        await levelButton(page, tier).getAttribute("aria-expanded"),
+        `${tier} starts closed`,
+      ).toBe("false");
+      expect(await levelPanel(page, tier).isVisible(), `${tier} panel closed`).toBe(false);
+    }
+    await levelButton(page, "broken").click();
+    expect(await levelButton(page, "broken").getAttribute("aria-expanded")).toBe("true");
+    expect(await levelPanel(page, "broken").isVisible(), "panel open after click").toBe(true);
+    expect(await levelPanel(page, "ok").isVisible(), "other levels stay closed").toBe(false);
+    await page.keyboard.press("Escape");
+    expect(await levelButton(page, "broken").getAttribute("aria-expanded"), "Escape closes").toBe(
+      "false",
+    );
+    expect(await levelPanel(page, "broken").isVisible()).toBe(false);
+    expect(
+      await page.evaluate(() => document.activeElement?.getAttribute("data-level")),
+      "focus returns to the level's button",
+    ).toBe("broken");
+    await levelButton(page, "attention").focus();
+    await page.keyboard.press("Enter");
+    expect(await levelButton(page, "attention").getAttribute("aria-expanded")).toBe("true");
+    await page.keyboard.press("Space");
+    expect(await levelButton(page, "attention").getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("opening fades in over 200 ms under motion, and under reduced motion it opens at once with no animation", async () => {
+    const page = await signedIn();
+    await page.goto(`${origin}/how`);
+    await ladderScripted(page);
+    await levelButton(page, "ok").click();
+    const [anim] = await levelPanel(page, "ok").evaluate((el) =>
+      el
+        .getAnimations()
+        .map((a) => ({ duration: (a.effect as KeyframeEffect).getTiming().duration })),
+    );
+    expect(anim?.duration, "the open runs 200 ms").toBe(200);
+
+    const still = await signedIn("op", { reducedMotion: "reduce" });
+    await still.goto(`${origin}/how`);
+    await ladderScripted(still);
+    await levelButton(still, "ok").click();
+    expect(await levelPanel(still, "ok").isVisible(), "open at once").toBe(true);
+    const running = await still.evaluate(
+      () => document.getAnimations().filter((a) => a.playState === "running").length,
+    );
+    expect(running, "no animation under reduced motion").toBe(0);
+  });
+
+  it("with no script, every level's panel is open, with its sites and nights line", async () => {
+    const page = await signedIn("op", { javaScriptEnabled: false });
+    await page.goto(`${origin}/how`);
+    for (const tier of ["ok", "watch", "attention", "broken"]) {
+      expect(await levelButton(page, tier).getAttribute("aria-expanded")).toBe("true");
+      expect(await levelPanel(page, tier).isVisible(), `${tier} panel visible`).toBe(true);
+    }
+    expect(await levelPanel(page, "ok").textContent()).toContain("every check passing");
+  });
 });

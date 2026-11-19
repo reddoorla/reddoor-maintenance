@@ -125,6 +125,74 @@ body {
   border-top-width: 8px;
   padding-top: calc(var(--space-3) - 4px);
 }
+/* PR 8c item 10: each level is a disclosure. The button holds its name and line; the panel
+   holds today's sites and the 21-night line. The open is a top-down reveal over 200 ms under
+   motion, not a fade: the style guide forbids dimming text, so no opacity moves. */
+.how-level {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  width: 100%;
+  margin: 0;
+  padding: 0 1.25rem 0 0;
+  background: none;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.how-level:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 4px;
+}
+.how-level::after {
+  /* A chevron drawn with two borders, never a glyph (the cockpit's style rule). */
+  content: "";
+  position: absolute;
+  right: 0.3rem;
+  top: 0.35rem;
+  width: 0.4rem;
+  height: 0.4rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+}
+.how-level[aria-expanded="true"]::after {
+  transform: rotate(-135deg);
+  top: 0.6rem;
+}
+.how-level-panel {
+  border-top: 1px solid var(--rule);
+  padding-top: var(--space-2);
+  font-size: 0.9rem;
+}
+.how-level-panel p,
+.how-level-panel ul {
+  margin: 0 0 var(--space-1);
+  padding: 0;
+}
+.how-level-sites {
+  list-style: none;
+}
+.how-level-site {
+  font-weight: var(--weight-bold);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .how-level-panel:not([hidden]) {
+    animation: how-level-open 200ms ease-out;
+  }
+}
+@keyframes how-level-open {
+  from {
+    clip-path: inset(0 0 100% 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
 @media (min-width: 60rem) {
   .how-ladder {
     grid-template-columns: repeat(4, 1fr);

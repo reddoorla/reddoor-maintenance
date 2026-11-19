@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type { HowView } from "../../lib/how/view.js";
-  import { LEAD_DOT_MS, nextToLight, STEP_LIGHT_MS } from "../../lib/how/view.js";
+  import { LEAD_DOT_MS, nextToLight, STEP_LIGHT_MS, type Tier } from "../../lib/how/view.js";
   import { HOW_WE_COUNT, NOT_YET, UNREADABLE } from "../../lib/overview/view.js";
   import PageStyles from "../../lib/PageStyles.svelte";
   import howCss from "../../lib/how/how.css?inline";
@@ -32,6 +32,18 @@
   let dotEl: HTMLElement | undefined = $state();
   let replayEl: HTMLButtonElement | undefined = $state();
   let branchEl: HTMLButtonElement | undefined = $state();
+
+  /** PR 8c item 10: each level's panel is open in the server render and without script, so no
+   *  visitor loses its sites or the nights line; the script closes them in onMount. */
+  let levelOpen = $state<Record<Tier, boolean>>({
+    ok: true,
+    watch: true,
+    attention: true,
+    broken: true,
+  });
+  /** Set in onMount, in the same effect that attaches the ladder's listeners. */
+  let ladderScripted = $state(false);
+  let ladderEl: HTMLOListElement | undefined = $state();
 
   onMount(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -77,6 +89,34 @@
       items.forEach((el) => observer!.observe(el));
     }
     scripted = true;
+
+    // PR 8c item 10: each level's button opens its panel; Escape closes an open panel and
+    // returns focus to its button. Plain listeners, not a delegated attribute (see 8a's rules).
+    const ladderCleanups: Array<() => void> = [];
+    if (ladderEl !== undefined) {
+      for (const li of Array.from(ladderEl.children) as HTMLElement[]) {
+        const btn = li.querySelector<HTMLButtonElement>("button.how-level");
+        if (btn === null) continue;
+        const tier = btn.dataset["level"] as Tier;
+        const toggle = () => {
+          levelOpen = { ...levelOpen, [tier]: !levelOpen[tier] };
+        };
+        const onKey = (e: KeyboardEvent) => {
+          if (e.key !== "Escape" || !levelOpen[tier]) return;
+          e.preventDefault();
+          levelOpen = { ...levelOpen, [tier]: false };
+          btn.focus();
+        };
+        btn.addEventListener("click", toggle);
+        li.addEventListener("keydown", onKey);
+        ladderCleanups.push(() => {
+          btn.removeEventListener("click", toggle);
+          li.removeEventListener("keydown", onKey);
+        });
+      }
+    }
+    levelOpen = { ok: false, watch: false, attention: false, broken: false };
+    ladderScripted = true;
 
     // PR 8c item 9: the lead's journey. The branch starts closed; its button toggles it.
     const cleanups: Array<() => void> = [];
@@ -167,6 +207,7 @@
       observer?.disconnect();
       clearTimeout(timer);
       cleanups.forEach((fn) => fn());
+      ladderCleanups.forEach((fn) => fn());
     };
   });
 </script>
@@ -230,9 +271,39 @@
     <p class="how-kicker">When something is wrong</p>
     <h2 id="how-wrong">Problems are sorted by who they affect</h2>
   </hgroup>
-  <ol class="how-ladder" role="list">
+  <ol
+    class="how-ladder"
+    role="list"
+    bind:this={ladderEl}
+    data-js={ladderScripted ? "true" : undefined}
+  >
     {#each v.ladder as l (l.tier)}
-      <li class={l.tier}><strong>{l.name}</strong> <span>{l.text}</span></li>
+      <li class={l.tier}>
+        <button
+          type="button"
+          class="how-level"
+          data-level={l.tier}
+          aria-expanded={levelOpen[l.tier] ? "true" : "false"}
+          aria-controls="how-level-{l.tier}"
+        >
+          <strong>{l.name}</strong> <span>{l.text}</span>
+        </button>
+        <div id="how-level-{l.tier}" class="how-level-panel" hidden={!levelOpen[l.tier]}>
+          {#if l.sites.length === 0}
+            <p>None today</p>
+          {:else}
+            <ul role="list" class="how-level-sites">
+              {#each l.sites as site (site.name)}
+                <li>
+                  <span class="how-level-site">{site.name}</span>{#if site.reason !== null}:
+                    {site.reason}{/if}
+                </li>
+              {/each}
+            </ul>
+          {/if}
+          <p class="how-level-nights">{l.nights}</p>
+        </div>
+      </li>
     {/each}
   </ol>
   <p>

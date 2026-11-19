@@ -115,5 +115,140 @@
     ],
     "test": "cockpit/tests/how/page.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "10-1-no-site-night-counts-as-sat",
+    "why": "A night with 0 sites counts as a night a site sat at the level",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "const sat = counted.filter((v) => v > 0).length;",
+        "replace": "const sat = counted.length;"
+      }
+    ],
+    "test": "cockpit/tests/how/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "10-2-reads-31-nights",
+    "why": "The window reads 31 nights, not 21",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "for (let i = 0; i < LEVEL_NIGHTS; i++) {",
+        "replace": "for (let i = 0; i < 31; i++) {"
+      },
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "dayBefore(end, LEVEL_NIGHTS - 1 - i)",
+        "replace": "dayBefore(end, 30 - i)"
+      }
+    ],
+    "test": "cockpit/tests/how/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "10-3-earlier-version-counted",
+    "why": "A night on an earlier ladder version is counted",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "c.ladderVersion !== version)",
+        "replace": "false)"
+      }
+    ],
+    "test": "cockpit/tests/how/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "10-4-mildest-item-named",
+    "why": "A site is named by its mildest item, not its worst",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "(row.reasons[0] ?? null)",
+        "replace": "(row.reasons.at(-1) ?? null)"
+      }
+    ],
+    "test": "cockpit/tests/how/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "10-5-site-at-two-levels",
+    "why": "A broken site is also listed at Attention",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "    out[tier].push({ name, reason });",
+        "replace": "    out[tier].push({ name, reason });\n    if (tier === \"broken\") out.attention.push({ name, reason });"
+      }
+    ],
+    "test": "cockpit/tests/how/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "10-7-open-panel-says-closed",
+    "why": "The server render says every level is closed, though its panel is open",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "aria-expanded={levelOpen[l.tier] ? \"true\" : \"false\"}",
+        "replace": "aria-expanded=\"false\""
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "10-8-unreadable-count-as-zero",
+    "why": "An unreadable tier count reads as 0, so the night is counted",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "return typeof v === \"number\" && Number.isFinite(v) && v >= 0 ? v : null;",
+        "replace": "return typeof v === \"number\" && Number.isFinite(v) && v >= 0 ? v : 0;"
+      }
+    ],
+    "test": "cockpit/tests/how/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "10-9-missing-night-counted-as-zero",
+    "why": "A missing night is counted as 0, so the window stays 21 nights",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "    if (c === undefined || typeof c.ladderVersion !== \"number\" || c.ladderVersion !== version)\n      continue;",
+        "replace": "    if (c === undefined) {\n      counted.push(0);\n      continue;\n    }\n    if (typeof c.ladderVersion !== \"number\" || c.ladderVersion !== version)\n      continue;"
+      }
+    ],
+    "test": "cockpit/tests/how/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "10-10-ok-site-named-with-no-reason",
+    "why": "An OK site is named without its every-check-passing line",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "out.ok.push({ name, reason: EVERY_CHECK_PASSING });",
+        "replace": "out.ok.push({ name, reason: null });"
+      }
+    ],
+    "test": "cockpit/tests/how/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "10-11-launching-site-listed",
+    "why": "A launching site is listed at its level",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "    if (c.site.status !== \"maintained\") continue;",
+        "replace": "    if (false as boolean) continue;"
+      }
+    ],
+    "test": "cockpit/tests/how/view.ssr.test.ts",
+    "expect": "red"
   }
 ]

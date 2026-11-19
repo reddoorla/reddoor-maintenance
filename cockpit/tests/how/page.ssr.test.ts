@@ -206,7 +206,8 @@ describe("five chapters, each with its diagram", () => {
   });
 
   it("chapter 2 shows the ladder's four levels, mildest first, in the overview's words", () => {
-    const levels = DOC.querySelectorAll(".how-ladder li");
+    // The four levels are the list's own items: each level's sites are a nested list (item 10).
+    const levels = DOC.querySelectorAll(".how-ladder > li");
     expect(levels.map((l) => l.getAttribute("class"))).toEqual([
       "ok",
       "watch",
@@ -818,5 +819,38 @@ describe("PR 8c item 9: a lead's journey (server render)", () => {
 
   it("the lead flow's server render is not marked as scripted, so the browser tests wait for the script", () => {
     expect(LEAD().querySelector('[data-js="true"]')).toBeNull();
+  });
+});
+
+describe("PR 8c item 10: the ladder's levels open", () => {
+  it("each level's name is a disclosure button that controls its panel", () => {
+    const buttons = DOC.querySelectorAll(".how-ladder li button");
+    expect(buttons).toHaveLength(4);
+    for (const b of buttons) {
+      expect(b.getAttribute("type")).toBe("button");
+      const panel = DOC.getElementById(b.getAttribute("aria-controls") ?? "");
+      expect(panel).not.toBeNull();
+    }
+  });
+
+  it("without script every panel is open, so no visitor loses its sites or the nights line", () => {
+    expect(DOC.querySelectorAll(".how-ladder li button")).toHaveLength(4);
+    for (const b of DOC.querySelectorAll(".how-ladder li button")) {
+      expect(b.getAttribute("aria-expanded")).toBe("true");
+      const panel = DOC.getElementById(b.getAttribute("aria-controls")!)!;
+      expect(panel.hasAttribute("hidden")).toBe(false);
+    }
+  });
+
+  it("the OK level names its sites as every check passing; a level with none says so", () => {
+    const panelOf = (tier: string) =>
+      DOC.getElementById(
+        DOC.querySelector(`.how-ladder li.${tier} button`)!.getAttribute("aria-controls")!,
+      )!;
+    const ok = text(panelOf("ok"));
+    expect(ok).toContain("Acme");
+    expect(ok).toContain("every check passing");
+    expect(text(panelOf("broken"))).toContain("None today");
+    expect(text(panelOf("broken"))).toMatch(/[Nn]ights/);
   });
 });
