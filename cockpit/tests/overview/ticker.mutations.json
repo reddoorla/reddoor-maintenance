@@ -1029,7 +1029,7 @@
   },
   {
     "id": "79-doc-listener-not-disarmed",
-    "why": "r9 C.4, measured: not disarmed after the first event. Survives the full snapshot-navigation file (70 of 70 green). Equivalent: after an outside pointer clears the flag, the window's own leave and enter events set the same truth, and an inside pointer sets it true through the window's listener, so a later document event never changes the flag.",
+    "why": "r9 C.4, re-measured in r10: on the round 10 fix the listener is not disarmed after the first event, so a stale pointerover or pointermove after an outside drop sets the flag again before the Shift. Red: the drag out, released outside, then a Shift at once (r10 B.3, the count test). Round 9 had this as equivalent, true on that page only",
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
@@ -1038,7 +1038,7 @@
       }
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
-    "expect": "survives"
+    "expect": "red"
   },
   {
     "id": "80-doc-listener-not-removed",
@@ -1068,7 +1068,7 @@
   },
   {
     "id": "83-doc-out-any-target-clears",
-    "why": "r10 C.3: onDocOut clears the flag on every mouseout, whatever its related target, not only one with no related target. Measured: the test named in the run log decides it; see the table in the PR body",
+    "why": "r10 C.3: onDocOut clears the flag on every mouseout, whatever its related target, not only one with no related target. Red: the drag out, released outside, then a Shift at once (r10 B.3, the count test); the table in the PR body names it. A move into the page and back over the row is not separately pinned",
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
@@ -1094,7 +1094,7 @@
   },
   {
     "id": "85-doc-out-not-removed-on-disarm",
-    "why": "r10 C.5: disarmDoc does not remove the document mouseout listener. Expected equivalent: a mouseout with no related target clears a flag that the pointer has already left the page with, and armDoc's guard keeps a re-arm from adding it twice. The run's result decides it; see the table in the PR body",
+    "why": "r10 C.5, measured: disarmDoc does not remove the document mouseout listener. Survives (0 of 73 red). Equivalent here: a mouseout with no related target means the pointer has left the page, which is the answer the flag already holds, and armDoc's guard keeps a re-arm from adding the listener twice",
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
