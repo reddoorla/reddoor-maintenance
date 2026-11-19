@@ -34,23 +34,25 @@
   <ol class="how-steps" role="list" data-term="Steps">
     {#each v.nightly.steps as s (s.label)}
       <li>
-        <strong
-          ><span class="how-step-n">{s.n}</span><span aria-hidden="true">{" ·"}</span>{" "}<span
-            class="how-step-name">{s.short}</span
-          ></strong
-        >
+        <strong>
+          <span class="how-step-n">{s.n}</span><span aria-hidden="true">{" ·"}</span>{" "}<span
+            class="how-step-name"
+          >
+            {s.short}
+          </span>
+        </strong>
         <span class="how-step-what">{s.label}</span>
-        <span class="how-step-last"
-          >{v.nightly.nightOf}: {s.outcome}. Last finished: {s.lastFinished}. Reached: {s.sites}.</span
-        >
+        <span class="how-step-last">
+          {v.nightly.nightOf}: {s.outcome}. Last finished: {s.lastFinished}. Reached: {s.sites}.
+        </span>
       </li>
     {/each}
   </ol>
   <p>
-    <span data-term="Times"
-      >The run starts at {v.nightly.startsAt}, and reports a person has approved go out at {v
-        .nightly.sendsAt}.</span
-    >
+    <span data-term="Times">
+      The run starts at {v.nightly.startsAt}, and reports a person has approved go out at {v.nightly
+        .sendsAt}.
+    </span>
     Each step writes down what it found. Nothing is assumed to have worked: a check that did not run never
     reads as a pass.
   </p>
@@ -76,12 +78,12 @@
     and each change is tested before it merges. A fix for a known critical or high vulnerability in
     a package the site uses directly does not wait for the week: it opens the same night. One deeper
     in the tree waits for the weekly lock-file update.
-    <span data-term="Dependency updates merged"
-      >Dependency updates merged: {v.upkeep.automerged}.</span
-    >
-    <span data-term="Sites cleared of vulnerabilities"
-      >Sites cleared of every critical or high vulnerability: {v.upkeep.vulnsCleared}.</span
-    >
+    <span data-term="Dependency updates merged">
+      Dependency updates merged: {v.upkeep.automerged}.
+    </span>
+    <span data-term="Sites cleared of vulnerabilities">
+      Sites cleared of every critical or high vulnerability: {v.upkeep.vulnsCleared}.
+    </span>
     What is left lands on the <a href="/triage">Triage</a> page each morning.
   </p>
 </section>
@@ -99,10 +101,10 @@
     <li data-term="Stopped before storage">
       <strong>Bots stopped</strong>
       {#if isCount(v.leads.stoppedAllTime)}
-        <span
-          >{v.leads.stoppedAllTime} never stored{#if v.leads.stoppedAsOf}, as of {v.leads
-              .stoppedAsOf}{/if}</span
-        >
+        <span>
+          {v.leads.stoppedAllTime} never stored{#if v.leads.stoppedAsOf}, as of {v.leads
+              .stoppedAsOf}{/if}
+        </span>
       {:else}
         <span class="muted">{v.leads.stoppedAllTime}</span>
       {/if}
@@ -146,10 +148,10 @@
       {#if v.reports.sent === null}
         <span class="muted">the reports could not be read just now</span>
       {:else}
-        <span
-          >{v.reports.sent.approvedFirst} of {v.reports.sent.real} approved before sending{#if v.reports.sent.aroundGate > 0};
-            {v.reports.sent.aroundGate} went without that yes{/if}</span
-        >
+        <span>
+          {v.reports.sent.approvedFirst} of {v.reports.sent.real} approved before sending{#if v.reports.sent.aroundGate > 0};
+            {v.reports.sent.aroundGate} went without that yes{/if}
+        </span>
       {/if}
     </li>
     <li class="how-end">
@@ -170,11 +172,12 @@
   </dl>
   <p data-term="Lighthouse">
     Google's Lighthouse audit, the middle score across our sites:
-    {#each v.reports.lighthouse as l, i (l.label)}{#if i > 0}<span aria-hidden="true">{" ·"}</span
-        >{" "}{/if}{l.label}
-      {l.median}{/each}{#if v.reports.lighthouseAsOf}<span class="muted"
-        >, from audits as old as {v.reports.lighthouseAsOf}</span
-      >{/if}.
+    {#each v.reports.lighthouse as l, i (l.label)}{#if i > 0}<span aria-hidden="true">
+          {" ·"}
+        </span>{" "}{/if}{l.label}
+      {l.median}{/each}{#if v.reports.lighthouseAsOf}<span class="muted">
+        , from audits as old as {v.reports.lighthouseAsOf}
+      </span>{/if}.
   </p>
 </section>
 
@@ -197,10 +200,9 @@
     once the site's tests pass. Changes to the maintenance stack itself go live when they merge,
     once tested; the changes we write are also reviewed. Only its published package releases wait
     for a person. The count includes the update bot's own merges.
-    <span data-term="PRs merged"
-      >PRs merged into the maintenance stack (the code that runs these checks and sends the
-      reports): {v.prsMerged}.</span
-    >
+    <span data-term="PRs merged">
+      PRs merged into the maintenance stack (the code that runs these checks and sends the reports): {v.prsMerged}.
+    </span>
   </p>
 </section>
 

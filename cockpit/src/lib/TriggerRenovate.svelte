@@ -20,5 +20,6 @@
   }
 </script>
 
-<button class="trigger-renovate" data-trigger-url={url} {disabled} onclick={trigger}>{label}</button
->
+<button class="trigger-renovate" data-trigger-url={url} {disabled} onclick={trigger}>
+  {label}
+</button>

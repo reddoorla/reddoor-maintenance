@@ -80,15 +80,21 @@
           data-details-url={url}
           disabled={!m.ready}
           {onchange}
-          >{#if row.current === null || !row.options.includes(row.current)}<option
+        >
+          {#if row.current === null || !row.options.includes(row.current)}<option
               value=""
               disabled
               selected
-              hidden>— select —</option
-            >{/if}{#each row.options as o (o)}<option value={o} selected={o === row.current}
-              >{o}</option
-            >{/each}</select
-        >
+              hidden
+            >
+              — select —
+            </option>{/if}{#each row.options as o (o)}<option
+              value={o}
+              selected={o === row.current}
+            >
+              {o}
+            </option>{/each}
+        </select>
       {:else if row.kind === "multi"}
         <select
           multiple
@@ -97,10 +103,11 @@
           data-details-url={url}
           disabled={!m.ready}
           {onchange}
-          >{#each row.options as o (o)}<option value={o} selected={row.selected.includes(o)}
-              >{o}</option
-            >{/each}</select
         >
+          {#each row.options as o (o)}<option value={o} selected={row.selected.includes(o)}>
+              {o}
+            </option>{/each}
+        </select>
       {:else if row.kind === "checkbox"}
         <input
           type="checkbox"

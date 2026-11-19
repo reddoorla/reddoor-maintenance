@@ -58,9 +58,9 @@
 <PageStyles sheets={[healthCss, fleetTableCss]} />
 
 {#snippet dateCell(v: string | null)}
-  {#if v === null}{DASH}{:else if v.slice(0, 10) === v}{v}{:else}<span title={v}
-      >{v.slice(0, 10)}</span
-    >{/if}
+  {#if v === null}{DASH}{:else if v.slice(0, 10) === v}{v}{:else}<span title={v}>
+      {v.slice(0, 10)}
+    </span>{/if}
 {/snippet}
 
 <h1>Sites</h1>
@@ -96,8 +96,10 @@
       type="button"
       data-filter={f}
       aria-pressed={f === filter ? "true" : "false"}
-      onclick={() => (filter = f)}>{f}</button
-    >{/each}
+      onclick={() => (filter = f)}
+    >
+      {f}
+    </button>{/each}
 </div>
 {#if m.rows.length === 0}
   <!-- hiddenCount is non-zero only on the default view, where an empty table
@@ -127,9 +129,9 @@
             {#if col.key === "level"}
               {#each FACT_COLUMNS as label (label)}<th>{label}</th>{/each}
             {/if}
-            <th class={col.numeric ? "num" : undefined}
-              ><a href={sortHref(m, col.key)}>{col.label}</a>{sortArrow(m, col.key)}</th
-            >
+            <th class={col.numeric ? "num" : undefined}>
+              <a href={sortHref(m, col.key)}>{col.label}</a>{sortArrow(m, col.key)}
+            </th>
           {/each}
           <th>Health</th>
         </tr>
@@ -149,29 +151,31 @@
             <td>
               {#if url === "#"}<span class="muted">{DASH}</span>{:else}<a
                   href={url}
-                  rel="noopener noreferrer">{r.url}</a
-                >{/if}
+                  rel="noopener noreferrer"
+                >
+                  {r.url}
+                </a>{/if}
             </td>
             <td>{r.status === null ? DASH : r.status}</td>
             {#if f}
-              <td class="fact {okClass(f.live.ok)}" data-label="Live"
-                >{f.live.text}{#if f.live.at}<span class="muted">, checked {f.live.at}</span
-                  >{/if}</td
-              >
+              <td class="fact {okClass(f.live.ok)}" data-label="Live">
+                {f.live.text}{#if f.live.at}<span class="muted">, checked {f.live.at}</span>{/if}
+              </td>
               <td class="fact {okClass(f.domain.ok)}" data-label="Certificate">{f.domain.text}</td>
               <td class="fact {okClass(f.deploy.ok)}" data-label="Deploy">{f.deploy.text}</td>
-              <td class="fact {okClass(f.forms.ok)}" data-label="Forms"
-                >{f.forms.text}<span class="muted">; {f.lastLead}</span></td
-              >
+              <td class="fact {okClass(f.forms.ok)}" data-label="Forms">
+                {f.forms.text}<span class="muted">; {f.lastLead}</span>
+              </td>
             {:else}
-              {#each FACT_COLUMNS as label (label)}<td class="muted" data-label={label}>{DASH}</td
-                >{/each}
+              {#each FACT_COLUMNS as label (label)}<td class="muted" data-label={label}>
+                  {DASH}
+                </td>{/each}
             {/if}
-            <td data-label="Level"
-              >{#if lv}<span class="pill {lv.tier}">{lv.pill}</span>{:else}<span class="muted"
-                  >{DASH}</span
-                >{/if}</td
-            >
+            <td data-label="Level">
+              {#if lv}<span class="pill {lv.tier}">{lv.pill}</span>{:else}<span class="muted">
+                  {DASH}
+                </span>{/if}
+            </td>
             <td class="num">{r.pScore === null ? DASH : r.pScore}</td>
             <td class="num">{r.rScore === null ? DASH : r.rScore}</td>
             <td class="num">{r.bpScore === null ? DASH : r.bpScore}</td>
@@ -183,9 +187,9 @@
               {#if c}
                 <!-- The card's own markup for what the table's columns do not
                      already show (#672 step 3). -->
-                <span class="setup" title={c.setupTitle}
-                  >Setup: <strong>{c.setupScore}</strong></span
-                >
+                <span class="setup" title={c.setupTitle}>
+                  Setup: <strong>{c.setupScore}</strong>
+                </span>
                 <span class="cluster health">
                   <span class="metric-label">a11y</span> <span class="metric a11y">{c.a11y}</span>
                   <span class="metric-label">deps</span> <span class="metric deps">{c.deps}</span>
@@ -193,21 +197,27 @@
                   <span class="metric-label">deploy</span>
                   {#if c.deploy.kind === "unknown"}<span
                       class="metric deploy unknown"
-                      title="No deploy data">—</span
-                    >{:else if c.deploy.kind === "link"}<a
+                      title="No deploy data"
+                    >
+                      —
+                    </span>{:else if c.deploy.kind === "link"}<a
                       class="metric {c.deploy.cls}"
                       href={c.deploy.href}
                       target="_blank"
-                      rel="noopener">{c.deploy.label}</a
-                    >{:else}<span class="metric {c.deploy.cls}">{c.deploy.label}</span>{/if}
+                      rel="noopener"
+                    >
+                      {c.deploy.label}
+                    </a>{:else}<span class="metric {c.deploy.cls}">{c.deploy.label}</span>{/if}
                 </span>
                 {#if c.chips.length > 0 || c.submissions}<div class="chips">
                     {#each c.chips as chip, i (i)}<span
                         class={chip.cls}
                         title={chip.title ?? undefined}
-                        >{#if chip.badge}<span class="badge">{chip.badge}</span
-                          >{/if}{chip.text}</span
-                      >{/each}{#if c.submissions}<span class="chip">{c.submissions}</span>{/if}
+                      >
+                        {#if chip.badge}<span class="badge">{chip.badge}</span>{/if}{chip.text}
+                      </span>{/each}{#if c.submissions}<span class="chip">
+                        {c.submissions}
+                      </span>{/if}
                   </div>{/if}
                 <SetupChecklist gaps={c.setupGaps} />
               {:else}<span class="muted">{DASH}</span>{/if}
@@ -225,9 +235,9 @@
     <summary>Recently ({s.recently.length})</summary>
     {#each s.recently as e, i (i)}
       <div class="recent-row" data-type={e.type}>
-        <span class="recent-what"
-          >{#if e.siteName}<strong>{e.siteName}</strong>{" — "}{/if}{e.summary}</span
-        >
+        <span class="recent-what">
+          {#if e.siteName}<strong>{e.siteName}</strong>{" — "}{/if}{e.summary}
+        </span>
         <span class="muted">{e.when}</span>
         {#if e.link}<a href={e.link.href}>{e.link.text}</a>{/if}
       </div>

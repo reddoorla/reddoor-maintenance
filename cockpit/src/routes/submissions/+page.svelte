@@ -86,25 +86,28 @@
       {#each bulkFields as [name, value] (name)}
         <input type="hidden" {name} {value} />
       {/each}
-      <button type="submit" disabled={!m0.ready}
-        >Mark all {m.markableNewCount} filtered as read</button
-      >
+      <button type="submit" disabled={!m0.ready}>
+        Mark all {m.markableNewCount} filtered as read
+      </button>
     </form>{/if}{#if facets.length > 0}
     <div class="spam-facets muted">
       {#each facets as c, i (c.token)}{#if i > 0}{" "}{/if}<a
           class={c.active ? "facet-chip active" : "facet-chip"}
           href={c.href}
           title="Filter to rows carrying this reason{c.active ? ' (click to clear)' : ''}"
-          >{c.token} ×{c.count}</a
-        >{/each}
+        >
+          {c.token} ×{c.count}
+        </a>{/each}
     </div>{/if}
   <ul class="subm-list">
     {#each m.rows as r (r.id)}
       <li class="subm-item">
         <div class="subm-row-wrap">
           {#if r.slug}<a class="subm-site" href="/s/{r.slug}">{r.siteName}</a>{:else}<span
-              class="subm-site muted">{r.siteName}</span
-            >{/if}
+              class="subm-site muted"
+            >
+              {r.siteName}
+            </span>{/if}
           <div class="subm-row-main"><SubmissionRowInner row={data.rowViews[r.id]!} /></div>
         </div>
       </li>
@@ -112,11 +115,13 @@
   </ul>
   {#if pages > 1}
     <div class="pager">
-      {#if m.page > 1}<a href={pageHref(m, m.page - 1)}>← Prev</a>{:else}<span class="muted"
-          >← Prev</span
-        >{/if}<span class="muted">Page {m.page} of {pages}</span>{#if m.page < pages}<a
-          href={pageHref(m, m.page + 1)}>Next →</a
-        >{:else}<span class="muted">Next →</span>{/if}
+      {#if m.page > 1}<a href={pageHref(m, m.page - 1)}>← Prev</a>{:else}<span class="muted">
+          ← Prev
+        </span>{/if}<span class="muted">Page {m.page} of {pages}</span>{#if m.page < pages}<a
+          href={pageHref(m, m.page + 1)}
+        >
+          Next →
+        </a>{:else}<span class="muted">Next →</span>{/if}
     </div>
   {/if}
 {/if}

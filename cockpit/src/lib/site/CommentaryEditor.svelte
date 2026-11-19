@@ -32,9 +32,9 @@
 </script>
 
 <div class="commentary">
-  <label for="commentary-{c.id}"
-    >Commentary <span class="muted">(re-rendered into the email at send)</span></label
-  ><textarea
+  <label for="commentary-{c.id}">
+    Commentary <span class="muted">(re-rendered into the email at send)</span>
+  </label><textarea
     id="commentary-{c.id}"
     data-commentary-for={c.id}
     data-commentary-url={c.url}

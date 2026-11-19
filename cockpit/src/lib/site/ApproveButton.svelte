@@ -59,5 +59,7 @@
   aria-busy={loading ? "true" : undefined}
   title={ui.approveTitle ?? undefined}
   disabled={ui.approveDisabled}
-  {onclick}>{ui.approveLabel}</button
+  {onclick}
 >
+  {ui.approveLabel}
+</button>

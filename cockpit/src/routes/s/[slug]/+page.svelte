@@ -49,12 +49,14 @@
   </div>{/if}
 <div class="setup-line">
   Setup {v.setup.score}/{v.setup.total} — {#if v.setup.missing.length === 0 && v.setupGaps.length === 0}<span
-      class="setup-ok">complete</span
-    >{:else if v.setup.missing.length > 0}<span class="setup-missing"
-      >Missing: {v.setup.missing.join(", ")}</span
-    >{:else}<span class="setup-missing"
-      >{v.setupGaps.length} roster gap{v.setupGaps.length === 1 ? "" : "s"} open, below</span
-    >{/if}
+      class="setup-ok"
+    >
+      complete
+    </span>{:else if v.setup.missing.length > 0}<span class="setup-missing">
+      Missing: {v.setup.missing.join(", ")}
+    </span>{:else}<span class="setup-missing">
+      {v.setupGaps.length} roster gap{v.setupGaps.length === 1 ? "" : "s"} open, below
+    </span>{/if}
 </div>
 <SetupChecklist gaps={v.setupGaps} />
 {#if v.alarm}
@@ -64,9 +66,9 @@
         <SiteRetest url={v.alarm.retest.url} audits={v.alarm.retest.audits} />
       </div>{/if}
     <div class="chips">
-      {#each v.alarm.chips as chip, i (i)}<span class={chip.cls} title={chip.title ?? undefined}
-          >{chip.text}</span
-        >{/each}
+      {#each v.alarm.chips as chip, i (i)}<span class={chip.cls} title={chip.title ?? undefined}>
+          {chip.text}
+        </span>{/each}
     </div>
   </div>
 {/if}{#if v.pending.length > 0}
@@ -82,25 +84,27 @@
                 href={p.previewHref}
                 rel="noopener noreferrer"
                 title="rendered at draft time or at the last refresh preview; edits since then show after the next refresh"
-                >draft preview →</a
-              >{:else}<span class="muted">no preview yet</span>{/if}
+              >
+                draft preview →
+              </a>{:else}<span class="muted">no preview yet</span>{/if}
             {#if p.rerenderUrl !== null}<RerenderButton url={p.rerenderUrl} />{/if}
             <ApproveButton approve={p.approve} />
             <WithdrawButton reportId={p.id} url={p.withdraw.url} confirmText={p.withdraw.confirm} />
           </div>
           <div class="pending-info">
-            {#if p.recipients.missing}<span class="recipients recipients-missing"
-                >recipients: none resolve — set the point of contact in the site's details</span
-              >{:else}<span class="recipients">{p.recipients.text}</span>{/if}
+            {#if p.recipients.missing}<span class="recipients recipients-missing">
+                recipients: none resolve — set the point of contact in the site's details
+              </span>{:else}<span class="recipients">{p.recipients.text}</span>{/if}
             <span class="muted">{p.sendLine}</span>
           </div>
           {#if p.checklist}<ul class="checklist" data-checklist-for={p.id}>
               {#each p.checklist.items as item, i (i)}<li class="check-item">
                   <span class="pill {item.cls}" title={item.title}>{item.word}</span>
-                  {item.label}{#if item.advisory}{" "}<span class="advisory"
-                      >advisory — never blocks</span
-                    >{/if}{#if item.note !== null}{" "}<span class="check-note">{item.note}</span
-                    >{/if}
+                  {item.label}{#if item.advisory}{" "}<span class="advisory">
+                      advisory — never blocks
+                    </span>{/if}{#if item.note !== null}{" "}<span class="check-note">
+                      {item.note}
+                    </span>{/if}
                 </li>{/each}
             </ul>{/if}{#if p.commentary}<CommentaryEditor
               c={p.commentary}
@@ -143,11 +147,15 @@
       {#each v.advisories as a, i (i)}
         <li class="vuln-item">
           <span class="pill sev-{a.severity}">{a.severity}</span>
-          <strong>{a.module}</strong>{#if a.dev}{" "}<span class="muted">(dev)</span
-            >{/if}{#if a.title !== null}{" "}— {a.title}{/if}{#if a.cves !== null}{" "}<span
-              class="muted">({a.cves})</span
-            >{/if}{#if a.href !== null}{" "}<a href={a.href} rel="noopener noreferrer">advisory →</a
-            >{/if}
+          <strong>{a.module}</strong>{#if a.dev}{" "}<span class="muted">
+              (dev)
+            </span>{/if}{#if a.title !== null}{" "}— {a.title}{/if}{#if a.cves !== null}{" "}<span
+              class="muted"
+            >
+              ({a.cves})
+            </span>{/if}{#if a.href !== null}{" "}<a href={a.href} rel="noopener noreferrer">
+              advisory →
+            </a>{/if}
         </li>
       {/each}
     </ul>
@@ -164,8 +172,9 @@
         <tr>
           <th>Completed</th><th>Type</th><th>ID</th><th
             title="Engaged visits over the last 30 complete days once drafted or refreshed after P1-73; users over the report period before that"
-            >GA visits</th
-          ><th>Search</th><th>Report</th><th></th>
+          >
+            GA visits
+          </th><th>Search</th><th>Report</th><th></th>
         </tr>
       </thead>
       <tbody>
@@ -174,21 +183,25 @@
             <td>{r.date}</td>
             <td>{r.type}</td>
             <td><code>{r.reportId}</code></td>
-            <td
-              >{#if r.ga === null}—{:else}{r.ga.current}{#if r.ga.delta !== null}{" "}<span
-                    class="muted">({r.ga.delta})</span
-                  >{/if}{/if}</td
-            >
+            <td>
+              {#if r.ga === null}—{:else}{r.ga.current}{#if r.ga.delta !== null}{" "}<span
+                    class="muted"
+                  >
+                    ({r.ga.delta})
+                  </span>{/if}{/if}
+            </td>
             <td>{r.search}</td>
-            <td
-              >{#if r.previewHref !== null}<a href={r.previewHref}>view</a>{:else}<span
-                  class="muted">no attachment</span
-                >{/if}</td
-            >
-            <td
-              >{#if r.action.kind === "withdrawn"}<span class="muted withdrawn"
-                  >Withdrawn {r.action.date}</span
-                >{:else if r.action.kind === "approve"}<ApproveButton
+            <td>
+              {#if r.previewHref !== null}<a href={r.previewHref}>view</a>{:else}<span
+                  class="muted"
+                >
+                  no attachment
+                </span>{/if}
+            </td>
+            <td>
+              {#if r.action.kind === "withdrawn"}<span class="muted withdrawn">
+                  Withdrawn {r.action.date}
+                </span>{:else if r.action.kind === "approve"}<ApproveButton
                   approve={r.action.approve}
                 />{:else if r.action.kind === "approved"}{#if r.action.rerenderUrl !== null}<RerenderButton
                     url={r.action.rerenderUrl}
@@ -197,21 +210,19 @@
                   reportId={r.id}
                   url={r.action.unapprove.url}
                   confirmText={r.action.unapprove.confirm}
-                />{:else if r.action.kind === "sending"}<span class="muted sending"
-                  >Send started {r.action.at}Z</span
-                >{/if}{#if r.approvedBy !== null}<span class="muted approved-by"
-                  >approved by {r.approvedBy}</span
-                >{/if}</td
-            >
+                />{:else if r.action.kind === "sending"}<span class="muted sending">
+                  Send started {r.action.at}Z
+                </span>{/if}{#if r.approvedBy !== null}<span class="muted approved-by">
+                  approved by {r.approvedBy}
+                </span>{/if}
+            </td>
           </tr>
           {#if r.commentaryRow}
-            <tr class="commentary-row"
-              ><td colspan="7"
-                >{#if r.commentaryRow.editor}<CommentaryEditor
-                    c={r.commentaryRow.editor}
-                  />{/if}</td
-              ></tr
-            >
+            <tr class="commentary-row">
+              <td colspan="7">
+                {#if r.commentaryRow.editor}<CommentaryEditor c={r.commentaryRow.editor} />{/if}
+              </td>
+            </tr>
           {/if}
         {/each}
       </tbody>
@@ -240,9 +251,9 @@
   <div class="section submissions">
     <h2>
       Form submissions ({v.submissions
-        .total}){#if v.submissions.total > v.submissions.shown.length}<span class="muted"
-          >{" "}— showing {v.submissions.shown.length} of {v.submissions.total}</span
-        >{/if}
+        .total}){#if v.submissions.total > v.submissions.shown.length}<span class="muted">
+          {" "}— showing {v.submissions.shown.length} of {v.submissions.total}
+        </span>{/if}
       <a class="subm-viewall" href={v.submissions.viewAllHref}>View all for this site →</a>
     </h2>
     <ul class="subm-list">

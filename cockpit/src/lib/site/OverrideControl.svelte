@@ -54,8 +54,10 @@
     class="override-toggle"
     data-report-id={reportId}
     disabled={ui.overrideToggleDisabled}
-    onclick={() => (hidden = !hidden)}>Send anyway…</button
+    onclick={() => (hidden = !hidden)}
   >
+    Send anyway…
+  </button>
   <div class="override-form" {hidden}>
     <input
       type="text"
@@ -71,8 +73,10 @@
       data-report-id={reportId}
       data-override-url={url}
       disabled={ui.overrideSubmitDisabled}
-      onclick={submit}>Confirm override</button
+      onclick={submit}
     >
+      Confirm override
+    </button>
     <span class="override-status">{status}</span>
   </div>
 </div>
