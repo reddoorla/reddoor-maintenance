@@ -13,6 +13,10 @@ export const FEED_MS = 400;
  *  end (the last bar's unknown span, about 1.68 s for seven checks), so a later refresh never
  *  replays it on a node it inserts (P1-87 PR 8a, review round 1, F2). */
 export const INTRO_MS = 2000;
+/** The fail-safe's delay: after this long a figure the count never took shows at once (overview.css
+ *  repeats the number in its `ov-failsafe` rule, which cannot import this). A count that starts
+ *  after it is not run: the figure is already showing (P1-87 PR 8a, review round 1, C). */
+export const FAILSAFE_MS = 2000;
 /** No motion runs longer than this (the plan's five-second rule). */
 export const MAX_MOTION_MS = 5000;
 
@@ -59,7 +63,9 @@ export function countUp(
     node.setAttribute("data-counted", "");
   };
   const motionAllowed = () => matchMedia("(prefers-reduced-motion: no-preference)").matches;
-  if (!(params.enabled && countable(to) && motionAllowed())) {
+  // A count that starts after the fail-safe has shown the figure is not run: it would count from 0
+  // over a figure already on screen (P1-87 PR 8a, review round 1, C).
+  if (!(params.enabled && countable(to) && motionAllowed()) || performance.now() >= FAILSAFE_MS) {
     node.setAttribute("data-counted", "");
   } else {
     node.setAttribute("data-counting", "");

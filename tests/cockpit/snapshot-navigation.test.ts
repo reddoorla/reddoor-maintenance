@@ -4451,6 +4451,124 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     }
   });
 
+  // P1-87 PR 8a, review round 1 (F3, T1): the fail-safe and the count never show at once. A frame
+  // sampler, installed before the page's script, records each frame's time, whether the first
+  // countable figure's final number is visible, and what its count span shows.
+  const sampleFigure = (page: Page) =>
+    page.addInitScript(() => {
+      const w = window as unknown as {
+        __figure: { t: number; visible: boolean; count: string; start: number | null }[];
+      };
+      w.__figure = [];
+      const frame = () => {
+        const p = document.querySelector<HTMLElement>(".ov-num[data-countable]");
+        if (p) {
+          const fin = p.querySelector<HTMLElement>(".ov-num-final");
+          const count = p.querySelector<HTMLElement>(".ov-num-count");
+          // The fail-safe's own start: the 2 s runs from when the page first styles, which is
+          // after navigation start (about 0.5 s here), so the window is read from this start.
+          const fail = fin?.getAnimations().find(
+            (a) => (a as CSSAnimation).animationName === "ov-failsafe",
+          );
+          w.__figure.push({
+            t: performance.now(),
+            visible: fin ? getComputedStyle(fin).visibility === "visible" : false,
+            count: count?.textContent ?? "",
+            start: fail?.startTime ?? null,
+          });
+        }
+        requestAnimationFrame(frame);
+      };
+      requestAnimationFrame(frame);
+    });
+  const figureFrames = (page: Page) =>
+    page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            __figure: { t: number; visible: boolean; count: string; start: number | null }[];
+          }
+        ).__figure,
+    );
+  it("with the script blocked, a countable figure shows at the fail-safe, not before (item 4, review round 1 C)", async () => {
+    const page = await signedIn();
+    await sampleFigure(page);
+    await page.route("**/_app/**", (route) => route.abort());
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await page.waitForFunction(() => performance.now() > 2500);
+    const frames = await figureFrames(page);
+    const timed = frames.filter((f) => f.start !== null);
+    expect(timed.length, "the fail-safe runs").toBeGreaterThan(0);
+    const at = (f: { t: number; start: number | null }) => f.t - f.start!;
+    const before = timed.filter((f) => at(f) < 1800);
+    expect(before.length, "frames sampled in the first 1.8 s of the fail-safe").toBeGreaterThan(0);
+    expect(before.some((f) => f.visible), "the figure is hidden before 1.8 s").toBe(false);
+    expect(
+      timed.some((f) => at(f) <= 2300 && f.visible),
+      "the figure is visible by 2.3 s of the fail-safe",
+    ).toBe(true);
+    expect(frames.every((f) => f.count === ""), "nothing counts without the script").toBe(true);
+  });
+
+  it("with the script delayed 1.5 s, the figure never shows with a count, and it ends visible (item 4, review round 1 C)", async () => {
+    const page = await signedIn();
+    await sampleFigure(page);
+    await page.route("**/_app/**", async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await route.continue();
+    });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await page.waitForFunction(() => performance.now() > 4500);
+    const frames = await figureFrames(page);
+    expect(frames.length).toBeGreaterThan(0);
+    expect(
+      frames.some((f) => f.visible && f.count !== ""),
+      "no frame shows the final number and a count at once",
+    ).toBe(false);
+    expect(frames.every((f) => f.count === ""), "no count runs after the fail-safe").toBe(true);
+    expect(frames.at(-1)!.visible, "the figure ends visible").toBe(true);
+  });
+
+  it("the fail-safe never reveals the final number over a running count (item 4, review round 1 C)", async () => {
+    const page = await signedIn();
+    await sampleFigure(page);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    // Wait for the first countable figure's count to be running (data-counting, digits in it).
+    await page.waitForFunction(() => {
+      const p = document.querySelector<HTMLElement>(".ov-num[data-countable]");
+      return p?.hasAttribute("data-counting") && (p.querySelector(".ov-num-count")?.textContent ?? "") !== "";
+    });
+    // The fail-safe fires now: finish its animation where it is, if the page still has one. A page
+    // with the selector guard has none while the figure counts, so nothing changes there.
+    await page.evaluate(() => {
+      const f = document.querySelector<HTMLElement>(".ov-num[data-countable] .ov-num-final");
+      for (const a of f?.getAnimations() ?? [])
+        if ((a as CSSAnimation).animationName === "ov-failsafe") a.finish();
+    });
+    await figuresSettled(page);
+    const frames = await figureFrames(page);
+    expect(frames.some((f) => f.visible && f.count !== ""), "no frame shows the final number over a count").toBe(false);
+    expect(frames.at(-1)!.visible, "the figure ends visible").toBe(true);
+  });
+
+  it("at 1x a normal load hides the figure from its first frame, and the count runs (item 4, review round 1 C)", async () => {
+    const page = await signedIn();
+    await sampleFigure(page);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    await figuresSettled(page);
+    const frames = await figureFrames(page);
+    expect(frames.length).toBeGreaterThan(0);
+    expect(frames[0]!.visible, "the first frame hides the final number").toBe(false);
+    expect(frames.some((f) => f.count !== ""), "the count runs").toBe(true);
+    expect(frames.at(-1)!.visible, "the figure ends visible").toBe(true);
+  });
+
   it("with no script, the fills reach their shares (item 3)", async () => {
     const page = await signedIn("op", { javaScriptEnabled: false });
     await page.setViewportSize({ width: 1280, height: 900 });

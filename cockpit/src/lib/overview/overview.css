@@ -448,7 +448,7 @@ section {
      for a figure the count is about to take, and this rule ends it if the count never starts. */
   html.motion-intro
     .ov-tiles[data-intro]
-    .ov-num[data-countable]:not([data-counted])
+    .ov-num[data-countable]:not([data-counted]):not([data-counting])
     .ov-num-final {
     visibility: hidden;
     animation: ov-failsafe 0s linear 2s forwards;
