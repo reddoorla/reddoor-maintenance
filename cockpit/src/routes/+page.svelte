@@ -12,6 +12,7 @@
   import { tickerSeconds } from "../lib/overview/ticker.js";
   import { markerAt, untilWords } from "../lib/overview/cycle.js";
   import { startCycleClock } from "../lib/overview/cycle-clock.js";
+  import { BAR_MS, BAR_STAGGER_MS, introPlayed, markIntroPlayed } from "../lib/overview/motion.js";
   import PageStyles from "../lib/PageStyles.svelte";
   import healthCss from "../lib/cockpit/health.css?inline";
   import overviewCss from "../lib/overview/overview.css?inline";
@@ -27,6 +28,11 @@
   const launching = $derived(launchingClauses(v.health.launching));
   // P1-87 PR 5b: the ticker moves until a visitor pauses it (or points at it, in CSS).
   let paused = $state(false);
+  // P1-87 PR 8a: the intro (items 3 and 4) plays on a full load only. Read once, at init: the server
+  // render and the hydration both see it on, and a client return (a new component) sees it off.
+  const intro = !introPlayed();
+  // Set in onMount: the browser tests wait on it, so they act only once the script has run.
+  let motionReady = $state(false);
   // P1-87 PR 5b review r4 A: the ticker's still layout is a state this component holds, not a
   // CSS guess. `still` is on from a keyboard focus that arrives from outside the window until
   // focus leaves the window, and also once a focused link is in view with the pointer gone.
@@ -208,6 +214,8 @@
   );
   const cycleRunning = $derived(v.cycle.steps.some((x) => x.state === "running"));
   onMount(() => {
+    markIntroPlayed();
+    motionReady = true;
     offsetMs = Date.parse(v.cycle.nowIso) - Date.now();
     clock = Date.now() + offsetMs;
     const cycle = startCycleClock({
@@ -254,7 +262,7 @@
   {/if}
 </section>
 
-<div class="ov-first">
+<div class="ov-first" data-motion-ready={motionReady ? "true" : undefined}>
   <section class="ov-health" aria-labelledby="ov-health">
     <h2 id="ov-health">
       Fleet health · {v.health.sites}
@@ -290,9 +298,14 @@
           </span>{/each}
       </p>{/if}
     <h3>Sites passing each check</h3>
-    <ul class="ov-checks-list" data-term="Sites passing each check">
-      {#each v.health.checks as c (c.name)}
-        <li class="ov-check">
+    <ul
+      class="ov-checks-list"
+      data-term="Sites passing each check"
+      data-intro={intro ? "" : undefined}
+      style="--bar-ms: {BAR_MS}ms; --bar-stagger: {BAR_STAGGER_MS}ms"
+    >
+      {#each v.health.checks as c, i (c.name)}
+        <li class="ov-check" style="--i: {i}">
           <span class="ov-check-name">{c.name}</span>
           <span class="ov-check-bar" aria-hidden="true">
             {#if c.pass > 0}<span class="ov-check-fill" style="width: {(100 * c.pass) / c.total}%"

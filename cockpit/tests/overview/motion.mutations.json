@@ -1,0 +1,41 @@
+[
+  {
+    "id": "3-1-bars-animate-under-reduced-motion",
+    "why": "The bars' keyframes leave the no-preference query (the floor: reduced motion runs no animation)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "@media (prefers-reduced-motion: no-preference) {\n  .ov-checks-list[data-intro] .ov-check-fill {",
+        "replace": "@media all {\n  .ov-checks-list[data-intro] .ov-check-fill {"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "3-2-bars-ordered-by-name",
+    "why": "--i comes from a name-sorted list, so the bars start in alphabetical order, not check order",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "<li class=\"ov-check\" style=\"--i: {i}\">",
+        "replace": "<li class=\"ov-check\" style=\"--i: {[...v.health.checks].map((x) => x.name).sort().indexOf(c.name)}\">"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "3-4-fill-to-pass-plus-fail",
+    "why": "A fill runs to pass + fail of the total, not pass: its end state is not the model's width",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "style=\"width: {(100 * c.pass) / c.total}%\"",
+        "replace": "style=\"width: {(100 * (c.pass + c.fail)) / c.total}%\""
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  }
+]

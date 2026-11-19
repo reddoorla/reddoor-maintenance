@@ -11,8 +11,10 @@ import {
   tickLabel,
   trendGeometry,
   HOW_WE_COUNT,
+  HEALTH_CHECK_NAMES,
   type OverviewView,
 } from "../../src/lib/overview/view.js";
+import { BAR_MS, BAR_STAGGER_MS } from "../../src/lib/overview/motion.js";
 import { buildCockpitView } from "../../src/lib/cockpit/view.js";
 import { cockpitModelFromSnapshot } from "../../../src/dashboard/snapshot-views.js";
 import { makeSubmissionRow } from "../../../tests/_helpers/submission-row.js";
@@ -2481,4 +2483,77 @@ describe("the overview renders with an unreadable deploy date (P1-87 PR 5b)", ()
       expect(text(rows[0]!)).toContain("no speed score or deploy recorded yet");
     },
   );
+});
+
+/** The media block whose query is `query`, as the bodies between its braces, in order. */
+function mediaBodies(css: string, query: string): string[] {
+  const out: string[] = [];
+  for (let at = css.indexOf(query); at !== -1; at = css.indexOf(query, at + 1)) {
+    let depth = 0;
+    const open = css.indexOf("{", at);
+    for (let i = open; i < css.length; i++) {
+      if (css[i] === "{") depth++;
+      else if (css[i] === "}" && --depth === 0) {
+        out.push(css.slice(open + 1, i));
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+/** P1-87 PR 8a, item 3: the health bars fill on load, in check order (server render and CSS). */
+describe("the overview's motion, on the server render (P1-87 PR 8a, item 3)", () => {
+  const css = readFileSync(
+    new URL("../../src/lib/overview/overview.css", import.meta.url),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  const doc = parse(pageHtml(VIEW));
+  const list = doc.querySelector(".ov-checks-list")!;
+  const rows = list.querySelectorAll("li.ov-check");
+
+  it("marks the list as the intro and gives each bar its index, in check order", () => {
+    expect(list.getAttribute("data-intro")).toBe("");
+    expect(list.getAttribute("style")).toContain(`--bar-ms: ${BAR_MS}ms`);
+    expect(list.getAttribute("style")).toContain(`--bar-stagger: ${BAR_STAGGER_MS}ms`);
+    expect(rows.map((li) => li.querySelector(".ov-check-name")!.text.trim())).toEqual([
+      ...HEALTH_CHECK_NAMES,
+    ]);
+    expect(
+      rows.map((li) => Number(/--i:\s*(\d+)/.exec(li.getAttribute("style") ?? "")?.[1])),
+    ).toEqual(HEALTH_CHECK_NAMES.map((_, i) => i));
+  });
+
+  it("draws each fill at its model share of the bar, so the no-script end state is the model's", () => {
+    rows.forEach((li, i) => {
+      const c = VIEW.health.checks[i]!;
+      const fill = li.querySelector(".ov-check-fill");
+      if (c.pass === 0) {
+        expect(fill).toBeNull();
+        return;
+      }
+      const w = Number(/width:\s*([\d.]+)%/.exec(fill!.getAttribute("style") ?? "")?.[1]);
+      expect(w).toBeCloseTo((100 * c.pass) / c.total, 9);
+    });
+  });
+
+  it("keeps the bars' animation inside the no-preference query (the floor: reduced motion has none)", () => {
+    const [motion] = mediaBodies(css, "@media (prefers-reduced-motion: no-preference)").filter(
+      (b) => b.includes("ov-bar-fill"),
+    );
+    expect(motion, "a no-preference block holds the bar animation").toBeDefined();
+    expect(motion).toMatch(/@keyframes ov-bar-fill\s*\{/);
+    expect(motion).toMatch(
+      /\.ov-checks-list\[data-intro\] \.ov-check-fill\s*\{[^}]*animation:\s*ov-bar-fill/,
+    );
+    expect(motion).toMatch(
+      /\.ov-checks-list\[data-intro\] \.ov-check-unknown\s*\{[^}]*animation:\s*ov-bar-fill/,
+    );
+    // Control: outside the query, the animation is not declared at all.
+    expect(css.replace(motion!, "")).not.toMatch(/animation:\s*ov-bar-fill/);
+  });
+
+  it("does not mark the first render's page as motion-ready (the script sets it on mount)", () => {
+    expect(doc.querySelector(".ov-first")!.getAttribute("data-motion-ready")).toBeUndefined();
+  });
 });

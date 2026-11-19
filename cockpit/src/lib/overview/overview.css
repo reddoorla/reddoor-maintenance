@@ -391,6 +391,28 @@ section {
   background: var(--ink-muted);
   box-shadow: inset 2px 0 0 var(--surface);
 }
+/* P1-87 PR 8a, item 3: the bars fill on a full load, in check order (data-intro is set by the
+   page on the first load only). Motion lives only in this query, so reduced motion and a page
+   without script show each fill at its model width. */
+@media (prefers-reduced-motion: no-preference) {
+  .ov-checks-list[data-intro] .ov-check-fill {
+    transform-origin: left;
+    animation: ov-bar-fill var(--bar-ms) ease-out calc(var(--i) * var(--bar-stagger)) both;
+  }
+  .ov-checks-list[data-intro] .ov-check-unknown {
+    transform-origin: left;
+    animation: ov-bar-fill var(--bar-ms) ease-out
+      calc(var(--i) * var(--bar-stagger) + var(--bar-ms)) both;
+  }
+  @keyframes ov-bar-fill {
+    from {
+      transform: scaleX(0);
+    }
+    to {
+      transform: scaleX(1);
+    }
+  }
+}
 .ov-lighthouse-line {
   font-size: 0.85rem;
   margin: 0.4rem 0 0;

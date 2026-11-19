@@ -16,7 +16,8 @@ import { openDb } from "../../src/db/client.js";
 import { recordFleetEvent } from "../../src/db/fleet-events.js";
 import { NIGHTLIES } from "../../scripts/nightly-conductor.mjs";
 import { seededNights } from "../_helpers/bar-nights.js";
-import { expectedNight } from "../../cockpit/src/lib/overview/view.js";
+import { expectedNight, HEALTH_CHECK_NAMES } from "../../cockpit/src/lib/overview/view.js";
+import { BAR_MS, BAR_STAGGER_MS, MAX_MOTION_MS } from "../../cockpit/src/lib/overview/motion.js";
 import { trafficWindows } from "../../src/fleet-daily/traffic.js";
 
 /**
@@ -4258,6 +4259,178 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
         }),
         `link 1 is in the window once the row is still at ${width}px`,
       ).toBe(true);
+    }
+  });
+});
+
+describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
+  /** The page's script has run: it sets this marker in onMount, on the element the intro reads. */
+  const motionReady = async (page: Page) => {
+    await page.locator('.ov-first[data-motion-ready="true"]').waitFor({ state: "attached" });
+  };
+  /** Every bar's row: its name, its inline style, and the timing of its fill and unknown spans. */
+  const barRows = (page: Page) =>
+    page.locator(".ov-checks-list > li.ov-check").evaluateAll((lis) =>
+      lis.map((li) => {
+        const timing = (el: Element | null) =>
+          el
+            ? el.getAnimations().map((a) => ({
+                name: (a as CSSAnimation).animationName,
+                // calc() is float arithmetic in the browser (680 ms reads as 679.9999999999999).
+                delay: Math.round(Number(a.effect!.getTiming().delay)),
+                duration: Number(a.effect!.getTiming().duration),
+              }))
+            : null;
+        return {
+          name: li.querySelector(".ov-check-name")!.textContent!.trim(),
+          fill: timing(li.querySelector(".ov-check-fill")),
+          unknown: timing(li.querySelector(".ov-check-unknown")),
+        };
+      }),
+    );
+  /** Each bar's rendered fill against the model's share of the bar, read from the row's own count
+   *  (the pass count, and the "of N" the page keeps for assistive tech). */
+  const barShares = (page: Page) =>
+    page.locator(".ov-checks-list > li.ov-check").evaluateAll((lis) =>
+      lis.map((li) => {
+        const bar = li.querySelector(".ov-check-bar")!.getBoundingClientRect().width;
+        const count = li.querySelector(".ov-check-count")!;
+        const pass = Number(count.textContent!.trim().split(/\s/)[0]);
+        const total = Number(
+          count.querySelector(".visually-hidden")!.textContent!.replace(/\D/g, ""),
+        );
+        const fill = li.querySelector(".ov-check-fill")?.getBoundingClientRect().width ?? 0;
+        return { fill, expected: (bar * pass) / total, bar };
+      }),
+    );
+  const barAnimations = (page: Page) =>
+    page.evaluate(
+      () => document.querySelector(".ov-checks-list")!.getAnimations({ subtree: true }).length,
+    );
+
+  it("fills each bar in check order: ov-bar-fill, 80 ms apart, for 600 ms (item 3)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const rows = await barRows(page);
+    expect(rows.map((r) => r.name)).toEqual([...HEALTH_CHECK_NAMES]);
+    const filled = rows.filter((r) => r.fill !== null);
+    expect(filled.length, "the seeded sites give more than one bar a fill").toBeGreaterThan(1);
+    rows.forEach((r, i) => {
+      if (r.fill !== null) {
+        expect(r.fill, `${r.name}'s fill`).toHaveLength(1);
+        expect(r.fill![0]).toMatchObject({
+          name: "ov-bar-fill",
+          delay: i * BAR_STAGGER_MS,
+          duration: BAR_MS,
+        });
+      }
+      if (r.unknown !== null) {
+        expect(r.unknown, `${r.name}'s unknown`).toHaveLength(1);
+        expect(r.unknown![0]).toMatchObject({
+          name: "ov-bar-fill",
+          delay: i * BAR_STAGGER_MS + BAR_MS,
+          duration: BAR_MS,
+        });
+      }
+    });
+  });
+
+  it("ends each fill at its model's share of the bar (item 3)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    await page.evaluate(() =>
+      Promise.all(
+        document
+          .querySelector(".ov-checks-list")!
+          .getAnimations({ subtree: true })
+          .map((a) => a.finished),
+      ),
+    );
+    for (const s of await barShares(page)) {
+      if (s.fill === 0) continue;
+      expect(
+        Math.abs(s.fill - s.expected),
+        `a fill is ${s.fill}px, its share ${s.expected}px`,
+      ).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("under reduced motion no bar animates, and every fill is at its share at once (item 3)", async () => {
+    const page = await signedIn("op", { reducedMotion: "reduce" });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    expect(await barAnimations(page)).toBe(0);
+    for (const s of await barShares(page)) {
+      if (s.fill === 0) continue;
+      expect(Math.abs(s.fill - s.expected)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("a client return to / plays no bar animation (item 3)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    await follow(page, "/fleet", "Sites");
+    await follow(page, "/", "Overview");
+    await motionReady(page);
+    expect(await page.locator(".ov-checks-list").getAttribute("data-intro")).toBeNull();
+    expect(await barAnimations(page)).toBe(0);
+  });
+
+  it("with no script, the fills reach their shares (item 3)", async () => {
+    const page = await signedIn("op", { javaScriptEnabled: false });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    // The model's share of each filled bar, as the server wrote it (the inline width).
+    const shares = [
+      ...(await page.content()).matchAll(/class="ov-check-fill" style="width: ([\d.]+)%"/g),
+    ].map((m) => Number(m[1]));
+    expect(shares.length, "the seeded sites give more than one bar a fill").toBeGreaterThan(1);
+    // The bars are CSS only and run without script: wait past the last fill's end (1.1 s for seven
+    // bars), then read the rendered widths.
+    await page.waitForTimeout(MAX_MOTION_MS / 2);
+    const fills = await page.locator(".ov-check-fill").evaluateAll((els) =>
+      els.map((el) => {
+        const bar = el.parentElement!.getBoundingClientRect().width;
+        return { rendered: el.getBoundingClientRect().width, bar };
+      }),
+    );
+    expect(fills.length).toBe(shares.length);
+    fills.forEach((f, i) =>
+      expect(Math.abs(f.rendered - (f.bar * shares[i]!) / 100), `fill ${i}`).toBeLessThanOrEqual(1),
+    );
+  });
+
+  it("every animation on the overview ends by MAX_MOTION_MS, except the ticker's (item 3)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    // Pre-8a animations on this page: the ticker's row only (.ov-ticker-run), which loops by design.
+    const ends = await page.evaluate(() =>
+      document
+        .getAnimations()
+        .filter(
+          (a) =>
+            !((a.effect as KeyframeEffect | null)?.target as Element | null)?.matches?.(
+              ".ov-ticker-run",
+            ),
+        )
+        .map((a) => ({
+          name: (a as CSSAnimation).animationName ?? "",
+          end: a.effect!.getComputedTiming().endTime as number,
+        })),
+    );
+    expect(ends.length, "the bars animate").toBeGreaterThan(0);
+    for (const e of ends) {
+      expect(Number.isFinite(e.end), `${e.name} has a finite end`).toBe(true);
+      expect(e.end, `${e.name} ends`).toBeLessThanOrEqual(MAX_MOTION_MS);
     }
   });
 });
