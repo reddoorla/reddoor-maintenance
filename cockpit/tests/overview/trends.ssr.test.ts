@@ -927,7 +927,7 @@ describe("P1-87 PR 7b: 31 nights and the three traffic charts", () => {
       NOW,
     );
     expect(TF(late, DAYS.visits).note).toBe(
-      "Each column is that day's engaged visits across 16 sites. The chart starts on Sep 26, so 1 of the tile's 30 days falls before it; it counted none, so the columns still add up to the tile's 1,618. The night of Oct 24 is still being counted, so its column is drawn in outline.",
+      "Each column is that day's engaged visits across 16 sites. The chart starts on Sep 26, so 1 of the tile's 30 days falls before it; that day counted none, so the columns still add up to the tile's 1,618. The night of Oct 24 is still being counted, so its column is drawn in outline.",
     );
   });
 
@@ -951,6 +951,29 @@ describe("P1-87 PR 7b: 31 nights and the three traffic charts", () => {
     );
     expect(TF(late, DAYS.searchTimes).note).toBe(
       "Each column is that day's times shown in Google across 16 sites. The chart starts on Sep 26, so 2 of the tile's 28 days fall before it, and the columns add up to less than the tile's 12,225. Google's data lags about 3 days: the hatched days have none yet.",
+    );
+  });
+
+  it("the dropped days are summed whole: one counted something, the other none (PR 7b review round 3, tests R3T-1)", () => {
+    // Sep 24 and 25 fall before the axis. Sep 24 has impressions and no clicks, Sep 25 the
+    // reverse, so a sum that skipped either day would say "still add up" for one chart.
+    const block = edited(
+      "2026-10-24",
+      {},
+      {
+        "2026-09-24": { clicks: 0, impressions: 300 },
+        "2026-09-25": { clicks: 5, impressions: 0 },
+      },
+    );
+    const late = trendsFromDaily(
+      run(N, 32, (d) => (d === "2026-10-24" ? { traffic: traffic(block) } : {})),
+      NOW,
+    );
+    expect(TF(late, DAYS.clicks).note).toContain(
+      "2 of the tile's 28 days fall before it, and the columns add up to less than the tile's",
+    );
+    expect(TF(late, DAYS.searchTimes).note).toContain(
+      "2 of the tile's 28 days fall before it, and the columns add up to less than the tile's",
     );
   });
 

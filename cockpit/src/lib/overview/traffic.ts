@@ -230,7 +230,7 @@ const blank = (note: string, lag = false): TrafficSlot => ({
   lag,
 });
 
-/** The axis days (oldest first) that fall before `start`, which the window does not cover. */
+/** The window's days (oldest first) that fall before the axis starts, which the axis does not cover. */
 const droppedDays = (w: Win, days: readonly string[]): string[] =>
   datesBetween(w.startDate, w.endDate).filter((d) => d < days[0]!);
 

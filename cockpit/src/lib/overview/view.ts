@@ -1742,7 +1742,7 @@ export function trendsFromDaily(nights: OverviewNight[] | null, now: Date): Tren
           ? `. All ${tile} of the tile's days fall before this chart starts on ${first}, so no column is drawn.`
           : droppedSum > 0
             ? `. The chart starts on ${first}, so ${dropped} of the tile's ${tile} days ${dropped === 1 ? "falls" : "fall"} before it, and the columns add up to less than the tile's ${total}.`
-            : `. The chart starts on ${first}, so ${dropped} of the tile's ${tile} days ${dropped === 1 ? "falls" : "fall"} before it; ${dropped === 1 ? "it" : "they"} counted none, so the columns still add up to the tile's ${total}.`;
+            : `. The chart starts on ${first}, so ${dropped} of the tile's ${tile} days ${dropped === 1 ? "falls" : "fall"} before it; ${dropped === 1 ? "that day" : "they"} counted none, so the columns still add up to the tile's ${total}.`;
     const visitsNote =
       vr.value === null
         ? "Each column is that day's engaged visits. A day with no reading says why in the table."
