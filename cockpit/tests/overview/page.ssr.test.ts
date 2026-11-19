@@ -806,8 +806,8 @@ describe("P1-78h: section 8 drawn, once fleet_daily holds 14 nights", () => {
   const TDOC = parse(pageHtml(TVIEW));
   const section = TDOC.querySelector('section[aria-labelledby="ov-trends"]')!;
 
-  it("draws four charts, each an image with a name and a description", () => {
-    expect(TVIEW.trends.charts).toHaveLength(4);
+  it("draws seven charts, each an image with a name and a description", () => {
+    expect(TVIEW.trends.charts).toHaveLength(7);
     const figs = section.querySelectorAll("figure.ov-trend");
     expect(figs.map((f) => text(f.querySelector("figcaption")!))).toEqual(
       TVIEW.trends.charts!.map((c) => c.title),
@@ -836,7 +836,12 @@ describe("P1-78h: section 8 drawn, once fleet_daily holds 14 nights", () => {
       expect(rows.map((r) => r.querySelectorAll("th, td").map(text).join(" "))).toEqual(
         c.nights.map(
           (label, k) =>
-            `${label} ${c.series.map((s) => s.points[k]!.value ?? s.points[k]!.note).join(" ")}`,
+            `${label} ${c.series
+              .map((s) => {
+                const q = s.points[k]!;
+                return q.value === null ? q.note : q.note ? `${q.value}, ${q.note}` : q.value;
+              })
+              .join(" ")}`,
         ),
       );
     }
@@ -2067,5 +2072,61 @@ describe("a long figure is sized, and breaks only after a comma (review round 3,
     );
     expect(long).not.toMatch(/white-space/);
     expect(ruleOf(".ov-tile")).toMatch(/container-type:\s*inline-size/);
+  });
+});
+
+/**
+ * P1-87 PR 7b: the three traffic charts on the page, over a 31-night axis. The search charts
+ * hatch their last three days (the lag band); the visits chart's last day is a lighter column.
+ */
+describe("P1-87 PR 7b: the traffic charts on the page", () => {
+  const N = "2026-10-26";
+  const nights = Array.from({ length: 32 }, (_, i) => {
+    const d = new Date(Date.parse(`${N}T00:00:00Z`) - i * 86_400_000).toISOString().slice(0, 10);
+    return night(d, i === 0 ? { traffic: { value: trafficBlock(N) } as never } : {});
+  });
+  const VIEW = overviewFromSnapshot({ ...SNAP, nights }, NOW);
+  const DOC7 = parse(pageHtml(VIEW));
+  const section = DOC7.querySelector('section[aria-labelledby="ov-trends"]')!;
+  const figs = section.querySelectorAll("figure.ov-trend");
+
+  it("draws seven figures, and the search charts alone carry a lag band", () => {
+    expect(figs).toHaveLength(7);
+    for (const [i, f] of figs.entries()) {
+      expect(f.querySelectorAll("svg.ov-chart rect.ov-lag"), `figure ${i}`).toHaveLength(
+        i === 5 || i === 6 ? 1 : 0,
+      );
+    }
+  });
+
+  it("one hatch pattern on the page, one partial column, and the visits table's day header", () => {
+    expect(section.querySelectorAll("pattern#ov-lag-hatch")).toHaveLength(1);
+    expect(DOC7.querySelectorAll("path.ov-bar.partial")).toHaveLength(1);
+    const head = figs[4]!.querySelectorAll(".ov-trend-table thead th").map(text);
+    expect(head[0]).toBe("Day");
+  });
+
+  it("the visits table's last row says the column is still being counted", () => {
+    const rows = figs[4]!.querySelectorAll(".ov-trend-table tbody tr");
+    expect(rows.at(-1)!.querySelectorAll("th, td").map(text).join(" ")).toBe(
+      "Oct 26 55, still being counted",
+    );
+  });
+
+  it("the traffic leaves are on the page as sentinels, and no digit is typed in", () => {
+    const ST = sentinelize(VIEW);
+    const doc = parse(pageHtml(ST.view));
+    const words = pageText(doc);
+    const shown = new Set(shownNumbers(doc));
+    for (const [path, v] of ST.at) {
+      if (!path.startsWith("trends.charts.4") && !path.startsWith("trends.charts.5")) continue;
+      if (path.endsWith(".term")) continue;
+      const on = v.startsWith("⟦") ? words.includes(v) : shown.has(v);
+      expect.soft(on, `${path} (${v}) is on the page`).toBe(true);
+    }
+    const allowed = new Set(ST.at.values());
+    expect(boundNumbers(doc, VIEW.reports.checks.length).filter((d) => !allowed.has(d))).toEqual(
+      [],
+    );
   });
 });
