@@ -44,8 +44,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": ">{q.value === null ? q.note : q.value}</td",
-        "replace": ">{q.value ?? 0}</td"
+        "find": "{q.value === null\n                          ? q.note",
+        "replace": "{q.value === null\n                          ? 0"
       }
     ],
     "test": "cockpit/tests/overview/page.ssr.test.ts",
@@ -83,8 +83,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "    return all.some((v) => v === null) ? null : all.reduce<number>((a, v) => a + v!, 0);",
-        "replace": "    return all.reduce<number>((a, v) => a + (v ?? 0), 0);"
+        "find": "  return all.some((v) => v === null) ? null : all.reduce<number>((a, v) => a + v!, 0);",
+        "replace": "  return all.reduce<number>((a, v) => a + (v ?? 0), 0);"
       }
     ],
     "test": "cockpit/tests/overview/trends.ssr.test.ts",
@@ -239,8 +239,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "{#each g.lines as l, li (li)}",
-        "replace": "{#each g.lines.filter((l) => l.series === 0) as l, li (li)}"
+        "find": "{#each g.lines as l, li (li)}\n              <path\n                class=\"ov-line-mark",
+        "replace": "{#each g.lines.filter((l) => l.series === 0) as l, li (li)}\n              <path\n                class=\"ov-line-mark"
       }
     ],
     "test": "cockpit/tests/overview/page.ssr.test.ts",
@@ -252,8 +252,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "                height={g.baseline - g.top}\n",
-        "replace": "                height={0}\n"
+        "find": "                width={e.width}\n                height={g.baseline - g.top}\n",
+        "replace": "                width={e.width}\n                height={0}\n"
       }
     ],
     "test": "cockpit/tests/overview/page.ssr.test.ts",
@@ -512,8 +512,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "    if (columns === null) return null;",
-        "replace": "    if (columns === null) return 0;"
+        "find": "  if (columns === null) return null;",
+        "replace": "  if (columns === null) return 0;"
       }
     ],
     "test": "cockpit/tests/overview/trends.ssr.test.ts",
@@ -566,6 +566,259 @@
         "file": "cockpit/src/lib/overview/view.ts",
         "find": "all.some((v) => v === null) ? null",
         "replace": "all.length === 0 || all.some((v) => v === null) ? null"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "61-tick-label-unshortened",
+    "why": "7b item 1: the y-axis ticks print in full, so 600000 overflows left of the plot at 390px",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "  if (n >= 1e9) return `${n / 1e9}B`;",
+        "replace": "  return String(n);"
+      }
+    ],
+    "test": [
+      "cockpit/tests/overview/trends.ssr.test.ts",
+      "cockpit/tests/overview/page.ssr.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "62-partial-column-no-outline",
+    "why": "PR 7b review round 1 (accessibility major): the partial column has no outline, so it reads as a gap (WCAG 1.4.11)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "  fill: var(--band);\n  stroke: var(--ink-muted);\n  stroke-width: 1.5;",
+        "replace": "  fill: var(--band);\n  stroke-width: 1.5;"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "63-lag-band-two-days",
+    "why": "PR 7b review round 1 (tests major 1): the lag band is two days wide, not three",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    lag.push({ x: leftOf(i), width: r1(leftOf(j + 1) - leftOf(i)) });",
+        "replace": "    lag.push({ x: leftOf(i), width: r1(leftOf(j) - leftOf(i)) });"
+      }
+    ],
+    "test": [
+      "cockpit/tests/overview/trends.ssr.test.ts",
+      "cockpit/tests/overview/page.ssr.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "64-lag-rect-no-fill",
+    "why": "PR 7b review round 1 (tests major 1): the lag rect drops its hatch fill, so it paints solid black",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "                class=\"ov-lag\"\n                fill=\"url(#ov-lag-hatch)\"",
+        "replace": "                class=\"ov-lag\""
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "65-clicks-note-reads-impressions",
+    "why": "PR 7b review round 1 (tests major 2): the clicks chart's note totals impressions",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "searchNote(\"clicks through from Google\", (r) => r.clicks, clk),",
+        "replace": "searchNote(\"clicks through from Google\", (r) => r.impressions, clk),"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "66-chart-reason-always-not-collected",
+    "why": "PR 7b review round 1 (minor 3): every unmeasured day says not yet collected, whatever the stored reason",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      reason: (r) => trafficReasonWords(r, source),",
+        "replace": "      reason: () => trafficReasonWords(\"not collected\", source),"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "67-clicks-slot-night",
+    "why": "PR 7b review round 1 (minor 4): the clicks chart's table and summary say night, not day",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "slot: \"day\", extra: lagSaid(clk.slots)",
+        "replace": "extra: lagSaid(clk.slots)"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "68-say-drops-value",
+    "why": "PR 7b review round 1 (minor 5): a partial point's slot title drops its value",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "q.note ? `${q.value}, ${q.note}` : String(q.value);",
+        "replace": "q.note ? q.note : String(q.value);"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "69-summary-no-lag-sentence",
+    "why": "PR 7b review round 1 (accessibility minor 2): the search chart description omits its lag days",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "extra: lagSaid(imp.slots) }",
+        "replace": "extra: null }"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "70-tally-less-than-always",
+    "why": "PR 7b review round 2 (correctness major R2C-1): the zero-sum branch is unreachable, so a tile whose dropped days counted 0 says the columns add up to less than the total",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "droppedSum > 0",
+        "replace": "true"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "71-hatch-sentence-always",
+    "why": "PR 7b review round 2 (correctness minor R2C-2): the lag sentence names a hatch even when no lag day is on the axis",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "read.slots.some((x) => x.lag) ?",
+        "replace": "true ?"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "72-partial-stroke-width-zero",
+    "why": "PR 7b review round 2 (tests minor T1): the partial column's outline is 0 wide, so it draws no outline and reads as a gap",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "  stroke-width: 1.5;\n  stroke-dasharray: 3 2;",
+        "replace": "  stroke-width: 0;\n  stroke-dasharray: 3 2;"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "73-partial-dash-solid",
+    "why": "PR 7b review round 2 (tests minor T1): the partial column's outline is solid, so its shape no longer differs from a solid column",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "  stroke-dasharray: 3 2;",
+        "replace": "  stroke-dasharray: 3 0;"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "74-lag-one-day-null",
+    "why": "PR 7b review round 2 (tests minor T2): the one-day lag form returns null, so a one-day band's summary drops its Google sentence",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "? `Google has no data yet for ${lagDays[0]}.`",
+        "replace": "? null"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "75-partial-said-last-day",
+    "why": "PR 7b review round 2 (tests minor T2): the summary names the last axis day as the partial day, not the day that is partial",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "return i < 0 ? null : `${nightLabel(days[i]!)} is still being counted.`;",
+        "replace": "return i < 0 ? null : `${nightLabel(days.at(-1)!)} is still being counted.`;"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "76-extra-no-space",
+    "why": "PR 7b review round 2 (tests nit T3): the summary's extra sentence joins without the space before it",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "${o.extra ? ` ${o.extra}` : \"\"}",
+        "replace": "${o.extra ?? \"\"}"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "77-how-visits-lighter",
+    "why": "PR 7b review round 2 (tests nit T4): the Engaged visits How-we-count text says the partial column is lighter, and no test held the reworded text",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "the newest day is still being counted, so its column is drawn in outline.",
+        "replace": "the newest day is still being counted, so its column is lighter."
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "78-search-dropped-sum-skips-oldest",
+    "why": "PR 7b review round 3 (tests R3T-1): the search charts' dropped sum skips the oldest dropped day, so a chart whose only counted dropped day is the oldest says the columns still add up",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "    droppedSum: dropped.reduce((sum, d) => sum + (s.daily.get(d)?.[pick] ?? 0), 0),",
+        "replace": "    droppedSum: dropped.slice(1).reduce((sum, d) => sum + (s.daily.get(d)?.[pick] ?? 0), 0),"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "79-search-dropped-sum-skips-newest",
+    "why": "PR 7b review round 3 (tests R3T-1): the search charts' dropped sum skips the newest dropped day",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/traffic.ts",
+        "find": "    droppedSum: dropped.reduce((sum, d) => sum + (s.daily.get(d)?.[pick] ?? 0), 0),",
+        "replace": "    droppedSum: dropped.slice(0, -1).reduce((sum, d) => sum + (s.daily.get(d)?.[pick] ?? 0), 0),"
       }
     ],
     "test": "cockpit/tests/overview/trends.ssr.test.ts",

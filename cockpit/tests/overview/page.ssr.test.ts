@@ -8,6 +8,7 @@ import OverviewPage from "../../src/routes/+page.svelte";
 import TriagePage from "../../src/routes/triage/+page.svelte";
 import {
   overviewFromSnapshot,
+  tickLabel,
   trendGeometry,
   HOW_WE_COUNT,
   type OverviewView,
@@ -353,6 +354,18 @@ function sentinelize(view: OverviewView): { view: OverviewView; at: Map<string, 
     return v;
   };
   return { view: walk(view, "") as OverviewView, at };
+}
+
+/** A y-axis tick is drawn as its count's short form (P1-87 PR 7b item 1), so sentinel
+ *  70001 on a tick reads "70.001k": the page shows that form, and its digits are the
+ *  sentinel's own. */
+const TICK_PATH = /^trends\.charts\[[a-z]+\]\.(high|mid|low)$/;
+/** The digit runs a sentinel render may show: each sentinel, and each y tick's short form. */
+function sentinelDigits(at: Map<string, string>): Set<string> {
+  const ticks = [...at]
+    .filter(([path, v]) => TICK_PATH.test(path) && !v.startsWith("⟦"))
+    .flatMap(([, v]) => tickLabel(Number(v)).match(/\d+/g) ?? []);
+  return new Set([...at.values(), ...ticks]);
 }
 
 /** The page's fixture, with an open vulnerability on Bravo, so "Open now" has a row. */
@@ -748,7 +761,7 @@ function boundNumbers(doc: HTMLElement, checks: number): string[] {
 describe("no count is typed into the page, over the sentinel render (review rounds 5 and 6)", () => {
   // In the sentinel render every number the view hands over is 70001 or above, so a
   // digit run that is not one of them was typed into the template, whatever its value.
-  const allowed = new Set(S.at.values());
+  const allowed = sentinelDigits(S.at);
   const n = SV.reports.checks.length;
   const stray = (html: string) => boundNumbers(parse(html), n).filter((d) => !allowed.has(d));
 
@@ -807,8 +820,8 @@ describe("P1-78h: section 8 drawn, once fleet_daily holds 14 nights", () => {
   const TDOC = parse(pageHtml(TVIEW));
   const section = TDOC.querySelector('section[aria-labelledby="ov-trends"]')!;
 
-  it("draws four charts, each an image with a name and a description", () => {
-    expect(TVIEW.trends.charts).toHaveLength(4);
+  it("draws seven charts, each an image with a name and a description", () => {
+    expect(TVIEW.trends.charts).toHaveLength(7);
     const figs = section.querySelectorAll("figure.ov-trend");
     expect(figs.map((f) => text(f.querySelector("figcaption")!))).toEqual(
       TVIEW.trends.charts!.map((c) => c.title),
@@ -837,7 +850,12 @@ describe("P1-78h: section 8 drawn, once fleet_daily holds 14 nights", () => {
       expect(rows.map((r) => r.querySelectorAll("th, td").map(text).join(" "))).toEqual(
         c.nights.map(
           (label, k) =>
-            `${label} ${c.series.map((s) => s.points[k]!.value ?? s.points[k]!.note).join(" ")}`,
+            `${label} ${c.series
+              .map((s) => {
+                const q = s.points[k]!;
+                return q.value === null ? q.note : q.note ? `${q.value}, ${q.note}` : q.value;
+              })
+              .join(" ")}`,
         ),
       );
     }
@@ -891,9 +909,9 @@ describe("P1-78h: section 8 drawn, once fleet_daily holds 14 nights", () => {
           String(g.midY! + 4),
         );
       expect(svg.querySelectorAll("text.ov-tick").map(text)).toEqual([
-        String(c.high),
-        ...(c.mid === null ? [] : [String(c.mid)]),
-        String(c.low),
+        tickLabel(c.high),
+        ...(c.mid === null ? [] : [tickLabel(c.mid)]),
+        tickLabel(c.low),
         c.nights[0],
         c.nights.at(-1),
       ]);
@@ -945,11 +963,15 @@ describe("P1-78h: section 8 drawn, once fleet_daily holds 14 nights", () => {
     for (const [path, v] of ST.at) {
       if (!path.startsWith("trends.") || path.endsWith(".term")) continue;
       checked++;
-      const on = v.startsWith("⟦") ? words.includes(v) : shown.has(v);
+      const on = v.startsWith("⟦")
+        ? words.includes(v)
+        : TICK_PATH.test(path)
+          ? words.includes(tickLabel(Number(v)))
+          : shown.has(v);
       expect.soft(on, `${path} (${v}) is on the page`).toBe(true);
     }
     expect(checked).toBeGreaterThan(150);
-    const allowed = new Set(ST.at.values());
+    const allowed = sentinelDigits(ST.at);
     const n = ST.view.reports.checks.length;
     expect(boundNumbers(doc, n).filter((d) => !allowed.has(d))).toEqual([]);
   });
@@ -1987,7 +2009,7 @@ describe("P1-87 PR 7a: the traffic tiles on the page", () => {
       expect.soft(on, `${path} (${v}) is on the page`).toBe(true);
     }
     expect(checked).toBe(6);
-    const allowed = new Set(ST.at.values());
+    const allowed = sentinelDigits(ST.at);
     expect(boundNumbers(doc, PV.reports.checks.length).filter((d) => !allowed.has(d))).toEqual([]);
   });
 });
@@ -2068,6 +2090,161 @@ describe("a long figure is sized, and breaks only after a comma (review round 3,
     );
     expect(long).not.toMatch(/white-space/);
     expect(ruleOf(".ov-tile")).toMatch(/container-type:\s*inline-size/);
+  });
+});
+
+/**
+ * P1-87 PR 7b: the three traffic charts on the page, over a 31-night axis. The search charts
+ * hatch their last three days (the lag band); the visits chart's last day is drawn in outline.
+ */
+describe("P1-87 PR 7b: the traffic charts on the page", () => {
+  const N = "2026-10-26";
+  const nights = Array.from({ length: 32 }, (_, i) => {
+    const d = new Date(Date.parse(`${N}T00:00:00Z`) - i * 86_400_000).toISOString().slice(0, 10);
+    return night(d, i === 0 ? { traffic: { value: trafficBlock(N) } as never } : {});
+  });
+  const VIEW = overviewFromSnapshot({ ...SNAP, nights }, NOW);
+  const DOC7 = parse(pageHtml(VIEW));
+  const section = DOC7.querySelector('section[aria-labelledby="ov-trends"]')!;
+  const figs = section.querySelectorAll("figure.ov-trend");
+
+  it("draws seven figures, and the search charts alone carry a lag band", () => {
+    expect(figs).toHaveLength(7);
+    for (const [i, f] of figs.entries()) {
+      expect(f.querySelectorAll("svg.ov-chart rect.ov-lag"), `figure ${i}`).toHaveLength(
+        i === 5 || i === 6 ? 1 : 0,
+      );
+    }
+  });
+
+  it("each lag band is drawn where the geometry puts it, hatched, every coordinate (PR 7b review round 1, tests major 1)", () => {
+    // Its own fixture has the lag bands: the earlier "marks the geometry gives" test has no
+    // traffic block, so it would pass with no band at all.
+    for (const [i, f] of figs.entries()) {
+      const g = trendGeometry(VIEW.trends.charts![i]!);
+      const bands = f
+        .querySelectorAll("svg.ov-chart rect.ov-lag")
+        .map((r) => ["x", "y", "width", "height", "fill"].map((n) => r.getAttribute(n)));
+      expect(bands, `figure ${i}`).toEqual(
+        g.lag.map((l) => [
+          String(l.x),
+          String(g.top),
+          String(l.width),
+          String(g.baseline - g.top),
+          "url(#ov-lag-hatch)",
+        ]),
+      );
+    }
+  });
+
+  it("one hatch pattern on the page, one partial column, and the visits table's day header", () => {
+    expect(section.querySelectorAll("pattern#ov-lag-hatch")).toHaveLength(1);
+    expect(DOC7.querySelectorAll("path.ov-bar.partial")).toHaveLength(1);
+    const head = figs[4]!.querySelectorAll(".ov-trend-table thead th").map(text);
+    expect(head[0]).toBe("Day");
+  });
+
+  it("the partial column is drawn in outline: a muted stroke, dashed, so its shape differs from a solid column", () => {
+    const css = readFileSync(
+      new URL("../../src/lib/overview/overview.css", import.meta.url),
+      "utf8",
+    ).replace(/\/\*[\s\S]*?\*\//g, "");
+    // Every rule for the partial column, in source order. A later rule overrides an earlier
+    // one, so the value drawn is the last one for each property (PR 7b review round 2, T1).
+    const bodies = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)]
+      .filter(([, sel]) => sel!.trim() === ".ov-bar.partial")
+      .map(([, , body]) => body!);
+    expect(bodies.length).toBeGreaterThan(0);
+    const drawn = (prop: string) =>
+      bodies
+        .flatMap((b) =>
+          [...b.matchAll(new RegExp(`(?:^|[\\s;])${prop}:\\s*([^;]+)`, "g"))].map((m) =>
+            m[1]!.trim(),
+          ),
+        )
+        .at(-1);
+    expect(drawn("stroke")).toBe("var(--ink-muted)");
+    expect(Number(drawn("stroke-width"))).toBeGreaterThan(0);
+    const dash = (drawn("stroke-dasharray") ?? "").split(/\s+/).map(Number);
+    expect(dash).toHaveLength(2);
+    expect(dash.every((n) => n > 0)).toBe(true);
+  });
+
+  it("the visits table's last row says the column is still being counted", () => {
+    const rows = figs[4]!.querySelectorAll(".ov-trend-table tbody tr");
+    expect(rows.at(-1)!.querySelectorAll("th, td").map(text).join(" ")).toBe(
+      "Oct 26 55, still being counted",
+    );
+  });
+
+  it("the traffic leaves are on the page as sentinels, and no digit is typed in", () => {
+    const ST = sentinelize(VIEW);
+    const doc = parse(pageHtml(ST.view));
+    const words = pageText(doc);
+    const shown = new Set(shownNumbers(doc));
+    // Arrays are keyed by letter, so charts 4, 5 and 6 (visits, times shown, clicks) are
+    // [e], [f] and [g]. The count keeps this loop from passing on no leaves at all, as it
+    // did when it read "charts.4".
+    let checked = 0;
+    for (const [path, v] of ST.at) {
+      if (
+        !path.startsWith("trends.charts[e]") &&
+        !path.startsWith("trends.charts[f]") &&
+        !path.startsWith("trends.charts[g]")
+      )
+        continue;
+      if (path.endsWith(".term")) continue;
+      checked++;
+      const on = v.startsWith("⟦")
+        ? words.includes(v)
+        : TICK_PATH.test(path)
+          ? words.includes(tickLabel(Number(v)))
+          : shown.has(v);
+      expect.soft(on, `${path} (${v}) is on the page`).toBe(true);
+    }
+    expect(checked).toBeGreaterThan(20);
+    const allowed = sentinelDigits(ST.at);
+    expect(boundNumbers(doc, VIEW.reports.checks.length).filter((d) => !allowed.has(d))).toEqual(
+      [],
+    );
+  });
+});
+
+/** P1-87 PR 7b item 1: a six-digit high draws as "600k", so it fits left of the plot at 390px. */
+describe("P1-87 PR 7b item 1: a 600000 high is drawn as 600k and 300k", () => {
+  const N = "2026-10-26";
+  const nights = Array.from({ length: 32 }, (_, i) => {
+    const d = new Date(Date.parse(`${N}T00:00:00Z`) - i * 86_400_000).toISOString().slice(0, 10);
+    if (i !== 0) return night(d);
+    const block = trafficBlock(N) as {
+      search: {
+        value: {
+          impressions: number;
+          daily: Array<{ date: string; clicks: number; impressions: number }>;
+        };
+      };
+    };
+    const search = block.search.value;
+    const daily = search.daily.map((x) => ({ ...x }));
+    // Oct 1 is inside the 28 search days, so the impressions chart's largest day is 500000.
+    // The window total moves by the same amount: the reader checks the days against it.
+    const oct1 = daily.find((x) => x.date === "2026-10-01")!;
+    const impressions = search.impressions + (500000 - oct1.impressions);
+    oct1.impressions = 500000;
+    return night(d, {
+      traffic: {
+        value: { ...block, search: { value: { ...search, impressions, daily } } },
+      } as never,
+    });
+  });
+  const VIEW = overviewFromSnapshot({ ...SNAP, nights }, NOW);
+  const DOC = parse(pageHtml(VIEW));
+  const figs = DOC.querySelectorAll('section[aria-labelledby="ov-trends"] figure.ov-trend');
+
+  it("the impressions chart's high is 600000, and its first two y ticks read 600k and 300k", () => {
+    expect(VIEW.trends.charts![5]!.high).toBe(600000);
+    const ticks = figs[5]!.querySelectorAll("svg.ov-chart text.ov-tick").map(text);
+    expect(ticks.slice(0, 2)).toEqual(["600k", "300k"]);
   });
 });
 
