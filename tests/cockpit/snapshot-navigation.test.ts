@@ -3805,11 +3805,6 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
         .addEventListener("dragstart", () => log.push("dragstart"));
       const w = document.querySelector(".ov-ticker-window")!.getBoundingClientRect();
       window.scrollBy(0, w.bottom - window.innerHeight + 1);
-      // #2152 round 1: a press held near the viewport's bottom edge scrolls the page in Chromium (drag
-      // autoscroll, or selection autoscroll when no drag has started). On a slow runner the press lasts
-      // long enough for it: at 6x the page moved 38 px before the drop, and 119 to 176 px under a press that
-      // never became a drag. The root stops scrolling here, so the drop lands where the test aims it.
-      document.documentElement.style.overflow = "hidden";
     });
     await page.waitForTimeout(100);
     const scrolled = (await page.locator(".ov-ticker-window").boundingBox())!;
@@ -3985,11 +3980,6 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
               .addEventListener("dragstart", () => log.push("dragstart"));
             const w = document.querySelector(".ov-ticker-window")!.getBoundingClientRect();
             window.scrollBy(0, w.bottom - window.innerHeight + 1);
-            // #2152 round 1: a press held near the viewport's bottom edge scrolls the page in Chromium (drag
-            // autoscroll, or selection autoscroll when no drag has started). On a slow runner the press lasts
-            // long enough for it: at 6x the page moved 38 px before the drop, and 119 to 176 px under a press that
-            // never became a drag. The root stops scrolling here, so the drop lands where the test aims it.
-            document.documentElement.style.overflow = "hidden";
           });
           await page.waitForTimeout(100);
           const scrolled = (await page.locator(".ov-ticker-window").boundingBox())!;
