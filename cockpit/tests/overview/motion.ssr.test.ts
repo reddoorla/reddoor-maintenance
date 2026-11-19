@@ -10,6 +10,8 @@ import {
   markIntroPlayed,
   countable,
   countFrame,
+  trendKey,
+  trendReadout,
 } from "../../src/lib/overview/motion.js";
 import { HEALTH_CHECK_NAMES } from "../../src/lib/overview/view.js";
 
@@ -77,5 +79,38 @@ describe("the count-up's helpers (P1-87 PR 8a, item 4)", () => {
         expect(f.length, `${s} at ${k}%`).toBeLessThanOrEqual(s.length);
       }
     }
+  });
+});
+
+/** P1-87 PR 8a, item 5: the trend hover and keyboard readout's pure helpers. */
+describe("the trend readout's helpers (P1-87 PR 8a, item 5)", () => {
+  it("moves one night on ArrowRight from no selection to the first, then one at a time, stopping at the last", () => {
+    expect(trendKey("ArrowRight", null, 21)).toBe(0);
+    expect(trendKey("ArrowRight", 0, 21)).toBe(1);
+    expect(trendKey("ArrowRight", 1, 21)).toBe(2);
+    expect(trendKey("ArrowRight", 20, 21)).toBe(20);
+  });
+
+  it("moves back one night on ArrowLeft, stops at the first (no wrap), and from no selection goes to the last", () => {
+    expect(trendKey("ArrowLeft", null, 21)).toBe(20);
+    expect(trendKey("ArrowLeft", 2, 21)).toBe(1);
+    expect(trendKey("ArrowLeft", 0, 21)).toBe(0);
+  });
+
+  it("goes to the first and last nights with Home and End, clears with Escape, and leaves other keys unhandled", () => {
+    expect(trendKey("End", 7, 21)).toBe(20);
+    expect(trendKey("Home", 7, 21)).toBe(0);
+    expect(trendKey("Escape", 7, 21)).toBeNull();
+    expect(trendKey("a", 7, 21)).toBeUndefined();
+    expect(trendKey("Enter", null, 21)).toBeUndefined();
+    expect(trendKey("ArrowRight", null, 0)).toBeNull();
+  });
+
+  it("reads the selected night's own title, and nothing with no selection", () => {
+    const titles = ["Oct 1: Broken: 0", "Oct 2: no count that night", "Oct 3: Broken: 2"];
+    expect(trendReadout(titles, 0)).toBe("Oct 1: Broken: 0");
+    expect(trendReadout(titles, 1)).toBe("Oct 2: no count that night");
+    expect(trendReadout(titles, 2)).toBe("Oct 3: Broken: 2");
+    expect(trendReadout(titles, null)).toBe("");
   });
 });

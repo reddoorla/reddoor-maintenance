@@ -4682,4 +4682,179 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
       .evaluateAll((els) => els.map((el) => getComputedStyle(el).strokeDashoffset));
     for (const o of stillEnds) expect(o).toBe("0px");
   });
+  // P1-87 PR 8a, item 5: the trend charts' hover line and readout, by mouse, keyboard and touch.
+  const chart = (page: Page, ci = 0) =>
+    page.locator("figure.ov-trend").nth(ci).locator("svg.ov-chart");
+  const readout = (page: Page, ci = 0) =>
+    page.locator("figure.ov-trend").nth(ci).locator("p.ov-trend-readout");
+  /** The readout's words, trimmed of the markup's whitespace. */
+  const readoutText = async (page: Page, ci = 0) =>
+    ((await readout(page, ci).textContent()) ?? "").trim();
+  const nightRects = (page: Page, ci = 0) =>
+    page.locator("figure.ov-trend").nth(ci).locator("rect.ov-hit");
+  /** The chart's nights' words, in order, from the hover targets' data. */
+  const titlesOf = (page: Page, ci = 0) =>
+    nightRects(page, ci).evaluateAll((rs) => rs.map((r) => r.getAttribute("data-title")!));
+  /** WCAG 2.x relative luminance and contrast ratio, from an `rgb()`/`rgba()` string. */
+  const contrastOf = (a: string, b: string) => {
+    const lum = (c: string) => {
+      const [r, g, bl] = (c.match(/\d+(\.\d+)?/g) ?? []).slice(0, 3).map((v) => {
+        const x = Number(v) / 255;
+        return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * r! + 0.7152 * g! + 0.0722 * bl!;
+    };
+    const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+    return (hi! + 0.05) / (lo! + 0.05);
+  };
+
+  it("a hover draws the line at that night's centre and reads that night's words (item 5)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    expect(titles.length, "the seeded chart has a night per slot").toBeGreaterThan(5);
+    const k = 5;
+    await nightRects(page).nth(k).hover();
+    const geo = await nightRects(page)
+      .nth(k)
+      .evaluate((r) => ({
+        centre: Number(r.getAttribute("x")) + Number(r.getAttribute("width")) / 2,
+      }));
+    const cursor = page.locator("figure.ov-trend").nth(0).locator("line.ov-trend-cursor");
+    expect(await cursor.count()).toBe(1);
+    expect(Number(await cursor.getAttribute("x1"))).toBeCloseTo(geo.centre, 1);
+    expect(await readoutText(page)).toBe(titles[k]);
+  });
+
+  it("the arrow keys step a night at a time, End and Home go to the ends, and Escape clears (item 5)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    await chart(page).focus();
+    await page.keyboard.press("ArrowRight");
+    expect(await readoutText(page)).toBe(titles[0]);
+    await page.keyboard.press("ArrowRight");
+    expect(await readoutText(page)).toBe(titles[1]);
+    await page.keyboard.press("End");
+    expect(await readoutText(page)).toBe(titles.at(-1));
+    await page.keyboard.press("ArrowRight");
+    expect(await readoutText(page), "the last night stays").toBe(titles.at(-1));
+    await page.keyboard.press("Home");
+    expect(await readoutText(page)).toBe(titles[0]);
+    await page.keyboard.press("ArrowLeft");
+    expect(await readoutText(page), "the first night stays, no wrap").toBe(titles[0]);
+    await page.keyboard.press("Escape");
+    expect(await readoutText(page)).toBe(
+      "Point at a night, or focus the chart and use the arrow keys, to read it.",
+    );
+    expect(
+      await page.locator("figure.ov-trend").nth(0).locator("line.ov-trend-cursor").count(),
+    ).toBe(0);
+  });
+
+  it("a night with no reading reads as the model says, never as 0 (item 5)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    // The seed writes sixteen nights and skips the ninth before the newest (i = 9): that gap is on
+    // every chart, so chart 0 has one.
+    const titles = await titlesOf(page);
+    const gap = titles.findIndex((t) => t.endsWith("no count that night"));
+    expect(gap, "the seed has a gap night on the first chart").toBeGreaterThan(-1);
+    await nightRects(page).nth(gap).hover();
+    const words = await readoutText(page);
+    expect(words).toBe(titles[gap]);
+    expect(words).toMatch(/no count that night$/);
+    expect(words).not.toMatch(/: 0/);
+  });
+
+  it("the focus ring is at least 2px wide and 3:1 against the page, in light and dark, at 1280px and 390px", async () => {
+    for (const width of [1280, 390])
+      for (const scheme of ["light", "dark"] as const) {
+        const page = await signedIn();
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ colorScheme: scheme });
+        await page.goto(`${origin}/`);
+        await motionReady(page);
+        await chart(page).focus();
+        await page.keyboard.press("ArrowRight");
+        const ring = await chart(page).evaluate((svg) => {
+          const cs = getComputedStyle(svg);
+          let el: Element | null = svg;
+          let bg = "";
+          while (el) {
+            const c = getComputedStyle(el).backgroundColor;
+            if (c !== "transparent" && !/rgba\(.*,\s*0\)$/.test(c)) {
+              bg = c;
+              break;
+            }
+            el = el.parentElement;
+          }
+          return {
+            width: Number.parseFloat(cs.outlineWidth),
+            style: cs.outlineStyle,
+            colour: cs.outlineColor,
+            bg: bg || getComputedStyle(document.documentElement).backgroundColor,
+          };
+        });
+        const where = `${width}px ${scheme}`;
+        expect(ring.style, where).toBe("solid");
+        expect(ring.width, where).toBeGreaterThanOrEqual(2);
+        expect(contrastOf(ring.colour, ring.bg), where).toBeGreaterThanOrEqual(3);
+      }
+  });
+
+  it("a click on a column selects it, so a touch reads it too, at 390px (item 5)", async () => {
+    const page = await signedIn("op", { hasTouch: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    await nightRects(page).nth(4).tap();
+    expect(await readoutText(page)).toBe(titles[4]);
+    expect(
+      await page.locator("figure.ov-trend").nth(0).locator("line.ov-trend-cursor").count(),
+    ).toBe(1);
+  });
+
+  it("reduced motion changes nothing but the motion: the readout works and the line does not animate (item 5)", async () => {
+    const page = await signedIn("op", { reducedMotion: "reduce" });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    await nightRects(page).nth(3).hover();
+    expect(await readoutText(page)).toBe(titles[3]);
+    const animating = await page
+      .locator("line.ov-trend-cursor")
+      .evaluateAll((els) => els.reduce((n, el) => n + el.getAnimations().length, 0));
+    expect(animating).toBe(0);
+  });
+
+  it("forced colours draw the hover line in CanvasText (item 5)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.emulateMedia({ forcedColors: "active" });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    await nightRects(page).nth(2).hover();
+    const stroke = await page
+      .locator("figure.ov-trend")
+      .nth(0)
+      .locator("line.ov-trend-cursor")
+      .evaluate((el) => {
+        const probe = document.createElement("span");
+        probe.style.color = "CanvasText";
+        document.body.append(probe);
+        const canvasText = getComputedStyle(probe).color;
+        probe.remove();
+        return { stroke: getComputedStyle(el).stroke, canvasText };
+      });
+    expect(stroke.stroke).toBe(stroke.canvasText);
+  });
 });

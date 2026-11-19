@@ -943,11 +943,56 @@ describe("P1-78h: section 8 drawn, once fleet_daily holds 14 nights", () => {
     expect(TVIEW.trends.charts![0]!.series).toHaveLength(2);
   });
 
-  it("every hover target names its night", () => {
+  // P1-87 PR 8a, item 5: the hover target carries its night's words as data (the readout reads
+  // them), and no native tooltip, which would draw over the hover line.
+  it("every hover target names its night, as data and not as a tooltip", () => {
     const fig = section.querySelectorAll("figure.ov-trend")[0]!;
-    const titles = fig.querySelectorAll("rect.ov-hit title").map(text);
+    const titles = fig.querySelectorAll("rect.ov-hit").map((h) => h.getAttribute("data-title"));
     expect(titles).toHaveLength(17);
     expect(titles).toContain("Oct 20: no count that night");
+    expect(section.querySelectorAll("rect.ov-hit title")).toHaveLength(0);
+  });
+
+  it("gives every hover target the words the geometry gives its night (P1-87 PR 8a, item 5)", () => {
+    for (const [i, f] of section.querySelectorAll("figure.ov-trend").entries()) {
+      const g = trendGeometry(TVIEW.trends.charts![i]!);
+      expect(
+        f.querySelectorAll("rect.ov-hit").map((h) => h.getAttribute("data-title")),
+        TVIEW.trends.charts![i]!.title,
+      ).toEqual(g.slots.map((t) => t.title));
+    }
+  });
+
+  // P1-87 PR 8a, item 5: each chart is reachable by keyboard, is described by its own live
+  // readout, which is idle until a night is read.
+  it("makes each chart focusable, described by a polite live readout (P1-87 PR 8a, item 5)", () => {
+    const figs = section.querySelectorAll("figure.ov-trend");
+    expect(figs.length).toBe(TVIEW.trends.charts!.length);
+    for (const [ci, f] of figs.entries()) {
+      const svg = f.querySelector("svg.ov-chart")!;
+      expect(svg.getAttribute("tabindex"), `chart ${ci}`).toBe("0");
+      expect(svg.getAttribute("role"), `chart ${ci}`).toBe("img");
+      expect(svg.getAttribute("aria-describedby"), `chart ${ci}`).toBe(`ov-trend-${ci}-readout`);
+      const readout = f.querySelector("p.ov-trend-readout")!;
+      expect(readout.getAttribute("id"), `chart ${ci}`).toBe(`ov-trend-${ci}-readout`);
+      expect(readout.getAttribute("aria-live"), `chart ${ci}`).toBe("polite");
+      expect(readout.getAttribute("class")).toContain("muted");
+      expect(readout.text.trim(), `chart ${ci}`).toBe(
+        "Point at a night, or focus the chart and use the arrow keys, to read it.",
+      );
+    }
+  });
+
+  it("draws the focus ring and the hover line from tokens, and the line in CanvasText when forced", () => {
+    const css = readFileSync(
+      new URL("../../src/lib/overview/overview.css", import.meta.url),
+      "utf8",
+    ).replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(css).toMatch(/\.ov-chart:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--focus\)/);
+    expect(css).toMatch(/\.ov-trend-cursor\s*\{[^}]*stroke:\s*var\(--ink\)/);
+    expect(css).toMatch(
+      /@media \(forced-colors: active\)\s*\{[^}]*\.ov-trend-cursor\s*\{\s*stroke:\s*CanvasText[\s\S]*?\.ov-chart:focus-visible\s*\{\s*outline-color:\s*CanvasText/,
+    );
   });
 
   it("every number in the section came from the view", () => {

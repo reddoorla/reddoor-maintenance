@@ -89,5 +89,70 @@
     ],
     "test": ["cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
+  },
+  {
+    "id": "5-1-readout-off-by-one",
+    "why": "The readout shows the next night's title (slot k+1), so every hover reads the wrong night",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/motion.ts",
+        "find": "(titles[k] ?? \"\")",
+        "replace": "(titles[k + 1] ?? \"\")"
+      }
+    ],
+    "test": ["cockpit/tests/overview/motion.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "5-2-gap-night-reads-zero",
+    "why": "A night with no reading reads as 0 in its own title, not as the model's no-count words",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    q.value === null ? q.note! : q.note ? `${q.value}, ${q.note}` : String(q.value);",
+        "replace": "    q.value === null ? \"0\" : q.note ? `${q.value}, ${q.note}` : String(q.value);"
+      }
+    ],
+    "test": ["cockpit/tests/overview/trends.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "5-3-chart-not-focusable",
+    "why": "The chart loses tabindex, so the keyboard cannot reach the readout",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "            tabindex=\"0\"\n            aria-labelledby=\"ov-trend-{ci} ov-trend-{ci}-desc\"",
+        "replace": "            aria-labelledby=\"ov-trend-{ci} ov-trend-{ci}-desc\""
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "5-4-readout-not-live",
+    "why": "The readout loses aria-live, so a night read by arrow key is not announced",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "<p id=\"ov-trend-{ci}-readout\" class=\"muted ov-trend-readout\" aria-live=\"polite\">",
+        "replace": "<p id=\"ov-trend-{ci}-readout\" class=\"muted ov-trend-readout\">"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "5-5-arrow-left-wraps",
+    "why": "ArrowLeft at the first night wraps to the last, where it should stay",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/motion.ts",
+        "find": "return selected === null ? last : Math.max(selected - 1, 0);",
+        "replace": "return selected === null ? last : (selected - 1 + count) % count;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/motion.ssr.test.ts"],
+    "expect": "red"
   }
 ]

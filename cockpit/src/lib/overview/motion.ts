@@ -78,3 +78,34 @@ export function countUp(
     },
   };
 }
+
+/** P1-87 PR 8a, item 5: a key on a focused trend. Returns the night it selects (`null`: none), or
+ *  `undefined` when the key is not one the trend handles. Right and Left step one night and stop at
+ *  the ends (no wrap); with no night selected, Right selects the first and Left the last. Home and
+ *  End go to the first and last nights, and Escape clears. */
+export function trendKey(
+  key: string,
+  selected: number | null,
+  count: number,
+): number | null | undefined {
+  if (key === "Escape") return null;
+  if (!["ArrowRight", "ArrowLeft", "Home", "End"].includes(key)) return undefined;
+  if (count === 0) return null;
+  const last = count - 1;
+  switch (key) {
+    case "ArrowRight":
+      return selected === null ? 0 : Math.min(selected + 1, last);
+    case "ArrowLeft":
+      return selected === null ? last : Math.max(selected - 1, 0);
+    case "Home":
+      return 0;
+    default:
+      return last;
+  }
+}
+
+/** The readout's words for the selected night: that night's own title, as the chart's model wrote
+ *  it, or nothing when no night is selected. */
+export function trendReadout(titles: readonly string[], k: number | null): string {
+  return k === null ? "" : (titles[k] ?? "");
+}

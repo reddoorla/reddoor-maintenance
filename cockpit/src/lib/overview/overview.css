@@ -192,6 +192,22 @@ section {
   fill: var(--band);
   fill-opacity: 0.5;
 }
+/* P1-87 PR 8a, item 5: the hover line and the focus ring. The line is drawn over the hit
+   targets and never takes a pointer; under forced colours the line and the ring are CanvasText. */
+.ov-trend-cursor {
+  stroke: var(--ink);
+  stroke-width: 1;
+  pointer-events: none;
+}
+.ov-chart:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.ov-trend-readout {
+  font-size: 0.85rem;
+  min-height: 1.4em;
+  margin: 0.25rem 0;
+}
 .ov-trend-note {
   font-size: 0.85rem;
   margin: 0.25rem 0;
@@ -898,4 +914,15 @@ section {
 .ov-ticker-window[data-still] .ov-ticker-list.copy,
 .ov-ticker-window:not([data-js]):has(:focus-visible) .ov-ticker-list.copy {
   display: none;
+}
+
+/* P1-87 PR 8a, item 5: the hover line under forced colours (kept last: the suites read the first
+   forced-colours block of this file). */
+@media (forced-colors: active) {
+  .ov-trend-cursor {
+    stroke: CanvasText;
+  }
+  .ov-chart:focus-visible {
+    outline-color: CanvasText;
+  }
 }

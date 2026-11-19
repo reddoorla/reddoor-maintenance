@@ -20,6 +20,8 @@
     countUp,
     introPlayed,
     markIntroPlayed,
+    trendKey,
+    trendReadout,
   } from "../lib/overview/motion.js";
   import PageStyles from "../lib/PageStyles.svelte";
   import healthCss from "../lib/cockpit/health.css?inline";
@@ -49,6 +51,28 @@
   // `js` marks a page with script: the CSS's no-script fallback keys on its absence.
   let still = $state(false);
   let js = $state(false);
+  // P1-87 PR 8a, item 5: the night each trend's hover or keys select, by chart index (absent or
+  // null: none). The readout names it; the table below keeps every night at once.
+  let trendSel = $state<Record<number, number | null>>({});
+  const TREND_IDLE = "Point at a night, or focus the chart and use the arrow keys, to read it.";
+  const selectNight = (ci: number, k: number | null) => {
+    trendSel[ci] = k;
+  };
+  // An action, not onkeydown: Svelte delegates onkeydown to the document, which would add a
+  // document listener on the first overview visit that outlives it (the ticker's listener count).
+  const trendKeys = (node: SVGElement, handler: (e: KeyboardEvent) => void) => {
+    let current = handler;
+    const listen = (e: KeyboardEvent) => current(e);
+    node.addEventListener("keydown", listen);
+    return {
+      update(next: (e: KeyboardEvent) => void) {
+        current = next;
+      },
+      destroy() {
+        node.removeEventListener("keydown", listen);
+      },
+    };
+  };
   let pressing = false;
   // The last counted release: a press that began in the window and ended with a pointerup or
   // pointercancel. A tap's focus arrives after its pointerup, when pressing is already false, so a
@@ -688,6 +712,7 @@
     <div class="ov-trends">
       {#each v.trends.charts as c, ci (c.title)}
         {@const g = trendGeometry(c)}
+        {@const sel = trendSel[ci] ?? null}
         <figure class="ov-trend">
           <figcaption id="ov-trend-{ci}">{c.title}</figcaption>
           {#if c.series.length > 1}
@@ -714,11 +739,28 @@
               {/each}
             </ul>
           {/if}
+          <!-- P1-87 PR 8a, item 5: the chart stays an image for assistive tech; its keys and its
+               pointer readout are the extra reading, and the table below has every night. -->
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+          <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
           <svg
             class="ov-chart"
             viewBox="0 0 {g.width} {g.height}"
             role="img"
+            tabindex="0"
             aria-labelledby="ov-trend-{ci} ov-trend-{ci}-desc"
+            aria-describedby="ov-trend-{ci}-readout"
+            use:trendKeys={(e: KeyboardEvent) => {
+              const next = trendKey(e.key, trendSel[ci] ?? null, g.slots.length);
+              if (next === undefined) return;
+              e.preventDefault();
+              selectNight(ci, next);
+            }}
+            onblur={() => selectNight(ci, null)}
+            onpointerleave={(e) => {
+              // A chart with focus keeps its night when the pointer leaves it (the brief).
+              if (document.activeElement !== e.currentTarget) selectNight(ci, null);
+            }}
           >
             <desc id="ov-trend-{ci}-desc">{c.summary}</desc>
             {#each g.earlier as e, ei (ei)}
@@ -781,11 +823,39 @@
               />
             {/each}
             {#each g.slots as t, ti (ti)}
-              <rect class="ov-hit" x={t.left} y={g.top} width={t.width} height={g.baseline - g.top}>
-                <title>{t.title}</title>
-              </rect>
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <rect
+                class="ov-hit"
+                x={t.left}
+                y={g.top}
+                width={t.width}
+                height={g.baseline - g.top}
+                data-title={t.title}
+                onpointerenter={(e) => {
+                  if (e.pointerType === "mouse") selectNight(ci, ti);
+                }}
+                onclick={() => selectNight(ci, ti)}
+              />
             {/each}
+            {#if sel !== null && g.slots[sel]}
+              <line
+                class="ov-trend-cursor"
+                x1={g.slots[sel]!.x}
+                x2={g.slots[sel]!.x}
+                y1={g.top}
+                y2={g.baseline}
+              />
+            {/if}
           </svg>
+          <p id="ov-trend-{ci}-readout" class="muted ov-trend-readout" aria-live="polite">
+            {sel === null
+              ? TREND_IDLE
+              : trendReadout(
+                  g.slots.map((t) => t.title),
+                  sel,
+                )}
+          </p>
           {#if c.note}<p class="muted ov-trend-note">{c.note}</p>{/if}
           <details class="ov-trend-table">
             <summary>As a table</summary>
