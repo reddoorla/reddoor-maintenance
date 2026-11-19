@@ -358,6 +358,11 @@ afterAll(async () => {
 });
 
 async function signedIn(user = "op", options: BrowserContextOptions = {}): Promise<Page> {
+  const raw = process.env.COCKPIT_CPU_THROTTLE;
+  const rate = raw === undefined ? 1 : Number(raw);
+  if (raw !== undefined && !(Number.isFinite(rate) && rate >= 1)) {
+    throw new Error("COCKPIT_CPU_THROTTLE must be a number of at least 1");
+  }
   // The gate redirects rather than challenging, so the header goes on every request.
   const context = await browser.newContext({
     ...options,
@@ -369,7 +374,6 @@ async function signedIn(user = "op", options: BrowserContextOptions = {}): Promi
   const page = await context.newPage();
   // #2147: COCKPIT_CPU_THROTTLE=<rate> slows every page's CPU by that factor, as a loaded CI
   // runner does, so a test that acts before the page's script has run can be made to fail here.
-  const rate = Number(process.env.COCKPIT_CPU_THROTTLE ?? 1);
   if (rate > 1) {
     const cdp = await context.newCDPSession(page);
     await cdp.send("Emulation.setCPUThrottlingRate", { rate });
