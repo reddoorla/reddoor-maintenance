@@ -40,10 +40,10 @@
         {#each g.rows as row, i (i)}
           <div class="feed-row" data-group={row.group}>
             <span class="dot {row.group}"></span>
-            <span class="feed-what"
-              ><strong>{row.siteName}</strong> — {row.reasons}{#if row.age}
-                <span class="muted feed-age">&nbsp;· {row.age}</span>{/if}</span
-            >
+            <span class="feed-what">
+              <strong>{row.siteName}</strong> — {row.reasons}{#if row.age}
+                <span class="muted feed-age">&nbsp;· {row.age}</span>{/if}
+            </span>
             <a class="feed-open" href={row.url}>Open →</a>
           </div>
         {/each}
@@ -76,11 +76,11 @@
     {#each v.cardless as item, i (i)}
       <div class="approve-row" data-level={item.level}>
         <span class="pill {item.level}">{item.levelLabel}</span>
-        <strong
-          >{#if item.href}<a href={item.href}>{item.siteName}</a>{:else}{item.siteName}{/if}</strong
-        > <span class="muted">{item.title}</span>{#if item.age}<span class="muted feed-age"
-            >&nbsp;· {item.age}</span
-          >{/if}
+        <strong>
+          {#if item.href}<a href={item.href}>{item.siteName}</a>{:else}{item.siteName}{/if}
+        </strong> <span class="muted">{item.title}</span>{#if item.age}<span class="muted feed-age">
+            &nbsp;· {item.age}
+          </span>{/if}
       </div>
     {/each}
   </details>

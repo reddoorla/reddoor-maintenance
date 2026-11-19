@@ -109,7 +109,7 @@
     "listr2": "^10.2.1",
     "node-html-parser": "^9.0.0",
     "prettier": "^3.1.1",
-    "prettier-plugin-svelte": "^4.0.0",
+    "prettier-plugin-svelte": "^4.2.0",
     "tinyglobby": "^0.2.10",
     "typescript-eslint": "^8.59.1"
   },

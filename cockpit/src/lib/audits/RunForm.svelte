@@ -57,16 +57,16 @@
 </script>
 
 <form id="audit-run-form" class="run-form" {onsubmit}>
-  <label
-    >URL
+  <label>
+    URL
     <input type="url" name="url" placeholder="https://example.com" required />
   </label>
-  <label
-    >Business name (optional)
+  <label>
+    Business name (optional)
     <input type="text" name="business" placeholder="Acme Roofing" />
   </label>
-  <label
-    >Goal
+  <label>
+    Goal
     <select name="goal" required>
       <option value="">What should the site get a visitor to do?</option>
       <option value="book">Book an appointment</option>
@@ -78,16 +78,16 @@
       <option value="partner">Ask about distribution or partnership</option>
     </select>
   </label>
-  <label
-    >Search terms (optional — one per line)
+  <label>
+    Search terms (optional — one per line)
     <textarea
       name="terms"
       rows="4"
       placeholder="commercial roof replacement cost San Antonio&#10;TPO roofing contractor for warehouses"
     ></textarea>
   </label>
-  <label
-    >Buyer questions (optional — one per line)
+  <label>
+    Buyer questions (optional — one per line)
     <textarea
       name="questions"
       rows="4"
