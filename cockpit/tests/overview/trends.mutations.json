@@ -680,5 +680,18 @@
     ],
     "test": "cockpit/tests/overview/trends.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "69-summary-no-lag-sentence",
+    "why": "PR 7b review round 1 (accessibility minor 2): the search chart description omits its lag days",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "extra: lagSaid(imp.slots) }",
+        "replace": "extra: null }"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
   }
 ]

@@ -919,6 +919,15 @@ describe("P1-87 PR 7b: 31 nights and the three traffic charts", () => {
     }
   });
 
+  it("each traffic summary names its partial day and its lag days (PR 7b review round 1, E)", () => {
+    expect(TF(v, DAYS.visits).summary.endsWith("Oct 26 is still being counted.")).toBe(true);
+    for (const i of [DAYS.searchTimes, DAYS.clicks]) {
+      expect(
+        TF(v, i).summary.endsWith("Google has no data yet for 3 days, Oct 24 to Oct 26."),
+      ).toBe(true);
+    }
+  });
+
   it("the clicks chart counts days, not nights, and a partial point keeps its value in its slot title (minor 4, minor 5)", () => {
     const clicks = TF(v, DAYS.clicks);
     expect(clicks.slotHeading).toBe("Day");

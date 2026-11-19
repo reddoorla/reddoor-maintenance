@@ -1663,7 +1663,7 @@ export function trendsFromDaily(nights: OverviewNight[] | null, now: Date): Tren
     title: string,
     s: TrendSeries[],
     note: string,
-    o: { term?: string; slot?: "night" | "day" } = {},
+    o: { term?: string; slot?: "night" | "day"; extra?: string | null } = {},
   ): TrendChart => {
     const one = o.slot ?? "night";
     const many = one === "day" ? "days" : "nights";
@@ -1692,7 +1692,7 @@ export function trendsFromDaily(nights: OverviewNight[] | null, now: Date): Tren
       high,
       mid: high >= 2 && high % 2 === 0 ? high / 2 : null,
       slotHeading: one === "day" ? "Day" : "Night",
-      summary: `${said.join(". ")}. ${gaps === 0 ? `Every ${one} is drawn` : `${count(gaps, `${one} has`, `${many} have`)} no point; the table gives why`}.`,
+      summary: `${said.join(". ")}. ${gaps === 0 ? `Every ${one} is drawn` : `${count(gaps, `${one} has`, `${many} have`)} no point; the table gives why`}.${o.extra ? ` ${o.extra}` : ""}`,
       note: [
         note,
         ...(earlier
@@ -1748,24 +1748,37 @@ export function trendsFromDaily(nights: OverviewNight[] | null, now: Date): Tren
       sr.value === null
         ? `Each column is that day's ${what}. A day with no reading says why in the table.`
         : `Each column is that day's ${what} across ${count(sr.value.sitesRead, "site", "sites")}${tally(imp.dropped, 28, WHOLE.format(total(sr.value)))} Google's data lags about 3 days: the hatched days have none yet.`;
+    // The summary (the chart's description, for a screen reader) names the partial day and
+    // the lag days too, so it says what the marks do not (PR 7b review round 1, E).
+    const partialSaid = (slots: TrafficSlot[]) => {
+      const i = slots.findIndex((x) => x.partial);
+      return i < 0 ? null : `${nightLabel(days[i]!)} is still being counted.`;
+    };
+    const lagSaid = (slots: TrafficSlot[]) => {
+      const lagDays = days.filter((_, i) => slots[i]!.lag).map(nightLabel);
+      if (lagDays.length === 0) return null;
+      return lagDays.length === 1
+        ? `Google has no data yet for ${lagDays[0]}.`
+        : `Google has no data yet for ${lagDays.length} days, ${lagDays[0]} to ${lagDays.at(-1)}.`;
+    };
     return [
       make(
         "Engaged visits, each day",
         [series("Engaged visits", asPoints(vis.slots), true)],
         visitsNote,
-        { term: "Engaged visits", slot: "day" },
+        { term: "Engaged visits", slot: "day", extra: partialSaid(vis.slots) },
       ),
       make(
         "Times shown in Google, each day",
         [series("Times shown in Google", asPoints(imp.slots), true)],
         searchNote("times shown in Google", (r) => r.impressions),
-        { term: "Times shown in Google", slot: "day" },
+        { term: "Times shown in Google", slot: "day", extra: lagSaid(imp.slots) },
       ),
       make(
         "Clicks through from Google, each day",
         [series("Clicks through from Google", asPoints(clk.slots), true)],
         searchNote("clicks through from Google", (r) => r.clicks),
-        { term: "Times shown in Google", slot: "day" },
+        { term: "Times shown in Google", slot: "day", extra: lagSaid(clk.slots) },
       ),
     ];
   };
