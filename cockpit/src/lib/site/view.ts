@@ -377,8 +377,9 @@ function historyRow(r: ReportRow, site: WebsiteRow, now: Date): HistoryRow {
           : { kind: "none" };
   return {
     id: r.id,
-    // P1-117: the date the email carries (the due date when it has one).
-    date: r.dueOn ?? r.completedOn ?? DASH,
+    // The "Completed" column: the day it was drafted, which the table sorts by.
+    // An early report's send day is on its "approved, sends …" line (P1-117).
+    date: r.completedOn ? r.completedOn : DASH,
     type: r.reportType,
     reportId: r.reportId,
     ga,

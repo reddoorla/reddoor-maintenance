@@ -297,7 +297,7 @@ export async function draftReportForSite(
     // P1-117: dated as the send will date it (`emailDate`). The completing path
     // reads the row's due date, which the nightly stamps first.
     completedOn:
-      options.dueOn ?? (options.existingRow ? emailDate(options.existingRow) : null) ?? completedOn,
+      options.dueOn ?? (options.existingRow ? emailDate(options.existingRow) : completedOn),
     lighthouse: scores,
     gaUsersCurrent: gaUsers?.current,
     gaUsersPrevious: gaUsers?.previous,

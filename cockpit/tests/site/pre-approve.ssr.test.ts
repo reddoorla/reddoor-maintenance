@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import Page from "../../src/routes/s/[slug]/+page.svelte";
 import { buildSiteView, sendDayLabel } from "../../src/lib/site/view.js";
 import { renderPage } from "../_helpers/parity.js";
+import type { ReportRow } from "../../../src/reports/report-fields.js";
 import { input, pending, reportRow } from "./fixtures.js";
 
 /**
@@ -11,11 +12,11 @@ import { input, pending, reportRow } from "./fixtures.js";
  * pending or sent.
  */
 const NOW = new Date("2026-11-18T19:00:00.000Z"); // Wed 11-18, 11am PT
-const view = (reports: Parameters<typeof input>[0]["reports"], now = NOW) => {
+const view = (reports: ReportRow[], now = NOW) => {
   const i = input({ now, reports });
   return buildSiteView(i.site, i.reports, i.submissions, i.spam, i.now, i.alarm);
 };
-const html = (reports: Parameters<typeof input>[0]["reports"], now = NOW) =>
+const html = (reports: ReportRow[], now = NOW) =>
   renderPage(Page, { data: { view: view(reports, now) } });
 const early = () =>
   reportRow({
@@ -42,8 +43,6 @@ describe("/s/:slug — P1-117 an early-approved report shows its send day", () =
   it("an approved report due Sat 11-21 reads 'approved, sends Sat 11-21, 8:07am PT'", () => {
     const row = view([early()]).history.find((h) => h.id === "recEARLY")!;
     expect(row.action).toMatchObject({ kind: "approved", sendsOn: "Sat 11-21, 8:07am PT" });
-    // The history's date is the email's date: the due date.
-    expect(row.date).toBe("2026-11-21");
     expect(html([early()])).toContain("approved, sends Sat 11-21, 8:07am PT");
   });
 
