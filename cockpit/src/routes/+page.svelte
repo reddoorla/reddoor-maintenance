@@ -19,6 +19,7 @@
     SPARK_MS,
     countable,
     countUp,
+    INTRO_MS,
     introPlayed,
     markIntroPlayed,
     trendKey,
@@ -41,7 +42,9 @@
   let paused = $state(false);
   // P1-87 PR 8a: the intro (items 3 and 4) plays on a full load only. Read once, at init: the server
   // render and the hydration both see it on, and a client return (a new component) sees it off.
-  const intro = !introPlayed();
+  // Cleared in onMount after INTRO_MS, so a refresh that inserts a bar or a figure plays nothing on it
+  // (P1-87 PR 8a, review round 1, F2).
+  let intro = $state(!introPlayed());
   // Set in onMount: the browser tests wait on it, so they act only once the script has run.
   let motionReady = $state(false);
   // P1-87 PR 5b review r4 A: the ticker's still layout is a state this component holds, not a
@@ -267,6 +270,7 @@
   onMount(() => {
     markIntroPlayed();
     motionReady = true;
+    const introTimer = setTimeout(() => (intro = false), INTRO_MS);
     offsetMs = Date.parse(v.cycle.nowIso) - Date.now();
     clock = Date.now() + offsetMs;
     const cycle = startCycleClock({
@@ -286,6 +290,7 @@
     });
     return () => {
       cycle.stop();
+      clearTimeout(introTimer);
       clearTimeout(freshTimer);
     };
   });

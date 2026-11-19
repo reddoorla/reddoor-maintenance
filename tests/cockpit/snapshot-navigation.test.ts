@@ -20,6 +20,7 @@ import { expectedNight, HEALTH_CHECK_NAMES } from "../../cockpit/src/lib/overvie
 import {
   BAR_MS,
   BAR_STAGGER_MS,
+  INTRO_MS,
   MAX_MOTION_MS,
   SPARK_MS,
 } from "../../cockpit/src/lib/overview/motion.js";
@@ -4404,6 +4405,50 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     await motionReady(page);
     expect(await page.locator(".ov-checks-list").getAttribute("data-intro")).toBeNull();
     expect(await barAnimations(page)).toBe(0);
+  });
+
+  // P1-87 PR 8a, review round 1 (F2): a refresh that inserts a fill does not replay the intro on it.
+  // The refresh is the page's own: the Contact form's second site passes in the DB, and the page's
+  // clock moves on so its cycle clock re-reads (as the feed test does). The site is put back after.
+  const contactFills = (page: Page) =>
+    page
+      .locator(".ov-check", { hasText: "Contact form" })
+      .locator(".ov-check-fill")
+      .evaluateAll((els) =>
+        els.map((el) => el.getAnimations().map((a) => (a as CSSAnimation).animationName)),
+      );
+  const setContactForm = async (value: "pass" | null) => {
+    const db = await openDb({ url: dbUrl });
+    try {
+      await db
+        .updateTable("site_health")
+        .set({ form_e2e_ok: value, form_e2e_checked_at: new Date().toISOString() } as never)
+        .where("site_id", "=", "recB")
+        .execute();
+    } finally {
+      await db.destroy();
+    }
+  };
+  it("a refresh that adds a fill plays no intro on it (item 3, review round 1 F2)", async () => {
+    const page = await signedIn();
+    await page.clock.install();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    // Past the intro's end, so the refresh is not a first load.
+    await page.waitForTimeout(INTRO_MS + 500);
+    expect(await contactFills(page)).toEqual([]);
+    try {
+      await setContactForm("pass");
+      const now = await page.evaluate(() => Date.now());
+      await page.clock.setSystemTime(now + 25 * 3_600_000);
+      await page.clock.runFor(60_000);
+      await expect.poll(() => contactFills(page), { timeout: 10_000 }).toHaveLength(1);
+      expect(await contactFills(page), "the new fill runs no animation").toEqual([[]]);
+      expect(await page.locator(".ov-checks-list").getAttribute("data-intro")).toBeNull();
+    } finally {
+      await setContactForm(null);
+    }
   });
 
   it("with no script, the fills reach their shares (item 3)", async () => {

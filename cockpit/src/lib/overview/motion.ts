@@ -9,6 +9,10 @@ export const COUNT_MS = 900;
 export const SPARK_MS = 900;
 /** A new feed line's slide-in. */
 export const FEED_MS = 400;
+/** How long the intro (`data-intro`) stays on after the script runs: it covers the longest intro
+ *  end (the last bar's unknown span, about 1.68 s for seven checks), so a later refresh never
+ *  replays it on a node it inserts (P1-87 PR 8a, review round 1, F2). */
+export const INTRO_MS = 2000;
 /** No motion runs longer than this (the plan's five-second rule). */
 export const MAX_MOTION_MS = 5000;
 
