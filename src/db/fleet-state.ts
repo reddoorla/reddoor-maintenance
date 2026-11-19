@@ -838,6 +838,9 @@ export type ReportMirrorPatch = Partial<
     // P1-28: the dashboard's "Don't send".
     | "withdrawn_at"
     | "withdrawn_by"
+    // P1-117: the nightly keeps a drafted row's due date current when its cycle
+    // moves (a Testing send pushes Maintenance), so the send holds it correctly.
+    | "due_on"
   >
 >;
 

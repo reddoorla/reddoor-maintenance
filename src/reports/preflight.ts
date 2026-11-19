@@ -4,7 +4,7 @@ import { siteSlug } from "../fleet/site-row.js";
 import type { WebsiteRow } from "../fleet/site-row.js";
 import type { ReportRow } from "./report-row.js";
 import { parseAddresses, isProbablyEmail } from "./send/addresses.js";
-import { ELIGIBLE_STATUSES, reportPeriodKey } from "./due.js";
+import { DRAFT_LEAD_DAYS, ELIGIBLE_STATUSES, reportPeriodKey } from "./due.js";
 import type { ReportType } from "./types.js";
 import { gatingHealth, isSendOverridden } from "./checklist.js";
 
@@ -251,8 +251,19 @@ export function preflightSite(
   );
   if (pending.length > 0) {
     const currentPeriod = reportPeriodKey(now);
+    // P1-117: the nightly drafts up to DRAFT_LEAD_DAYS before the due date, so a
+    // draft due in the next week belongs to the due month and is this cycle's
+    // payload too, not a stale one.
+    const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    const dueSoon = (r: ReportRow): boolean => {
+      if (r.dueOn === null) return false;
+      const ahead = Date.parse(r.dueOn) - today;
+      return ahead >= 0 && ahead <= DRAFT_LEAD_DAYS * 86_400_000;
+    };
     const isExpectedPayload = (r: ReportRow): boolean =>
-      type !== "Announcement" && r.reportType === type && r.period === currentPeriod;
+      type !== "Announcement" &&
+      r.reportType === type &&
+      (r.period === currentPeriod || dueSoon(r));
     const expected = pending.filter(isExpectedPayload);
     const stale = pending.filter((r) => !isExpectedPayload(r));
     if (expected.length > 0) {

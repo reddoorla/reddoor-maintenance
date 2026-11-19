@@ -215,12 +215,21 @@ function preflight(findings: PreflightFinding[]): PendingView["preflight"] {
   };
 }
 
-/** A due date as the send that delivers it: "Sat 11-21, 8:07am PT". */
+/** A due date as the send that delivers it: "Sat 11-21, 8:07am PT". The send
+ *  clock runs at 16:07 UTC, which is 8:07am in PST and 9:07am in PDT. */
 export function sendDayLabel(dueOn: string): string {
-  const d = new Date(`${dueOn}T12:00:00Z`);
-  if (Number.isNaN(d.getTime())) return dueOn;
-  const weekday = d.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
-  return `${weekday} ${dueOn.slice(5)}, 8:07am PT`;
+  const run = new Date(`${dueOn}T16:07:00Z`);
+  if (Number.isNaN(run.getTime())) return dueOn;
+  const weekday = run.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
+  const time = run
+    .toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: "America/Los_Angeles",
+    })
+    .replace(" ", "")
+    .toLowerCase();
+  return `${weekday} ${dueOn.slice(5)}, ${time} PT`;
 }
 
 /** The next 16:07 UTC send run strictly after `now`. */
@@ -358,7 +367,8 @@ function historyRow(r: ReportRow, site: WebsiteRow, now: Date): HistoryRow {
                   url: `/api/reports/${encodeURIComponent(r.id)}/unapprove`,
                   confirm: UNAPPROVE_CONFIRM_TEXT,
                 },
-                sendsOn: heldUntilDue(r, now) ? sendDayLabel(r.dueOn!) : null,
+                // A row that is not draft-ready never sends, so it names no send day.
+                sendsOn: r.draftReady && heldUntilDue(r, now) ? sendDayLabel(r.dueOn!) : null,
               }
             : {
                 kind: "sending",

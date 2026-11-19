@@ -15,6 +15,7 @@ import type { ReportMirror } from "../../reports/report-mirror.js";
 import type { SiteMirror } from "../../db/site-mirror.js";
 import { operatorEmail } from "../../util/operator.js";
 import { lazyFleetDb } from "../../db/lazy-fleet-db.js";
+import { ymd } from "../../util/date.js";
 
 export type ReportCommandOptions = {
   due?: boolean;
@@ -583,6 +584,30 @@ export async function draftDueReports(
         skipped++;
         lines.push(`• skipped (withdrawn ${period}): ${item.site.name} ${item.reportType}`);
         continue;
+      }
+      // P1-117: the send holds a row until its stored due date, so that date must
+      // follow the cycle. It can move inside one period (a Testing send pushes
+      // Maintenance later), and a half-made row was created before it was known.
+      // A row drafted before P1-117 (no due date) is left as it is unless it is
+      // being completed here.
+      const dueOn = ymd(item.dueDate);
+      if (
+        existing.sentAt === null &&
+        existing.dueOn !== dueOn &&
+        (existing.dueOn !== null || !existing.draftReady)
+      ) {
+        try {
+          await deps.reportMirror.patch(existing.id, { due_on: dueOn });
+          lines.push(
+            `• due date ${existing.dueOn ?? "(none)"} → ${dueOn}: ${item.site.name} ${item.reportType}`,
+          );
+          existing.dueOn = dueOn;
+        } catch (e) {
+          lines.push(
+            `✗ due date not updated: ${item.site.name} ${item.reportType} — ${(e as Error).message}`,
+          );
+          continue;
+        }
       }
       if (existing.draftReady) {
         skipped++;

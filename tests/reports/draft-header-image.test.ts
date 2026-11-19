@@ -191,15 +191,25 @@ describe("draftReportForSite header-refresh wiring", () => {
     log.mockRestore();
   });
 
-  it("refreshes again once that report is sent, or for a pending (unapproved) one", async () => {
+  it("refreshes for a sent, pending, withdrawn or unqueued report: none of them waits to send", async () => {
     const site = scoredSite();
     const row = (id: string, fields: Record<string, unknown>) =>
       mapRow({ id, fields: { Site: [site.id], "Report type": "Testing", ...fields } });
     await draftReportForSite(site, "Maintenance", {
       reportMirror: makeFakeReportWriter([
-        row("rec_sent", { "Approved to send": true, "Sent at": "2026-11-21T16:07:00.000Z" }),
+        row("rec_sent", {
+          "Draft ready": true,
+          "Approved to send": true,
+          "Sent at": "2026-11-21T16:07:00.000Z",
+        }),
         row("rec_pending", { "Draft ready": true }),
-        row("rec_withdrawn", { "Approved to send": true, "Withdrawn at": "2026-11-20T00:00:00Z" }),
+        row("rec_withdrawn", {
+          "Draft ready": true,
+          "Approved to send": true,
+          "Withdrawn at": "2026-11-20T00:00:00Z",
+        }),
+        // Approved but not queued: no run will send it, so it holds nothing.
+        row("rec_unqueued", { "Approved to send": true }),
       ]),
     });
     expect(generateHeaderImage).toHaveBeenCalledTimes(1);

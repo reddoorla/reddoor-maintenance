@@ -673,6 +673,68 @@ describe("draftDueReports — P1-117 early drafts", () => {
     expect(opts.dueOn?.toISOString().slice(0, 10)).toBe("2026-06-02");
   });
 
+  it("re-completing a half-made row stores its due date (a row made before it was known)", async () => {
+    rosterRows = [siteRow({ maintenanceDay: "2026-05-02" })];
+    const reportMirror = makeFakeReportWriter();
+    const reports: RawRow[] = [
+      {
+        id: "rec_halfmade",
+        fields: { Site: ["rec_site_acme"], "Report type": "Maintenance", Period: "2026-06" },
+      },
+    ];
+    const res = await draftDueReports(TODAY, dueDeps(reports, { reportMirror }));
+    expect(reportMirror.patches).toContainEqual({
+      id: "rec_halfmade",
+      patch: { due_on: "2026-06-02" },
+    });
+    expect(draftReportForSite).toHaveBeenCalledWith(
+      expect.anything(),
+      "Maintenance",
+      expect.objectContaining({ completeRowId: "rec_halfmade" }),
+    );
+    expect(res.output).toContain("• due date (none) → 2026-06-02: Acme Co Maintenance");
+  });
+
+  it("moves a drafted row's due date when its cycle moved inside the period", async () => {
+    // Drafted for 06-02; the cycle now says 06-02 is still right → no patch. Then
+    // a stored 06-01 (stale) is moved to 06-02.
+    rosterRows = [siteRow({ maintenanceDay: "2026-05-02" })];
+    const row = (dueOn: string): RawRow => ({
+      id: "rec_drafted",
+      fields: {
+        Site: ["rec_site_acme"],
+        "Report type": "Maintenance",
+        Period: "2026-06",
+        "Draft ready": true,
+        "Approved to send": true,
+        "Due on": dueOn,
+      },
+    });
+    const same = makeFakeReportWriter();
+    await draftDueReports(TODAY, dueDeps([row("2026-06-02")], { reportMirror: same }));
+    expect(same.patches).toEqual([]);
+    const stale = makeFakeReportWriter();
+    await draftDueReports(TODAY, dueDeps([row("2026-06-01")], { reportMirror: stale }));
+    expect(stale.patches).toEqual([{ id: "rec_drafted", patch: { due_on: "2026-06-02" } }]);
+    expect(draftReportForSite).not.toHaveBeenCalled();
+  });
+
+  it("leaves a ready row drafted before P1-117 (no due date) as it is", async () => {
+    rosterRows = [siteRow({ maintenanceDay: "2026-05-02" })];
+    const w = makeFakeReportWriter();
+    const legacy: RawRow = {
+      id: "rec_legacy",
+      fields: {
+        Site: ["rec_site_acme"],
+        "Report type": "Maintenance",
+        Period: "2026-06",
+        "Draft ready": true,
+      },
+    };
+    await draftDueReports(TODAY, dueDeps([legacy], { reportMirror: w }));
+    expect(w.patches).toEqual([]);
+  });
+
   it("does not draft a report due in 8 days", async () => {
     rosterRows = [siteRow({ maintenanceDay: "2026-05-03" })];
     const res = await draftDueReports(TODAY, dueDeps());

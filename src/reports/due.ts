@@ -75,7 +75,9 @@ function lastSentForType(reports: ReportRow[], siteId: string, type: ReportType)
 /** When the latest withdrawn draft of this (site, type) was made. `Completed on`
  *  is stamped with the draft day when the row is created (and re-stamped when a
  *  launch/announce re-run redrafts it); a row without one falls back to its
- *  withdrawal stamp. */
+ *  withdrawal stamp. P1-117: a draft made before its due date counts from the
+ *  later of that day and its `dueOn`, so withdrawing an early draft never pulls
+ *  the cycle up to a week earlier. */
 function lastWithdrawnDraftForType(
   reports: ReportRow[],
   siteId: string,
@@ -83,7 +85,10 @@ function lastWithdrawnDraftForType(
 ): string | null {
   const candidates = reports
     .filter((r) => r.siteId === siteId && r.reportType === type && r.withdrawnAt !== null)
-    .map((r) => r.completedOn ?? r.withdrawnAt!)
+    .map((r) => {
+      const made = r.completedOn ?? r.withdrawnAt!;
+      return r.dueOn !== null && Date.parse(r.dueOn) > Date.parse(made) ? r.dueOn : made;
+    })
     .sort((a, b) => Date.parse(a) - Date.parse(b));
   return candidates[candidates.length - 1] ?? null;
 }

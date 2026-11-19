@@ -617,15 +617,33 @@ describe("P1-117: the draft window opens 7 days before the due date", () => {
   });
 
   it("an on-time send counts the next due date from the send, as before: not the approval", () => {
-    // Drafted 05-26, approved 05-27, held, sent in the 8:07am PT send on its due date.
+    // Drafted 05-26, approved 05-27, held, sent by the 16:07Z send on its due date.
     const sent = report({
-      sentAt: "2026-06-02T15:07:00.000Z",
+      sentAt: "2026-06-02T16:07:00.000Z",
       approvedAt: "2026-05-27T18:00:00.000Z",
       dueOn: "2026-06-02",
       period: "2026-06",
     });
     const next = nextDueDate(site(), [sent], "Maintenance", new Date("2026-06-03T12:00:00Z"));
     expect(next?.toISOString().slice(0, 10)).toBe("2026-07-02");
+  });
+
+  it("withdrawing an early draft does not pull the cycle earlier", () => {
+    // Sent 11-10, due 12-10, drafted 12-03 (7 days early), withdrawn 12-04.
+    const reports = [
+      report({ id: "rec_sent", sentAt: "2026-11-10T16:07:00.000Z" }),
+      report({
+        id: "rec_withdrawn",
+        sentAt: null,
+        approvedToSend: false,
+        completedOn: "2026-12-03",
+        dueOn: "2026-12-10",
+        period: "2026-12",
+        withdrawnAt: "2026-12-04T18:00:00.000Z",
+      }),
+    ];
+    const next = nextDueDate(site(), reports, "Maintenance", new Date("2026-12-05T12:00:00Z"));
+    expect(next?.toISOString().slice(0, 10)).toBe("2027-01-10");
   });
 
   it("an early-approved, unsent Testing report still pushes Maintenance past its due date", () => {

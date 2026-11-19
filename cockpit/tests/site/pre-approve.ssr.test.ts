@@ -29,8 +29,14 @@ const early = () =>
   });
 
 describe("/s/:slug — P1-117 an early-approved report shows its send day", () => {
-  it("labels a due date as the send that delivers it", () => {
+  it("labels a due date as the send that delivers it, in PST and in PDT", () => {
     expect(sendDayLabel("2026-11-21")).toBe("Sat 11-21, 8:07am PT");
+    expect(sendDayLabel("2027-04-02")).toBe("Fri 04-02, 9:07am PT");
+  });
+
+  it("names no send day for an approved row that is not queued (it will never send)", () => {
+    const row = view([{ ...early(), draftReady: false }]).history.find((h) => h.id === "recEARLY")!;
+    expect(row.action).toMatchObject({ kind: "approved", sendsOn: null });
   });
 
   it("an approved report due Sat 11-21 reads 'approved, sends Sat 11-21, 8:07am PT'", () => {
