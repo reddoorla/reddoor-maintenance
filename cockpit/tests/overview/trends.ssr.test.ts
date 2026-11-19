@@ -872,10 +872,12 @@ describe("P1-87 PR 7b: 31 nights and the three traffic charts", () => {
       run(N, 40, (d) => (d === "2026-09-20" ? { traffic: traffic(trafficBlock(d)) } : {})),
       NOW,
     );
+    // No lag day is on this axis (the series' night is older than it), so no hatch is drawn and
+    // the search notes say nothing of one (PR 7b review round 2, correctness minor 2).
     expect(notes(older)).toEqual([
       "Each column is that day's engaged visits across 16 sites. All 30 of the tile's days fall before this chart starts on Sep 26, so no column is drawn.",
-      "Each column is that day's times shown in Google across 16 sites. All 28 of the tile's days fall before this chart starts on Sep 26, so no column is drawn. Google's data lags about 3 days: the hatched days have none yet.",
-      "Each column is that day's clicks through from Google across 16 sites. All 28 of the tile's days fall before this chart starts on Sep 26, so no column is drawn. Google's data lags about 3 days: the hatched days have none yet.",
+      "Each column is that day's times shown in Google across 16 sites. All 28 of the tile's days fall before this chart starts on Sep 26, so no column is drawn.",
+      "Each column is that day's clicks through from Google across 16 sites. All 28 of the tile's days fall before this chart starts on Sep 26, so no column is drawn.",
     ]);
   });
 

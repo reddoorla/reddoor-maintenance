@@ -706,5 +706,18 @@
     ],
     "test": "cockpit/tests/overview/trends.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "71-hatch-sentence-always",
+    "why": "PR 7b review round 2 (correctness minor R2C-2): the lag sentence names a hatch even when no lag day is on the axis",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "read.slots.some((x) => x.lag) ?",
+        "replace": "true ?"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
   }
 ]

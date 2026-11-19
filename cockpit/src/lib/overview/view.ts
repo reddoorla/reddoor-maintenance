@@ -1747,6 +1747,8 @@ export function trendsFromDaily(nights: OverviewNight[] | null, now: Date): Tren
       vr.value === null
         ? "Each column is that day's engaged visits. A day with no reading says why in the table."
         : `Each column is that day's engaged visits across ${count(vr.value.sitesRead, "site", "sites")}${tally(vis.dropped, vis.droppedSum, 30, WHOLE.format(vr.value.current))}${vis.slots.some((s) => s.partial) ? ` The night of ${nightLabel(vr.value.night)} is still being counted, so its column is drawn in outline.` : ""}`;
+    // The lag sentence names the hatch only when a hatch is drawn: some series sit on a row
+    // older than the axis, so no lag day is on it (PR 7b review round 2, correctness minor 2).
     const searchNote = (
       what: string,
       total: (r: SearchReading) => number,
@@ -1754,7 +1756,7 @@ export function trendsFromDaily(nights: OverviewNight[] | null, now: Date): Tren
     ) =>
       sr.value === null
         ? `Each column is that day's ${what}. A day with no reading says why in the table.`
-        : `Each column is that day's ${what} across ${count(sr.value.sitesRead, "site", "sites")}${tally(read.dropped, read.droppedSum, 28, WHOLE.format(total(sr.value)))} Google's data lags about 3 days: the hatched days have none yet.`;
+        : `Each column is that day's ${what} across ${count(sr.value.sitesRead, "site", "sites")}${tally(read.dropped, read.droppedSum, 28, WHOLE.format(total(sr.value)))}${read.slots.some((x) => x.lag) ? " Google's data lags about 3 days: the hatched days have none yet." : ""}`;
     // The summary (the chart's description, for a screen reader) names the partial day and
     // the lag days too, so it says what the marks do not (PR 7b review round 1, E).
     const partialSaid = (slots: TrafficSlot[]) => {
