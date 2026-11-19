@@ -1730,19 +1730,24 @@ export function trendsFromDaily(nights: OverviewNight[] | null, now: Date): Tren
         partial: x.partial,
         lag: x.lag,
       }));
-    /** Said when the axis is shorter than the tile's window, or the newest reading is late. */
-    const short = (dropped: number, tile: number, night: string) =>
-      dropped > 0
-        ? ` The newest reading is from the night of ${nightLabel(night)}, so ${dropped} of the tile's ${tile} days ${dropped === 1 ? "is" : "are"} before this chart and the columns no longer add up to the tile.`
-        : "";
+    const first = nightLabel(days[0]!);
+    /** What a traffic note says of its tile's sum. Whole when the axis shows the tile's
+     *  window; when the axis starts after some of its days, it says where the axis starts,
+     *  and does not blame the reading's date (PR 7b review round 1, correctness M1 and M2). */
+    const tally = (dropped: number, tile: number, total: string) =>
+      dropped === 0
+        ? `; the ${tile} columns add up to the tile's ${total}.`
+        : dropped >= tile
+          ? `. All ${tile} of the tile's days fall before this chart starts on ${first}, so no column is drawn.`
+          : `. The chart starts on ${first}, so ${dropped} of the tile's ${tile} days ${dropped === 1 ? "falls" : "fall"} before it, and the columns add up to less than the tile's ${total}.`;
     const visitsNote =
       vr.value === null
         ? "Each column is that day's engaged visits. A day with no reading says why in the table."
-        : `Each column is that day's engaged visits across ${count(vr.value.sitesRead, "site", "sites")}; the 30 columns add up to the tile's ${WHOLE.format(vr.value.current)}. The night of ${nightLabel(vr.value.night)} is still being counted, so its column is drawn in outline.${short(vis.dropped, 30, vr.value.night)}`;
+        : `Each column is that day's engaged visits across ${count(vr.value.sitesRead, "site", "sites")}${tally(vis.dropped, 30, WHOLE.format(vr.value.current))}${vis.slots.some((s) => s.partial) ? ` The night of ${nightLabel(vr.value.night)} is still being counted, so its column is drawn in outline.` : ""}`;
     const searchNote = (what: string, total: (r: SearchReading) => number) =>
       sr.value === null
         ? `Each column is that day's ${what}. A day with no reading says why in the table.`
-        : `Each column is that day's ${what} across ${count(sr.value.sitesRead, "site", "sites")}; the 28 columns add up to the tile's ${WHOLE.format(total(sr.value))}. Google's data lags about 3 days: the hatched days have none yet.${short(imp.dropped, 28, sr.value.night)}`;
+        : `Each column is that day's ${what} across ${count(sr.value.sitesRead, "site", "sites")}${tally(imp.dropped, 28, WHOLE.format(total(sr.value)))} Google's data lags about 3 days: the hatched days have none yet.`;
     return [
       make(
         "Engaged visits, each day",
@@ -2821,7 +2826,7 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Trends",
-    text: `Drawn from the nightly counts once ${TREND_NIGHTS} of the last ${TREND_AXIS_NIGHTS} nights have them; until then the section says how many it has, and when the nightly last counted if it has stopped. Each chart covers up to the last ${TREND_AXIS_NIGHTS} calendar nights, to the night expected by now, and the note under it says what its marks count. Google's data lags about three days, so each search chart's 28 days end three days before the night and its last three days are hatched. A night with no count, or a count that could not be read, is blank, never a zero, and the table under each chart says why; a column at the axis is a real 0. A count kept as an all-time total is drawn as its change over the night before, so the night after a blank night is blank too. The rules that sort sites into levels have changed twice (the ladder in October, then the live-site checks), so on the level chart a night sorted by earlier rules is shaded and left out rather than compared.`,
+    text: `Drawn from the nightly counts once ${TREND_NIGHTS} of the last ${TREND_AXIS_NIGHTS} nights have them; until then the section says how many it has, and when the nightly last counted if it has stopped. Each chart covers up to the last ${TREND_AXIS_NIGHTS} calendar nights, to the night expected by now, and the note under it says what its marks count. Google's data lags about three days, so each search chart's 28 days end three days before the night, and the days Google has no data for yet are hatched. A night with no count, or a count that could not be read, is blank, never a zero, and the table under each chart says why; a column at the axis is a real 0. A count kept as an all-time total is drawn as its change over the night before, so the night after a blank night is blank too. The rules that sort sites into levels have changed twice (the ladder in October, then the live-site checks), so on the level chart a night sorted by earlier rules is shaded and left out rather than compared.`,
   },
   {
     term: "Engaged visits",
@@ -2829,7 +2834,7 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Times shown in Google",
-    text: "Search Console's impressions (how often a page of a site was shown in Google's search results) and clicks (how often a visitor clicked through from them), for each day, as the nightly writes them and added across the sites it could read. The tile and the charts count the 28 days that end three days before the night, because Google's data lags about three days; the last three days are hatched.",
+    text: "Search Console's impressions (how often a page of a site was shown in Google's search results) and clicks (how often a visitor clicked through from them), for each day, as the nightly writes them and added across the sites it could read. The tile and the charts count the 28 days that end three days before the night, because Google's data lags about three days; the days Google has no data for yet are hatched.",
   },
   {
     term: "Nights counted",

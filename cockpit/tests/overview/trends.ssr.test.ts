@@ -803,8 +803,7 @@ describe("P1-87 PR 7b: 31 nights and the three traffic charts", () => {
     expect(vis.series[0]!.points[oct("Oct 26")]!.value).toBeNull();
     expect(vis.series[0]!.points[oct("Oct 24")]).toMatchObject({ partial: true });
     expect(vis.series[0]!.points[oct("Oct 24")]!.value).not.toBeNull();
-    expect(vis.note).toContain("1 of the tile's 30 days");
-    expect(vis.note).toContain("no longer add up to the tile");
+    expect(vis.note).toContain("1 of the tile's 30 days falls before it");
 
     const srch = TF(late, DAYS.searchTimes);
     const at = (d: string) => srch.nights.indexOf(d);
@@ -824,6 +823,60 @@ describe("P1-87 PR 7b: 31 nights and the three traffic charts", () => {
     );
     expect(short.status).toBe("The 17 nights from Oct 10 to Oct 26");
     expect(TF(short, DAYS.visits).note).toContain("13 of the tile's 30 days");
+  });
+
+  it("each traffic note in full (PR 7b review round 1, B and tests major 2): the standard fixture, a short axis, a late reading, a series older than the axis", () => {
+    const notes = (x: ReturnType<typeof trendsFromDaily>) =>
+      [DAYS.visits, DAYS.searchTimes, DAYS.clicks].map((i) => TF(x, i).note);
+    // (a) the standard fixture: the axis shows the whole window, so the columns add up.
+    expect(notes(v)).toEqual([
+      "Each column is that day's engaged visits across 16 sites; the 30 columns add up to the tile's 1,674. The night of Oct 26 is still being counted, so its column is drawn in outline.",
+      "Each column is that day's times shown in Google across 16 sites; the 28 columns add up to the tile's 12,521. Google's data lags about 3 days: the hatched days have none yet.",
+      "Each column is that day's clicks through from Google across 16 sites; the 28 columns add up to the tile's 623. Google's data lags about 3 days: the hatched days have none yet.",
+    ]);
+    // (b) a 17-night axis from Oct 10: 13 visits days and 14 search days fall before it.
+    const short = trendsFromDaily(
+      run(N, 17, (_, i) => (i === 0 ? { traffic: traffic(trafficBlock(N)) } : {})),
+      NOW,
+    );
+    expect(notes(short)).toEqual([
+      "Each column is that day's engaged visits across 16 sites. The chart starts on Oct 10, so 13 of the tile's 30 days fall before it, and the columns add up to less than the tile's 1,674. The night of Oct 26 is still being counted, so its column is drawn in outline.",
+      "Each column is that day's times shown in Google across 16 sites. The chart starts on Oct 10, so 14 of the tile's 28 days fall before it, and the columns add up to less than the tile's 12,521. Google's data lags about 3 days: the hatched days have none yet.",
+      "Each column is that day's clicks through from Google across 16 sites. The chart starts on Oct 10, so 14 of the tile's 28 days fall before it, and the columns add up to less than the tile's 623. Google's data lags about 3 days: the hatched days have none yet.",
+    ]);
+    // (c) one night late: the newest reading is Oct 24, so the axis starts Sep 26 with the
+    // window's Sep 25 (visits) and Sep 24 and 25 (search) before it.
+    const late = trendsFromDaily(
+      run(N, 32, (d, i) =>
+        d === "2026-10-24"
+          ? { traffic: traffic(trafficBlock("2026-10-24")) }
+          : i < 2
+            ? {
+                traffic: traffic({
+                  visits: { value: null, reason: "traffic: timeout" },
+                  search: { value: null, reason: "traffic: timeout" },
+                  sites: [],
+                }),
+              }
+            : {},
+      ),
+      NOW,
+    );
+    expect(notes(late)).toEqual([
+      "Each column is that day's engaged visits across 16 sites. The chart starts on Sep 26, so 1 of the tile's 30 days falls before it, and the columns add up to less than the tile's 1,674. The night of Oct 24 is still being counted, so its column is drawn in outline.",
+      "Each column is that day's times shown in Google across 16 sites. The chart starts on Sep 26, so 2 of the tile's 28 days fall before it, and the columns add up to less than the tile's 12,521. Google's data lags about 3 days: the hatched days have none yet.",
+      "Each column is that day's clicks through from Google across 16 sites. The chart starts on Sep 26, so 2 of the tile's 28 days fall before it, and the columns add up to less than the tile's 623. Google's data lags about 3 days: the hatched days have none yet.",
+    ]);
+    // (d) the only series is on Sep 20, older than the axis: every window day is before it.
+    const older = trendsFromDaily(
+      run(N, 40, (d) => (d === "2026-09-20" ? { traffic: traffic(trafficBlock(d)) } : {})),
+      NOW,
+    );
+    expect(notes(older)).toEqual([
+      "Each column is that day's engaged visits across 16 sites. All 30 of the tile's days fall before this chart starts on Sep 26, so no column is drawn.",
+      "Each column is that day's times shown in Google across 16 sites. All 28 of the tile's days fall before this chart starts on Sep 26, so no column is drawn. Google's data lags about 3 days: the hatched days have none yet.",
+      "Each column is that day's clicks through from Google across 16 sites. All 28 of the tile's days fall before this chart starts on Sep 26, so no column is drawn. Google's data lags about 3 days: the hatched days have none yet.",
+    ]);
   });
 
   it("no traffic block anywhere: every day is blank with its words, and the summary says no day drawn", () => {
@@ -855,7 +908,7 @@ describe("P1-87 PR 7b: 31 nights and the three traffic charts", () => {
   it("How we count: the Trends text says the search window ends three days before the night", () => {
     const trends = HOW_WE_COUNT.find((h) => h.term === "Trends")!.text;
     expect(trends).toContain(
-      "Google's data lags about three days, so each search chart's 28 days end three days before the night and its last three days are hatched.",
+      "Google's data lags about three days, so each search chart's 28 days end three days before the night, and the days Google has no data for yet are hatched.",
     );
     expect(trends).toContain("the last 31 calendar nights");
     const terms = HOW_WE_COUNT.map((h) => h.term);
