@@ -39,6 +39,17 @@ export type HowView = {
 
 const LADDER_ORDER: readonly Tier[] = ["ok", "watch", "attention", "broken"];
 
+/** PR 8c item 8: how long one step takes to light. Its colour transition is this long, and the
+ *  next step waits this long, so each lights after the one above it has finished. */
+export const STEP_LIGHT_MS = 300;
+
+/** PR 8c item 8: the step that lights next, or null. Only the first unlit step can light, and
+ *  only once it has been seen in view, so a step never lights before the one above it. */
+export function nextToLight(seen: readonly boolean[], lit: readonly boolean[]): number | null {
+  const k = lit.findIndex((l) => !l);
+  return k !== -1 && seen[k] === true ? k : null;
+}
+
 /** The ladder's four lines ("Broken: a visitor…"), split into name and text, mildest
  *  first. Throws if a line goes missing, so the chapter never shows three levels. */
 export function ladder(): HowView["ladder"] {

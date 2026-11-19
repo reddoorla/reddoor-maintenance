@@ -63,7 +63,34 @@ body {
   color: var(--ink-dark);
 }
 .how-step-last {
+  color: var(--ink);
+}
+/* PR 8c item 8: a step lights as it scrolls into view. The server renders every step lit;
+   the script un-lights the steps not yet in view, and only when motion is allowed. An unlit
+   step shows its name, and its result muted (4.5:1 or better on its panel, both themes). */
+.how-steps li::before {
+  content: "";
+  box-sizing: border-box;
+  width: 0.6rem;
+  height: 0.6rem;
+  border: 1px solid var(--ink-muted);
+}
+.how-steps li[data-lit="true"]::before {
+  background: var(--ink-dark);
+  border-color: var(--ink-dark);
+}
+.how-steps li[data-lit="false"] .how-step-last {
   color: var(--ink-muted);
+}
+@media (prefers-reduced-motion: no-preference) {
+  /* The step's 300 ms (STEP_LIGHT_MS in lib/how/view.ts). */
+  .how-steps li::before,
+  .how-steps li .how-step-last {
+    transition:
+      background-color 300ms,
+      border-color 300ms,
+      color 300ms;
+  }
 }
 
 /* Chapter 2: the ladder, mildest to worst. The bar on top darkens from OK to

@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import type { HowView } from "../../lib/how/view.js";
+  import { nextToLight, STEP_LIGHT_MS } from "../../lib/how/view.js";
   import { HOW_WE_COUNT, NOT_YET, UNREADABLE } from "../../lib/overview/view.js";
   import PageStyles from "../../lib/PageStyles.svelte";
   import howCss from "../../lib/how/how.css?inline";
@@ -12,6 +14,62 @@
   const v = $derived(data.view);
   /** A count, not a "not yet collected" or "not readable" in its place. */
   const isCount = (x: string) => x !== NOT_YET && x !== UNREADABLE;
+
+  /** PR 8c item 8: the steps not yet lit, by index. Empty on the server and without script,
+   *  so every step renders lit; the script sets it in onMount, and only when motion is allowed. */
+  let unlit = $state<boolean[]>([]);
+  /** Set in onMount, in the same effect that attaches the observer: the browser tests wait for it. */
+  let scripted = $state(false);
+  let stepsEl: HTMLOListElement | undefined = $state();
+
+  onMount(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let observer: IntersectionObserver | undefined;
+    // Under reduced motion, or with no observer, nothing moves: every step stays lit.
+    const motion =
+      typeof matchMedia === "function" &&
+      matchMedia("(prefers-reduced-motion: no-preference)").matches;
+    if (motion && typeof IntersectionObserver === "function" && stepsEl !== undefined) {
+      const items = Array.from(stepsEl.children) as HTMLElement[];
+      const seen = items.map(() => false);
+      const lit = items.map(() => false);
+      const show = () => {
+        unlit = lit.map((l) => !l);
+      };
+      // A step whose top edge is already above the viewport's bottom at mount is seen and
+      // lit at mount, in order. The rest wait for the observer.
+      items.forEach((el, i) => {
+        seen[i] = el.getBoundingClientRect().top < window.innerHeight;
+      });
+      for (let k = nextToLight(seen, lit); k !== null; k = nextToLight(seen, lit)) lit[k] = true;
+      show();
+      // One step at a time: each lights, then the next waits its transition's length.
+      const light = () => {
+        timer = undefined;
+        const k = nextToLight(seen, lit);
+        if (k === null) return;
+        lit[k] = true;
+        show();
+        timer = setTimeout(light, STEP_LIGHT_MS);
+      };
+      observer = new IntersectionObserver(
+        (entries) => {
+          for (const e of entries) {
+            const i = items.indexOf(e.target as HTMLElement);
+            if (i !== -1 && e.isIntersecting && e.intersectionRatio >= 0.6) seen[i] = true;
+          }
+          if (timer === undefined) light();
+        },
+        { threshold: 0.6 },
+      );
+      items.forEach((el) => observer!.observe(el));
+    }
+    scripted = true;
+    return () => {
+      observer?.disconnect();
+      clearTimeout(timer);
+    };
+  });
 </script>
 
 <svelte:head>
@@ -31,9 +89,15 @@
     <p class="how-kicker">Every night</p>
     <h2 id="how-night">While everyone sleeps, every site gets a full check-up</h2>
   </hgroup>
-  <ol class="how-steps" role="list" data-term="Steps">
-    {#each v.nightly.steps as s (s.label)}
-      <li>
+  <ol
+    class="how-steps"
+    role="list"
+    data-term="Steps"
+    bind:this={stepsEl}
+    data-js={scripted ? "true" : undefined}
+  >
+    {#each v.nightly.steps as s, i (s.label)}
+      <li data-lit={unlit[i] ? "false" : "true"}>
         <strong>
           <span class="how-step-n">{s.n}</span><span aria-hidden="true">{" ·"}</span>{" "}<span
             class="how-step-name"

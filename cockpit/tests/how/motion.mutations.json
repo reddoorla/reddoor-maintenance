@@ -1,0 +1,67 @@
+[
+  {
+    "id": "8-4-lights-out-of-order",
+    "why": "A step lights as soon as it is seen, even when the step above it is still unlit",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "const k = lit.findIndex((l) => !l);",
+        "replace": "const k = seen.findIndex((s, i) => s && !lit[i]);"
+      }
+    ],
+    "test": "cockpit/tests/how/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "8-8-lights-an-unseen-step",
+    "why": "The first unlit step lights without waiting to be seen in view",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "return k !== -1 && seen[k] === true ? k : null;",
+        "replace": "return k !== -1 ? k : null;"
+      }
+    ],
+    "test": "cockpit/tests/how/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "8-5-server-render-unlit",
+    "why": "The server render shows every step unlit, so a visitor without script sees the steps waiting",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "<li data-lit={unlit[i] ? \"false\" : \"true\"}>",
+        "replace": "<li data-lit=\"false\">"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "8-6-script-marker-on-the-server",
+    "why": "The script marker is on from the first render, so a browser test would act before the observer exists",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "let scripted = $state(false);",
+        "replace": "let scripted = $state(true);"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "8-7-step-takes-three-seconds",
+    "why": "Each step's light takes 3 s, so the run of eight would take longer than the five-second ceiling",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "export const STEP_LIGHT_MS = 300;",
+        "replace": "export const STEP_LIGHT_MS = 3000;"
+      }
+    ],
+    "test": "cockpit/tests/how/view.ssr.test.ts",
+    "expect": "red"
+  }
+]

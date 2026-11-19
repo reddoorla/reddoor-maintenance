@@ -4261,3 +4261,163 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     }
   });
 });
+
+describe("PR 8c, How this works motion", () => {
+  /** Each step's data-lit, in order. */
+  const litFlags = (page: Page) =>
+    page
+      .locator("ol.how-steps > li")
+      .evaluateAll((els) => els.map((el) => el.getAttribute("data-lit")));
+  /** The script's marker, set in the same effect that attaches the observer (never server-rendered). */
+  const stepsScripted = (page: Page) =>
+    page.locator('ol.how-steps[data-js="true"]').waitFor({ state: "attached" });
+  /** Brings step i to the middle of the viewport, so it is well past the 0.6 threshold. */
+  const scrollToStep = (page: Page, i: number) =>
+    page
+      .locator("ol.how-steps > li")
+      .nth(i)
+      .evaluate((el) => el.scrollIntoView({ block: "center" }));
+  /** The WCAG contrast ratio of two computed rgb(...) colours. */
+  const contrast = (a: string, b: string) => {
+    const lum = (rgb: string) => {
+      const [r, g, bl] = rgb
+        .match(/\d+(\.\d+)?/g)!
+        .slice(0, 3)
+        .map((x) => Number(x) / 255)
+        .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * r! + 0.7152 * g! + 0.0722 * bl!;
+    };
+    const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+    return (hi! + 0.05) / (lo! + 0.05);
+  };
+
+  it("on load at 1280x700, the steps below the fold are unlit, and scrolling each into view lights it", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await stepsScripted(page);
+    const below = await page
+      .locator("ol.how-steps > li")
+      .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().top >= window.innerHeight));
+    expect(below.some(Boolean), "the premise: at least one step is below the fold").toBe(true);
+    const before = await litFlags(page);
+    below.forEach((isBelow, i) =>
+      expect(before[i], `step ${i} below the fold is unlit on load`).toBe(
+        isBelow ? "false" : "true",
+      ),
+    );
+    for (let i = 0; i < below.length; i++) {
+      await scrollToStep(page, i);
+      await expect
+        .poll(async () => (await litFlags(page))[i], { message: `step ${i} lights once in view` })
+        .toBe("true");
+    }
+  });
+
+  it("step k never lights before step k-1", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await stepsScripted(page);
+    // Record the order in which steps turn lit after the observer is installed.
+    await page.evaluate(() => {
+      const ol = document.querySelector("ol.how-steps")!;
+      const items = Array.from(ol.children);
+      const order: number[] = [];
+      (window as unknown as { __lightOrder: number[] }).__lightOrder = order;
+      new MutationObserver((records) => {
+        for (const r of records) {
+          const el = r.target as Element;
+          if (el.getAttribute("data-lit") === "true" && r.oldValue !== "true")
+            order.push(items.indexOf(el));
+        }
+      }).observe(ol, {
+        attributes: true,
+        attributeFilter: ["data-lit"],
+        attributeOldValue: true,
+        subtree: true,
+      });
+    });
+    // The last step first: it is in view, but every step above it must light before it does.
+    const n = await page.locator("ol.how-steps > li").count();
+    await scrollToStep(page, n - 1);
+    await expect.poll(async () => (await litFlags(page)).every((f) => f === "true")).toBe(true);
+    const order = await page.evaluate(
+      () => (window as unknown as { __lightOrder: number[] }).__lightOrder,
+    );
+    expect(order.length, "some steps lit after the observer was installed").toBeGreaterThan(0);
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+  });
+
+  it("each step's light takes 300 ms, the transition's length", async () => {
+    const page = await signedIn();
+    await page.goto(`${origin}/how`);
+    await stepsScripted(page);
+    const duration = await page
+      .locator("ol.how-steps > li")
+      .first()
+      .evaluate((el) => getComputedStyle(el, "::before").transitionDuration);
+    expect(duration.split(",")[0]).toBe("0.3s");
+  });
+
+  it("under reduced motion nothing moves: every step is lit on load, and nothing is animating", async () => {
+    const page = await signedIn("op", { reducedMotion: "reduce" });
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await stepsScripted(page);
+    expect(new Set(await litFlags(page)), "every step lit on load").toEqual(new Set(["true"]));
+    const n = await page.locator("ol.how-steps > li").count();
+    await scrollToStep(page, n - 1);
+    expect(
+      (await litFlags(page)).every((f) => f === "true"),
+      "every step lit after scrolling to the last",
+    ).toBe(true);
+    const running = await page
+      .locator("ol.how-steps, ol.how-steps *")
+      .evaluateAll((els) => els.reduce((k, el) => k + el.getAnimations().length, 0));
+    expect(running, "no animation is running under reduced motion").toBe(0);
+  });
+
+  it("with no script, the server render shows every step lit and no script marker", async () => {
+    const page = await signedIn("op", { javaScriptEnabled: false });
+    await page.goto(`${origin}/how`);
+    const html = await page.content();
+    expect(html.match(/<ol class="how-steps"[^>]*>/)![0]).not.toContain("data-js");
+    expect((html.match(/data-lit="true"/g) ?? []).length).toBe(8);
+    expect(html).not.toContain('data-lit="false"');
+  });
+
+  it("an unlit step keeps its result in the DOM, and its muted text meets 4.5:1 on its panel in both themes", async () => {
+    for (const colorScheme of ["light", "dark"] as const) {
+      const page = await signedIn("op", { colorScheme });
+      await page.setViewportSize({ width: 1280, height: 700 });
+      await page.goto(`${origin}/how`);
+      await stepsScripted(page);
+      const unlit = await page.locator("ol.how-steps > li[data-lit='false']").evaluateAll((els) =>
+        els.map((el) => {
+          const result = el.querySelector(".how-step-last")!;
+          return {
+            text: result.textContent?.trim() ?? "",
+            display: getComputedStyle(result).display,
+            visibility: getComputedStyle(result).visibility,
+            color: getComputedStyle(result).color,
+            panel: getComputedStyle(el).backgroundColor,
+          };
+        }),
+      );
+      expect(unlit.length, `${colorScheme}: some steps are unlit below the fold`).toBeGreaterThan(
+        0,
+      );
+      for (const u of unlit) {
+        expect(u.text.length, `${colorScheme}: the result text is in the DOM`).toBeGreaterThan(0);
+        expect(u.display, `${colorScheme}: the result is not display:none`).not.toBe("none");
+        expect(u.visibility, `${colorScheme}: the result is not hidden`).not.toBe("hidden");
+        expect(
+          contrast(u.color, u.panel),
+          `${colorScheme}: unlit result ${u.color} on ${u.panel}`,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+      await page.close();
+    }
+  });
+});

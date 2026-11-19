@@ -753,3 +753,20 @@ describe("How we count's Lately entry (P1-87 PR 4, review round 3 D)", () => {
     expect(text(entry)).toContain("from six Pacific calendar days back carries its date");
   });
 });
+
+describe("PR 8c item 8: the night fills in as you scroll (server render)", () => {
+  it("the server renders every step lit, so no script and no reduced motion show the end state", () => {
+    const steps = DOC.querySelectorAll(".how-steps li");
+    expect(steps.length).toBe(NIGHTLY_STEPS.length);
+    expect(steps.map((li) => li.getAttribute("data-lit"))).toEqual(NIGHTLY_STEPS.map(() => "true"));
+  });
+
+  it("the server render carries no script marker, so the browser tests wait for the script", () => {
+    expect(DOC.querySelector('[data-js="true"]')).toBeNull();
+  });
+
+  it("every step's result is in the DOM, whatever its light", () => {
+    const steps = DOC.querySelectorAll(".how-steps li");
+    expect(steps.every((li) => text(li.querySelector(".how-step-last")!).length > 0)).toBe(true);
+  });
+});
