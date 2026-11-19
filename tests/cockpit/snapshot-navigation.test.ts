@@ -3429,6 +3429,116 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     }
   });
 
+  // P1-87 PR 5b review r11 B.4 (F1, mutant 86): onDocOut's own re-check. A drag dropped 1 px inside the
+  // window's bottom edge, a rest of 150 ms, a Shift while the row still moves (the flag holds it), then
+  // the mouse off the page with no key after it: (a) one 3 px step off the bottom, or (b) one jump to
+  // x = -30. Only onDocOut's requestAnimationFrame(recheck) can stand the row still here, since B.1
+  // presses its key after the leave. Five runs per variant at 1280px and 390px.
+  it("a drag dropped 1 px inside the window's bottom edge, a Shift while the row still moves, then the mouse off the page with no key, stands the row still with link 1 in the window, at 1280px and 390px", async () => {
+    for (const width of [1280, 390]) {
+      for (const variant of ["step-off", "jump-off"] as const) {
+        for (let run = 1; run <= 5; run++) {
+          const page = await signedIn();
+          await page.setViewportSize({ width, height: 900 });
+          await page.goto(`${origin}/`);
+          await expect
+            .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
+            .toBeGreaterThanOrEqual(2);
+          const href = await page
+            .locator(".ov-ticker-list:not(.copy) > li:nth-child(1) a")
+            .getAttribute("href");
+          expect(href, `link 1 is a link at ${width}px`).toBeTruthy();
+          await page.evaluate(() => {
+            const log: string[] = ((window as Window & { __drag?: string[] }).__drag = []);
+            document
+              .querySelector(".ov-ticker-window")!
+              .addEventListener("dragstart", () => log.push("dragstart"));
+            const w = document.querySelector(".ov-ticker-window")!.getBoundingClientRect();
+            window.scrollBy(0, w.bottom - window.innerHeight + 1);
+          });
+          await page.waitForTimeout(100);
+          const scrolled = (await page.locator(".ov-ticker-window").boundingBox())!;
+          expect(
+            scrolled.y + scrolled.height,
+            `the window's bottom is at the viewport's bottom at ${width}px, run ${run}`,
+          ).toBeGreaterThan(898);
+          const link = page.locator(".ov-ticker-list:not(.copy) > li:nth-child(1) a");
+          await page.locator(".ov-ticker-window").hover();
+          await settledPaused(page);
+          const box = (await link.boundingBox())!;
+          const win = (await page.locator(".ov-ticker-window").boundingBox())!;
+          const left = Math.max(box.x, win.x, 0) + 1;
+          const right = Math.min(box.x + box.width, win.x + win.width, width) - 1;
+          const x = (left + right) / 2;
+          const y = box.y + box.height / 2;
+          await page.mouse.move(x, y);
+          await page.mouse.down();
+          for (let i = 1; i <= 4; i++) await page.mouse.move(x + 3 * i, y);
+          const dropX = x + 12;
+          const bottom = win.y + win.height;
+          let dy = y;
+          while (dy < bottom - 1) {
+            dy = Math.min(bottom - 1, dy + 3);
+            await page.mouse.move(dropX, dy);
+          }
+          await page.mouse.up();
+          const inside = (px: number, py: number) =>
+            page.evaluate(
+              ([qx, qy]) => document.elementFromPoint(qx, qy)?.closest(".ov-ticker-window") != null,
+              [px, py] as const,
+            );
+          expect(await dragStarted(page), `a drag started on the window at ${width}px`).toBe(true);
+          expect(
+            await inside(dropX, bottom - 1),
+            `the drop is inside the window at ${width}px, run ${run}`,
+          ).toBe(true);
+          await page.waitForTimeout(150);
+          await page.keyboard.press("Shift");
+          expect(
+            await dataStill(page),
+            `the row still moves under the resting mouse before the leave (${variant}, ${width}px, run ${run})`,
+          ).toBe(false);
+          expect(
+            await page.evaluate(() => document.activeElement!.matches(":focus-visible")),
+            `link 1 is :focus-visible after the Shift (${variant}, ${width}px, run ${run})`,
+          ).toBe(true);
+          expect(
+            await focusedHref(page),
+            `link 1 holds the focus before the leave (${variant}, ${width}px, run ${run})`,
+          ).toBe(href);
+          // No key after this move: only the document mouseout's own re-check can stand the row still.
+          const leave =
+            variant === "step-off" ? { x: dropX, y: bottom - 1 + 3 } : { x: -30, y: bottom - 1 };
+          await page.mouse.move(leave.x, leave.y);
+          expect(
+            await inside(leave.x, leave.y),
+            `the pointer is off the window after its move at ${width}px (${variant}, run ${run})`,
+          ).toBe(false);
+          await expect
+            .poll(() => dataStill(page), {
+              message: `the row stands still within 1.6 s of the leave, no key (${variant}, ${width}px, run ${run})`,
+              timeout: 1_600,
+            })
+            .toBe(true);
+          expect(
+            await focusedHref(page),
+            `link 1 holds the focus once the row is still (${variant}, ${width}px, run ${run})`,
+          ).toBe(href);
+          expect(
+            await page.evaluate(() => {
+              const a = document.activeElement!.getBoundingClientRect();
+              const w = document.querySelector(".ov-ticker-window")!.getBoundingClientRect();
+              return (
+                a.left >= w.left && a.right <= w.right && a.top >= w.top && a.bottom <= w.bottom
+              );
+            }),
+            `link 1 is in the window once the row is still (${variant}, ${width}px, run ${run})`,
+          ).toBe(true);
+        }
+      }
+    }
+  });
+
   // P1-87 PR 5b review r10 B.3 (F2, mutant 71): a drag out of the window, released outside, then a
   // Shift at once with no further move. Ten runs at each of 1280px and 390px, and the count is the
   // assertion: at least 5 of 10 runs must stand the row still within 1.6 s of the Shift, and every
