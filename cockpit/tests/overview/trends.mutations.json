@@ -83,8 +83,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "    return all.some((v) => v === null) ? null : all.reduce<number>((a, v) => a + v!, 0);",
-        "replace": "    return all.reduce<number>((a, v) => a + (v ?? 0), 0);"
+        "find": "  return all.some((v) => v === null) ? null : all.reduce<number>((a, v) => a + v!, 0);",
+        "replace": "  return all.reduce<number>((a, v) => a + (v ?? 0), 0);"
       }
     ],
     "test": "cockpit/tests/overview/trends.ssr.test.ts",
@@ -239,8 +239,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "{#each g.lines as l, li (li)}",
-        "replace": "{#each g.lines.filter((l) => l.series === 0) as l, li (li)}"
+        "find": "{#each g.lines as l, li (li)}\n              <path\n                class=\"ov-line-mark",
+        "replace": "{#each g.lines.filter((l) => l.series === 0) as l, li (li)}\n              <path\n                class=\"ov-line-mark"
       }
     ],
     "test": "cockpit/tests/overview/page.ssr.test.ts",
@@ -512,8 +512,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "    if (columns === null) return null;",
-        "replace": "    if (columns === null) return 0;"
+        "find": "  if (columns === null) return null;",
+        "replace": "  if (columns === null) return 0;"
       }
     ],
     "test": "cockpit/tests/overview/trends.ssr.test.ts",
