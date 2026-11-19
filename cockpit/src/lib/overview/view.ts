@@ -1543,10 +1543,11 @@ function roundUp(n: number): number {
     for (const m of [2, 4, 6, 10]) if (m * step >= n) return m * step;
 }
 
-/** A y-axis tick in at most four characters, so it fits left of the plot at 390px:
- *  1000 and up read in thousands (k), millions (M) or billions (B). roundUp makes
- *  every high a 2, 4, 6 or 10 times a power of ten, and mid is half of it, so the
- *  short form is exact; each chart's table keeps the full counts. */
+/** A short tick: 1000 and up in thousands (k), millions (M) or billions (B). Up to 999k it
+ *  fits left of the plot in the shipped font (600k measured 22.02 units, 26.65 at
+ *  Pragmatica's 21% extra, against 27); three-digit M and B labels would not, and no fleet
+ *  count reaches them. roundUp makes every high a 2, 4, 6 or 10 times a power of ten, so
+ *  the short form is exact; each chart's table keeps the full counts. */
 export function tickLabel(n: number): string {
   if (n >= 1e9) return `${n / 1e9}B`;
   if (n >= 1e6) return `${n / 1e6}M`;
