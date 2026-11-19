@@ -205,4 +205,3 @@ describe("draftReportForSite header-refresh wiring", () => {
     expect(generateHeaderImage).toHaveBeenCalledTimes(1);
   });
 });
-

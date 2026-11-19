@@ -210,7 +210,9 @@
                   reportId={r.id}
                   url={r.action.unapprove.url}
                   confirmText={r.action.unapprove.confirm}
-                />{:else if r.action.kind === "sending"}<span class="muted sending">
+                />{#if r.action.sendsOn !== null}<span class="muted sends-on">
+                    approved, sends {r.action.sendsOn}
+                  </span>{/if}{:else if r.action.kind === "sending"}<span class="muted sending">
                   Send started {r.action.at}Z
                 </span>{/if}{#if r.approvedBy !== null}<span class="muted approved-by">
                   approved by {r.approvedBy}
