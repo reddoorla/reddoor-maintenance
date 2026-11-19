@@ -19,10 +19,10 @@ Landed in the PR that fixes [reddoorla/reddoor-maintenance#2147](https://github.
 | 2x       | 29 pass, 12 fail | 41 of 41        |
 | 4x       | 27 pass, 14 fail | 38 pass, 3 fail |
 
-At 4x the before-run failed on 0 listeners, "a drag started … false" (CI's two assertion failures), focus timing and drop preconditions; with the fix those are gone. Three remain at 4x only: one test passing its 120 s budget, and two "the drop is inside the window at 390px". Logged, the window had moved up 19 px during the drag: dragging 1 px from the viewport's bottom lets Chromium's drag autoscroll scroll the page if the drag is held long enough, which a 4x-slowed run does. The precondition caught an invalid run, as it should; it has not been seen on CI.
+At 4x the before-run failed on 0 listeners, "a drag started … false" (CI's two assertion failures), focus timing and drop preconditions; with the fix those are gone. Three remain at 4x only: one test passing its 120 s budget, and two "the drop is inside the window at 390px". Logged, the window had moved up 19 px during the drag. The likely cause, not proven, is Chromium's drag autoscroll: the drag is held 1 px from the viewport's bottom, and a 4x-slowed run holds it there longer. The precondition caught an invalid run, as it should; it has not been seen on CI.
 
 **Mutants** (the listeners test at 6x, 3 runs each): the wait without the marker, red 3 of 3; the page setting the marker in its server render (`let js = $state(true)`), red 2 of 3. The fix at 6x: 3 of 3 green.
 
 **Belief corrected.** The first guess for the 390px drop failure was a drop point outside a narrow window; the logged geometry put it well inside. The window had moved.
 
-**Not done.** Within one test, a loop that opens a page per run still keeps them all until the test ends (up to 26 renderers at 4x). Closing each run's page would take an edit in every looping test, so that is filed separately rather than folded in.
+**Not done.** Within one test, a loop that opens a page per run still keeps them all until the test ends (up to 26 renderers at 4x). Closing each run's page would take an edit in every looping test, so it is filed with the 4x drop failures as [reddoorla/reddoor-maintenance#2151](https://github.com/reddoorla/reddoor-maintenance/issues/2151) rather than folded in.
