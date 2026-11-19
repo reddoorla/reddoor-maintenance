@@ -178,10 +178,71 @@ body {
   /* The filled box takes the hairline's colour too, so the rule does not cross it. */
   border-top-color: var(--ink);
 }
+/* PR 8c item 9: the lead's journey. The dot is a circle (not a box), runs once, and rests at
+   the inbox; a stage the dot has reached is outlined. None of it moves without script. */
+.how-lead {
+  position: relative;
+}
+.how-dot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0.75rem;
+  height: 0.75rem;
+  margin: -0.375rem 0 0 -0.375rem;
+  border-radius: 50%;
+  background: var(--ink-dark);
+  pointer-events: none;
+}
+.how-lead-flow li[data-passed="true"] {
+  outline: 2px solid var(--ink-dark);
+  outline-offset: -2px;
+}
+.how-lead-flow li.how-end[data-passed="true"] {
+  outline-color: var(--on-ink);
+}
+.how-replay,
+.how-branch-toggle {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--ink);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.how-replay:focus-visible,
+.how-branch-toggle:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.how-replay {
+  display: inline-block;
+  margin: 0 0 var(--space-4);
+}
 .how-branch {
+  margin: 0 0 var(--space-4);
+}
+.how-branch-toggle::before {
+  /* A chevron drawn with two borders, never a glyph (the cockpit's style rule). */
+  content: "";
+  display: inline-block;
+  width: 0.4rem;
+  height: 0.4rem;
+  margin: 0 0.6rem 0.2rem 0.1rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  vertical-align: middle;
+}
+.how-branch-toggle[aria-expanded="true"]::before {
+  transform: rotate(45deg);
+}
+.how-branch-text {
   /* A hairline: 4px bars mean levels on the ladder. */
   border-left: 1px solid var(--rule);
   padding-left: var(--space-3);
+  max-width: 46rem;
 }
 
 .how-checks {

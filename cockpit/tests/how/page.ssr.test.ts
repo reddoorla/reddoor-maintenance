@@ -770,3 +770,53 @@ describe("PR 8c item 8: the night fills in as you scroll (server render)", () =>
     expect(steps.every((li) => text(li.querySelector(".how-step-last")!).length > 0)).toBe(true);
   });
 });
+
+describe("PR 8c item 9: a lead's journey (server render)", () => {
+  const LEAD = () => DOC.querySelector("section:has(#how-lead)")!;
+
+  it("the dot is aria-hidden, carries no text, and is hidden in the server render", () => {
+    const dot = LEAD().querySelector(".how-dot")!;
+    expect(dot, "the dot exists").not.toBeNull();
+    expect(dot.getAttribute("aria-hidden")).toBe("true");
+    expect(text(dot)).toBe("");
+    expect(dot.hasAttribute("hidden")).toBe(true);
+  });
+
+  it("Replay is a type=button hidden in the server render, so no script shows no Replay", () => {
+    const replay = LEAD().querySelector("button.how-replay")!;
+    expect(replay, "the Replay button exists").not.toBeNull();
+    expect(replay.getAttribute("type")).toBe("button");
+    expect(text(replay)).toBe("Replay");
+    expect(replay.hasAttribute("hidden")).toBe(true);
+  });
+
+  it("the branch is a disclosure button, open in the server render, naming the branch", () => {
+    const toggle = LEAD().querySelector("button.how-branch-toggle")!;
+    expect(toggle, "the branch toggle exists").not.toBeNull();
+    expect(toggle.getAttribute("type")).toBe("button");
+    expect(text(toggle)).toBe("If an email to the client fails");
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("the branch's button controls a region that holds the existing sentence, word for word", () => {
+    const toggle = LEAD().querySelector("button.how-branch-toggle")!;
+    const id = toggle.getAttribute("aria-controls");
+    expect(id, "aria-controls names an id").toBeTruthy();
+    const region = DOC.querySelector(`#${id}`)!;
+    expect(region, "the controlled region exists").not.toBeNull();
+    expect(region.hasAttribute("hidden")).toBe(false);
+    expect(text(region)).toBe(
+      "If an email to the client fails, the lead is still kept in our own inbox, and repeated bounces raise an alarm for us.",
+    );
+  });
+
+  it("the aria-expanded of the branch agrees with whether its region is open", () => {
+    const toggle = LEAD().querySelector("button.how-branch-toggle")!;
+    const region = DOC.querySelector(`#${toggle.getAttribute("aria-controls")}`)!;
+    expect(toggle.getAttribute("aria-expanded") === "true").toBe(!region.hasAttribute("hidden"));
+  });
+
+  it("the lead flow's server render is not marked as scripted, so the browser tests wait for the script", () => {
+    expect(LEAD().querySelector('[data-js="true"]')).toBeNull();
+  });
+});

@@ -4420,4 +4420,126 @@ describe("PR 8c, How this works motion", () => {
       await page.close();
     }
   });
+
+  // PR 8c item 9: a lead's journey. The dot runs once, Replay restarts it, and the branch is a
+  // disclosure. Nothing here moves under reduced motion, and the server render shows the end state.
+  /** The dot's running and finished animations, with their timing. */
+  const dotAnimations = (page: Page) =>
+    page.locator("section.how-lead .how-dot").evaluate((el) =>
+      el.getAnimations().map((a) => {
+        const t = (a.effect as KeyframeEffect).getTiming();
+        return { playState: a.playState, duration: t.duration, iterations: t.iterations };
+      }),
+    );
+  /** The script's marker on the lead flow, set in the same effect that attaches the listeners. */
+  const leadScripted = (page: Page) =>
+    page.locator('ol.how-lead-flow[data-js="true"]').waitFor({ state: "attached" });
+  /** Brings the lead chapter to the middle of the viewport, well past the 0.6 threshold. */
+  const scrollToLead = (page: Page) =>
+    page.locator("section.how-lead").evaluate((el) => el.scrollIntoView({ block: "center" }));
+
+  it("the lead's dot starts when the chapter is 0.6 in view, runs once in 3.5 s, and rests at the inbox", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await leadScripted(page);
+    const below = await page
+      .locator("section.how-lead")
+      .evaluate((el) => el.getBoundingClientRect().top >= window.innerHeight);
+    expect(below, "the premise: the lead chapter is below the fold on load").toBe(true);
+    expect(await dotAnimations(page), "the dot does not run before the chapter is in view").toEqual(
+      [],
+    );
+    await scrollToLead(page);
+    await expect
+      .poll(async () => (await dotAnimations(page)).length, { message: "the dot starts once" })
+      .toBe(1);
+    const [run] = await dotAnimations(page);
+    expect(run!.duration, "the run's length is LEAD_DOT_MS, 3.5 s").toBe(3500);
+    expect(run!.iterations, "the run is not a loop").toBe(1);
+    await expect
+      .poll(async () => (await dotAnimations(page))[0]?.playState, { timeout: 4_500 })
+      .toBe("finished");
+    const dot = page.locator("section.how-lead .how-dot");
+    expect(await dot.getAttribute("aria-hidden")).toBe("true");
+    expect(await dot.isVisible(), "the dot is shown once the script runs").toBe(true);
+  });
+
+  it("Replay restarts the run from the form", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await leadScripted(page);
+    await scrollToLead(page);
+    await expect
+      .poll(async () => (await dotAnimations(page))[0]?.playState, { timeout: 4_500 })
+      .toBe("finished");
+    const replay = page.locator("section.how-lead button.how-replay");
+    expect(await replay.isVisible(), "Replay is shown once the script runs").toBe(true);
+    expect(await replay.getAttribute("type")).toBe("button");
+    await replay.click();
+    const again = await page.evaluate(() => {
+      const [a] = document.querySelector("section.how-lead .how-dot")!.getAnimations();
+      return { playState: a?.playState, currentTime: a?.currentTime ?? null };
+    });
+    expect(again.playState, "Replay starts a new run").toBe("running");
+    expect(again.currentTime, "the new run starts at the form").toBeLessThan(1000);
+  });
+
+  it("under reduced motion nothing moves: no dot, no Replay, no running animation, and no stage is marked", async () => {
+    const page = await signedIn("op", { reducedMotion: "reduce" });
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await leadScripted(page);
+    await scrollToLead(page);
+    expect(await page.locator("section.how-lead .how-dot").isVisible(), "hidden").toBe(false);
+    expect(await page.locator("section.how-lead button.how-replay").isVisible(), "hidden").toBe(
+      false,
+    );
+    expect(await dotAnimations(page)).toEqual([]);
+    const running = await page.evaluate(
+      () => document.getAnimations().filter((a) => a.playState === "running").length,
+    );
+    expect(running, "no animation is running under reduced motion").toBe(0);
+    expect(
+      await page.locator("ol.how-lead-flow [data-passed]").count(),
+      "no stage is marked as passed",
+    ).toBe(0);
+  });
+
+  it("the branch is closed on the client, and its button toggles it by mouse, Enter and Space", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await leadScripted(page);
+    const toggle = page.locator("section.how-lead button.how-branch-toggle");
+    const region = page.locator("#how-branch-text");
+    expect(await toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(await region.isVisible(), "closed on the client").toBe(false);
+    await toggle.click();
+    expect(await toggle.getAttribute("aria-expanded")).toBe("true");
+    expect((await region.textContent())?.replace(/\s+/g, " ").trim()).toBe(
+      "If an email to the client fails, the lead is still kept in our own inbox, and repeated bounces raise an alarm for us.",
+    );
+    await toggle.focus();
+    await page.keyboard.press("Enter");
+    expect(await toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(await region.isVisible(), "hidden").toBe(false);
+    await page.keyboard.press("Space");
+    expect(await toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(await region.isVisible(), "visible").toBe(true);
+  });
+
+  it("with no script, the branch is open with its text, and Replay and the dot are hidden", async () => {
+    const page = await signedIn("op", { javaScriptEnabled: false });
+    await page.goto(`${origin}/how`);
+    expect(
+      await page.locator("section.how-lead button.how-branch-toggle").getAttribute("aria-expanded"),
+    ).toBe("true");
+    expect(await page.locator("#how-branch-text").isVisible(), "visible").toBe(true);
+    expect(await page.locator("section.how-lead button.how-replay").isVisible(), "hidden").toBe(
+      false,
+    );
+    expect(await page.locator("section.how-lead .how-dot").isVisible(), "hidden").toBe(false);
+  });
 });

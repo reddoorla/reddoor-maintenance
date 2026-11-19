@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type { HowView } from "../../lib/how/view.js";
-  import { nextToLight, STEP_LIGHT_MS } from "../../lib/how/view.js";
+  import { LEAD_DOT_MS, nextToLight, STEP_LIGHT_MS } from "../../lib/how/view.js";
   import { HOW_WE_COUNT, NOT_YET, UNREADABLE } from "../../lib/overview/view.js";
   import PageStyles from "../../lib/PageStyles.svelte";
   import howCss from "../../lib/how/how.css?inline";
@@ -22,10 +22,22 @@
   let scripted = $state(false);
   let stepsEl: HTMLOListElement | undefined = $state();
 
+  /** PR 8c item 9: the branch disclosure. Open in the server render and without script, so no
+   *  visitor loses its sentence; closed in onMount, once the script can toggle it. */
+  let branchOpen = $state(true);
+  /** Set in onMount, in the same effect that attaches the lead's listeners: the browser tests wait for it. */
+  let leadScripted = $state(false);
+  let leadEl: HTMLElement | undefined = $state();
+  let leadFlowEl: HTMLOListElement | undefined = $state();
+  let dotEl: HTMLElement | undefined = $state();
+  let replayEl: HTMLButtonElement | undefined = $state();
+  let branchEl: HTMLButtonElement | undefined = $state();
+
   onMount(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let observer: IntersectionObserver | undefined;
-    // Under reduced motion, or with no observer, nothing moves: every step stays lit.
+    // Under reduced motion, or with no observer, nothing moves: every step stays lit, and the
+    // lead's dot and Replay stay hidden (item 9).
     const motion =
       typeof matchMedia === "function" &&
       matchMedia("(prefers-reduced-motion: no-preference)").matches;
@@ -65,9 +77,96 @@
       items.forEach((el) => observer!.observe(el));
     }
     scripted = true;
+
+    // PR 8c item 9: the lead's journey. The branch starts closed; its button toggles it.
+    const cleanups: Array<() => void> = [];
+    branchOpen = false;
+    if (branchEl !== undefined) {
+      const toggle = () => {
+        branchOpen = !branchOpen;
+      };
+      branchEl.addEventListener("click", toggle);
+      cleanups.push(() => branchEl?.removeEventListener("click", toggle));
+    }
+    // The dot and Replay need motion, and a journey to run: the counts must be readable.
+    const canRun =
+      motion &&
+      v.leads.allTime !== null &&
+      leadEl !== undefined &&
+      leadFlowEl !== undefined &&
+      dotEl !== undefined &&
+      replayEl !== undefined &&
+      typeof IntersectionObserver === "function" &&
+      typeof dotEl.animate === "function";
+    if (canRun) {
+      const section = leadEl!;
+      const dot = dotEl!;
+      const replay = replayEl!;
+      const stages = Array.from(leadFlowEl!.children) as HTMLElement[];
+      dot.hidden = false;
+      replay.hidden = false;
+      let anim: Animation | undefined;
+      let passes: ReturnType<typeof setTimeout>[] = [];
+      let started = false;
+      const clearPasses = () => {
+        passes.forEach(clearTimeout);
+        passes = [];
+      };
+      // One run: the dot visits each stage's centre, linearly, in LEAD_DOT_MS. A stage is
+      // marked as the dot reaches it; it rests at the inbox when the run ends.
+      const run = () => {
+        started = true;
+        anim?.cancel();
+        clearPasses();
+        for (const li of stages) li.removeAttribute("data-passed");
+        const origin = section.getBoundingClientRect();
+        const last = stages.length - 1;
+        const frames = stages.map((li, i) => {
+          const r = li.getBoundingClientRect();
+          const x = r.left + r.width / 2 - origin.left;
+          const y = r.top + r.height / 2 - origin.top;
+          return { transform: `translate(${x}px, ${y}px)`, offset: i / last };
+        });
+        anim = dot.animate(frames, {
+          duration: LEAD_DOT_MS,
+          easing: "linear",
+          iterations: 1,
+          fill: "forwards",
+        });
+        stages.slice(1).forEach((li, k) => {
+          passes.push(
+            setTimeout(
+              () => li.setAttribute("data-passed", "true"),
+              (LEAD_DOT_MS * (k + 1)) / last,
+            ),
+          );
+        });
+      };
+      // The run starts once the chapter is at least 0.6 in view, and only once.
+      const reveal = new IntersectionObserver(
+        (entries) => {
+          if (!started && entries.some((e) => e.isIntersecting && e.intersectionRatio >= 0.6)) {
+            reveal.disconnect();
+            run();
+          }
+        },
+        { threshold: 0.6 },
+      );
+      reveal.observe(section);
+      replay.addEventListener("click", run);
+      cleanups.push(() => {
+        reveal.disconnect();
+        replay.removeEventListener("click", run);
+        anim?.cancel();
+        clearPasses();
+      });
+    }
+    leadScripted = true;
+
     return () => {
       observer?.disconnect();
       clearTimeout(timer);
+      cleanups.forEach((fn) => fn());
     };
   });
 </script>
@@ -152,7 +251,7 @@
   </p>
 </section>
 
-<section class="how-chapter" aria-labelledby="how-lead">
+<section class="how-chapter how-lead" aria-labelledby="how-lead" bind:this={leadEl}>
   <hgroup>
     <p class="how-kicker">A lead's journey</p>
     <h2 id="how-lead">From a visitor's form to the client's inbox</h2>
@@ -160,7 +259,12 @@
   {#if v.leads.allTime === null}
     <p class="muted">The submissions could not be read just now. Reload to try again.</p>
   {/if}
-  <ol class="how-flow" role="list">
+  <ol
+    class="how-flow how-lead-flow"
+    role="list"
+    bind:this={leadFlowEl}
+    data-js={leadScripted ? "true" : undefined}
+  >
     <li><strong>A visitor submits</strong> <span>a form on a client's site</span></li>
     <li data-term="Stopped before storage">
       <strong>Bots stopped</strong>
@@ -186,10 +290,24 @@
       </li>
     {/if}
   </ol>
-  <p class="how-branch">
-    If an email to the client fails, the lead is still kept in our own inbox, and repeated bounces
-    raise an alarm for us.
-  </p>
+  <!-- The dot runs the journey once (PR 8c item 9); hidden until the script shows it. -->
+  <span class="how-dot" aria-hidden="true" hidden bind:this={dotEl}></span>
+  <button type="button" class="how-replay" hidden bind:this={replayEl}>Replay</button>
+  <div class="how-branch">
+    <button
+      type="button"
+      class="how-branch-toggle"
+      aria-expanded={branchOpen ? "true" : "false"}
+      aria-controls="how-branch-text"
+      bind:this={branchEl}
+    >
+      If an email to the client fails
+    </button>
+    <p id="how-branch-text" class="how-branch-text" hidden={!branchOpen}>
+      If an email to the client fails, the lead is still kept in our own inbox, and repeated bounces
+      raise an alarm for us.
+    </p>
+  </div>
   {#if v.leads.allTime !== null}
     <p data-term="Submissions">
       {v.leads.allTime.submissions}

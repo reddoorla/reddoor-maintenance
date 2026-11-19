@@ -43,6 +43,10 @@ const LADDER_ORDER: readonly Tier[] = ["ok", "watch", "attention", "broken"];
  *  next step waits this long, so each lights after the one above it has finished. */
 export const STEP_LIGHT_MS = 300;
 
+/** PR 8c item 9: how long the lead's dot takes to run the journey once, from the form to the inbox.
+ *  Under the plan's five-second ceiling for anything that moves. */
+export const LEAD_DOT_MS = 3500;
+
 /** PR 8c item 8: the step that lights next, or null. Only the first unlit step can light, and
  *  only once it has been seen in view, so a step never lights before the one above it. */
 export function nextToLight(seen: readonly boolean[], lit: readonly boolean[]): number | null {

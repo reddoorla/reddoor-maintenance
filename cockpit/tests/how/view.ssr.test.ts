@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { nextToLight, STEP_LIGHT_MS } from "../../src/lib/how/view.js";
+import { nextToLight, STEP_LIGHT_MS, LEAD_DOT_MS } from "../../src/lib/how/view.js";
 
 /**
  * PR 8c item 8 (plans/2026-11-16-p1-87-overview-reorg/pr8-motion-plan.md, "8c"): the night's
@@ -32,5 +32,18 @@ describe("PR 8c item 8: the steps light in order", () => {
 
   it("the whole run stays under five seconds, the plan's ceiling for moving things", () => {
     expect(STEP_LIGHT_MS * 8).toBeLessThanOrEqual(5_000);
+  });
+});
+
+/**
+ * PR 8c item 9 (pr8-motion-plan.md, "8c"): the lead's dot runs once, across the journey, in 3.5 s.
+ */
+describe("PR 8c item 9: the lead's dot runs once, in 3.5 s", () => {
+  it("the dot's run is 3.5 s, a named constant", () => {
+    expect(LEAD_DOT_MS).toBe(3500);
+  });
+
+  it("the run stays under five seconds, the plan's ceiling for moving things", () => {
+    expect(LEAD_DOT_MS).toBeLessThanOrEqual(5_000);
   });
 });

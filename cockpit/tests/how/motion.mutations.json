@@ -63,5 +63,57 @@
     ],
     "test": "cockpit/tests/how/view.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "9-3-branch-open-but-collapsed-aria",
+    "why": "The branch's region is open but its button says aria-expanded=\"false\"",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "aria-expanded={branchOpen ? \"true\" : \"false\"}",
+        "replace": "aria-expanded=\"false\""
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "9-4-typed-count-in-the-journey",
+    "why": "The client-emailed count is typed as 7 where the model says 4",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "{v.leads.allTime.notified} emailed",
+        "replace": "7 emailed"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "9-5-branch-closed-without-script",
+    "why": "The branch is closed in the server render, so a visitor without script loses its sentence",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "let branchOpen = $state(true);",
+        "replace": "let branchOpen = $state(false);"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "9-6-replay-shown-without-script",
+    "why": "Replay is visible in the server render, so a visitor without script sees a control that does nothing",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "class=\"how-replay\" hidden bind:this",
+        "replace": "class=\"how-replay\" bind:this"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
   }
 ]
