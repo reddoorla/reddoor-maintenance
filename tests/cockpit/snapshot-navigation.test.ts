@@ -344,8 +344,8 @@ beforeAll(async () => {
 }, 300_000);
 
 // #2147: a test's pages close when it ends. Left open until afterAll, every finished test kept a
-// page running its ticker and clock: about 8 more renderers a minute through the ticker block, and
-// a load average past 28 on 4 CPUs, so the later tests ran on a starved machine.
+// page running its ticker and clock: renderers from 25 to 45 in four minutes and a load average of
+// 51 on 4 CPUs, in a local run of the ticker block at 4x, so the later tests ran on a starved machine.
 afterEach(async () => {
   for (const c of contexts.splice(0)) await c.close();
 });
@@ -1994,7 +1994,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
    *  the row, so a count alone can pass before the script attaches its listeners, and a slow runner
    *  then acts on a page that cannot respond (0 listeners counted, a drag that never starts). The
    *  script sets data-js in the same effect that attaches every listener, and the attribute reaches
-   *  the DOM only after that effect has run to its end. */
+   *  the DOM only after that effect has run, on each mount, to its end. */
   const tickerReady = async (page: Page, items = 2) => {
     await expect
       .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
