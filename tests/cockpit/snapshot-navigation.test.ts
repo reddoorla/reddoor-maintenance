@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { createServer, type Server as HttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
@@ -343,6 +343,13 @@ beforeAll(async () => {
   browser = await chromium.launch();
 }, 300_000);
 
+// #2147: a test's pages close when it ends. Left open until afterAll, every finished test kept a
+// page running its ticker and clock: renderers from 25 to 45 in four minutes and a load average of
+// 51 on 4 CPUs, in a local run of the ticker block at 4x, so the later tests ran on a starved machine.
+afterEach(async () => {
+  for (const c of contexts.splice(0)) await c.close();
+});
+
 afterAll(async () => {
   for (const c of contexts) await c.close();
   await browser?.close();
@@ -351,6 +358,11 @@ afterAll(async () => {
 });
 
 async function signedIn(user = "op", options: BrowserContextOptions = {}): Promise<Page> {
+  const raw = process.env.COCKPIT_CPU_THROTTLE;
+  const rate = raw === undefined ? 1 : Number(raw);
+  if (raw !== undefined && !(Number.isFinite(rate) && rate >= 1)) {
+    throw new Error("COCKPIT_CPU_THROTTLE must be a number of at least 1");
+  }
   // The gate redirects rather than challenging, so the header goes on every request.
   const context = await browser.newContext({
     ...options,
@@ -359,7 +371,14 @@ async function signedIn(user = "op", options: BrowserContextOptions = {}): Promi
     },
   });
   contexts.push(context);
-  return context.newPage();
+  const page = await context.newPage();
+  // #2147: COCKPIT_CPU_THROTTLE=<rate> slows every page's CPU by that factor, as a loaded CI
+  // runner does, so a test that acts before the page's script has run can be made to fail here.
+  if (rate > 1) {
+    const cdp = await context.newCDPSession(page);
+    await cdp.send("Emulation.setCPUThrottlingRate", { rate });
+  }
+  return page;
 }
 
 const contexts: BrowserContext[] = [];
@@ -1865,6 +1884,7 @@ describe("cockpit navigation, in a browser, against the built app", () => {
 
   it("a signed-out browser gets no snapshot", async () => {
     const context = await browser.newContext();
+    contexts.push(context);
     const page = await context.newPage();
     const res = await page.request.get(`${origin}/__data.json`, { maxRedirects: 0 });
     // The hook answers before any load runs; for a data request SvelteKit's
@@ -1974,13 +1994,30 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     );
   };
 
+  /** #2147: the row is on the page and the ticker's script has run. The server render already holds
+   *  the row, so a count alone can pass before the script attaches its listeners, and a slow runner
+   *  then acts on a page that cannot respond (0 listeners counted, a drag that never starts). The
+   *  script sets data-js in the same effect that attaches every listener, and the attribute reaches
+   *  the DOM only after that effect has run, on each mount, to its end. */
+  const tickerReady = async (page: Page, items = 2) => {
+    await expect
+      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
+      .toBeGreaterThanOrEqual(items);
+    await page.locator('.ov-ticker-window[data-js="true"]').waitFor({ state: "attached" });
+  };
+
+  /** #2152 round 1: a looping test closes the previous run's pages before opening the next, so one
+   *  run's page is alive at a time (a run that leaves 20 pages animating starves the later runs). */
+  const nextRun = async (user?: string, options?: BrowserContextOptions) => {
+    for (const c of contexts.splice(0)) await c.close();
+    return signedIn(user, options);
+  };
+
   it("moves, with the seeded sites in its row", async () => {
     const page = await signedIn();
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`${origin}/`);
-    await expect
-      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-      .toBeGreaterThanOrEqual(2);
+    await tickerReady(page);
     const all = (await names(page)).join(" | ");
     expect(all).toContain("Acme");
     expect(all).toContain("Beta");
@@ -1995,9 +2032,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     const page = await signedIn();
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`${origin}/`);
-    await expect
-      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-      .toBeGreaterThanOrEqual(2);
+    await tickerReady(page);
     // The row must be moving before it is paused: poll for a change, so a slow first frame
     // on a fresh build does not read as a row that never moved.
     const moving = await transform(page);
@@ -2018,9 +2053,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     const page = await signedIn();
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`${origin}/`);
-    await expect
-      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-      .toBeGreaterThanOrEqual(2);
+    await tickerReady(page);
     // The row must move before the pointer is on it: poll for a change, as the pause test does.
     const moving = await transform(page);
     await expect
@@ -2042,9 +2075,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     const page = await signedIn();
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`${origin}/`);
-    await expect
-      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-      .toBeGreaterThanOrEqual(2);
+    await tickerReady(page);
     // boundingBox is in the viewport, so bring the window into it first.
     await page.locator(".ov-ticker-window").scrollIntoViewIfNeeded();
     const win = (await page.locator(".ov-ticker-window").boundingBox())!;
@@ -2079,9 +2110,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     const page = await signedIn();
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.goto(`${origin}/`);
-    await expect
-      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-      .toBeGreaterThanOrEqual(2);
+    await tickerReady(page);
     expect(
       await page.locator(".ov-ticker-run").evaluate((el) => getComputedStyle(el).animationName),
     ).toBe("none");
@@ -2101,9 +2130,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     await page.emulateMedia({ forcedColors: "active" });
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`${origin}/`);
-    await expect
-      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-      .toBeGreaterThanOrEqual(2);
+    await tickerReady(page);
     const button = page.locator(".ov-ticker-pause");
     await button.scrollIntoViewIfNeeded();
     const unpressed = (await button.boundingBox())!;
@@ -2131,9 +2158,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     const page = await signedIn();
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${origin}/`);
-    await expect
-      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-      .toBeGreaterThanOrEqual(2);
+    await tickerReady(page);
     const overflows = await page.evaluate(
       () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
     );
@@ -2149,9 +2174,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     const page = await signedIn();
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`${origin}/`);
-    await expect
-      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-      .toBeGreaterThanOrEqual(3);
+    await tickerReady(page, 3);
     const link = page.locator(".ov-ticker-list:not(.copy) > li:nth-child(2) a");
     const href = await link.getAttribute("href");
     expect(href).toBeTruthy();
@@ -2200,12 +2223,10 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
         };
       });
     for (const width of [1280, 390]) {
-      const page = await signedIn();
+      const page = await nextRun();
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`${origin}/`);
-      await expect
-        .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-        .toBeGreaterThanOrEqual(2);
+      await tickerReady(page);
       await page.locator(".ov-ticker-pause").focus();
       for (const n of [1, 2]) {
         await page.keyboard.press("Tab");
@@ -2251,12 +2272,10 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
   // layout must hold while focus moves between links inside the window.
   it("a mouse press on link 2 in the still list keeps the row still and the click lands, at 1280, 768 and 390px", async () => {
     for (const width of [1280, 768, 390]) {
-      const page = await signedIn();
+      const page = await nextRun();
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`${origin}/`);
-      await expect
-        .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-        .toBeGreaterThanOrEqual(2);
+      await tickerReady(page);
       await page.locator(".ov-ticker-pause").focus();
       await page.keyboard.press("Tab");
       await expect
@@ -2295,12 +2314,10 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
   // gone, so the link cannot scroll out of the window.
   it("a right press on link 1, Escape, then the pointer leaving the window stills the row with link 1 in view, at 1280px and 390px", async () => {
     for (const width of [1280, 390]) {
-      const page = await signedIn();
+      const page = await nextRun();
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`${origin}/`);
-      await expect
-        .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-        .toBeGreaterThanOrEqual(2);
+      await tickerReady(page);
       const link = page.locator(".ov-ticker-list:not(.copy) > li:nth-child(1) a");
       const href = await link.getAttribute("href");
       expect(href, `link 1 is a link at ${width}px`).toBeTruthy();
@@ -2372,12 +2389,10 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
   // the link under the pointer's own x and y.
   it("a key press after a mouse press on a link leaves the row moving and the link under the pointer, at 1280px and 390px", async () => {
     for (const width of [1280, 390]) {
-      const page = await signedIn();
+      const page = await nextRun();
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`${origin}/`);
-      await expect
-        .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-        .toBeGreaterThanOrEqual(2);
+      await tickerReady(page);
       const link = page.locator(".ov-ticker-list:not(.copy) > li:nth-child(1) a");
       const href = await link.getAttribute("href");
       expect(href, `link 1 is a link at ${width}px`).toBeTruthy();
@@ -2465,9 +2480,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     const page = await signedIn();
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`${origin}/`);
-    await expect
-      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-      .toBeGreaterThanOrEqual(2);
+    await tickerReady(page);
     expect(await animation(page), "the row moves before any focus").toBe("ov-ticker");
     // A press in the window first, then a focus with no key press: the press must not hold the
     // row moving (the old pointer flag waited for a Tab, and a toolbar Tab sends no page key).
@@ -2499,9 +2512,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     const page = await signedIn();
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`${origin}/`);
-    await expect
-      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-      .toBeGreaterThanOrEqual(2);
+    await tickerReady(page);
     const link = page.locator(".ov-ticker-list:not(.copy) > li:nth-child(1) a");
     await page.locator(".ov-ticker-window").hover();
     await settledPaused(page);
@@ -2538,9 +2549,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     const page = await signedIn();
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`${origin}/`);
-    await expect
-      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-      .toBeGreaterThanOrEqual(2);
+    await tickerReady(page);
     await page.locator(".ov-ticker-pause").click();
     expect(await page.locator(".ov-ticker-pause").getAttribute("aria-pressed")).toBe("true");
     await page.keyboard.press("Tab");
@@ -2561,9 +2570,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     const page = await signedIn();
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`${origin}/`);
-    await expect
-      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-      .toBeGreaterThanOrEqual(2);
+    await tickerReady(page);
     await page.locator(".ov-ticker-window").scrollIntoViewIfNeeded();
     const win = (await page.locator(".ov-ticker-window").boundingBox())!;
     await page.mouse.move(win.x + win.width / 2, win.y + 2);
@@ -2596,9 +2603,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     const page = await signedIn();
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`${origin}/`);
-    await expect
-      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-      .toBeGreaterThanOrEqual(2);
+    await tickerReady(page);
     await page.locator(".ov-ticker-pause").focus();
     await page.keyboard.press("Tab");
     await expect.poll(() => animation(page)).toBe("none");
@@ -2659,12 +2664,10 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
       { width: 390, touch: true, n: 2 },
     ];
     for (const { width, touch, n } of cases) {
-      const page = await signedIn("op", { hasTouch: true, isMobile: touch });
+      const page = await nextRun("op", { hasTouch: true, isMobile: touch });
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`${origin}/`);
-      await expect
-        .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-        .toBeGreaterThanOrEqual(3);
+      await tickerReady(page, 3);
       const link = page.locator(`.ov-ticker-list:not(.copy) > li:nth-child(${n}) a`);
       const href = await link.getAttribute("href");
       expect(href, `link ${n} is a link at ${width}px`).toBeTruthy();
@@ -2750,12 +2753,10 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
   // row. A window blur and a context menu each clear the press.
   it("a left press with no release is cleared by the window's blur, and a right press by its context menu", async () => {
     for (const button of ["left", "right"] as const) {
-      const page = await signedIn();
+      const page = await nextRun();
       await page.setViewportSize({ width: 1280, height: 900 });
       await page.goto(`${origin}/`);
-      await expect
-        .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-        .toBeGreaterThanOrEqual(2);
+      await tickerReady(page);
       await page.locator(".ov-ticker-window").scrollIntoViewIfNeeded();
       const win = (await page.locator(".ov-ticker-window").boundingBox())!;
       await page.evaluate(() => {
@@ -2804,9 +2805,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     const page = await signedIn();
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`${origin}/`);
-    await expect
-      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-      .toBeGreaterThanOrEqual(2);
+    await tickerReady(page);
     await page.locator(".ov-ticker-pause").focus();
     await page.keyboard.press("Tab");
     await expect.poll(() => animation(page)).toBe("none");
@@ -2839,9 +2838,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     const page = await signedIn();
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`${origin}/`);
-    await expect
-      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-      .toBeGreaterThanOrEqual(2);
+    await tickerReady(page);
     const link = page.locator(".ov-ticker-list:not(.copy) > li:nth-child(1) a");
     const href = await link.getAttribute("href");
     await page.locator(".ov-ticker-window").hover();
@@ -2887,9 +2884,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     const page = await signedIn();
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`${origin}/`);
-    await expect
-      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-      .toBeGreaterThanOrEqual(2);
+    await tickerReady(page);
     await page.locator(".ov-ticker-pause").focus();
     await page.keyboard.press("Tab");
     await expect.poll(() => animation(page)).toBe("none");
@@ -2917,9 +2912,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     const page = await signedIn();
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`${origin}/`);
-    await expect
-      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-      .toBeGreaterThanOrEqual(2);
+    await tickerReady(page);
     await page.locator(".ov-ticker-window").scrollIntoViewIfNeeded();
     const win = (await page.locator(".ov-ticker-window").boundingBox())!;
     await page.mouse.move(win.x + win.width / 2, win.y + 2);
@@ -2979,9 +2972,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     const page = await signedIn();
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`${origin}/`);
-    await expect
-      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-      .toBeGreaterThanOrEqual(2);
+    await tickerReady(page);
     const first = await counts(page);
     expect(
       first.doc,
@@ -3024,9 +3015,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
       });
       await page.goBack();
       await page.waitForURL(`${origin}/`);
-      await expect
-        .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-        .toBeGreaterThanOrEqual(2);
+      await tickerReady(page);
       expect(await counts(page), `the counts on / after round trip ${trip}`).toEqual(first);
     }
   });
@@ -3049,12 +3038,10 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
         return a.left >= w.left && a.right <= w.right && a.top >= w.top && a.bottom <= w.bottom;
       });
     for (const width of [1280, 390]) {
-      const page = await signedIn("op", { hasTouch: true });
+      const page = await nextRun("op", { hasTouch: true });
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`${origin}/`);
-      await expect
-        .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-        .toBeGreaterThanOrEqual(2);
+      await tickerReady(page);
       const heading = page.getByRole("heading", { name: "Every site", exact: true });
       await heading.scrollIntoViewIfNeeded();
       const h = (await heading.boundingBox())!;
@@ -3099,12 +3086,10 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
   // after the release, with the link in the window.
   it("a touch press and release inside the window, then a Tab to a link within 200 ms, stands the row still by 1.6 s after the release, at 1280px and 390px", async () => {
     for (const width of [1280, 390]) {
-      const page = await signedIn("op", { hasTouch: true });
+      const page = await nextRun("op", { hasTouch: true });
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`${origin}/`);
-      await expect
-        .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-        .toBeGreaterThanOrEqual(2);
+      await tickerReady(page);
       await page.locator(".ov-ticker-pause").focus();
       // The press lands on the text of the moving list (a pill or a fact, never a link), inside the window.
       // The row moves, so the spot is polled for rather than read once.
@@ -3286,12 +3271,10 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
   it("a mouse resting on link 1 after a right press and Escape keeps the row moving through a touch swipe and a Shift, on the heading or the window's edge, at 1280px and 390px", async () => {
     for (const width of [1280, 390]) {
       for (const on of ["heading", "edge"] as const) {
-        const page = await signedIn("op", { hasTouch: true });
+        const page = await nextRun("op", { hasTouch: true });
         await page.setViewportSize({ width, height: 900 });
         await page.goto(`${origin}/`);
-        await expect
-          .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-          .toBeGreaterThanOrEqual(2);
+        await tickerReady(page);
         const link = page.locator(".ov-ticker-list:not(.copy) > li:nth-child(1) a");
         const href = await link.getAttribute("href");
         expect(href, `link 1 is a link at ${width}px`).toBeTruthy();
@@ -3349,9 +3332,7 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     const page = await signedIn("op", { hasTouch: true });
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`${origin}/`);
-    await expect
-      .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-      .toBeGreaterThanOrEqual(2);
+    await tickerReady(page);
     // The window sits below the fold at 900px: scroll it in, so its points are on screen.
     await page.locator(".ov-ticker-window").scrollIntoViewIfNeeded();
     let rest: { x: number; y: number } | null = null;
@@ -3424,12 +3405,10 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
   // after a Shift. Playwright's page.mouse sends no pen, so these go through CDP.
   it("a pen tap outside the ticker, then a Tab into it within 300 ms, stands the row still with the link in the window, at 1280px and 390px", async () => {
     for (const width of [1280, 390]) {
-      const page = await signedIn();
+      const page = await nextRun();
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`${origin}/`);
-      await expect
-        .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-        .toBeGreaterThanOrEqual(2);
+      await tickerReady(page);
       await page.evaluate(() => {
         (window as Window & { __pen?: string[] }).__pen = [];
         document.addEventListener(
@@ -3493,12 +3472,10 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
 
   it("a pen resting on link 1, a right press on it, Escape, then a Shift keeps the row moving under the pen, at 1280px and 390px", async () => {
     for (const width of [1280, 390]) {
-      const page = await signedIn();
+      const page = await nextRun();
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`${origin}/`);
-      await expect
-        .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-        .toBeGreaterThanOrEqual(2);
+      await tickerReady(page);
       const link = page.locator(".ov-ticker-list:not(.copy) > li:nth-child(1) a");
       const href = await link.getAttribute("href");
       expect(href, `link 1 is a link at ${width}px`).toBeTruthy();
@@ -3620,12 +3597,10 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
   it("a press on link 1 that drags it, then a rest and a Shift, keeps the row moving under the resting mouse, at 1280px and 390px", async () => {
     for (const width of [1280, 390]) {
       for (let run = 1; run <= 5; run++) {
-        const page = await signedIn();
+        const page = await nextRun();
         await page.setViewportSize({ width, height: 900 });
         await page.goto(`${origin}/`);
-        await expect
-          .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-          .toBeGreaterThanOrEqual(2);
+        await tickerReady(page);
         const href = await page
           .locator(".ov-ticker-list:not(.copy) > li:nth-child(1) a")
           .getAttribute("href");
@@ -3663,12 +3638,10 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
 
   it("a press on link 1 dragged out of the window and released there, then a Shift at once, stands the row still with link 1 in the window, at 1280px and 390px", async () => {
     for (const width of [1280, 390]) {
-      const page = await signedIn();
+      const page = await nextRun();
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`${origin}/`);
-      await expect
-        .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-        .toBeGreaterThanOrEqual(2);
+      await tickerReady(page);
       const href = await page
         .locator(".ov-ticker-list:not(.copy) > li:nth-child(1) a")
         .getAttribute("href");
@@ -3778,12 +3751,10 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     for (const width of [1280, 768, 390]) {
       for (const variant of ["one-move", "bottom-edge"] as const) {
         for (let run = 1; run <= 5; run++) {
-          const page = await signedIn();
+          const page = await nextRun();
           await page.setViewportSize({ width, height: 900 });
           await page.goto(`${origin}/`);
-          await expect
-            .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-            .toBeGreaterThanOrEqual(2);
+          await tickerReady(page);
           const href = await page
             .locator(".ov-ticker-list:not(.copy) > li:nth-child(1) a")
             .getAttribute("href");
@@ -3882,12 +3853,10 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     for (const width of [1280, 768, 390]) {
       for (const variant of ["step-off", "jump-off"] as const) {
         for (let run = 1; run <= 5; run++) {
-          const page = await signedIn();
+          const page = await nextRun();
           await page.setViewportSize({ width, height: 900 });
           await page.goto(`${origin}/`);
-          await expect
-            .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-            .toBeGreaterThanOrEqual(2);
+          await tickerReady(page);
           const href = await page
             .locator(".ov-ticker-list:not(.copy) > li:nth-child(1) a")
             .getAttribute("href");
@@ -3927,12 +3896,10 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
   it("a drag dropped inside the window, a Shift while the mouse rests, then one move from the row into the page with no key, stands the row still with link 1 in the window, at 1280px and 390px", async () => {
     for (const width of [1280, 390]) {
       for (let run = 1; run <= 5; run++) {
-        const page = await signedIn();
+        const page = await nextRun();
         await page.setViewportSize({ width, height: 900 });
         await page.goto(`${origin}/`);
-        await expect
-          .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-          .toBeGreaterThanOrEqual(2);
+        await tickerReady(page);
         const href = await page
           .locator(".ov-ticker-list:not(.copy) > li:nth-child(1) a")
           .getAttribute("href");
@@ -3998,12 +3965,10 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     for (const width of [1280, 390]) {
       for (const variant of ["step-off", "jump-off"] as const) {
         for (let run = 1; run <= 5; run++) {
-          const page = await signedIn();
+          const page = await nextRun();
           await page.setViewportSize({ width, height: 900 });
           await page.goto(`${origin}/`);
-          await expect
-            .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-            .toBeGreaterThanOrEqual(2);
+          await tickerReady(page);
           const href = await page
             .locator(".ov-ticker-list:not(.copy) > li:nth-child(1) a")
             .getAttribute("href");
@@ -4119,12 +4084,10 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
     for (const width of [1280, 390]) {
       let stillRuns = 0;
       for (let run = 1; run <= 10; run++) {
-        const page = await signedIn();
+        const page = await nextRun();
         await page.setViewportSize({ width, height: 900 });
         await page.goto(`${origin}/`);
-        await expect
-          .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-          .toBeGreaterThanOrEqual(2);
+        await tickerReady(page);
         const href = await page
           .locator(".ov-ticker-list:not(.copy) > li:nth-child(1) a")
           .getAttribute("href");
@@ -4172,12 +4135,10 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
   // element. The window's pointermove is the only event that sees it (pointerover does not fire).
   it("a mouse that rests after a pen has left, then moves 1 px within one element, keeps the row moving: pointermove alone is seen, at 1280px and 390px", async () => {
     for (const width of [1280, 390]) {
-      const page = await signedIn();
+      const page = await nextRun();
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`${origin}/`);
-      await expect
-        .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-        .toBeGreaterThanOrEqual(2);
+      await tickerReady(page);
       const link = page.locator(".ov-ticker-list:not(.copy) > li:nth-child(1) a");
       const href = await link.getAttribute("href");
       expect(href, `link 1 is a link at ${width}px`).toBeTruthy();
@@ -4232,12 +4193,10 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
   // flag that only a mouse leave clears. The press and the keys are real.
   it("a pen resting on link 1, a right press, Escape, then the pen leaving the window stands the row still with link 1 in the window, at 1280px and 390px", async () => {
     for (const width of [1280, 390]) {
-      const page = await signedIn();
+      const page = await nextRun();
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`${origin}/`);
-      await expect
-        .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
-        .toBeGreaterThanOrEqual(2);
+      await tickerReady(page);
       const link = page.locator(".ov-ticker-list:not(.copy) > li:nth-child(1) a");
       const href = await link.getAttribute("href");
       expect(href, `link 1 is a link at ${width}px`).toBeTruthy();
