@@ -1459,6 +1459,11 @@ function upkeepView(model: CockpitModel, s: CockpitSnapshot, now: Date): UpkeepV
  *  how many it has collected. */
 export const TREND_NIGHTS = 14;
 
+/** The nights a trend axis spans, to the night expected by now (P1-87 PR 7b: 31, so the
+ *  30 days a traffic tile counts both have a column, the newest day's as well). The 30-night
+ *  counts elsewhere (WINDOW_NIGHTS) do not move. */
+export const TREND_AXIS_NIGHTS = 31;
+
 /** One night on a chart: its value, or null and why. Never 0 for a night with no count. */
 export type TrendPoint = {
   value: number | null;
@@ -1562,7 +1567,7 @@ export function trendsFromDaily(nights: OverviewNight[] | null, now: Date): Tren
   if (nights === null) return { status: UNREADABLE, charts: null };
   /** The collecting line; it says when the nightly has stopped, as the charts' does. */
   const collecting = (n: number, older: boolean, since: string | null): TrendsView => ({
-    status: `Collecting: ${n} of ${TREND_NIGHTS} nights${older ? ` in the last ${WINDOW_NIGHTS}` : ""}; the charts start once all ${TREND_NIGHTS} are in${since === null ? "" : `; none counted since the night of ${nightLabel(since)}`}`,
+    status: `Collecting: ${n} of ${TREND_NIGHTS} nights${older ? ` in the last ${TREND_AXIS_NIGHTS}` : ""}; the charts start once all ${TREND_NIGHTS} are in${since === null ? "" : `; none counted since the night of ${nightLabel(since)}`}`,
     charts: null,
   });
   if (nights.length === 0) return collecting(0, false, null);
@@ -1572,7 +1577,7 @@ export function trendsFromDaily(nights: OverviewNight[] | null, now: Date): Tren
   const expected = expectedNight(now);
   // To the night expected by now, so a nightly that stops shows as gaps at the end.
   const end = newest > expected ? newest : expected;
-  const span = Math.min(WINDOW_NIGHTS, nightsBetween(sorted.at(-1)!.night, end) + 1);
+  const span = Math.min(TREND_AXIS_NIGHTS, nightsBetween(sorted.at(-1)!.night, end) + 1);
   const days = Array.from({ length: span }, (_, i) => shiftNight(end, i - span + 1));
   // The nights the charts would show, not every row: a nightly stopped for weeks has
   // rows older than the window, and they draw nothing (review round 2).
@@ -2695,7 +2700,7 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Trends",
-    text: `Drawn from the nightly counts once ${TREND_NIGHTS} of the last ${WINDOW_NIGHTS} nights have them; until then the section says how many it has, and when the nightly last counted if it has stopped. Each chart covers up to the last ${WINDOW_NIGHTS} calendar nights, to the night expected by now, and the note under it says what its marks count. A night with no count, or a count that could not be read, is blank, never a zero, and the table under each chart says why; a column at the axis is a real 0. A count kept as an all-time total is drawn as its change over the night before, so the night after a blank night is blank too. The rules that sort sites into levels have changed twice (the ladder in October, then the live-site checks), so on the level chart a night sorted by earlier rules is shaded and left out rather than compared.`,
+    text: `Drawn from the nightly counts once ${TREND_NIGHTS} of the last ${TREND_AXIS_NIGHTS} nights have them; until then the section says how many it has, and when the nightly last counted if it has stopped. Each chart covers up to the last ${TREND_AXIS_NIGHTS} calendar nights, to the night expected by now, and the note under it says what its marks count. Google's data lags about three days, so each search chart's 28 days end three days before the night and its last three days are hatched. A night with no count, or a count that could not be read, is blank, never a zero, and the table under each chart says why; a column at the axis is a real 0. A count kept as an all-time total is drawn as its change over the night before, so the night after a blank night is blank too. The rules that sort sites into levels have changed twice (the ladder in October, then the live-site checks), so on the level chart a night sorted by earlier rules is shaded and left out rather than compared.`,
   },
   {
     term: "Nights counted",
