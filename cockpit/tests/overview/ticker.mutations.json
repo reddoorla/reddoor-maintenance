@@ -1104,5 +1104,18 @@
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
     "expect": "survives"
+  },
+  {
+    "id": "86-doc-out-no-recheck",
+    "why": "r11 E4 (B.4): onDocOut loses its requestAnimationFrame(recheck). The mouse leaves the page after a drop 1 px inside the bottom edge, with a Shift already pressed and no key after the leave: the flag clears but the row is not re-checked, so it keeps moving. Red: B.4 (a 3 px step off the bottom, or a jump to x = -30)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      finePointerOver = false;\n      disarmDoc();\n      requestAnimationFrame(recheck);\n",
+        "replace": "      finePointerOver = false;\n      disarmDoc();\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
   }
 ]
