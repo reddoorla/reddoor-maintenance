@@ -2016,12 +2016,18 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
    *  the row, so a count alone can pass before the script attaches its listeners, and a slow runner
    *  then acts on a page that cannot respond (0 listeners counted, a drag that never starts). The
    *  script sets data-js in the same effect that attaches every listener, and the attribute reaches
-   *  the DOM only after that effect has run, on each mount, to its end. */
+   *  the DOM only after that effect has run, on each mount, to its end.
+   *  P1-87 PR 8a: then the overview's count-up has finished. It rewrites the figures every frame for
+   *  900 ms, and each layout lets Chromium re-hover a stale pointer position: after a drag dropped
+   *  outside the window, that stale pointerover (#2134, pre-existing) landed inside it far more often
+   *  while the figures counted (the drag-out and pen tests failed at 1x; with a settled page they pass).
+   *  These tests are about the ticker, not the intro, so they act on a settled page. */
   const tickerReady = async (page: Page, items = 2) => {
     await expect
       .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
       .toBeGreaterThanOrEqual(items);
     await page.locator('.ov-ticker-window[data-js="true"]').waitFor({ state: "attached" });
+    await figuresSettled(page);
   };
 
   /** #2152 round 1: a looping test closes the previous run's pages before opening the next, so one
