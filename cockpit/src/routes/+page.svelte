@@ -52,7 +52,9 @@
     // events (a touch never sets it) and cleared when a pointer leaves the window. A drag fires a
     // cancel and a leave while the pointer stays over the window; dragend settles the flag from
     // the drop point instead. After a drag Chromium sends the window no leave for the first move out,
-    // so the next mouse or pen event on the page settles the flag (onDocPointer).
+    // so the next mouse or pen event on the page settles the flag (onDocPointer). A move straight off
+    // the page after a drag sends no pointer event at all, but it does send a mouseout with no related
+    // target, so that clears the flag (onDocOut).
     let finePointerOver = false;
     const onFinePointer = (e: PointerEvent) => {
       if (e.pointerType !== "touch") finePointerOver = true;
@@ -66,16 +68,25 @@
       disarmDoc();
       requestAnimationFrame(recheck);
     };
+    // While armed, a mouseout with no related target means the pointer has left the page: the flag clears.
+    const onDocOut = (e: MouseEvent) => {
+      if (e.relatedTarget !== null) return;
+      finePointerOver = false;
+      disarmDoc();
+      requestAnimationFrame(recheck);
+    };
     const armDoc = () => {
       if (docArmed) return;
       docArmed = true;
       document.addEventListener("pointerover", onDocPointer, true);
       document.addEventListener("pointermove", onDocPointer, true);
+      document.addEventListener("mouseout", onDocOut, true);
     };
     const disarmDoc = () => {
       docArmed = false;
       document.removeEventListener("pointerover", onDocPointer, true);
       document.removeEventListener("pointermove", onDocPointer, true);
+      document.removeEventListener("mouseout", onDocOut, true);
     };
     const onDragEnd = (e: DragEvent) => {
       // Chromium was never seen reporting a dragend at 0,0 (0 of 1021 logged). The guard stays as a
