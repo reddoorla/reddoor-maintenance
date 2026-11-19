@@ -1003,6 +1003,73 @@ describe("P1-87 PR 7b: 31 nights and the three traffic charts", () => {
     }
   });
 
+  it("each traffic summary in full (PR 7b review round 2, T2 and T3): the four round-1 fixtures, and one whose lag band has one day on the axis", () => {
+    const summaries = (x: ReturnType<typeof trendsFromDaily>) =>
+      [DAYS.visits, DAYS.searchTimes, DAYS.clicks].map((i) => TF(x, i).summary);
+    // (a) the standard fixture.
+    expect(summaries(v)).toEqual([
+      "Engaged visits: from 55 to 56 over the 30 days drawn, 55 on Oct 26. 1 day has no point; the table gives why. Oct 26 is still being counted.",
+      "Times shown in Google: from 447 to 448 over the 28 days drawn, 447 on Oct 23. 3 days have no point; the table gives why. Google has no data yet for 3 days, Oct 24 to Oct 26.",
+      "Clicks through from Google: from 22 to 23 over the 28 days drawn, 22 on Oct 23. 3 days have no point; the table gives why. Google has no data yet for 3 days, Oct 24 to Oct 26.",
+    ]);
+    // (b) a 17-night axis from Oct 10.
+    expect(
+      summaries(
+        trendsFromDaily(
+          run(N, 17, (_, i) => (i === 0 ? { traffic: traffic(trafficBlock(N)) } : {})),
+          NOW,
+        ),
+      ),
+    ).toEqual([
+      "Engaged visits: from 55 to 56 over the 17 days drawn, 55 on Oct 26. Every day is drawn. Oct 26 is still being counted.",
+      "Times shown in Google: 447 on each of the 14 days drawn, 447 on Oct 23. 3 days have no point; the table gives why. Google has no data yet for 3 days, Oct 24 to Oct 26.",
+      "Clicks through from Google: 22 on each of the 14 days drawn, 22 on Oct 23. 3 days have no point; the table gives why. Google has no data yet for 3 days, Oct 24 to Oct 26.",
+    ]);
+    // (c) the series one night late, on Oct 24.
+    expect(
+      summaries(
+        trendsFromDaily(
+          run(N, 32, (d) =>
+            d === "2026-10-24" ? { traffic: traffic(trafficBlock("2026-10-24")) } : {},
+          ),
+          NOW,
+        ),
+      ),
+    ).toEqual([
+      "Engaged visits: from 55 to 56 over the 29 days drawn, 55 on Oct 24. 2 days have no point; the table gives why. Oct 24 is still being counted.",
+      "Times shown in Google: from 447 to 448 over the 26 days drawn, 447 on Oct 21. 5 days have no point; the table gives why. Google has no data yet for 3 days, Oct 22 to Oct 24.",
+      "Clicks through from Google: from 22 to 23 over the 26 days drawn, 22 on Oct 21. 5 days have no point; the table gives why. Google has no data yet for 3 days, Oct 22 to Oct 24.",
+    ]);
+    // (d) the only series is on Sep 20, older than the axis.
+    expect(
+      summaries(
+        trendsFromDaily(
+          run(N, 40, (d) => (d === "2026-09-20" ? { traffic: traffic(trafficBlock(d)) } : {})),
+          NOW,
+        ),
+      ),
+    ).toEqual([
+      "Engaged visits: no day drawn. 31 days have no point; the table gives why.",
+      "Times shown in Google: no day drawn. 31 days have no point; the table gives why.",
+      "Clicks through from Google: no day drawn. 31 days have no point; the table gives why.",
+    ]);
+    // (e) the series on Sep 26, the axis's first day: its search lag band is that one day, so
+    // the summary's one-day form is "Google has no data yet for Sep 26." The visits line keeps
+    // "55 on each of the 1 day drawn", the wording the round-2 review filed as not folded.
+    expect(
+      summaries(
+        trendsFromDaily(
+          run(N, 32, (d) => (d === "2026-09-26" ? { traffic: traffic(trafficBlock(d)) } : {})),
+          NOW,
+        ),
+      ),
+    ).toEqual([
+      "Engaged visits: 55 on each of the 1 day drawn, 55 on Sep 26. 30 days have no point; the table gives why. Sep 26 is still being counted.",
+      "Times shown in Google: no day drawn. 31 days have no point; the table gives why. Google has no data yet for Sep 26.",
+      "Clicks through from Google: no day drawn. 31 days have no point; the table gives why. Google has no data yet for Sep 26.",
+    ]);
+  });
+
   it("the clicks chart counts days, not nights, and a partial point keeps its value in its slot title (minor 4, minor 5)", () => {
     const clicks = TF(v, DAYS.clicks);
     expect(clicks.slotHeading).toBe("Day");

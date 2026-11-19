@@ -745,5 +745,44 @@
     ],
     "test": "cockpit/tests/overview/page.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "74-lag-one-day-null",
+    "why": "PR 7b review round 2 (tests minor T2): the one-day lag form returns null, so a one-day band's summary drops its Google sentence",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "? `Google has no data yet for ${lagDays[0]}.`",
+        "replace": "? null"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "75-partial-said-last-day",
+    "why": "PR 7b review round 2 (tests minor T2): the summary names the last axis day as the partial day, not the day that is partial",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "return i < 0 ? null : `${nightLabel(days[i]!)} is still being counted.`;",
+        "replace": "return i < 0 ? null : `${nightLabel(days.at(-1)!)} is still being counted.`;"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "76-extra-no-space",
+    "why": "PR 7b review round 2 (tests nit T3): the summary's extra sentence joins without the space before it",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "${o.extra ? ` ${o.extra}` : \"\"}",
+        "replace": "${o.extra ?? \"\"}"
+      }
+    ],
+    "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
   }
 ]
