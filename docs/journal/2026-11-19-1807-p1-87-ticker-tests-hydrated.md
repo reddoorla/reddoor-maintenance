@@ -13,11 +13,11 @@ Landed in the PR that fixes [reddoorla/reddoor-maintenance#2147](https://github.
 
 **Measured** (the ticker block, 41 tests, one browser):
 
-| Throttle | Before | After |
-|---|---|---|
-| 1x | (CI flake only) | 41 of 41 |
-| 2x | 29 pass, 12 fail | 41 of 41 |
-| 4x | 27 pass, 14 fail | 38 pass, 3 fail |
+| Throttle | Before           | After           |
+| -------- | ---------------- | --------------- |
+| 1x       | (CI flake only)  | 41 of 41        |
+| 2x       | 29 pass, 12 fail | 41 of 41        |
+| 4x       | 27 pass, 14 fail | 38 pass, 3 fail |
 
 At 4x the before-run failed on 0 listeners, "a drag started … false" (CI's two assertion failures), focus timing and drop preconditions; with the fix those are gone. Three remain at 4x only: one test passing its 120 s budget, and two "the drop is inside the window at 390px". Logged, the window had moved up 19 px during the drag: dragging 1 px from the viewport's bottom lets Chromium's drag autoscroll scroll the page if the drag is held long enough, which a 4x-slowed run does. The precondition caught an invalid run, as it should; it has not been seen on CI.
 
