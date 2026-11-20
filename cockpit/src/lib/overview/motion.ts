@@ -63,8 +63,11 @@ export function countUp(
     node.setAttribute("data-counted", "");
   };
   const motionAllowed = () => matchMedia("(prefers-reduced-motion: no-preference)").matches;
-  // A count that starts after the fail-safe has shown the figure is not run: it would count from 0
-  // over a figure already on screen (P1-87 PR 8a, review round 1, C).
+  // The skip compares time since navigation start with FAILSAFE_MS: a mount at or after that time
+  // is not counted, since the figure may already show. The CSS fail-safe runs from its own style
+  // start, a little later (about 0.46 s on a normal load), so a mount in that gap shows the figure
+  // at once without a count; that is allowed, and the threshold is a separate round 2 item (r3).
+  // (P1-87 PR 8a, review round 1, C; round 2, r3.)
   if (!(params.enabled && countable(to) && motionAllowed()) || performance.now() >= FAILSAFE_MS) {
     node.setAttribute("data-counted", "");
   } else {

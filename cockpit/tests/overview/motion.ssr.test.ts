@@ -6,6 +6,7 @@ import {
   SPARK_MS,
   FEED_MS,
   MAX_MOTION_MS,
+  INTRO_MS,
   introPlayed,
   markIntroPlayed,
   countable,
@@ -28,9 +29,11 @@ describe("the overview's motion module (P1-87 PR 8a)", () => {
       MAX_MOTION_MS: 5000,
     });
     // The last bar's unknown segment ends after the last bar's fill: seven bars, stagger, two bars.
-    expect((HEALTH_CHECK_NAMES.length - 1) * BAR_STAGGER_MS + 2 * BAR_MS).toBeLessThanOrEqual(
-      MAX_MOTION_MS,
-    );
+    const lastBarEnd = (HEALTH_CHECK_NAMES.length - 1) * BAR_STAGGER_MS + 2 * BAR_MS;
+    expect(lastBarEnd).toBeLessThanOrEqual(MAX_MOTION_MS);
+    // P1-87 PR 8a, round 2 (r1): the intro stays on until the last bar has ended, so a refresh never
+    // replays it on a node it inserts (motion.ts INTRO_MS).
+    expect(INTRO_MS, "the intro outlasts the last bar").toBeGreaterThanOrEqual(lastBarEnd);
     for (const ms of [BAR_MS, COUNT_MS, SPARK_MS, FEED_MS])
       expect(ms).toBeLessThanOrEqual(MAX_MOTION_MS);
   });

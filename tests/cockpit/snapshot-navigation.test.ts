@@ -4527,11 +4527,13 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     ).toBe(true);
   });
 
-  it("with the script delayed 1.5 s, the figure never shows with a count, and it ends visible (item 4, review round 1 C)", async () => {
+  // Round 2 (r2): the bundle is held 2.5 s, not 1.5 s, so a count that began just after the fail-safe
+  // (style at about 0.46 s, plus the hold) cannot pass for one the test should have seen.
+  it("with the script delayed 2.5 s, the figure never shows with a count, and it ends visible (item 4, review round 1 C)", async () => {
     const page = await signedIn();
     await sampleFigure(page);
     await page.route("**/_app/**", async (route) => {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await new Promise((resolve) => setTimeout(resolve, 2500));
       await route.continue();
     });
     await page.setViewportSize({ width: 1280, height: 900 });

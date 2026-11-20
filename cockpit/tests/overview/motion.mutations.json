@@ -219,5 +219,18 @@
     ],
     "test": ["cockpit/tests/overview/motion.ssr.test.ts"],
     "expect": "red"
+  },
+  {
+    "id": "r1-1-intro-shorter-than-the-last-bar",
+    "why": "The intro ends before the last bar's unknown span does (round 2, r1: a refresh would then replay the intro on a node it inserts)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/motion.ts",
+        "find": "export const INTRO_MS = 2000;",
+        "replace": "export const INTRO_MS = 300;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/motion.ssr.test.ts"],
+    "expect": "red"
   }
 ]

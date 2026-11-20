@@ -774,8 +774,9 @@
               {/each}
             </ul>
           {/if}
-          <!-- P1-87 PR 8a, item 5: the chart stays an image for assistive tech; its keys and its
-               pointer readout are the extra reading, and the table below has every night. -->
+          <!-- P1-87 PR 8a, item 5: the chart is a slider for assistive tech (round 2, n5: no longer an
+               image); its keys and its pointer readout are the extra reading, and the table below has
+               every night. -->
           <!-- A slider: its value is the key night (the newest when none is), and its text is that
                night's words. Its value is the one announcement: a hover previews a night without it. -->
           <svg
