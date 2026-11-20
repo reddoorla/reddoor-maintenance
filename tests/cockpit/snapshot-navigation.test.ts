@@ -6194,4 +6194,44 @@ describe("a health bar opens /fleet filtered, in a browser (P1-87 PR 8b)", () =>
       expect(widths.scroll, path).toBeLessThanOrEqual(widths.inner);
     }
   });
+
+  // BR-1: a linked row keeps the row's own grid, so its name, bar and count start where an
+  // unlinked row's do. The premise: both kinds of row are on the page.
+  it("a linked check row's name, bar and count sit where an unlinked row's do at 1280px", async () => {
+    const page = await nextRun();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await expect.poll(() => page.locator("a.ov-check-link").count()).toBeGreaterThan(0);
+    const rows = await page.evaluate(() => {
+      const lefts = (li: Element) =>
+        ["ov-check-name", "ov-check-bar", "ov-check-count"].map((c) =>
+          Math.round(li.querySelector(`.${c}`)!.getBoundingClientRect().left),
+        );
+      const items = [...document.querySelectorAll("ul.ov-checks-list > li.ov-check")];
+      return {
+        linked: items.filter((li) => li.querySelector("a.ov-check-link")).map(lefts),
+        unlinked: items.filter((li) => !li.querySelector("a.ov-check-link")).map(lefts),
+      };
+    });
+    expect(rows.unlinked.length, "an unlinked row is on the page").toBeGreaterThan(0);
+    expect(rows.linked.length, "a linked row is on the page").toBeGreaterThan(0);
+    for (const xs of rows.linked) expect(xs).toEqual(rows.unlinked[0]);
+  });
+
+  // BR-2: keyboard focus on a linked row shows a ring at least 2px wide.
+  it("a focused linked check row shows a focus ring of at least 2px", async () => {
+    const page = await nextRun();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    const bar = page.locator('a[href="/fleet?check=certificate"]');
+    await expect.poll(() => bar.count()).toBe(1);
+    // Focus by keyboard, so the browser shows the focus ring (:focus-visible).
+    await bar.focus();
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Tab");
+    expect(await bar.evaluate((el) => el === document.activeElement)).toBe(true);
+    expect(await bar.evaluate((el) => el.matches(":focus-visible"))).toBe(true);
+    const width = await bar.evaluate((el) => parseFloat(getComputedStyle(el).outlineWidth));
+    expect(width).toBeGreaterThanOrEqual(2);
+  });
 });
