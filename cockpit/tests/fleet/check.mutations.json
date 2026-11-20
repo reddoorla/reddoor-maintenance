@@ -1,0 +1,106 @@
+[
+  {
+    "id": "6-1-unread-listed",
+    "why": "The /fleet list also keeps the sites the check could not read (the brief's 6-1), so the rows are not the bar's red segment",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.ts",
+        "find": "if (verdict === false) failing.add(v.siteId);",
+        "replace": "if (verdict !== true) failing.add(v.siteId);"
+      }
+    ],
+    "test": "cockpit/tests/fleet/sites.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "6-2-filter-on-pass",
+    "why": "The filter keeps the passing sites, not the failing ones (the brief's 6-2)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.ts",
+        "find": "if (verdict === false) failing.add(v.siteId);",
+        "replace": "if (verdict === true) failing.add(v.siteId);"
+      }
+    ],
+    "test": "cockpit/tests/fleet/sites.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "6-3-sorthref-drops-check",
+    "why": "A sort link drops the check, so sorting leaves the filter (the brief's 6-3)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/view.ts",
+        "find": "if (m.query.q) p.set(\"q\", m.query.q);\n  if (m.query.check) p.set(\"check\", m.query.check);",
+        "replace": "if (m.query.q) p.set(\"q\", m.query.q);"
+      }
+    ],
+    "test": "cockpit/tests/fleet/sites.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "6-4-zero-fail-bar-linked",
+    "why": "A bar with no failing site becomes a link (the brief's 6-4)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "{#if c.fail > 0}",
+        "replace": "{#if c.fail >= 0}"
+      }
+    ],
+    "test": "cockpit/tests/overview/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "6-5-shared-slug",
+    "why": "Two checks share one slug, so one filter names two checks (the brief's 6-5)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "\"Build + tests\": \"build-tests\",",
+        "replace": "\"Build + tests\": \"contact-form\","
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "6-6-filter-over-every-site",
+    "why": "The verdicts count archived sites too, so the list gains a site the bar never counts (the brief's 6-6); the same edit moves the bar, so the page's '2 of 18' also goes red",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "const sites = model.cards.filter((c) => c.site.status === \"maintained\").map((c) => c.site);",
+        "replace": "const sites = model.cards.map((c) => c.site);"
+      }
+    ],
+    "test": "cockpit/tests/fleet/sites.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "6-7-hidden-check-input-left-out",
+    "why": "The status form drops the check when Apply is pressed (the brief's 6-7)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "{#if known !== null}<input type=\"hidden\" name=\"check\" value={known.slug} />{/if}",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/fleet/sites.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "6-8-show-all-keeps-check",
+    "why": "Show all sites keeps the check, so it still shows the filtered list (the brief's 6-8)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/view.ts",
+        "find": "export function allSitesHref(m: FleetTableModel): string {\n  const p = new URLSearchParams();",
+        "replace": "export function allSitesHref(m: FleetTableModel): string {\n  const p = new URLSearchParams();\n  if (m.query.check) p.set(\"check\", m.query.check);"
+      }
+    ],
+    "test": "cockpit/tests/fleet/sites.ssr.test.ts",
+    "expect": "red"
+  }
+]

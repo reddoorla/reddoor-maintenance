@@ -5404,3 +5404,38 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     }
   });
 });
+
+/** P1-87 PR 8b, item 6: a health bar opens `/fleet` filtered to the sites that failed it. Not run
+ *  by the implementing session (no browser there); the owning session runs it. The seed's three
+ *  maintained sites decide the counts: Longname has 12 days of certificate (fails), Acme has 90
+ *  (passes), and Beta has no domain check (not read, the bar's unknown segment). So Certificate
+ *  reads 1 of 3 sites passing, its one failing site is Longname, and the line says 1 more could
+ *  not be read. */
+describe("a health bar opens /fleet filtered, in a browser (P1-87 PR 8b)", () => {
+  const nextRun = async (user?: string, options?: BrowserContextOptions) => {
+    for (const c of contexts.splice(0)) await c.close();
+    return signedIn(user, options);
+  };
+
+  it("a click on the failing Certificate bar lands on /fleet?check=certificate, with the rows the bar counts", async () => {
+    const page = await nextRun();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    const bar = page.locator('a[href="/fleet?check=certificate"]');
+    await expect.poll(() => bar.count()).toBe(1);
+    expect(await bar.getAttribute("aria-label")).toBe(
+      "Certificate: 1 of 3 sites failing. Show them on Sites.",
+    );
+    // The bar's count-up and fill settle first, so the click lands on the settled page.
+    await figuresSettled(page);
+    await bar.click();
+    await page.waitForURL(`${origin}/fleet?check=certificate`);
+    await expect.poll(() => page.locator("tr.fleet-row").count()).toBe(1);
+    await expect
+      .poll(() => page.locator("tr.fleet-row td").first().textContent())
+      .toContain(LONG_NAME);
+    const line = await page.locator(".check-filter").textContent();
+    expect(line).toContain("Failing Certificate: 1 site");
+    expect(line).toContain("1 more could not be read");
+  });
+});
