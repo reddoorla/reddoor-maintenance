@@ -6033,12 +6033,39 @@ describe("PR 8c, How this works motion", () => {
           document.querySelector("section.how-lead .how-dot")!.getAnimations()[0]?.currentTime ?? 0,
       );
     await expect.poll(clock, { timeout: 4_000 }).toBeGreaterThan(500);
+    // Each mark of stage 1 records the dot's clock and whether its animation is the one the old
+    // run started, so the record does not depend on when the poll reads the page. The marks are
+    // watched from before Replay, so a stale timer's mark is seen whatever its time.
+    await page.evaluate(() => {
+      const w = window as unknown as {
+        __oldAnim: Animation | undefined;
+        __marks: Array<{ fresh: boolean; at: number }>;
+      };
+      const dot = document.querySelector("section.how-lead .how-dot")!;
+      const stage1 = document.querySelectorAll("ol.how-lead-flow > li")[1] as HTMLElement;
+      w.__oldAnim = dot.getAnimations()[0];
+      w.__marks = [];
+      new MutationObserver(() => {
+        if (stage1.getAttribute("data-passed") !== "true") return;
+        const anim = dot.getAnimations()[0];
+        w.__marks.push({ fresh: anim !== w.__oldAnim, at: anim?.currentTime ?? 0 });
+      }).observe(stage1, { attributes: true, attributeFilter: ["data-passed"] });
+    });
     await page.locator("section.how-lead button.how-replay").click();
-    // The first run marks stage 1 at 1167 ms of its clock. The new run marks it at 1167 ms of its
-    // own, so at 800 ms of the new run stage 1 must still be unmarked.
-    await expect.poll(clock, { timeout: 4_000 }).toBeGreaterThanOrEqual(800);
-    const stage1 = await page.locator("ol.how-lead-flow > li").nth(1).getAttribute("data-passed");
-    expect(stage1, "stage 1 is not marked by an old run's timer").toBeNull();
+    const fresh = () =>
+      page.evaluate(() =>
+        (window as unknown as { __marks: Array<{ fresh: boolean; at: number }> }).__marks
+          .filter((m) => m.fresh)
+          .map((m) => m.at),
+      );
+    // The new run marks stage 1 at LEAD_DOT_MS / 4 = 875 ms of its own clock (four stages after
+    // the form). A stale timer from the old run, which had run at least 500 ms, would mark it by
+    // 875 - 500 = 375 ms of the new run, so the first mark of the new run must be at least 600 ms.
+    await expect.poll(async () => (await fresh()).length, { timeout: 4_000 }).toBeGreaterThan(0);
+    const [firstMark] = await fresh();
+    expect(firstMark, "stage 1 is not marked early by an old run's timer").toBeGreaterThanOrEqual(
+      600,
+    );
   });
 
   it("round 1 B3: the steps light about 300 ms apart, one after another, not together", async () => {
