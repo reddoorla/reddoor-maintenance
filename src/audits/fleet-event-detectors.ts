@@ -20,6 +20,41 @@ export function cleanRenovateTitle(title: string): string {
   return t.trim();
 }
 
+/** backup_verified: the night's restore rehearsal passed, read from the one
+ *  `DUMP_VERIFY` machine line `db verify-dump` prints. PURE. Null unless the text
+ *  holds exactly one such line, it says `loaded=true` and `mismatches=0`, and its
+ *  `tables` and `rows` are integers: a failed, partial or ambiguous rehearsal
+ *  records nothing. */
+export function backupEventFromVerify(text: string, at: string): FleetEvent | null {
+  const lines = text.split("\n").filter((l) => l.startsWith("DUMP_VERIFY "));
+  if (lines.length !== 1) return null;
+  const fields = new Map<string, string>();
+  for (const token of lines[0]!.slice("DUMP_VERIFY ".length).split(" ")) {
+    const eq = token.indexOf("=");
+    if (eq <= 0) continue;
+    fields.set(token.slice(0, eq), token.slice(eq + 1));
+  }
+  if (fields.get("loaded") !== "true" || fields.get("mismatches") !== "0") return null;
+  const tables = fields.get("tables") ?? "";
+  const rows = fields.get("rows") ?? "";
+  if (!/^\d+$/.test(tables) || !/^\d+$/.test(rows)) return null;
+  const t = Number(tables);
+  const r = Number(rows);
+  return {
+    id: `backup_verified:${ymd(at)}`,
+    ts: at,
+    type: "backup_verified",
+    siteId: null,
+    siteName: null,
+    summary: `Backup restored in rehearsal: ${t} tables, ${groupThousands(r)} rows`,
+    data: { tables: t, rows: r },
+  };
+}
+
+function groupThousands(n: number): string {
+  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
 /** vuln_cleared (critical+high >0 → 0) and cert_renewed (<30 → >60) from a single
  *  site's prior WebsiteRow vs the freshly-audited values. PURE. A null prior count
  *  reads as 0 (vuln) or "not a renewal" (cert) — both fire only on a real transition. */

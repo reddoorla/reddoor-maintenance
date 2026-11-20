@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, chmod, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { join } from "node:path";
-import { stepRunScript, workflowPath } from "./_helpers/workflow-source.js";
+import { stepEnv, stepRunScript, workflowPath, workflowSteps } from "./_helpers/workflow-source.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -22,12 +22,15 @@ const execFileAsync = promisify(execFile);
 
 const BACKUP_STEP = "Dump + rehearse the restore";
 const ENCRYPT_STEP = "Encrypt";
+const RECORD_STEP = "Record the backup event";
 
 let gate: string;
 let encrypt: string;
+let workflowText: string;
 
 beforeAll(async () => {
   const wf = await readFile(workflowPath("fleet-db-backup.yml"), "utf-8");
+  workflowText = wf;
   gate = stepRunScript(wf, BACKUP_STEP);
   encrypt = stepRunScript(wf, ENCRYPT_STEP);
 });
@@ -150,5 +153,61 @@ describe("fleet-db-backup — the gate cannot go green on a backup that would no
     const r = await runStep(encrypt, { env: { BACKUP_PASSPHRASE: "" } });
     expect(r.code).not.toBe(0);
     expect(r.out).toContain("refusing to upload a plaintext dump");
+  });
+});
+
+// P1-87 PR 9 (a). A backup is recorded as a feed event only once the whole job's
+// work is done: after the Dropbox copy, before the failure-issue step. The record step
+// has no `if:` of its own, so it runs only when every step before it succeeded (the
+// rehearsal, Encrypt's round-trip gate and the upload; the Dropbox copy is
+// continue-on-error and does not fail the job). It holds only the two TURSO_* secrets.
+describe("fleet-db-backup — the backup event is recorded at the end of the job's work", () => {
+  const DROPBOX_STEP = "Copy the encrypted dump to Dropbox";
+  const FAILURE_ISSUE_STEP = "Open/update the backup-failure tracking issue";
+
+  it("runs after the Dropbox copy and before the failure-issue step, in the same job", () => {
+    const steps = workflowSteps(workflowText);
+    const labels = steps.map((st) => st.label);
+    const dropbox = labels.indexOf(DROPBOX_STEP);
+    const record = labels.indexOf(RECORD_STEP);
+    const issue = labels.indexOf(FAILURE_ISSUE_STEP);
+    expect(dropbox).toBeGreaterThan(-1);
+    expect(record).toBe(dropbox + 1);
+    expect(issue).toBe(record + 1);
+    expect(steps[record]!.job).toBe(steps[dropbox]!.job);
+  });
+
+  it("has no if: and no continue-on-error of its own, and does not name always() or failure()", () => {
+    const step = workflowSteps(workflowText).find((st) => st.label === RECORD_STEP);
+    expect(step).toBeDefined();
+    expect(step!.if).toBeUndefined();
+    expect(step!.continueOnError).toBeUndefined();
+    expect(step!.source).not.toMatch(/always\(\)|failure\(\)/);
+  });
+
+  it("holds only the two TURSO_* secrets, exactly as the rehearsal does", () => {
+    expect(stepEnv(workflowText, RECORD_STEP)).toEqual({
+      TURSO_DATABASE_URL: "${{ secrets.TURSO_DATABASE_URL }}",
+      TURSO_AUTH_TOKEN: "${{ secrets.TURSO_AUTH_TOKEN }}",
+    });
+  });
+
+  it("records the rehearsal's own verify output", () => {
+    const run = stepRunScript(workflowText, RECORD_STEP);
+    expect(run).toContain(
+      'node dist/cli/bin.js db record-backup-event --file "${RUNNER_TEMP:-/tmp}/verify.out"',
+    );
+  });
+
+  it("leaves the existing gate lines unchanged", () => {
+    expect(gate).toContain(
+      `grep -qE '^DUMP_VERIFY loaded=true .* mismatches=0$' "$out/verify.out"`,
+    );
+    expect(gate).toContain(
+      'node dist/cli/bin.js db verify-dump --file "$out/dump.sql" | tee "$out/verify.out"',
+    );
+    expect(encrypt).toContain(
+      `grep -qE '^DUMP_VERIFY loaded=true .* mismatches=0$' "$out/verify.enc.out"`,
+    );
   });
 });

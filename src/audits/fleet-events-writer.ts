@@ -14,19 +14,30 @@ export async function recordFleetEventsBestEffort(
   now: Date,
   open: () => Promise<Db> = () => openDb(readDbConfig()),
 ): Promise<void> {
-  if (events.length === 0) return;
+  await recordFleetEventsReporting(events, now, open);
+}
+
+/** The same best-effort write, reporting whether the events were written: true when
+ *  every event was (or there was none), false when the open, a write or the lookup
+ *  failed (the reason is on stderr). A failed prune still counts as written. */
+export async function recordFleetEventsReporting(
+  events: FleetEvent[],
+  now: Date,
+  open: () => Promise<Db> = () => openDb(readDbConfig()),
+): Promise<boolean> {
+  if (events.length === 0) return true;
   let db: Db;
   try {
     db = await open();
   } catch (e) {
     console.error(`[fleet-events] skipped ${events.length} event(s): no libSQL (${String(e)})`);
-    return;
+    return false;
   }
   try {
     for (const e of events) await recordFleetEvent(db, e);
   } catch (e) {
     console.error(`[fleet-events] write failed: ${String(e)}`);
-    return; // no point pruning over the same broken connection
+    return false; // no point pruning over the same broken connection
   }
   // Prune failures get their own greppable label — a recurring prune failure
   // (table growing unbounded) must be distinguishable from a write failure.
@@ -35,4 +46,5 @@ export async function recordFleetEventsBestEffort(
   } catch (e) {
     console.error(`[fleet-events] prune failed: ${String(e)}`);
   }
+  return true; // the events are written; a failed prune does not un-record them
 }

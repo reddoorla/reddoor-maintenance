@@ -34,7 +34,7 @@ export type DbCommandDeps = {
   restoreAuthToken?: string;
 };
 
-/** `db <action>` — migrate | replay-deadletters | dump | verify-dump | restore | usage. The db layer is imported
+/** `db <action>` — migrate | replay-deadletters | dump | verify-dump | record-backup-event | restore | usage. The db layer is imported
  *  dynamically so a non-db CLI invocation (and `--help`) never loads
  *  @libsql/client. Config is resolved inside each branch so an unknown action
  *  returns without needing any Turso env. */
@@ -399,6 +399,44 @@ export async function runDbCommand(
       `DUMP_VERIFY loaded=true tables=${Object.keys(restored).length} rows=${total} blob_bytes=${restoredBlobBytes} hashed=${hashed} mismatches=${mismatches.length}`,
     ];
     return { output: lines.join("\n"), code: mismatches.length > 0 ? 1 : 0 };
+  }
+
+  // P1-87 PR 9 (a). The backup workflow runs this after the rehearsal step passed:
+  // it reads the verify output and records the night's backup_verified event. The
+  // exit code is 0 whether or not it recorded: recording never fails the backup.
+  if (action === "record-backup-event") {
+    const file = opts.file;
+    if (!file) return { output: "record-backup-event: pass the verify output via --file", code: 1 };
+    const at = deps.now ?? new Date();
+    const { readFile } = await import("node:fs/promises");
+    let text: string;
+    try {
+      text = await readFile(file, "utf-8");
+    } catch (e) {
+      return {
+        output: `record-backup-event: not recorded — cannot read ${file} (${String(e)})`,
+        code: 0,
+      };
+    }
+    const { backupEventFromVerify } = await import("../../audits/fleet-event-detectors.js");
+    const event = backupEventFromVerify(text, at.toISOString());
+    if (!event) {
+      return {
+        output:
+          "record-backup-event: not recorded — the rehearsal line does not say a clean restore",
+        code: 0,
+      };
+    }
+    const { recordFleetEventsReporting } = await import("../../audits/fleet-events-writer.js");
+    const { openDb, readDbConfig } = await import("../../db/client.js");
+    const open = () => openDb(opts.url ? { url: opts.url } : readDbConfig());
+    const recorded = await recordFleetEventsReporting([event], at, open);
+    return {
+      output: recorded
+        ? `record-backup-event: recorded ${event.id}`
+        : `record-backup-event: not recorded — ${event.id} was not written (see the error above)`,
+      code: 0,
+    };
   }
 
   return {

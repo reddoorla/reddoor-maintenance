@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { WebsiteRow } from "../../src/fleet/site-row.js";
 import {
+  backupEventFromVerify,
   cleanRenovateTitle,
   detectAuditEvents,
   detectSignalEvents,
@@ -154,5 +155,79 @@ describe("fleetSweptEvent", () => {
     expect(e.siteId).toBeNull();
     expect(e.summary).toBe("security-swept 11 sites");
     expect(fleetSweptEvent("lighthouse", 1, AT).summary).toBe("re-audited 1 site");
+  });
+});
+
+// P1-87 PR 9 (a). The nightly restore rehearsal's machine line, parsed. Only a
+// clean line records; every other shape is null, so a failed rehearsal cannot
+// reach the feed even if the workflow step that calls this ever runs.
+describe("backupEventFromVerify", () => {
+  const CLEAN =
+    "DUMP_VERIFY loaded=true tables=44 rows=12345 blob_bytes=987 hashed=44 mismatches=0";
+
+  it("records one clean rehearsal line, with its counts in data", () => {
+    const e = backupEventFromVerify(CLEAN, AT);
+    expect(e).toEqual({
+      id: "backup_verified:2026-06-25",
+      ts: AT,
+      type: "backup_verified",
+      siteId: null,
+      siteName: null,
+      summary: "Backup restored in rehearsal: 44 tables, 12,345 rows",
+      data: { tables: 44, rows: 12345 },
+    });
+  });
+
+  it("takes rows from the rows field, never from blob_bytes", () => {
+    const e = backupEventFromVerify(
+      "DUMP_VERIFY loaded=true tables=9 rows=340 blob_bytes=99999 hashed=9 mismatches=0",
+      AT,
+    );
+    expect(e?.data).toEqual({ tables: 9, rows: 340 });
+  });
+
+  it("ignores the check's own ✗ lines and any text around the one machine line", () => {
+    const e = backupEventFromVerify(`${CLEAN}\n`, AT);
+    expect(e?.data).toEqual({ tables: 44, rows: 12345 });
+  });
+
+  it.each([
+    [
+      "a failed rehearsal (mismatches=3)",
+      "DUMP_VERIFY loaded=true tables=44 rows=12345 blob_bytes=987 hashed=44 mismatches=3",
+    ],
+    [
+      "a single mismatch (mismatches=1)",
+      "DUMP_VERIFY loaded=true tables=44 rows=12345 blob_bytes=987 hashed=44 mismatches=1",
+    ],
+    [
+      "a dump that did not load",
+      "DUMP_VERIFY loaded=false tables=44 rows=12345 blob_bytes=987 hashed=44 mismatches=0",
+    ],
+    [
+      "a manifest-less dump",
+      "DUMP_VERIFY loaded=true manifest=absent — dump predates the origin manifest",
+    ],
+    [
+      "a non-integer table count",
+      "DUMP_VERIFY loaded=true tables=4x rows=12345 blob_bytes=987 hashed=44 mismatches=0",
+    ],
+    [
+      "a non-integer row count",
+      "DUMP_VERIFY loaded=true tables=44 rows=1.5 blob_bytes=987 hashed=44 mismatches=0",
+    ],
+    ["no machine line at all", "✗ sites: dump=44 restored=43"],
+    ["empty text", ""],
+  ])("returns null for %s", (_name, text) => {
+    expect(backupEventFromVerify(text, AT)).toBeNull();
+  });
+
+  it("returns null when two machine lines disagree", () => {
+    expect(
+      backupEventFromVerify(
+        `${CLEAN}\nDUMP_VERIFY loaded=true tables=44 rows=12000 blob_bytes=987 hashed=44 mismatches=3`,
+        AT,
+      ),
+    ).toBeNull();
   });
 });
