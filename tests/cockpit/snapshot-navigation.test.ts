@@ -6231,13 +6231,20 @@ describe("a health bar opens /fleet filtered, in a browser (P1-87 PR 8b)", () =>
     await page.keyboard.press("Tab");
     expect(await bar.evaluate((el) => el === document.activeElement)).toBe(true);
     expect(await bar.evaluate((el) => el.matches(":focus-visible"))).toBe(true);
-    // The width alone is not enough: the browser's own "auto" ring is also 2px wide, so without
-    // the rule's `solid` outline the width still reads 2px. The style is what the rule sets.
+    // base.css already gives every :focus-visible a 2px solid ring in --focus, so the width and
+    // style alone cannot tell the link's own rule apart. The rule's distinct part is its colour:
+    // currentColor, the link's own text colour, which the ring must match.
     const ring = await bar.evaluate((el) => {
       const s = getComputedStyle(el);
-      return { width: parseFloat(s.outlineWidth), style: s.outlineStyle };
+      return {
+        width: parseFloat(s.outlineWidth),
+        style: s.outlineStyle,
+        ring: s.outlineColor,
+        text: s.color,
+      };
     });
     expect(ring.width).toBeGreaterThanOrEqual(2);
     expect(ring.style).toBe("solid");
+    expect(ring.ring).toBe(ring.text);
   });
 });
