@@ -234,7 +234,7 @@
     "expect": "red"
   },
   {
-    "id": "9-19-deploy-read-capped-at-500",
+    "id": "9-19-deploy-read-capped-at-20-recent-events-limit",
     "why": "The deploy read uses RECENT_EVENTS_LIMIT as its cap, so the 20 newest deploys are read before deploysToShow drops the merged one, and a deploy after a merge leaves the feed short of its 20 (T1)",
     "edits": [
       {
@@ -274,7 +274,7 @@
   },
   {
     "id": "9-22-only-updated-sync-pr-records",
-    "why": "Only an updated sync PR records an event, and an opened one does not: the update branch of the sync is the only one that builds the event (T2, the x17 survivor)",
+    "why": "An updated sync PR records an event too (only an opened PR should): the mutant adds the event on the update branch, so the updated night must see none (T2, the x17 survivor)",
     "edits": [
       {
         "file": "src/cli/commands/prismic-sync.ts",
