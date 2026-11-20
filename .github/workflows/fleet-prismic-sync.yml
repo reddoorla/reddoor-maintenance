@@ -251,6 +251,10 @@ jobs:
         timeout-minutes: 45
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          # P1-87 PR 9 (c): a sync PR this run opened is recorded in the feed. The same
+          # two secrets the fetch step holds; no other credential is added here.
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: |
           set -o pipefail
           out="${RUNNER_TEMP:-/tmp}/prismic-sync.out"
