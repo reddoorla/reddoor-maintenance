@@ -339,7 +339,7 @@
   },
   {
     "id": "9-27-fleet-load-windows-at-snapshot-time",
-    "why": "/fleet's load windows the Recently lane's feed deploys at the snapshot's takenAt, not the page's now, so a page read days after its snapshot still shows an event and a deploy that have aged out of the 7-day window (T12)",
+    "why": "/fleet's load windows the Recently lane's feed deploys at the snapshot's takenAt, not the page's now, so a page read days after its snapshot still shows a deploy that has aged out of the 7-day window (the event is windowed separately, at +page.ts:25) (T12)",
     "edits": [
       {
         "file": "cockpit/src/routes/fleet/+page.ts",

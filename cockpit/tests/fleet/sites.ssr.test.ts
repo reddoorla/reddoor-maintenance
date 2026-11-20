@@ -295,12 +295,12 @@ describe("/fleet's Recently lane windows at the page's now, not the snapshot's t
           siteId: "recA",
           siteName: "Caltex",
           summary: EVENT_SUMMARY,
-          data: null,
+          data: { from: 2 },
         },
       ],
       feedDeploys: [
         {
-          id: "site_deployed:recA:1",
+          id: `site_deployed:recA:${EVENT_TS}`,
           ts: EVENT_TS,
           type: "site_deployed",
           siteId: "recA",
