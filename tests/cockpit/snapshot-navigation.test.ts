@@ -6175,8 +6175,8 @@ describe("a health bar opens /fleet filtered, in a browser (P1-87 PR 8b)", () =>
       .poll(() => page.locator("tr.fleet-row td").first().textContent())
       .toContain(LONG_NAME);
     const line = await page.locator(".check-filter").textContent();
-    expect(line).toContain("Failing Certificate: 1 site");
-    expect(line).toContain("1 more could not be read");
+    expect(line).toMatch(/Failing Certificate: 1 site(?!s)/);
+    expect(line).toContain("1 more have no verdict yet");
   });
 
   // D2: the filtered column's "(filtered)" span is visually hidden; it must sit inside the table's

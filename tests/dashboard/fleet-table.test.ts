@@ -52,6 +52,10 @@ describe("parseFleetTableQuery", () => {
     const q = parseFleetTableQuery(new URLSearchParams(`status=${"s".repeat(500)}`));
     expect(q.status).toHaveLength(64);
   });
+  it("caps a hostile check at 64 chars exactly", () => {
+    const q = parseFleetTableQuery(new URLSearchParams(`check=${"c".repeat(500)}`));
+    expect(q.check).toHaveLength(64);
+  });
   it("accepts every advertised sort key", () => {
     for (const key of FLEET_SORT_KEYS) {
       expect(parseFleetTableQuery(new URLSearchParams(`sort=${key}`)).sort).toBe(key);

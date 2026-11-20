@@ -66,7 +66,7 @@
   },
   {
     "id": "6-6-filter-over-every-site",
-    "why": "The verdicts count archived sites too, so the list gains a site the bar never counts (the brief's 6-6); the same edit moves the bar, so the page's '2 of 18' also goes red",
+    "why": "The verdicts count archived sites too, so the list gains a site the bar never counts (the brief's 6-6). sites.ssr catches it; page.ssr's '2 of 18' does not go red, since its fixture has no archived site that would fail",
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
@@ -98,6 +98,19 @@
         "file": "cockpit/src/routes/fleet/view.ts",
         "find": "export function allSitesHref(m: FleetTableModel): string {\n  const p = new URLSearchParams();",
         "replace": "export function allSitesHref(m: FleetTableModel): string {\n  const p = new URLSearchParams();\n  if (m.query.check) p.set(\"check\", m.query.check);"
+      }
+    ],
+    "test": "cockpit/tests/fleet/sites.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "6-9-keep-undefined",
+    "why": "The filter keeps every site, so the list is the whole table under a check's name (the brief's B-1, the keep set left unset)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.ts",
+        "find": "      keep = failing;",
+        "replace": "      keep = undefined;"
       }
     ],
     "test": "cockpit/tests/fleet/sites.ssr.test.ts",

@@ -90,11 +90,11 @@
 {#if known !== null}
   <p class="check-filter">
     {failingLine(known)}{#if known.unread > 0}
-      {" "}· {known.unread} more could not be read{/if}
+      {" "}· {known.unread} more have no verdict yet{/if}
     · <a href={allSitesHref(m)}>Show all sites</a>
   </p>
 {:else if unknownSlug !== null}
-  <p class="check-filter" role="status">No check is called "{unknownSlug}". Showing all sites.</p>
+  <p class="check-filter">No check is called "{unknownSlug}". Showing all sites.</p>
 {/if}
 <!-- The chip count for a screen reader (#1636): `.meta` is not a live region,
      so this one, always in the page, carries the count and a chip press

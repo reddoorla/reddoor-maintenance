@@ -7,7 +7,13 @@ import { render } from "svelte/server";
 import { canonical, renderPage } from "../_helpers/parity.js";
 import { cases, NOW } from "../home/fixtures.js";
 import { load } from "../../src/routes/fleet/+page.js";
-import { allSitesHref, showHiddenHref, sortHref } from "../../src/routes/fleet/view.js";
+import {
+  allSitesHref,
+  CHECK_COLUMN,
+  FACT_COLUMNS,
+  showHiddenHref,
+  sortHref,
+} from "../../src/routes/fleet/view.js";
 import { healthy, snapshot, FRESH, STALE, NOW as OVERVIEW_NOW } from "../overview/fixtures.js";
 import {
   CHECK_SLUGS,
@@ -82,13 +88,13 @@ describe("Sites filtered to one health check (P1-87, PR 8b)", () => {
     const doc = await page("/fleet?check=certificate");
     expect(rowNames(doc)).toEqual(["Bravo", "Charlie"]);
     expect(text(checkLine(doc)!)).toContain("Failing Certificate: 2 sites");
-    expect(text(checkLine(doc)!)).toContain("1 more could not be read");
+    expect(text(checkLine(doc)!)).toContain("1 more have no verdict yet");
   });
 
   it("reads the whole line with a space before each dot", async () => {
     const doc = await page("/fleet?check=certificate");
     expect(text(checkLine(doc)!)).toBe(
-      "Failing Certificate: 2 sites · 1 more could not be read · Show all sites",
+      "Failing Certificate: 2 sites · 1 more have no verdict yet · Show all sites",
     );
   });
 
@@ -107,6 +113,9 @@ describe("Sites filtered to one health check (P1-87, PR 8b)", () => {
     const doc = await page("/fleet?check=certificate");
     const marked = doc.querySelectorAll("table.fleet thead th.filtered-col");
     expect(marked.map(text)).toEqual(["Certificate (filtered)"]);
+    // The text, not only the class: one visually hidden "(filtered)" in the whole header.
+    const hidden = doc.querySelectorAll("table.fleet thead .visually-hidden");
+    expect(hidden.map(text)).toEqual(["(filtered)"]);
   });
 
   it("gives a check with no failing site an empty list and a count of 0", async () => {
@@ -115,12 +124,23 @@ describe("Sites filtered to one health check (P1-87, PR 8b)", () => {
     expect(text(checkLine(doc)!)).toContain("Failing Security: 0 sites");
   });
 
+  it("says nothing of unread sites when none is unread", async () => {
+    const doc = await page("/fleet?check=security");
+    expect(text(checkLine(doc)!)).toBe("Failing Security: 0 sites · Show all sites");
+  });
+
   it("names an unknown check, shows the full table, and prints the slug as text", async () => {
     const doc = await page("/fleet?check=nope");
     // 18 maintained sites and Lima (launching, visible); Xray (archived) stays hidden by default.
     expect(rowNames(doc)).toHaveLength(19);
     expect(text(checkLine(doc)!)).toBe('No check is called "nope". Showing all sites.');
     expect(doc.querySelector("input[name='check']")).toBeNull();
+    // The unknown slug is dropped, not carried: no sort link keeps a check parameter.
+    const sortLinks = doc
+      .querySelectorAll("table.fleet thead th a")
+      .map((a) => a.getAttribute("href")!);
+    expect(sortLinks.length).toBeGreaterThan(0);
+    for (const href of sortLinks) expect(href).not.toContain("check");
     const hostile = await page("/fleet?check=%3Cscript%3E");
     const line = checkLine(hostile)!;
     expect(line.querySelector("script")).toBeNull();
@@ -141,8 +161,16 @@ describe("Sites filtered to one health check (P1-87, PR 8b)", () => {
     const doc = await page("/fleet?check=contact-form", FORM_SNAP);
     expect(rowNames(doc)).toEqual([]);
     expect(text(checkLine(doc)!)).toBe(
-      "Failing Contact form: 0 sites · 3 more could not be read · Show all sites",
+      "Failing Contact form: 0 sites · 3 more have no verdict yet · Show all sites",
     );
+  });
+
+  // The table is not rendered for a filter with no rows, and the Contact form filter never has a
+  // row (a failed form test is not a failure), so its Forms header is never on screen. The mapping
+  // is what can be pinned: the Contact form check marks the Forms column.
+  it("maps the Contact form check to the Forms column", () => {
+    expect(CHECK_COLUMN["Contact form"]).toBe("Forms");
+    expect(FACT_COLUMNS).toContain("Forms");
   });
 
   // T2: one failing site per check. Each check's rows are the sites the overview's bar counts as
@@ -182,6 +210,8 @@ describe("Sites filtered to one health check (P1-87, PR 8b)", () => {
       const doc = await page(`/fleet?check=${CHECK_SLUGS[name]}`, HEALTH_SNAP);
       const bar = health.checks.find((c) => c.name === name)!;
       expect(rowNames(doc), name).toEqual(FAILING[name]);
+      // The plural: one site reads "1 site", never "1 sites" (a word boundary, not a substring).
+      if (FAILING[name]!.length === 1) expect(text(checkLine(doc)!), name).toMatch(/: 1 site(?!s)/);
       expect(bar.fail, name).toBe(FAILING[name]!.length);
       const more = text(checkLine(doc)!).match(/(\d+) more /);
       expect(more ? Number(more[1]) : 0, name).toBe(bar.unknown);
