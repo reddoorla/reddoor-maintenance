@@ -109,7 +109,7 @@
     "edits": [
       {
         "file": "cockpit/src/routes/how/+page.svelte",
-        "find": "class=\"how-replay\" hidden bind:this",
+        "find": "class=\"how-replay\" hidden={!leadShown} bind:this",
         "replace": "class=\"how-replay\" bind:this"
       }
     ],
@@ -298,6 +298,19 @@
         "file": "cockpit/src/lib/how/view.ts",
         "find": "    .sort((a, b) => b.night.localeCompare(a.night))",
         "replace": "    .sort((a, b) => a.night.localeCompare(b.night))"
+      }
+    ],
+    "test": "cockpit/tests/how/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "D3-replay-shown-with-unreadable-counts",
+    "why": "The dot and Replay show even when the counts could not be read, so a run would have nothing to show",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "  return motionAndRunnable && allTime !== null;",
+        "replace": "  return motionAndRunnable;"
       }
     ],
     "test": "cockpit/tests/how/view.ssr.test.ts",

@@ -1,7 +1,13 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type { HowView } from "../../lib/how/view.js";
-  import { LEAD_DOT_MS, nextToLight, STEP_LIGHT_MS, type Tier } from "../../lib/how/view.js";
+  import {
+    LEAD_DOT_MS,
+    leadControlsShown,
+    nextToLight,
+    STEP_LIGHT_MS,
+    type Tier,
+  } from "../../lib/how/view.js";
   import { HOW_WE_COUNT, NOT_YET, UNREADABLE } from "../../lib/overview/view.js";
   import PageStyles from "../../lib/PageStyles.svelte";
   import howCss from "../../lib/how/how.css?inline";
@@ -32,6 +38,64 @@
   let dotEl: HTMLElement | undefined = $state();
   let replayEl: HTMLButtonElement | undefined = $state();
   let branchEl: HTMLButtonElement | undefined = $state();
+  /** Set in onMount when motion is allowed and the dot can run. Round 1 D3: the dot and Replay
+   *  show only while the counts are readable, so they follow the data, not the mount. */
+  let leadRunnable = $state(false);
+  const leadShown = $derived(leadControlsShown(leadRunnable, v.leads.allTime));
+  /** On screen only while a run is: a run sets it, a resize or unreadable counts clear it (D1, D2). */
+  let dotOn = $state(false);
+  let leadAnim: Animation | undefined;
+  let leadPasses: ReturnType<typeof setTimeout>[] = [];
+  let leadStarted = false;
+  let revealObs: IntersectionObserver | undefined;
+
+  /** Cancels the run and hides the dot. Replay can start a new run after it. */
+  function stopLead(): void {
+    leadAnim?.cancel();
+    leadAnim = undefined;
+    leadPasses.forEach(clearTimeout);
+    leadPasses = [];
+    dotOn = false;
+  }
+
+  /** One run: the dot visits each stage's centre, linearly, in LEAD_DOT_MS. The stages are read
+   *  when the run starts, not at mount, so a changed set of stages is followed (round 1 D3). */
+  function runLead(): void {
+    if (!leadShown || dotEl === undefined || leadEl === undefined || leadFlowEl === undefined)
+      return;
+    leadStarted = true;
+    revealObs?.disconnect();
+    stopLead();
+    const dot = dotEl;
+    const stages = Array.from(leadFlowEl.children) as HTMLElement[];
+    for (const li of stages) li.removeAttribute("data-passed");
+    const origin = leadEl.getBoundingClientRect();
+    const last = stages.length - 1;
+    const frames = stages.map((li, i) => {
+      const r = li.getBoundingClientRect();
+      const x = r.left + r.width / 2 - origin.left;
+      const y = r.top + r.height / 2 - origin.top;
+      return { transform: `translate(${x}px, ${y}px)`, offset: i / last };
+    });
+    dotOn = true;
+    leadAnim = dot.animate(frames, {
+      duration: LEAD_DOT_MS,
+      easing: "linear",
+      iterations: 1,
+      fill: "forwards",
+    });
+    // A stage is marked as the dot reaches it; the inbox stays marked when the run ends.
+    stages.slice(1).forEach((li, k) => {
+      leadPasses.push(
+        setTimeout(() => li.setAttribute("data-passed", "true"), (LEAD_DOT_MS * (k + 1)) / last),
+      );
+    });
+  }
+
+  // Round 1 D3: a refresh that leaves the counts unreadable hides the dot and Replay and cancels a run.
+  $effect(() => {
+    if (v.leads.allTime === null) stopLead();
+  });
 
   /** PR 8c item 10: each level's panel is open in the server render and without script, so no
    *  visitor loses its sites or the nights line; the script closes them in onMount. */
@@ -133,78 +197,33 @@
       branchEl.addEventListener("click", toggle);
       cleanups.push(() => branchEl?.removeEventListener("click", toggle));
     }
-    // The dot and Replay need motion, and a journey to run: the counts must be readable.
+    // The dot and Replay need motion and the means to run; whether they show also needs readable
+    // counts (leadShown, in the template's hidden attributes).
     const canRun =
       motion &&
-      v.leads.allTime !== null &&
       leadEl !== undefined &&
       leadFlowEl !== undefined &&
       dotEl !== undefined &&
       replayEl !== undefined &&
       typeof IntersectionObserver === "function" &&
       typeof dotEl.animate === "function";
+    leadRunnable = canRun;
+    // Round 1 D2: a resize clears the dot (its place was measured at the old width); Replay
+    // runs again at the new one.
+    const onResize = () => stopLead();
+    window.addEventListener("resize", onResize);
     if (canRun) {
-      const section = leadEl!;
-      const dot = dotEl!;
-      const replay = replayEl!;
-      const stages = Array.from(leadFlowEl!.children) as HTMLElement[];
-      dot.hidden = false;
-      replay.hidden = false;
-      let anim: Animation | undefined;
-      let passes: ReturnType<typeof setTimeout>[] = [];
-      let started = false;
-      const clearPasses = () => {
-        passes.forEach(clearTimeout);
-        passes = [];
-      };
-      // One run: the dot visits each stage's centre, linearly, in LEAD_DOT_MS. A stage is
-      // marked as the dot reaches it; it rests at the inbox when the run ends.
-      const run = () => {
-        started = true;
-        anim?.cancel();
-        clearPasses();
-        for (const li of stages) li.removeAttribute("data-passed");
-        const origin = section.getBoundingClientRect();
-        const last = stages.length - 1;
-        const frames = stages.map((li, i) => {
-          const r = li.getBoundingClientRect();
-          const x = r.left + r.width / 2 - origin.left;
-          const y = r.top + r.height / 2 - origin.top;
-          return { transform: `translate(${x}px, ${y}px)`, offset: i / last };
-        });
-        anim = dot.animate(frames, {
-          duration: LEAD_DOT_MS,
-          easing: "linear",
-          iterations: 1,
-          fill: "forwards",
-        });
-        stages.slice(1).forEach((li, k) => {
-          passes.push(
-            setTimeout(
-              () => li.setAttribute("data-passed", "true"),
-              (LEAD_DOT_MS * (k + 1)) / last,
-            ),
-          );
-        });
-      };
-      // The run starts once the chapter is at least 0.6 in view, and only once.
-      const reveal = new IntersectionObserver(
+      // The run starts once the chapter is at least 0.6 in view, and only once. A run that
+      // Replay starts first disconnects this, since it has nothing left to start.
+      revealObs = new IntersectionObserver(
         (entries) => {
-          if (!started && entries.some((e) => e.isIntersecting && e.intersectionRatio >= 0.6)) {
-            reveal.disconnect();
-            run();
-          }
+          if (!leadStarted && entries.some((e) => e.isIntersecting && e.intersectionRatio >= 0.6))
+            runLead();
         },
         { threshold: 0.6 },
       );
-      reveal.observe(section);
-      replay.addEventListener("click", run);
-      cleanups.push(() => {
-        reveal.disconnect();
-        replay.removeEventListener("click", run);
-        anim?.cancel();
-        clearPasses();
-      });
+      revealObs.observe(leadEl!);
+      replayEl!.addEventListener("click", runLead);
     }
     leadScripted = true;
 
@@ -213,6 +232,10 @@
       clearTimeout(timer);
       cleanups.forEach((fn) => fn());
       ladderCleanups.forEach((fn) => fn());
+      revealObs?.disconnect();
+      stopLead();
+      window.removeEventListener("resize", onResize);
+      replayEl?.removeEventListener("click", runLead);
     };
   });
 </script>
@@ -367,8 +390,8 @@
     {/if}
   </ol>
   <!-- The dot runs the journey once (PR 8c item 9); hidden until the script shows it. -->
-  <span class="how-dot" aria-hidden="true" hidden bind:this={dotEl}></span>
-  <button type="button" class="how-replay" hidden bind:this={replayEl}>Replay</button>
+  <span class="how-dot" aria-hidden="true" hidden={!leadShown || !dotOn} bind:this={dotEl}></span>
+  <button type="button" class="how-replay" hidden={!leadShown} bind:this={replayEl}>Replay</button>
   <div class="how-branch">
     <button
       type="button"

@@ -89,6 +89,12 @@ export function nextToLight(seen: readonly boolean[], lit: readonly boolean[]): 
   return k !== -1 && seen[k] === true ? k : null;
 }
 
+/** PR 8c item 9, round 1 D3: the lead's dot and Replay show only when motion is allowed and the
+ *  journey has readable counts to run over (allTime null: the counts could not be read). */
+export function leadControlsShown(motionAndRunnable: boolean, allTime: unknown): boolean {
+  return motionAndRunnable && allTime !== null;
+}
+
 /** The ladder's four lines ("Broken: a visitor…"), split into name and text, mildest
  *  first. Throws if a line goes missing, so the chapter never shows three levels. */
 export function ladder(): Array<Pick<LadderLevel, "tier" | "name" | "text">> {

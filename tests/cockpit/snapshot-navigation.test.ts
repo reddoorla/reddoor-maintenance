@@ -5618,6 +5618,68 @@ describe("PR 8c, How this works motion", () => {
     expect(await dot.isVisible(), "the dot is shown once the script runs").toBe(true);
   });
 
+  it("round 1 D1: no dot is visible before a run starts, on load or before the chapter is in view", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await leadScripted(page);
+    const dot = page.locator("section.how-lead .how-dot");
+    const box = await dot.boundingBox();
+    const top = await page
+      .locator("section.how-lead")
+      .evaluate((el) => el.getBoundingClientRect().top);
+    expect(
+      await dot.isVisible(),
+      `the dot is hidden on load: box ${JSON.stringify(box)}, chapter top ${top}, innerHeight 700`,
+    ).toBe(false);
+  });
+
+  it("round 1 D2: after a run, a resize across the stacking breakpoint leaves no dot outside the inbox stage", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await leadScripted(page);
+    await scrollToLead(page);
+    await expect
+      .poll(async () => (await dotAnimations(page))[0]?.playState, { timeout: 4_500 })
+      .toBe("finished");
+    const where = () =>
+      page.evaluate(() => {
+        const dot = document.querySelector("section.how-lead .how-dot") as HTMLElement;
+        const stages = Array.from(document.querySelectorAll("ol.how-lead-flow > li"));
+        const inbox = stages[stages.length - 1]!.getBoundingClientRect();
+        const d = dot.getBoundingClientRect();
+        const cx = d.left + d.width / 2;
+        const cy = d.top + d.height / 2;
+        return {
+          display: getComputedStyle(dot).display,
+          dot: { x: Math.round(cx), y: Math.round(cy) },
+          inbox: {
+            l: Math.round(inbox.left),
+            t: Math.round(inbox.top),
+            r: Math.round(inbox.right),
+            b: Math.round(inbox.bottom),
+          },
+          inside: cx >= inbox.left && cx <= inbox.right && cy >= inbox.top && cy <= inbox.bottom,
+        };
+      });
+    const before = await where();
+    expect(before.inside, `premise: at rest on the inbox at 1280 ${JSON.stringify(before)}`).toBe(
+      true,
+    );
+    await page.setViewportSize({ width: 390, height: 700 });
+    // The resize event fires on the next frame, after setViewportSize resolves: wait two frames.
+    await page.evaluate(
+      () => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
+    );
+    expect(await page.evaluate(() => window.innerWidth), "the resize took effect").toBe(390);
+    const after = await where();
+    expect(
+      after.display === "none" || after.inside,
+      `after the resize the dot is hidden or on the inbox: ${JSON.stringify(after)}`,
+    ).toBe(true);
+  });
+
   it("Replay restarts the run from the form", async () => {
     const page = await signedIn();
     await page.setViewportSize({ width: 1280, height: 700 });
