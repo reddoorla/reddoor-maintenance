@@ -3892,6 +3892,7 @@ describe("P1-87 PR 8b: the per-site verdicts behind the health bars", () => {
         healthy({ id: "recC", name: "Charlie", domainCheckedAt: STALE }),
         healthy({ id: "recD", name: "Delta", smokeOk: null, lastSmokeAt: FRESH }),
         healthy({ id: "recE", name: "Echo", formE2eOk: null, formE2eCheckedAt: FRESH }),
+        healthy({ id: "recH", name: "Hotel", formE2eOk: "fail" }),
         healthy({ id: "recF", name: "Foxtrot", status: "archived", certDaysRemaining: 9 }),
         healthy({ id: "recG", name: "Golf", reachableOk: "fail" }),
       ],

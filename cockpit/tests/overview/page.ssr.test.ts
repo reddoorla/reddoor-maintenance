@@ -12,6 +12,7 @@ import {
   trendGeometry,
   HOW_WE_COUNT,
   HEALTH_CHECK_NAMES,
+  CHECK_SLUGS,
   type OverviewView,
 } from "../../src/lib/overview/view.js";
 import { BAR_MS, BAR_STAGGER_MS, SPARK_MS, FEED_MS } from "../../src/lib/overview/motion.js";
@@ -2770,5 +2771,35 @@ describe("a failing health bar links to the sites that failed it (P1-87, PR 8b)"
   it("leaves a bar with no failing site unlinked", () => {
     expect(checkRow("Security").querySelector("a")).toBeNull();
     expect(checkRow("Security").querySelector(".ov-check-bar")).not.toBeNull();
+  });
+
+  // T3: every failing bar links to its own slug, and the two-word names (Build + tests fails
+  // here) are among them. The bar's own failing count decides which links exist.
+  it("links every failing bar to its own slug, a two-word name included", () => {
+    const fixture = snapshot({
+      sites: [
+        healthy({ id: "recA", name: "Acme" }),
+        healthy({ id: "recB", name: "Bravo", smokeOk: "fail", lastSmokeAt: FRESH }),
+        healthy({ id: "recC", name: "Charlie", deployStatus: "error" }),
+        healthy({ id: "recD", name: "Delta", securityVulnsHigh: 1 }),
+      ],
+    });
+    const view = overviewFromSnapshot(fixture, NOW);
+    const doc2 = parse(pageHtml(view));
+    const hrefOf = (name: string) =>
+      doc2
+        .querySelectorAll("ul.ov-checks-list > li.ov-check")
+        .find((li) => text(li.querySelector(".ov-check-name")!) === name)!
+        .querySelector("a")
+        ?.getAttribute("href") ?? null;
+    const failing = HEALTH_CHECK_NAMES.filter(
+      (name) => view.health.checks.find((c) => c.name === name)!.fail > 0,
+    );
+    expect(failing).toEqual(expect.arrayContaining(["Build + tests", "Deploy", "Security"]));
+    for (const name of HEALTH_CHECK_NAMES) {
+      expect(hrefOf(name), name).toBe(
+        failing.includes(name) ? `/fleet?check=${CHECK_SLUGS[name]}` : null,
+      );
+    }
   });
 });

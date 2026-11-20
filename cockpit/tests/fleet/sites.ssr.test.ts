@@ -8,7 +8,12 @@ import { canonical, renderPage } from "../_helpers/parity.js";
 import { cases, NOW } from "../home/fixtures.js";
 import { load } from "../../src/routes/fleet/+page.js";
 import { allSitesHref, showHiddenHref, sortHref } from "../../src/routes/fleet/view.js";
-import { healthy, snapshot, STALE, NOW as OVERVIEW_NOW } from "../overview/fixtures.js";
+import { healthy, snapshot, FRESH, STALE, NOW as OVERVIEW_NOW } from "../overview/fixtures.js";
+import {
+  CHECK_SLUGS,
+  HEALTH_CHECK_NAMES,
+  overviewFromSnapshot,
+} from "../../src/lib/overview/view.js";
 
 /**
  * Sites (`/fleet`) for every case `/`'s snapshots use (#672 step 3). The browse
@@ -120,6 +125,67 @@ describe("Sites filtered to one health check (P1-87, PR 8b)", () => {
     const line = checkLine(hostile)!;
     expect(line.querySelector("script")).toBeNull();
     expect(text(line)).toBe('No check is called "<script>". Showing all sites.');
+  });
+
+  // T1: a failed form test is not a failing site; it is one of the three unknown kinds, and the
+  // line counts all three (a test-failed site, a site with no verdict, one not checked lately).
+  const FORM_SNAP = snapshot({
+    sites: [
+      healthy({ id: "recA", name: "Acme" }),
+      healthy({ id: "recB", name: "Bravo", formE2eOk: "fail" }),
+      healthy({ id: "recC", name: "Charlie", formE2eOk: null }),
+      healthy({ id: "recD", name: "Delta", formE2eOk: null, formE2eCheckedAt: STALE }),
+    ],
+  });
+  it("lists no site for a failed form test, and counts each unknown kind beside the empty list", async () => {
+    const doc = await page("/fleet?check=contact-form", FORM_SNAP);
+    expect(rowNames(doc)).toEqual([]);
+    expect(text(checkLine(doc)!)).toBe(
+      "Failing Contact form: 0 sites · 3 more could not be read · Show all sites",
+    );
+  });
+
+  // T2: one failing site per check. Each check's rows are the sites the overview's bar counts as
+  // failing, and the line's unread count is the bar's unknown count. Contact form cannot fail
+  // (a failed form test is not a failure), so its list is empty.
+  const HEALTH_SNAP = snapshot({
+    sites: [
+      healthy({ id: "recA", name: "Acme" }),
+      healthy({ id: "recL", name: "Lima", urlResolves: "fail", urlStatus: "404" }),
+      healthy({ id: "recC", name: "Certo", certDaysRemaining: 9 }),
+      healthy({ id: "recD", name: "Delta", deployStatus: "error" }),
+      healthy({ id: "recS", name: "Sierra", securityVulnsCritical: 1 }),
+      healthy({
+        id: "recG",
+        name: "Golf",
+        a11yViolations: 3,
+        a11yRoutesScanned: 10,
+        a11yRoutesTotal: 10,
+        a11yCheckedAt: FRESH,
+      }),
+      healthy({ id: "recB", name: "Bravo", smokeOk: "fail", lastSmokeAt: FRESH }),
+      healthy({ id: "recF", name: "Foxtrot", formE2eOk: null }),
+    ],
+  });
+  const FAILING: Record<string, string[]> = {
+    Live: ["Lima"],
+    Certificate: ["Certo"],
+    Deploy: ["Delta"],
+    "Contact form": [],
+    Security: ["Sierra"],
+    Accessibility: ["Golf"],
+    "Build + tests": ["Bravo"],
+  };
+  it("lists, for each check, the sites its bar counts as failing, and the unread count is the bar's unknown count", async () => {
+    const health = overviewFromSnapshot(HEALTH_SNAP, OVERVIEW_NOW).health;
+    for (const name of HEALTH_CHECK_NAMES) {
+      const doc = await page(`/fleet?check=${CHECK_SLUGS[name]}`, HEALTH_SNAP);
+      const bar = health.checks.find((c) => c.name === name)!;
+      expect(rowNames(doc), name).toEqual(FAILING[name]);
+      expect(bar.fail, name).toBe(FAILING[name]!.length);
+      const more = text(checkLine(doc)!).match(/(\d+) more /);
+      expect(more ? Number(more[1]) : 0, name).toBe(bar.unknown);
+    }
   });
 });
 
