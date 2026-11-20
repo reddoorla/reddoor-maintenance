@@ -48,14 +48,19 @@
   let leadAnim: Animation | undefined;
   let leadPasses: ReturnType<typeof setTimeout>[] = [];
   let leadStarted = false;
+  /** The viewport width when the last run started: a resize at this width is no reason to stop (round 2 A). */
+  let leadWidth = 0;
   let revealObs: IntersectionObserver | undefined;
 
-  /** Cancels the run and hides the dot. Replay can start a new run after it. */
+  /** Cancels the run, hides the dot and clears every stage's passed mark, so no outline is left
+   *  behind. Replay can start a new run after it. */
   function stopLead(): void {
     leadAnim?.cancel();
     leadAnim = undefined;
     leadPasses.forEach(clearTimeout);
     leadPasses = [];
+    if (leadFlowEl !== undefined)
+      for (const li of Array.from(leadFlowEl.children)) li.removeAttribute("data-passed");
     dotOn = false;
   }
 
@@ -65,6 +70,7 @@
     if (!leadShown || dotEl === undefined || leadEl === undefined || leadFlowEl === undefined)
       return;
     leadStarted = true;
+    leadWidth = window.innerWidth;
     revealObs?.disconnect();
     stopLead();
     const dot = dotEl;
@@ -213,8 +219,13 @@
       typeof dotEl.animate === "function";
     leadRunnable = canRun;
     // Round 1 D2: a resize clears the dot (its place was measured at the old width); Replay
-    // runs again at the new one.
-    const onResize = () => stopLead();
+    // runs again at the new one. Round 2 A: only a change of width does, since a phone fires a
+    // resize at the same width as its toolbar collapses while the chapter scrolls in.
+    const onResize = () => {
+      if (window.innerWidth === leadWidth) return;
+      leadWidth = window.innerWidth;
+      stopLead();
+    };
     window.addEventListener("resize", onResize);
     if (canRun) {
       // The run starts once the chapter is at least 0.6 in view, and only once. A run that

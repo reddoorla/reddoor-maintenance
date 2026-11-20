@@ -5683,6 +5683,70 @@ describe("PR 8c, How this works motion", () => {
     ).toBe(true);
   });
 
+  it("round 2 A: a resize that changes no width does not stop a run (a phone's toolbar fires one as the chapter scrolls in)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await leadScripted(page);
+    await scrollToLead(page);
+    await expect
+      .poll(async () => (await dotAnimations(page))[0]?.playState, { timeout: 4_000 })
+      .toBe("running");
+    await page.evaluate(() => window.dispatchEvent(new Event("resize")));
+    expect(
+      (await dotAnimations(page))[0]?.playState,
+      "the run carries on past a resize at the same width",
+    ).toBe("running");
+    await expect
+      .poll(async () => (await dotAnimations(page))[0]?.playState, { timeout: 4_500 })
+      .toBe("finished");
+    const dot = page.locator("section.how-lead .how-dot");
+    expect(await dot.isVisible(), "the dot is shown at the end of the run").toBe(true);
+    expect(
+      await page.locator("ol.how-lead-flow > li").last().getAttribute("data-passed"),
+      "the run reaches the inbox",
+    ).toBe("true");
+  });
+
+  it("round 2 A: a real width change mid-run stops the run, leaves no stage outlined, and Replay runs again", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await leadScripted(page);
+    await scrollToLead(page);
+    const clock = () =>
+      page.evaluate(
+        () =>
+          document.querySelector("section.how-lead .how-dot")!.getAnimations()[0]?.currentTime ?? 0,
+      );
+    // Past the first stage's mark (875 ms into the run), so a stage is outlined when the width changes.
+    await expect.poll(clock, { timeout: 4_000 }).toBeGreaterThan(1_000);
+    expect(
+      await page.locator("ol.how-lead-flow [data-passed]").count(),
+      "premise: a stage is outlined mid-run",
+    ).toBeGreaterThan(0);
+    await page.setViewportSize({ width: 390, height: 700 });
+    await page.evaluate(
+      () =>
+        new Promise<void>((done) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => done())),
+        ),
+    );
+    expect(
+      await page.locator("ol.how-lead-flow [data-passed]").count(),
+      "no stage is left outlined after a real width change",
+    ).toBe(0);
+    expect(await page.locator("section.how-lead .how-dot").isVisible(), "no dot").toBe(false);
+    await page.locator("section.how-lead button.how-replay").click();
+    await expect
+      .poll(async () => (await dotAnimations(page))[0]?.playState, { timeout: 4_500 })
+      .toBe("finished");
+    expect(
+      await page.locator("ol.how-lead-flow > li").last().getAttribute("data-passed"),
+      "Replay runs to the inbox",
+    ).toBe("true");
+  });
+
   it("round 1 E: on a short screen (844x390) the dot runs once the chapter fills the view", async () => {
     // Measured round 1: the chapter is 662px tall at 844x390, so 0.6 of it (397px) never fits in
     // a 390px viewport and the old 0.6 test never passes. At 390x700 (716px of 1167px allowed)
