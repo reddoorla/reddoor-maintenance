@@ -63,7 +63,34 @@ body {
   color: var(--ink-dark);
 }
 .how-step-last {
+  color: var(--ink);
+}
+/* PR 8c item 8: a step lights as it scrolls into view. The server renders every step lit;
+   the script un-lights the steps not yet in view, and only when motion is allowed. An unlit
+   step shows its name, and its result muted (4.5:1 or better on its panel, both themes). */
+.how-steps li::before {
+  content: "";
+  box-sizing: border-box;
+  width: 0.6rem;
+  height: 0.6rem;
+  border: 1px solid var(--ink-muted);
+}
+.how-steps li[data-lit="true"]::before {
+  background: var(--ink-dark);
+  border-color: var(--ink-dark);
+}
+.how-steps li[data-lit="false"] .how-step-last {
   color: var(--ink-muted);
+}
+@media (prefers-reduced-motion: no-preference) {
+  /* The step's 300 ms (STEP_LIGHT_MS in lib/how/view.ts). */
+  .how-steps li::before,
+  .how-steps li .how-step-last {
+    transition:
+      background-color 300ms,
+      border-color 300ms,
+      color 300ms;
+  }
 }
 
 /* Chapter 2: the ladder, mildest to worst. The bar on top darkens from OK to
@@ -71,13 +98,16 @@ body {
    colour (OK's bar is faint on purpose: the level is told by its word). */
 .how-ladder {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  /* Round 2 D: minmax(0, 1fr), so a long unbroken word in a card cannot widen its track. */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-2);
   padding: 0;
   margin: 0 0 var(--space-4);
   list-style: none;
 }
-.how-ladder li {
+/* Round 1 F: only the ladder's own items are level cards. A bare `li` also matched each site in
+   a level's panel (.how-level-sites), which then got the surface, the bar and a column. */
+.how-ladder > li {
   background: var(--surface);
   border-top: 4px solid var(--band);
   padding: var(--space-3);
@@ -85,27 +115,106 @@ body {
   flex-direction: column;
   gap: var(--space-1);
 }
-.how-ladder li.watch {
+.how-ladder > li.watch {
   border-top-color: var(--ink-muted);
 }
-.how-ladder li.attention {
+.how-ladder > li.attention {
   border-top-color: var(--ink);
 }
-.how-ladder li.broken {
+.how-ladder > li.broken {
   border-top-color: var(--broken-fill);
   /* Twice the others' bar: a non-colour cue, which holds in dark mode too. The
      padding gives back the extra 4px, so Broken's word sits level with its row-mates. */
   border-top-width: 8px;
   padding-top: calc(var(--space-3) - 4px);
 }
+/* PR 8c item 10: each level is a disclosure. The button holds its name and line; the panel
+   holds today's sites and the 21-night line. The open is a top-down reveal over 200 ms under
+   motion, not a fade: the style guide forbids dimming text, so no opacity moves. */
+.how-level {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  width: 100%;
+  margin: 0;
+  padding: 0 1.25rem 0 0;
+  background: none;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.how-level:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 4px;
+}
+.how-level::after {
+  /* A chevron drawn with two borders, never a glyph (the cockpit's style rule). */
+  content: "";
+  position: absolute;
+  right: 0.3rem;
+  top: 0.35rem;
+  width: 0.4rem;
+  height: 0.4rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+}
+.how-level[aria-expanded="true"]::after {
+  transform: rotate(-135deg);
+  top: 0.6rem;
+}
+.how-level-panel {
+  border-top: 1px solid var(--rule);
+  padding-top: var(--space-2);
+  font-size: 0.9rem;
+}
+.how-level-panel p,
+.how-level-panel ul {
+  margin: 0 0 var(--space-1);
+  padding: 0;
+}
+.how-level-sites {
+  list-style: none;
+}
+/* A site's name and its reason run on one line where they fit: a plain item, no card. */
+.how-level-sites li {
+  display: block;
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  /* Round 2 D: a long unbroken name or reason wraps at the card's edge, not past it (WCAG 1.4.10).
+     Set on the item so the reason wraps too; the name inherits it. */
+  overflow-wrap: anywhere;
+}
+.how-level-site {
+  font-weight: var(--weight-bold);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .how-level-panel:not([hidden]) {
+    animation: how-level-open 200ms ease-out;
+  }
+}
+@keyframes how-level-open {
+  from {
+    clip-path: inset(0 0 100% 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
 @media (min-width: 60rem) {
   .how-ladder {
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 @media (max-width: 30rem) {
   .how-ladder {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -151,10 +260,76 @@ body {
   /* The filled box takes the hairline's colour too, so the rule does not cross it. */
   border-top-color: var(--ink);
 }
+/* PR 8c item 9: the lead's journey. The dot is a circle (not a box), runs once, and rests at
+   the inbox; a stage the dot has reached is outlined. None of it moves without script. */
+.how-lead {
+  position: relative;
+}
+.how-dot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0.75rem;
+  height: 0.75rem;
+  margin: -0.375rem 0 0 -0.375rem;
+  border-radius: 50%;
+  background: var(--ink-dark);
+  pointer-events: none;
+}
+.how-lead-flow li[data-passed="true"] {
+  outline: 2px solid var(--ink-dark);
+  outline-offset: -2px;
+}
+.how-lead-flow li.how-end[data-passed="true"] {
+  outline-color: var(--on-ink);
+}
+.how-replay,
+.how-branch-toggle {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--ink);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.how-replay:focus-visible,
+.how-branch-toggle:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.how-replay {
+  display: inline-block;
+  margin: 0 0 var(--space-4);
+}
+/* `hidden` must win over the display above: under reduced motion and without script the
+   visitor sees no Replay at all (PR 8c item 9). */
+.how-replay[hidden] {
+  display: none;
+}
 .how-branch {
+  margin: 0 0 var(--space-4);
+}
+.how-branch-toggle::before {
+  /* A chevron drawn with two borders, never a glyph (the cockpit's style rule). */
+  content: "";
+  display: inline-block;
+  width: 0.4rem;
+  height: 0.4rem;
+  margin: 0 0.6rem 0.2rem 0.1rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  vertical-align: middle;
+}
+.how-branch-toggle[aria-expanded="true"]::before {
+  transform: rotate(45deg);
+}
+.how-branch-text {
   /* A hairline: 4px bars mean levels on the ladder. */
   border-left: 1px solid var(--rule);
   padding-left: var(--space-3);
+  max-width: 46rem;
 }
 
 .how-checks {
@@ -208,5 +383,14 @@ body {
   }
   .how-flow li.how-end {
     border-width: 3px;
+  }
+}
+
+/* Round 1 G: forced colours drop the dot's fill, so it keeps a border in the text colour. The
+   border-box keeps its 0.75rem size and its centring margin. */
+@media (forced-colors: active) {
+  .how-dot {
+    box-sizing: border-box;
+    border: 0.375rem solid;
   }
 }
