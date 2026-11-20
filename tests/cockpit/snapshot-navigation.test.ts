@@ -5020,10 +5020,22 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
       await page.locator("figure.ov-trend").nth(0).locator("line.ov-trend-cursor").count(),
     ).toBe(1);
     // Round 2 (G-3): the chart has no live region; the slider's value is the one announcement.
+    // Round 3 (t1): any live role counts, and the figure itself too.
+    const live = '[aria-live],[role="status"],[role="log"],[role="alert"]';
     expect(
-      await page.locator("figure.ov-trend").nth(0).locator("[aria-live]").count(),
+      await page.locator("figure.ov-trend").nth(0).locator(live).count(),
       "no live region inside the chart",
     ).toBe(0);
+    expect(
+      await page
+        .locator("figure.ov-trend")
+        .nth(0)
+        .evaluate(
+          (f, sel) => f.matches(sel) || f.hasAttribute("aria-live"),
+          live,
+        ),
+      "the figure itself is no live region",
+    ).toBe(false);
   });
 
   // P1-87 PR 8a, round 3 (I, R3-A1): a key step is an act, so it ends a hover's preview. After a click
@@ -5201,6 +5213,9 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     expect(
       await page.locator("figure.ov-trend").nth(0).locator("line.ov-trend-cursor").count(),
     ).toBe(1);
+    // Round 3 (t2): the tap chooses the night for the slider too, and leaves no hover preview behind.
+    expect(await chart(page).getAttribute("aria-valuenow"), "the tap is the key night").toBe("5");
+    expect(await chart(page).getAttribute("aria-valuetext")).toBe(titles[4]);
   });
 
   it("reduced motion changes nothing but the motion: the readout works and the line does not animate (item 5)", async () => {

@@ -992,10 +992,18 @@ describe("P1-78h: section 8 drawn, once fleet_daily holds 14 nights", () => {
       );
       // P1-87 PR 8a, round 2 (G, R2): the slider's own value is the announcement, so a chart has
       // no live region: a key step is said once, not again by a polite region.
+      // P1-87 PR 8a, round 3 (t1): a region is a live region whatever its role, and the figure itself
+      // can carry the attribute, so the check covers the figure and every descendant.
+      const LIVE = '[aria-live],[role="status"],[role="log"],[role="alert"]';
       expect(
-        f.querySelectorAll("[aria-live]").length,
+        f.querySelectorAll(LIVE).length,
         `chart ${ci}: no live region inside a chart`,
       ).toBe(0);
+      expect(
+        f.hasAttribute("aria-live") ||
+          ["status", "log", "alert"].includes(f.getAttribute("role") ?? ""),
+        `chart ${ci}: the figure is no live region`,
+      ).toBe(false);
       const hint = f.querySelector(`#ov-trend-${ci}-hint`)!;
       expect(hint.text.trim(), `chart ${ci}`).toBe(
         "Point at a night, or focus the chart and use the arrow keys, to read it.",
