@@ -13,6 +13,12 @@
           var t = localStorage.getItem("cockpit-theme");
           if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
         } catch (e) {}
+        // P1-87 PR 8a, item 4: the overview's figures hide until their count-up starts, when motion
+        // is allowed; a page without script never gets the class, so its figures show at once.
+        try {
+          if (matchMedia("(prefers-reduced-motion: no-preference)").matches)
+            document.documentElement.classList.add("motion-intro");
+        } catch (e) {}
       })();
     </script>
     <!-- The guide's two families, loaded without blocking first paint (its

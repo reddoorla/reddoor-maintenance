@@ -2460,6 +2460,9 @@ export function sparkGeometry(
 
 /** P1-87 PR 4: the Lately feed. One line: `text`, then the site when one is named. */
 export type LatelyLine = {
+  /** P1-87 PR 8a, item 7: the line's identity in the list, so a refresh animates only a new line.
+   *  Made from the rank, the stamp, the site and the text; a repeat in the same list gets `#2`. */
+  key: string;
   atIso: string;
   /** The stamp whole: `whenDate` then `whenTime`, one space apart. */
   when: string;
@@ -2558,7 +2561,7 @@ export function latelyView(
   const since = now.getTime() - RECENT_EVENTS_DAYS * DAY_MS;
   // A report or lead names its site as the leads panel does: a site no longer listed.
   const siteOf = (id: string): string => siteName(id) ?? GONE_SITE;
-  const found: Array<{ t: number; rank: number; line: LatelyLine }> = [];
+  const found: Array<{ t: number; rank: number; line: Omit<LatelyLine, "key"> }> = [];
   const push = (iso: string, text: string, site: string | null, rank: number) => {
     const t = Date.parse(iso);
     if (!Number.isFinite(t) || t < since) return;
@@ -2634,10 +2637,17 @@ export function latelyView(
       );
     }
   }
+  const used = new Set<string>();
   const lines = found
     .sort((a, b) => b.t - a.t || a.rank - b.rank)
     .slice(0, LATELY_LINES)
-    .map((x) => x.line);
+    .map((x) => {
+      const base = `${x.rank}|${x.line.atIso}|${x.line.site ?? ""}|${x.line.text}`;
+      let key = base;
+      for (let n = 2; used.has(key); n++) key = `${base}#${n}`;
+      used.add(key);
+      return { ...x.line, key };
+    });
   return { lines, unreadable };
 }
 

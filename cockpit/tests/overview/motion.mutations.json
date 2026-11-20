@@ -1,0 +1,288 @@
+[
+  {
+    "id": "3-1-bars-animate-under-reduced-motion",
+    "why": "The bars' keyframes leave the no-preference query (the floor: reduced motion runs no animation)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "@media (prefers-reduced-motion: no-preference) {\n  .ov-checks-list[data-intro] .ov-check-fill {",
+        "replace": "@media all {\n  .ov-checks-list[data-intro] .ov-check-fill {"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "3-2-bars-ordered-by-name",
+    "why": "--i comes from a name-sorted list, so the bars start in alphabetical order, not check order",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "<li class=\"ov-check\" style=\"--i: {i}\">",
+        "replace": "<li class=\"ov-check\" style=\"--i: {[...v.health.checks].map((x) => x.name).sort().indexOf(c.name)}\">"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "3-4-fill-to-pass-plus-fail",
+    "why": "A fill runs to pass + fail of the total, not pass: its end state is not the model's width",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "style=\"width: {(100 * c.pass) / c.total}%\"",
+        "replace": "style=\"width: {(100 * (c.pass + c.fail)) / c.total}%\""
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "4-2-last-frame-off-by-a-thousandth",
+    "why": "The count's last frame is the model's string (the plan's floor: it ends on the model's number, not another)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/motion.ts",
+        "find": "  if (t >= 1) return to;",
+        "replace": "  if (t >= 1) return to.includes(\",\") ? grouped(Math.round(Number(to.replace(/,/g, \"\")) * 0.999)) : String(Math.round(Number(to) * 0.999));"
+      }
+    ],
+    "test": ["cockpit/tests/overview/motion.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "4-3-final-string-drops-commas",
+    "why": "The count's last frame keeps the model's commas (a figure that drops them reads as a different number)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/motion.ts",
+        "find": "  if (t >= 1) return to;",
+        "replace": "  if (t >= 1) return String(Number(to.replace(/,/g, \"\")));"
+      }
+    ],
+    "test": ["cockpit/tests/overview/motion.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "4-5-a-word-counts",
+    "why": "Only a measured figure of digits counts; 'not yet collected' parsed as 0 would count up from 0 to nothing",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/motion.ts",
+        "find": "export const countable = (s: string): boolean => /^\\d+$/.test(s) || /^\\d{1,3}(,\\d{3})+$/.test(s);",
+        "replace": "export const countable = (_s: string): boolean => true;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/motion.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "4-7-sparkline-draws-under-reduced-motion",
+    "why": "The sparkline's draw-in leaves the no-preference query (the floor: reduced motion draws nothing)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "@media (prefers-reduced-motion: no-preference) {\n  .ov-num[data-counting] .ov-num-final {",
+        "replace": "@media all {\n  .ov-num[data-counting] .ov-num-final {"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "5-1-readout-off-by-one",
+    "why": "The readout shows the next night's title (slot k+1), so every hover reads the wrong night",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/motion.ts",
+        "find": "(titles[k] ?? \"\")",
+        "replace": "(titles[k + 1] ?? \"\")"
+      }
+    ],
+    "test": ["cockpit/tests/overview/motion.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "5-2-gap-night-reads-zero",
+    "why": "A night with no reading reads as 0 in its own title, not as the model's no-count words",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "    q.value === null ? q.note! : q.note ? `${q.value}, ${q.note}` : String(q.value);",
+        "replace": "    q.value === null ? \"0\" : q.note ? `${q.value}, ${q.note}` : String(q.value);"
+      }
+    ],
+    "test": ["cockpit/tests/overview/trends.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "5-3-chart-not-focusable",
+    "why": "The chart loses tabindex, so the keyboard cannot reach the readout",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "            tabindex=\"0\"\n            aria-labelledby=\"ov-trend-{ci}\"",
+        "replace": "            aria-labelledby=\"ov-trend-{ci}\""
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "5-4-chart-has-live-region",
+    "why": "A live region inside the chart speaks each key step a second time, after the slider's own value (round 2, G-3: the value is the one announcement; no chart has a live region)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "            aria-valuemin=\"1\"",
+        "replace": "            aria-live=\"polite\"\n            aria-valuemin=\"1\""
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "5-5-arrow-left-wraps",
+    "why": "ArrowLeft at the first night wraps to the last, where it should stay",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/motion.ts",
+        "find": "return Math.max(from - 1, 0);",
+        "replace": "return (from - 1 + count) % count;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/motion.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "H-1-right-from-none-reads-oldest",
+    "why": "From no selection ArrowRight selects the oldest night, not the newest the slider reports (round 2 H, R3: today's behaviour)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/motion.ts",
+        "find": "return Math.min(from + 1, last);",
+        "replace": "return selected === null ? 0 : Math.min(from + 1, last);"
+      }
+    ],
+    "test": ["cockpit/tests/overview/motion.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "H-2-left-from-none-reads-newest",
+    "why": "From no selection ArrowLeft selects the newest night, not the one before it (round 2 H, R3: the first ArrowLeft leaves the slider where it is)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/motion.ts",
+        "find": "return Math.max(from - 1, 0);",
+        "replace": "return selected === null ? last : Math.max(from - 1, 0);"
+      }
+    ],
+    "test": ["cockpit/tests/overview/motion.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "7-3-slide-under-reduced-motion",
+    "why": "The feed's slide-in leaves the no-preference query (the floor: reduced motion moves nothing)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "@media (prefers-reduced-motion: no-preference) {\n  .ov-lately li[data-new] {",
+        "replace": "@media all {\n  .ov-lately li[data-new] {"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "7-4-key-leaves-out-the-site",
+    "why": "The line key leaves out the site, so two same-minute lines of two sites with one text collide and the page's dedupe hides it",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      const base = `${x.rank}|${x.line.atIso}|${x.line.site ?? \"\"}|${x.line.text}`;",
+        "replace": "      const base = `${x.rank}|${x.line.atIso}|${x.line.text}`;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "A-1-update-sets-only-to",
+    "why": "A refresh to a word keeps counting, so the next frame writes NaN (F1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/motion.ts",
+        "find": "      to = p.to;\n      // A refresh to a value that is not a figure (a word) ends the count at once: no frame may\n      // write it, and the figure shows its own words (P1-87 PR 8a, review round 1, F1).\n      if (!countable(to)) finish();",
+        "replace": "      to = p.to;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/motion.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "r1-1-intro-shorter-than-the-last-bar",
+    "why": "The intro ends before the last bar's unknown span does (round 2, r1: a refresh would then replay the intro on a node it inserts)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/motion.ts",
+        "find": "export const INTRO_MS = 2000;",
+        "replace": "export const INTRO_MS = 300;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/motion.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "t1-1-figure-has-a-status-region",
+    "why": "A status region inside the chart speaks each step a second time, like a polite live region (P1-87 PR 8a, round 4 r4t1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "<figcaption id=\"ov-trend-{ci}\">{c.title}</figcaption>",
+        "replace": "<figcaption id=\"ov-trend-{ci}\">{c.title}</figcaption>\n          <p role=\"status\"></p>"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "t1-2-figure-is-polite-live",
+    "why": "The figure itself carries aria-live, so the chart speaks a second time (P1-87 PR 8a, round 4 r4t1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "<figure class=\"ov-trend\">",
+        "replace": "<figure class=\"ov-trend\" aria-live=\"polite\">"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "t1-3-figure-is-an-alert",
+    "why": "The figure itself is role=alert, so every step is announced assertively (P1-87 PR 8a, round 4 r4t1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "<figure class=\"ov-trend\">",
+        "replace": "<figure class=\"ov-trend\" role=\"alert\">"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "t1-4-readout-is-a-log",
+    "why": "The readout is role=log, a live region the readout's own text would announce (P1-87 PR 8a, round 4 r4t1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "<p id=\"ov-trend-{ci}-readout\" class=\"muted ov-trend-readout\" aria-hidden=\"true\">",
+        "replace": "<p id=\"ov-trend-{ci}-readout\" class=\"muted ov-trend-readout\" aria-hidden=\"true\" role=\"log\">"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  }
+]

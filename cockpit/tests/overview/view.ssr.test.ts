@@ -3837,3 +3837,37 @@ describe("P1-87 PR 7a: the traffic tiles", () => {
     expect(JSON.stringify(N)).not.toContain("Request failed");
   });
 });
+
+/** P1-87 PR 8a, item 7: each feed line has a key the page can animate a new line by. */
+describe("the Lately feed's line keys (P1-87 PR 8a, item 7)", () => {
+  const twoSites = snapshot({
+    sites: [healthy({ id: "recA", name: "Acme" }), healthy({ id: "recB", name: "Bravo" })],
+    feedEvents: [
+      event({ id: "k1", ts: "2026-10-27T10:00:00.000Z", siteId: "recA", siteName: "Acme" }),
+      event({ id: "k2", ts: "2026-10-27T10:00:00.000Z", siteId: "recB", siteName: "Bravo" }),
+    ],
+  });
+
+  it("keys each line by its rank, its stamp, its site and its text", () => {
+    const keys = overviewFromSnapshot(twoSites, NOW).lately.lines.map((l) => l.key);
+    expect([...keys].sort()).toEqual([
+      "0|2026-10-27T10:00:00.000Z|Acme|Dependency update merged",
+      "0|2026-10-27T10:00:00.000Z|Bravo|Dependency update merged",
+    ]);
+  });
+
+  it("keeps every key unique, even for two identical lines, and the same keys in two views of one snapshot", () => {
+    const twin = snapshot({
+      sites: [healthy({ id: "recA", name: "Acme" })],
+      feedEvents: [
+        event({ id: "t1", ts: "2026-10-27T10:00:00.000Z" }),
+        event({ id: "t2", ts: "2026-10-27T10:00:00.000Z" }),
+      ],
+    });
+    const a = overviewFromSnapshot(twin, NOW).lately.lines.map((l) => l.key);
+    expect(a).toHaveLength(2);
+    expect(new Set(a).size).toBe(2);
+    const b = overviewFromSnapshot(twin, NOW).lately.lines.map((l) => l.key);
+    expect(b).toEqual(a);
+  });
+});

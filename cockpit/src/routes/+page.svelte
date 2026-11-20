@@ -12,6 +12,19 @@
   import { tickerSeconds } from "../lib/overview/ticker.js";
   import { markerAt, untilWords } from "../lib/overview/cycle.js";
   import { startCycleClock } from "../lib/overview/cycle-clock.js";
+  import {
+    BAR_MS,
+    BAR_STAGGER_MS,
+    FEED_MS,
+    SPARK_MS,
+    countable,
+    countUp,
+    INTRO_MS,
+    introPlayed,
+    markIntroPlayed,
+    trendKey,
+    trendReadout,
+  } from "../lib/overview/motion.js";
   import PageStyles from "../lib/PageStyles.svelte";
   import healthCss from "../lib/cockpit/health.css?inline";
   import overviewCss from "../lib/overview/overview.css?inline";
@@ -27,6 +40,13 @@
   const launching = $derived(launchingClauses(v.health.launching));
   // P1-87 PR 5b: the ticker moves until a visitor pauses it (or points at it, in CSS).
   let paused = $state(false);
+  // P1-87 PR 8a: the intro (items 3 and 4) plays on a full load only. Read once, at init: the server
+  // render and the hydration both see it on, and a client return (a new component) sees it off.
+  // Cleared in onMount after INTRO_MS, so a refresh that inserts a bar or a figure plays nothing on it
+  // (P1-87 PR 8a, review round 1, F2).
+  let intro = $state(!introPlayed());
+  // Set in onMount: the browser tests wait on it, so they act only once the script has run.
+  let motionReady = $state(false);
   // P1-87 PR 5b review r4 A: the ticker's still layout is a state this component holds, not a
   // CSS guess. `still` is on from a keyboard focus that arrives from outside the window until
   // focus leaves the window, and also once a focused link is in view with the pointer gone.
@@ -35,6 +55,36 @@
   // `js` marks a page with script: the CSS's no-script fallback keys on its absence.
   let still = $state(false);
   let js = $state(false);
+  // P1-87 PR 8a, item 5, and round 2 (G): two nights per chart, by chart index (absent or null:
+  // none). `keySel` is the night the keys, a click or a tap chose: the slider reports it, and it is
+  // the one announcement. `hoverSel` is a pointer's preview of another night: the readout and the
+  // cursor show it while the pointer rests on a night, and it never moves the slider (R1). A key
+  // step or a click ends it (setKeyNight), so after a key step the readout follows the key night.
+  let keySel = $state<Record<number, number | null>>({});
+  let hoverSel = $state<Record<number, number | null>>({});
+  const TREND_IDLE = "Point at a night, or focus the chart and use the arrow keys, to read it.";
+  // A key night set by a key, a click, a blur or Escape ends the chart's preview: a key step is an
+  // act, so the readout and the cursor follow the key night until the pointer moves to another night
+  // (P1-87 PR 8a, round 3 I). A click clears it too, so a tap cannot leave a preview stuck.
+  const setKeyNight = (ci: number, k: number | null) => {
+    keySel[ci] = k;
+    hoverSel[ci] = null;
+  };
+  // An action, not onkeydown: Svelte delegates onkeydown to the document, which would add a
+  // document listener on the first overview visit that outlives it (the ticker's listener count).
+  const trendKeys = (node: SVGElement, handler: (e: KeyboardEvent) => void) => {
+    let current = handler;
+    const listen = (e: KeyboardEvent) => current(e);
+    node.addEventListener("keydown", listen);
+    return {
+      update(next: (e: KeyboardEvent) => void) {
+        current = next;
+      },
+      destroy() {
+        node.removeEventListener("keydown", listen);
+      },
+    };
+  };
   let pressing = false;
   // The last counted release: a press that began in the window and ended with a pointerup or
   // pointercancel. A tap's focus arrives after its pointerup, when pressing is already false, so a
@@ -191,6 +241,24 @@
     };
   });
 
+  // P1-87 PR 8a, item 7: a line the last render did not have is new, and slides in for FEED_MS. The
+  // first render marks nothing; `known` (plain, not state) holds the keys the page last rendered.
+  let known: Set<string> | null = null;
+  let fresh = $state<Set<string>>(new Set());
+  let freshTimer: ReturnType<typeof setTimeout> | undefined;
+  $effect.pre(() => {
+    const keys = v.lately.lines.map((l) => l.key);
+    const prev = known;
+    known = new Set(keys);
+    if (prev === null) return;
+    const added = keys.filter((k) => !prev.has(k));
+    if (added.length === 0) return;
+    fresh = new Set(added);
+    clearTimeout(freshTimer);
+    freshTimer = setTimeout(() => {
+      fresh = new Set();
+    }, FEED_MS);
+  });
   // P1-87 PR 5a: the nightly bar's clock. Until the page mounts, the view's own instant
   // is the clock, so the server render says what the view says; then the clock moves the
   // marker once a minute and the bar re-reads the snapshot while the run is writing.
@@ -208,6 +276,9 @@
   );
   const cycleRunning = $derived(v.cycle.steps.some((x) => x.state === "running"));
   onMount(() => {
+    markIntroPlayed();
+    motionReady = true;
+    const introTimer = setTimeout(() => (intro = false), INTRO_MS);
     offsetMs = Date.parse(v.cycle.nowIso) - Date.now();
     clock = Date.now() + offsetMs;
     const cycle = startCycleClock({
@@ -225,7 +296,11 @@
       setInterval,
       clearInterval,
     });
-    return () => cycle.stop();
+    return () => {
+      cycle.stop();
+      clearTimeout(introTimer);
+      clearTimeout(freshTimer);
+    };
   });
 </script>
 
@@ -254,7 +329,7 @@
   {/if}
 </section>
 
-<div class="ov-first">
+<div class="ov-first" data-motion-ready={motionReady ? "true" : undefined}>
   <section class="ov-health" aria-labelledby="ov-health">
     <h2 id="ov-health">
       Fleet health · {v.health.sites}
@@ -290,9 +365,14 @@
           </span>{/each}
       </p>{/if}
     <h3>Sites passing each check</h3>
-    <ul class="ov-checks-list" data-term="Sites passing each check">
-      {#each v.health.checks as c (c.name)}
-        <li class="ov-check">
+    <ul
+      class="ov-checks-list"
+      data-term="Sites passing each check"
+      data-intro={intro ? "" : undefined}
+      style="--bar-ms: {BAR_MS}ms; --bar-stagger: {BAR_STAGGER_MS}ms"
+    >
+      {#each v.health.checks as c, i (c.name)}
+        <li class="ov-check" style="--i: {i}">
           <span class="ov-check-name">{c.name}</span>
           <span class="ov-check-bar" aria-hidden="true">
             {#if c.pass > 0}<span class="ov-check-fill" style="width: {(100 * c.pass) / c.total}%"
@@ -331,19 +411,29 @@
 
   <section class="ov-happening" aria-labelledby="ov-happening-h">
     <h2 id="ov-happening-h">How much is happening</h2>
-    <div class="ov-tiles">
+    <div class="ov-tiles" data-intro={intro ? "" : undefined} style="--spark-ms: {SPARK_MS}ms">
       {#each v.numbers as n (n.key)}
         {@const long = n.measured && n.value.length > 7}
         <div class="ov-tile">
-          <p class="ov-num{n.measured ? '' : ' unknown'}{long ? ' long' : ''}">
-            {#if long}
-              {@const parts = n.value.split(",")}
-              <span>
-                {#each parts as part, i (i)}{#if i > 0},<wbr />{/if}{part}{/each}
-              </span>
-            {:else}
-              {n.value}
-            {/if}
+          <!-- The model's value, for assistive tech from the first render: the figure below counts up
+               and is hidden from readers while it does (P1-87 PR 8a, item 4). -->
+          <p class="visually-hidden">{n.value}</p>
+          <p
+            class="ov-num{n.measured ? '' : ' unknown'}{long ? ' long' : ''}"
+            aria-hidden="true"
+            data-countable={n.measured && countable(n.value) ? "" : undefined}
+            use:countUp={{ to: n.value, enabled: intro }}
+          >
+            <span class="ov-num-final">
+              {#if long}
+                {@const parts = n.value.split(",")}
+                <span>
+                  {#each parts as part, i (i)}{#if i > 0},<wbr />{/if}{part}{/each}
+                </span>
+              {:else}
+                {n.value}
+              {/if}
+            </span><span class="ov-num-count"></span>
           </p>
           <p class="ov-label">{n.label}</p>
           {#if n.context}<p class="muted ov-context">{n.context}</p>{/if}
@@ -357,6 +447,7 @@
             >
               {#each g.lines as l, li (li)}<polyline
                   points={l}
+                  pathLength="1"
                 />{/each}{#each g.dots as d, di (di)}<circle cx={d.x} cy={d.y} r="1.5" />{/each}
             </svg>
           {/if}
@@ -373,9 +464,9 @@
       <p class="muted">Nothing recorded in the last 7 days.</p>
     {/if}
     {#if v.lately.lines.length > 0}
-      <ol data-term="Lately">
-        {#each v.lately.lines as l, i (i)}
-          <li>
+      <ol data-term="Lately" style="--feed-ms: {FEED_MS}ms">
+        {#each v.lately.lines as l (l.key)}
+          <li data-new={fresh.has(l.key) ? "" : undefined}>
             <time datetime={l.atIso}><span>{l.whenDate}</span> <span>{l.whenTime}</span></time>
             <span>
               {l.text}{#if l.site !== null}<span aria-hidden="true">{" · "}</span><span
@@ -656,6 +747,10 @@
     <div class="ov-trends">
       {#each v.trends.charts as c, ci (c.title)}
         {@const g = trendGeometry(c)}
+        {@const sel = keySel[ci] ?? null}
+        {@const titles = g.slots.map((t) => t.title)}
+        {@const shown = sel ?? titles.length - 1}
+        {@const show = hoverSel[ci] ?? sel}
         <figure class="ov-trend">
           <figcaption id="ov-trend-{ci}">{c.title}</figcaption>
           {#if c.series.length > 1}
@@ -682,11 +777,30 @@
               {/each}
             </ul>
           {/if}
+          <!-- P1-87 PR 8a, item 5: the chart is a slider for assistive tech (round 2, n5: no longer an
+               image); its keys and its pointer readout are the extra reading, and the table below has
+               every night. -->
+          <!-- A slider: its value is the key night (the newest when none is), and its text is that
+               night's words. Its value is the one announcement: a hover previews a night without it. -->
           <svg
             class="ov-chart"
             viewBox="0 0 {g.width} {g.height}"
-            role="img"
-            aria-labelledby="ov-trend-{ci} ov-trend-{ci}-desc"
+            role="slider"
+            tabindex="0"
+            aria-labelledby="ov-trend-{ci}"
+            aria-describedby="ov-trend-{ci}-desc ov-trend-{ci}-hint"
+            aria-valuemin="1"
+            aria-valuemax={titles.length}
+            aria-valuenow={shown + 1}
+            aria-valuetext={trendReadout(titles, shown)}
+            use:trendKeys={(e: KeyboardEvent) => {
+              const next = trendKey(e.key, keySel[ci] ?? null, g.slots.length);
+              if (next === undefined) return;
+              e.preventDefault();
+              setKeyNight(ci, next);
+            }}
+            onblur={() => setKeyNight(ci, null)}
+            onpointerleave={() => (hoverSel[ci] = null)}
           >
             <desc id="ov-trend-{ci}-desc">{c.summary}</desc>
             {#each g.earlier as e, ei (ei)}
@@ -749,11 +863,37 @@
               />
             {/each}
             {#each g.slots as t, ti (ti)}
-              <rect class="ov-hit" x={t.left} y={g.top} width={t.width} height={g.baseline - g.top}>
-                <title>{t.title}</title>
-              </rect>
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <rect
+                class="ov-hit"
+                x={t.left}
+                y={g.top}
+                width={t.width}
+                height={g.baseline - g.top}
+                data-title={t.title}
+                onpointerenter={(e) => {
+                  if (e.pointerType === "mouse") hoverSel[ci] = ti;
+                }}
+                onclick={() => setKeyNight(ci, ti)}
+              />
             {/each}
+            {#if show !== null && g.slots[show]}
+              <line
+                class="ov-trend-cursor"
+                x1={g.slots[show]!.x}
+                x2={g.slots[show]!.x}
+                y1={g.top}
+                y2={g.baseline}
+              />
+            {/if}
           </svg>
+          <!-- The visible readout: a hover's night, else the key night. It is hidden from assistive
+               tech, which reads the slider's value instead. -->
+          <p id="ov-trend-{ci}-readout" class="muted ov-trend-readout" aria-hidden="true">
+            {show === null ? TREND_IDLE : trendReadout(titles, show)}
+          </p>
+          <span id="ov-trend-{ci}-hint" class="visually-hidden">{TREND_IDLE}</span>
           {#if c.note}<p class="muted ov-trend-note">{c.note}</p>{/if}
           <details class="ov-trend-table">
             <summary>As a table</summary>
