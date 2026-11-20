@@ -176,7 +176,10 @@ describe("the count-up action on a refresh (P1-87 PR 8a, review round 1, F1)", (
       expect(text(), "the count span is empty").toBe("");
       expect(attrs.has("data-counted"), "the figure is marked counted").toBe(true);
       expect(attrs.has("data-counting"), "the figure is no longer counting").toBe(false);
-      expect(writes.filter((w) => w.includes("NaN")), "no frame wrote NaN").toEqual([]);
+      expect(
+        writes.filter((w) => w.includes("NaN")),
+        "no frame wrote NaN",
+      ).toEqual([]);
       expect(pending.size, "no frame is left to run").toBe(0);
     } finally {
       vi.unstubAllGlobals();

@@ -4472,14 +4472,14 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
           const count = p.querySelector<HTMLElement>(".ov-num-count");
           // The fail-safe's own start: the 2 s runs from when the page first styles, which is
           // after navigation start (about 0.5 s here), so the window is read from this start.
-          const fail = fin?.getAnimations().find(
-            (a) => (a as CSSAnimation).animationName === "ov-failsafe",
-          );
+          const fail = fin
+            ?.getAnimations()
+            .find((a) => (a as CSSAnimation).animationName === "ov-failsafe");
           w.__figure.push({
             t: performance.now(),
             visible: fin ? getComputedStyle(fin).visibility === "visible" : false,
             count: count?.textContent ?? "",
-            start: fail?.startTime ?? null,
+            start: typeof fail?.startTime === "number" ? fail.startTime : null,
           });
         }
         requestAnimationFrame(frame);
@@ -4513,12 +4513,18 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     const at = (f: { t: number; start: number | null }) => f.t - f.start!;
     const before = timed.filter((f) => at(f) < 1800);
     expect(before.length, "frames sampled in the first 1.8 s of the fail-safe").toBeGreaterThan(0);
-    expect(before.some((f) => f.visible), "the figure is hidden before 1.8 s").toBe(false);
+    expect(
+      before.some((f) => f.visible),
+      "the figure is hidden before 1.8 s",
+    ).toBe(false);
     expect(
       timed.some((f) => at(f) <= 2300 && f.visible),
       "the figure is visible by 2.3 s of the fail-safe",
     ).toBe(true);
-    expect(frames.every((f) => f.count === ""), "nothing counts without the script").toBe(true);
+    expect(
+      frames.every((f) => f.count === ""),
+      "nothing counts without the script",
+    ).toBe(true);
   });
 
   it("with the script delayed 1.5 s, the figure never shows with a count, and it ends visible (item 4, review round 1 C)", async () => {
@@ -4537,7 +4543,10 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
       frames.some((f) => f.visible && f.count !== ""),
       "no frame shows the final number and a count at once",
     ).toBe(false);
-    expect(frames.every((f) => f.count === ""), "no count runs after the fail-safe").toBe(true);
+    expect(
+      frames.every((f) => f.count === ""),
+      "no count runs after the fail-safe",
+    ).toBe(true);
     await endsVisible(page);
   });
 
@@ -4550,7 +4559,10 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     // Wait for the first countable figure's count to be running (data-counting, digits in it).
     await page.waitForFunction(() => {
       const p = document.querySelector<HTMLElement>(".ov-num[data-countable]");
-      return p?.hasAttribute("data-counting") && (p.querySelector(".ov-num-count")?.textContent ?? "") !== "";
+      return (
+        p?.hasAttribute("data-counting") &&
+        (p.querySelector(".ov-num-count")?.textContent ?? "") !== ""
+      );
     });
     // The fail-safe fires now: finish its animation where it is, if the page still has one. A page
     // with the selector guard has none while the figure counts, so nothing changes there.
@@ -4561,7 +4573,10 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     });
     await figuresSettled(page);
     const frames = await figureFrames(page);
-    expect(frames.some((f) => f.visible && f.count !== ""), "no frame shows the final number over a count").toBe(false);
+    expect(
+      frames.some((f) => f.visible && f.count !== ""),
+      "no frame shows the final number over a count",
+    ).toBe(false);
     await endsVisible(page);
   });
 
@@ -4575,7 +4590,10 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     const frames = await figureFrames(page);
     expect(frames.length).toBeGreaterThan(0);
     expect(frames[0]!.visible, "the first frame hides the final number").toBe(false);
-    expect(frames.some((f) => f.count !== ""), "the count runs").toBe(true);
+    expect(
+      frames.some((f) => f.count !== ""),
+      "the count runs",
+    ).toBe(true);
     await endsVisible(page);
   });
 
