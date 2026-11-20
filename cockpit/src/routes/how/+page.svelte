@@ -407,8 +407,12 @@
   </ol>
   <!-- The dot runs the journey once (PR 8c item 9); hidden until the script shows it. -->
   <span class="how-dot" aria-hidden="true" hidden={!leadShown || !dotOn} bind:this={dotEl}></span>
-  <button type="button" class="how-replay" hidden={!leadShown} bind:this={replayEl}
-    >Replay<span class="how-sr-only">{" "}the lead's journey</span></button
+  <button
+    type="button"
+    class="how-replay"
+    hidden={!leadShown}
+    aria-label="Replay the lead's journey"
+    bind:this={replayEl}>Replay</button
   >
   <div class="how-branch">
     <button

@@ -294,18 +294,6 @@ body {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
-/* The words a screen reader adds to Replay's name, which are not shown. */
-.how-sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-  border: 0;
-}
 .how-replay {
   display: inline-block;
   margin: 0 0 var(--space-4);

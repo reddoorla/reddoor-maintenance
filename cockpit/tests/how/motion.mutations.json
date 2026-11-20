@@ -109,8 +109,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/how/+page.svelte",
-        "find": "class=\"how-replay\" hidden={!leadShown} bind:this",
-        "replace": "class=\"how-replay\" bind:this"
+        "find": "    hidden={!leadShown}\n    aria-label=\"Replay",
+        "replace": "    aria-label=\"Replay"
       }
     ],
     "test": "cockpit/tests/how/page.ssr.test.ts",

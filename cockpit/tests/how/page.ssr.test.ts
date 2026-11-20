@@ -788,8 +788,9 @@ describe("PR 8c item 9: a lead's journey (server render)", () => {
     const replay = LEAD().querySelector("button.how-replay")!;
     expect(replay, "the Replay button exists").not.toBeNull();
     expect(replay.getAttribute("type")).toBe("button");
-    // Round 1 fold: the visible word, plus the hidden words that say what it replays.
-    expect(text(replay)).toBe("Replay the lead's journey");
+    // Round 1 fold: the visible word; the accessible name says what it replays (aria-label).
+    expect(text(replay)).toBe("Replay");
+    expect(replay.getAttribute("aria-label")).toBe("Replay the lead's journey");
     expect(replay.hasAttribute("hidden")).toBe(true);
   });
 
