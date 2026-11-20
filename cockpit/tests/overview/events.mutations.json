@@ -9,9 +9,7 @@
         "replace": "if (fields.get(\"loaded\") !== \"true\") return null;"
       }
     ],
-    "test": [
-      "tests/audits/fleet-event-detectors.test.ts"
-    ],
+    "test": ["tests/audits/fleet-event-detectors.test.ts"],
     "expect": "red"
   },
   {
@@ -24,9 +22,7 @@
         "replace": "      - name: Record the backup event\n        if: always()\n        timeout-minutes: 5"
       }
     ],
-    "test": [
-      "tests/build/fleet-db-backup-workflow.test.ts"
-    ],
+    "test": ["tests/build/fleet-db-backup-workflow.test.ts"],
     "expect": "red"
   },
   {
@@ -39,9 +35,7 @@
         "replace": "data: { tables: t, rows: Number(fields.get(\"blob_bytes\")) },"
       }
     ],
-    "test": [
-      "tests/audits/fleet-event-detectors.test.ts"
-    ],
+    "test": ["tests/audits/fleet-event-detectors.test.ts"],
     "expect": "red"
   },
   {
@@ -54,9 +48,7 @@
         "replace": "true &&"
       }
     ],
-    "test": [
-      "tests/audits/fleet-event-detectors.test.ts"
-    ],
+    "test": ["tests/audits/fleet-event-detectors.test.ts"],
     "expect": "red"
   },
   {
@@ -69,9 +61,7 @@
         "replace": "ts: at,"
       }
     ],
-    "test": [
-      "tests/audits/fleet-event-detectors.test.ts"
-    ],
+    "test": ["tests/audits/fleet-event-detectors.test.ts"],
     "expect": "red"
   },
   {
@@ -84,9 +74,7 @@
         "replace": "(d.state !== null) &&"
       }
     ],
-    "test": [
-      "tests/audits/fleet-event-detectors.test.ts"
-    ],
+    "test": ["tests/audits/fleet-event-detectors.test.ts"],
     "expect": "red"
   },
   {
@@ -99,10 +87,7 @@
         "replace": "outcome: pushed ? \"updated\" : \"unchanged\", event: prismicSyncOpenedEvent(site.name, repo, open.number, new Date().toISOString()) ?? undefined,"
       }
     ],
-    "test": [
-      "tests/cli/prismic-sync-events.test.ts",
-      "tests/cli/prismic-sync.test.ts"
-    ],
+    "test": ["tests/cli/prismic-sync-events.test.ts", "tests/cli/prismic-sync.test.ts"],
     "expect": "red"
   },
   {
@@ -115,9 +100,7 @@
         "replace": "e.type === \"backup_verified\" ? backupText(e.data) : e.type === \"prismic_sync_opened\" ? `${PLAIN_EVENT[e.type]} ${(e.data as { url?: string } | null)?.url ?? \"\"}` : (PLAIN_EVENT[e.type] ?? e.summary),"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -130,9 +113,7 @@
         "replace": "return \"Backup restored in rehearsal\";"
       }
     ],
-    "test": [
-      "cockpit/tests/overview/view.ssr.test.ts"
-    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
     "expect": "red"
   },
   {
@@ -145,9 +126,7 @@
         "replace": "(see the error above)`,\n      code: recorded ? 0 : 1,"
       }
     ],
-    "test": [
-      "tests/cli/db-record-backup-event.test.ts"
-    ],
+    "test": ["tests/cli/db-record-backup-event.test.ts"],
     "expect": "red"
   },
   {
@@ -160,10 +139,7 @@
         "replace": "if (!name) name = repo;"
       }
     ],
-    "test": [
-      "tests/cli/prismic-sync-events.test.ts",
-      "tests/cli/prismic-sync.test.ts"
-    ],
+    "test": ["tests/cli/prismic-sync-events.test.ts", "tests/cli/prismic-sync.test.ts"],
     "expect": "red"
   }
 ]
