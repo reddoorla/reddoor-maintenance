@@ -6175,4 +6175,20 @@ describe("a health bar opens /fleet filtered, in a browser (P1-87 PR 8b)", () =>
     expect(line).toContain("Failing Certificate: 1 site");
     expect(line).toContain("1 more could not be read");
   });
+
+  // D2: the filtered column's "(filtered)" span is visually hidden; it must sit inside the table's
+  // own scroller, or it widens the page. The premise: the filtered header is there.
+  it("a filtered /fleet at 390px does not scroll sideways", async () => {
+    const page = await nextRun();
+    await page.setViewportSize({ width: 390, height: 844 });
+    for (const path of ["/fleet?check=certificate", "/fleet?check=live"]) {
+      await page.goto(`${origin}${path}`);
+      await expect.poll(() => page.locator("th.filtered-col").count()).toBe(1);
+      const widths = await page.evaluate(() => ({
+        scroll: document.documentElement.scrollWidth,
+        inner: window.innerWidth,
+      }));
+      expect(widths.scroll, path).toBeLessThanOrEqual(widths.inner);
+    }
+  });
 });
