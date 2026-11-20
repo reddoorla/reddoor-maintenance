@@ -41,7 +41,8 @@ describe("Sites for each cockpit case", () => {
 
 /** P1-87 PR 8b: `/fleet?check=<slug>` lists only the maintained sites that failed that check.
  *  Fixture: Bravo and Charlie fail Certificate, Delta could not be read (a stale check), 15
- *  sites pass, and Xray is archived and would fail, so it must not be listed. */
+ *  sites pass. Lima is launching: visible with a card, not maintained, and would fail, so it must
+ *  not be listed; Xray is archived and would fail, so it must not be listed either. */
 describe("Sites filtered to one health check (P1-87, PR 8b)", () => {
   beforeAll(() => {
     vi.setSystemTime(OVERVIEW_NOW);
@@ -53,6 +54,7 @@ describe("Sites filtered to one health check (P1-87, PR 8b)", () => {
       healthy({ id: "recC", name: "Charlie", certDaysRemaining: 9 }),
       healthy({ id: "recD", name: "Delta", domainCheckedAt: STALE }),
       ...Array.from({ length: 14 }, (_, i) => healthy({ id: `recP${i}`, name: `Pass ${i}` })),
+      healthy({ id: "recL", name: "Lima", status: "launching", certDaysRemaining: 9 }),
       healthy({ id: "recX", name: "Xray", status: "archived", certDaysRemaining: 9 }),
     ],
   });
@@ -103,7 +105,8 @@ describe("Sites filtered to one health check (P1-87, PR 8b)", () => {
 
   it("names an unknown check, shows the full table, and prints the slug as text", async () => {
     const doc = await page("/fleet?check=nope");
-    expect(rowNames(doc)).toHaveLength(18);
+    // 18 maintained sites and Lima (launching, visible); Xray (archived) stays hidden by default.
+    expect(rowNames(doc)).toHaveLength(19);
     expect(text(checkLine(doc)!)).toBe('No check is called "nope". Showing all sites.');
     expect(doc.querySelector("input[name='check']")).toBeNull();
     const hostile = await page("/fleet?check=%3Cscript%3E");
