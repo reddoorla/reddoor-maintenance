@@ -45,10 +45,7 @@ import {
   trafficBlock,
 } from "./fixtures.js";
 import { trafficWindows } from "../../../src/fleet-daily/traffic.js";
-import {
-  deploysToShow,
-  type CockpitSnapshot,
-} from "../../../src/dashboard/snapshot-views.js";
+import { deploysToShow, type CockpitSnapshot } from "../../../src/dashboard/snapshot-views.js";
 
 describe("section 1: the one-line status", () => {
   it("counts the sites in our care and says all are live", () => {

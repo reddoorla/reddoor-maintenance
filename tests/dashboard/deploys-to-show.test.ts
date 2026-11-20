@@ -30,10 +30,7 @@ describe("deploysToShow — a deploy after a merge on the same site is left out"
   });
 
   it("keeps the deploy when the merge is on another site", () => {
-    const rows = [
-      ev("deploy", DEPLOY),
-      ev("merge", at(-30 * 60_000), "pr_automerged", "recB"),
-    ];
+    const rows = [ev("deploy", DEPLOY), ev("merge", at(-30 * 60_000), "pr_automerged", "recB")];
     expect(deploysToShow(rows).map((e) => e.id)).toEqual(["deploy"]);
   });
 
