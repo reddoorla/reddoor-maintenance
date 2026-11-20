@@ -11,8 +11,10 @@ import {
   buildNeedsYouFeed,
   type CockpitModel,
   type SiteCard,
+  type Tier as CardTier,
 } from "../../../src/dashboard/fleet-cockpit.js";
 import type { OverviewNight } from "../../../src/fleet-daily/read.js";
+import { cockpitCounts } from "../../../src/fleet-daily/write.js";
 import { NOW, FRESH, healthy, night, snapshot } from "../overview/fixtures.js";
 
 /**
@@ -71,13 +73,19 @@ const shift = (d: string, n: number) =>
 /** One entry per night of the 21 ending on the night expected by NOW (Oct 26), oldest first:
  *  a count of sites at the level, or how that night is missing or wrong. */
 type Entry = number | "missing" | "unread" | "earlier";
-function window21(entries: Entry[]): OverviewNight[] {
+/** The writer's sites block for `n` cards at one card tier: cockpitCounts builds it, so the
+ *  tests read the keys production writes (`healthy`, `watch`, `attention`, `broken`). */
+function sitesBlock(tier: CardTier, n: number): OverviewNight["counts"]["sites"] {
+  const cards = Array.from({ length: n }, () => ({ tier, items: [], setup: [] }));
+  const model = { cards, cardless: [], summary: { preLaunch: 0 } } as unknown as CockpitModel;
+  return { value: cockpitCounts(model).sites } as unknown as OverviewNight["counts"]["sites"];
+}
+function window21(entries: Entry[], tier: CardTier = "broken"): OverviewNight[] {
   const out: OverviewNight[] = [];
   entries.forEach((e, i) => {
     if (e === "missing") return;
     const date = shift("2026-10-26", i - 20);
-    const sites =
-      e === "unread" ? null : { value: { cards: 2, tiers: { broken: e === "earlier" ? 2 : e } } };
+    const sites = e === "unread" ? null : sitesBlock(tier, e === "earlier" ? 2 : e);
     out.push(
       night(date, {
         ladderVersion: e === "earlier" ? 1 : 2,
@@ -151,6 +159,12 @@ describe("PR 8c item 10: the nights line", () => {
   it("the OK level reads its own counts", () => {
     expect(line(window21([...Array(21)].map(() => 0) as Entry[]), "ok")).toBe(
       "No site sat here on any of the last 21 nights.",
+    );
+  });
+
+  it("the OK level reads the writer's healthy count, the key OK is stored under", () => {
+    expect(line(window21([0, 2, 1, 0, 3, ...ZEROS], "healthy"), "ok")).toBe(
+      "At least one site sat here on 3 of the last 21 nights; the most on one night was 3.",
     );
   });
 });

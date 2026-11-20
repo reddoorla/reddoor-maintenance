@@ -250,5 +250,18 @@
     ],
     "test": "cockpit/tests/how/view.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "A-ok-reads-ok-key",
+    "why": "The OK level reads the tiers key ok, which the writer never stores, so it always reads 0",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "const key = NIGHT_TIER_KEY[tier];",
+        "replace": "const key = tier;"
+      }
+    ],
+    "test": "cockpit/tests/how/view.ssr.test.ts",
+    "expect": "red"
   }
 ]

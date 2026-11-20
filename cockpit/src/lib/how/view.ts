@@ -162,6 +162,15 @@ export function todayFromModel(model: CockpitModel): Record<Tier, LevelSite[]> {
   return out;
 }
 
+/** The key a night's tier counts are stored under (the writer's `cockpitCounts`, which keys
+ *  a card by its card tier): the OK level is the card tier `healthy`. */
+const NIGHT_TIER_KEY: Record<Tier, string> = {
+  ok: "healthy",
+  watch: "watch",
+  attention: "attention",
+  broken: "broken",
+};
+
 /** A night's count of sites at a level: absent is 0, present must be a count; null when the
  *  night's sites block or its tiers could not be read. */
 function tierCount(c: OverviewNight["counts"], tier: Tier): number | null {
@@ -170,8 +179,9 @@ function tierCount(c: OverviewNight["counts"], tier: Tier): number | null {
   const tiers: unknown = (sites as { tiers?: unknown }).tiers;
   if (typeof tiers !== "object" || tiers === null || Array.isArray(tiers)) return null;
   const t = tiers as Record<string, unknown>;
-  if (!(tier in t)) return 0;
-  const v = t[tier];
+  const key = NIGHT_TIER_KEY[tier];
+  if (!(key in t)) return 0;
+  const v = t[key];
   return typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null;
 }
 
