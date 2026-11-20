@@ -37,7 +37,7 @@ describe("parseFleetTableQuery", () => {
   });
   it("defaults to name/asc with empty filters on an empty query string", () => {
     const q = parseFleetTableQuery(new URLSearchParams());
-    expect(q).toEqual({ sort: "name", dir: "asc", status: "", q: "" });
+    expect(q).toEqual({ sort: "name", dir: "asc", status: "", q: "", check: "" });
   });
   it("trims status and q and bounds hostile lengths", () => {
     const q = parseFleetTableQuery(
@@ -51,6 +51,10 @@ describe("parseFleetTableQuery", () => {
   it("caps a hostile status at 64 chars exactly", () => {
     const q = parseFleetTableQuery(new URLSearchParams(`status=${"s".repeat(500)}`));
     expect(q.status).toHaveLength(64);
+  });
+  it("caps a hostile check at 64 chars exactly", () => {
+    const q = parseFleetTableQuery(new URLSearchParams(`check=${"c".repeat(500)}`));
+    expect(q.check).toHaveLength(64);
   });
   it("accepts every advertised sort key", () => {
     for (const key of FLEET_SORT_KEYS) {
@@ -69,7 +73,7 @@ describe("parseFleetTableQuery", () => {
   });
 });
 
-const DEFAULT_QUERY = { sort: "name", dir: "asc", status: "", q: "" } as const;
+const DEFAULT_QUERY = { sort: "name", dir: "asc", status: "", q: "", check: "" } as const;
 /** Every status, archived and external included: the query for tests about
  *  inclusion and order rather than the default view. */
 const ALL_QUERY = { ...DEFAULT_QUERY, status: ALL_STATUSES_FILTER } as const;
@@ -500,4 +504,38 @@ describe("buildFleetTableModel — every advertised sort key actually sorts", ()
       expect(desc.rows.map((r) => r.name)).toEqual([...EXPECTED_ASC[key]].reverse());
     });
   }
+});
+
+describe("parseFleetTableQuery: the check filter (P1-87, PR 8b)", () => {
+  it("reads check, trimmed and lowercased, and reads an absent one as empty", () => {
+    expect(parseFleetTableQuery(new URLSearchParams("check=%20Certificate%20")).check).toBe(
+      "certificate",
+    );
+    expect(parseFleetTableQuery(new URLSearchParams()).check).toBe("");
+  });
+});
+
+describe("buildFleetTableModel: keep (P1-87, PR 8b)", () => {
+  const sites = [
+    makeWebsiteRow({ id: "r1", name: "Alpha", status: "maintained" }),
+    makeWebsiteRow({ id: "r2", name: "Bravo", status: "maintained" }),
+    makeWebsiteRow({ id: "r3", name: "Charlie", status: "maintained" }),
+  ];
+
+  it("lists only the sites in keep, in the usual order", () => {
+    const m = buildFleetTableModel(sites, DEFAULT_QUERY, new Map(), new Set(["r3", "r1"]));
+    expect(m.rows.map((r) => r.id)).toEqual(["r1", "r3"]);
+  });
+
+  it("lists no site for an empty keep, and counts none of them as hidden", () => {
+    const archived = [...sites, makeWebsiteRow({ id: "r4", name: "Delta", status: "archived" })];
+    const m = buildFleetTableModel(archived, DEFAULT_QUERY, new Map(), new Set<string>());
+    expect(m.rows).toHaveLength(0);
+    expect(m.hiddenCount).toBe(0);
+  });
+
+  it("leaves the table whole when keep is not given", () => {
+    const m = buildFleetTableModel(sites, DEFAULT_QUERY);
+    expect(m.rows).toHaveLength(3);
+  });
 });

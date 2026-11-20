@@ -6,13 +6,17 @@
   import type { SiteFacts } from "../../lib/overview/view.js";
   import SetupChecklist from "../../lib/SetupChecklist.svelte";
   import {
+    allSitesHref,
+    CHECK_COLUMN,
     COLUMNS,
     FACT_COLUMNS,
+    failingLine,
     okClass,
     showHiddenHref,
     sortHref,
     sortArrow,
     statusOptions,
+    type CheckFilter,
   } from "./view.js";
   import PageStyles from "../../lib/PageStyles.svelte";
   import healthCss from "../../lib/cockpit/health.css?inline";
@@ -29,10 +33,22 @@
   let {
     data,
   }: {
-    data: { model: FleetTableModel; sites: SitesView; facts?: Record<string, SiteFacts> };
+    data: {
+      model: FleetTableModel;
+      sites: SitesView;
+      facts?: Record<string, SiteFacts>;
+      check?: CheckFilter | null;
+    };
   } = $props();
   const m = $derived(data.model);
   const s = $derived(data.sites);
+  // The health check the list is narrowed to, if the URL names a known one (P1-87, PR 8b).
+  // An unknown one is named above the table, and the table is the whole one.
+  const check = $derived(data.check ?? null);
+  const known = $derived(check !== null && "name" in check ? check : null);
+  const unknownSlug = $derived(check !== null && "unknown" in check ? check.unknown : null);
+  // The fact column that shows the check's own cell, marked as the one filtered.
+  const filteredColumn = $derived(known === null ? undefined : CHECK_COLUMN[known.name]);
   // The live checks and the level, both keyed by site id (review round 3): a
   // slug is shared by namesakes ("Foo" and "FOO"), an id is not. A site with no
   // card has neither.
@@ -71,6 +87,17 @@
     · {m.hiddenCount} archived or external hidden · <a href={showHiddenHref(m)}>Show all</a>
   {/if}
 </div>
+{#if known !== null}
+  <p class="check-filter">
+    {failingLine(known)}{#if known.unread > 0}
+      {" "}· {known.unread} more {known.unread === 1
+        ? "neither passes nor fails"
+        : "neither pass nor fail"}{/if}
+    · <a href={allSitesHref(m)}>Show all sites</a>
+  </p>
+{:else if unknownSlug !== null}
+  <p class="check-filter">No check is called "{unknownSlug}". Showing all sites.</p>
+{/if}
 <!-- The chip count for a screen reader (#1636): `.meta` is not a live region,
      so this one, always in the page, carries the count and a chip press
      changes its text. -->
@@ -82,6 +109,7 @@
        operator's ranking on a filter change. -->
   <input type="hidden" name="sort" value={m.query.sort} />
   <input type="hidden" name="dir" value={m.query.dir} />
+  {#if known !== null}<input type="hidden" name="check" value={known.slug} />{/if}
   <select name="status">
     {#each statusOptions(m) as o, i (i)}
       <option value={o.value} selected={o.selected}>{o.label}</option>
@@ -127,7 +155,13 @@
         <tr>
           {#each COLUMNS as col (col.key)}
             {#if col.key === "level"}
-              {#each FACT_COLUMNS as label (label)}<th>{label}</th>{/each}
+              {#each FACT_COLUMNS as label (label)}
+                <th class:filtered-col={label === filteredColumn}>
+                  {label}{#if label === filteredColumn}{" "}<span class="visually-hidden">
+                      (filtered)
+                    </span>{/if}
+                </th>
+              {/each}
             {/if}
             <th class={col.numeric ? "num" : undefined}>
               <a href={sortHref(m, col.key)}>{col.label}</a>{sortArrow(m, col.key)}

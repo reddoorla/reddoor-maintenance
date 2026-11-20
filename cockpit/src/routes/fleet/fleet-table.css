@@ -44,7 +44,9 @@ body {
   font-weight: var(--weight-text);
   padding: 0.3rem 0.5rem;
 }
+/* relative: the visually hidden "(filtered)" span is absolute, and must be clipped by this scroller. */
 .fleet-table-wrap {
+  position: relative;
   overflow-x: auto;
 }
 table.fleet {
