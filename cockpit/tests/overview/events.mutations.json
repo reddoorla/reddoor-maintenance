@@ -232,5 +232,44 @@
     ],
     "test": ["cockpit/tests/legacy/recently-lane.ssr.test.ts"],
     "expect": "red"
+  },
+  {
+    "id": "9-19-deploy-read-capped-at-500",
+    "why": "The deploy read uses RECENT_EVENTS_LIMIT as its cap, so the 20 newest deploys are read before deploysToShow drops the merged one, and a deploy after a merge leaves the feed short of its 20 (T1)",
+    "edits": [
+      {
+        "file": "src/dashboard/snapshot.ts",
+        "find": "            limit: 500,\n            types: [\"site_deployed\", \"pr_automerged\"],",
+        "replace": "            limit: RECENT_EVENTS_LIMIT,\n            types: [\"site_deployed\", \"pr_automerged\"],"
+      }
+    ],
+    "test": ["tests/dashboard/snapshot-feed-events.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "9-20-deploy-read-without-merges",
+    "why": "The deploy read leaves out pr_automerged, so deploysToShow has no merge to hide a deploy with (T1)",
+    "edits": [
+      {
+        "file": "src/dashboard/snapshot.ts",
+        "find": "            types: [\"site_deployed\", \"pr_automerged\"],",
+        "replace": "            types: [\"site_deployed\"],"
+      }
+    ],
+    "test": ["tests/dashboard/snapshot-feed-events.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "9-21-snapshot-keeps-every-deploy",
+    "why": "The snapshot skips deploysToShow and keeps every deploy newest first, so a deploy after a merge is shown beside it (answer (c) removed from the snapshot) (T1)",
+    "edits": [
+      {
+        "file": "src/dashboard/snapshot.ts",
+        "find": "        deploysToShow(\n          await listFleetEvents(db, {",
+        "replace": "        ((rows) => rows.filter((e) => e.type === \"site_deployed\").slice(0, RECENT_EVENTS_LIMIT))(\n          await listFleetEvents(db, {"
+      }
+    ],
+    "test": ["tests/dashboard/snapshot-feed-events.test.ts"],
+    "expect": "red"
   }
 ]

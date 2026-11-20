@@ -65,18 +65,20 @@ describe("loadCockpitSnapshot — the feed's deploys are read on their own (P1-8
     db = await openDb({ url: `file:${join(dir, "fleet.db")}` });
     // Twenty-five deploys on other sites, newer than everything else: without their own
     // read they would fill the feed's 20-row read and push the merge out of it.
+    // Hourly from 2026-11-16T00:30Z (the 24th lands on the 17th, still before the merge below).
     for (let i = 0; i < 25; i++)
       await recordFleetEvent(db, {
         ...ev(
           `deploy-${i}`,
-          `2026-11-16T${String(i).padStart(2, "0")}:30:00.000Z`,
+          new Date(Date.UTC(2026, 10, 16, 0, 30) + i * 3_600_000).toISOString(),
           "site_deployed",
         ),
         siteId: `recOTHER${i}`,
       });
     // A merge and then a deploy on the same site, 30 minutes later: the deploy is left out.
-    await recordFleetEvent(db, ev("merge", "2026-11-15T10:00:00.000Z", "pr_automerged"));
-    await recordFleetEvent(db, ev("merged-deploy", "2026-11-15T10:30:00.000Z", "site_deployed"));
+    // Both are newer than every filler deploy, so the 20-row cap cannot be what hides it.
+    await recordFleetEvent(db, ev("merge", "2026-11-17T10:00:00.000Z", "pr_automerged"));
+    await recordFleetEvent(db, ev("merged-deploy", "2026-11-17T10:30:00.000Z", "site_deployed"));
   });
   afterEach(async () => {
     await db.destroy();
