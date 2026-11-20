@@ -122,8 +122,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "            tabindex=\"0\"\n            aria-labelledby=\"ov-trend-{ci} ov-trend-{ci}-desc\"",
-        "replace": "            aria-labelledby=\"ov-trend-{ci} ov-trend-{ci}-desc\""
+        "find": "            tabindex=\"0\"\n            aria-labelledby=\"ov-trend-{ci}\"",
+        "replace": "            aria-labelledby=\"ov-trend-{ci}\""
       }
     ],
     "test": ["cockpit/tests/overview/page.ssr.test.ts"],
@@ -131,12 +131,12 @@
   },
   {
     "id": "5-4-readout-not-live",
-    "why": "The readout loses aria-live, so a night read by arrow key is not announced",
+    "why": "The live region loses aria-live, so a night chosen by the arrow keys is not announced",
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "<p id=\"ov-trend-{ci}-readout\" class=\"muted ov-trend-readout\" aria-live=\"polite\">",
-        "replace": "<p id=\"ov-trend-{ci}-readout\" class=\"muted ov-trend-readout\">"
+        "find": "<p id=\"ov-trend-{ci}-live\" class=\"visually-hidden\" aria-live=\"polite\">",
+        "replace": "<p id=\"ov-trend-{ci}-live\" class=\"visually-hidden\">"
       }
     ],
     "test": ["cockpit/tests/overview/page.ssr.test.ts"],
