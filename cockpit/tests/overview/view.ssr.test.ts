@@ -2,7 +2,12 @@ import { describe, it, expect } from "vitest";
 import {
   overviewFromSnapshot,
   CHECK_PROOF,
+  CHECK_SLUGS,
+  checkNameForSlug,
+  checkVerdicts,
+  checkVerdictsFromSnapshot,
   FORM_TEST_FAILED,
+  HEALTH_CHECK_NAMES,
   HOW_WE_COUNT,
   LADDER_LINES,
   NIGHTLY_STEPS,
@@ -45,7 +50,10 @@ import {
   trafficBlock,
 } from "./fixtures.js";
 import { trafficWindows } from "../../../src/fleet-daily/traffic.js";
-import type { CockpitSnapshot } from "../../../src/dashboard/snapshot-views.js";
+import {
+  cockpitModelFromSnapshot,
+  type CockpitSnapshot,
+} from "../../../src/dashboard/snapshot-views.js";
 
 describe("section 1: the one-line status", () => {
   it("counts the sites in our care and says all are live", () => {
@@ -3869,5 +3877,82 @@ describe("the Lately feed's line keys (P1-87 PR 8a, item 7)", () => {
     expect(new Set(a).size).toBe(2);
     const b = overviewFromSnapshot(twin, NOW).lately.lines.map((l) => l.key);
     expect(b).toEqual(a);
+  });
+});
+
+describe("P1-87 PR 8b: the per-site verdicts behind the health bars", () => {
+  // Fixtures over which the bar and the filter must agree: every verdict kind, a stale
+  // check, an archived site that would fail, and one with no form verdict.
+  const AGREE: CockpitSnapshot[] = [
+    snapshot(),
+    snapshot({
+      sites: [
+        healthy({ id: "recA", name: "Acme" }),
+        healthy({ id: "recB", name: "Bravo", certDaysRemaining: 9 }),
+        healthy({ id: "recC", name: "Charlie", domainCheckedAt: STALE }),
+        healthy({ id: "recD", name: "Delta", smokeOk: null, lastSmokeAt: FRESH }),
+        healthy({ id: "recE", name: "Echo", formE2eOk: null, formE2eCheckedAt: FRESH }),
+        healthy({ id: "recF", name: "Foxtrot", status: "archived", certDaysRemaining: 9 }),
+        healthy({ id: "recG", name: "Golf", reachableOk: "fail" }),
+      ],
+    }),
+  ];
+
+  it("gives each maintained site one verdict per check, and agrees with healthView's counts", () => {
+    for (const s of AGREE) {
+      const model = cockpitModelFromSnapshot(s, NOW);
+      const verdicts = checkVerdictsFromSnapshot(s, model, NOW);
+      const health = overviewFromSnapshot(s, NOW).health;
+      expect(verdicts.map((v) => v.siteId).sort()).toEqual(
+        model.cards
+          .filter((c) => c.site.status === "maintained")
+          .map((c) => c.site.id)
+          .sort(),
+      );
+      for (const name of HEALTH_CHECK_NAMES) {
+        const vs = verdicts.map((v) => v.verdicts[name]);
+        const bar = health.checks.find((c) => c.name === name)!;
+        expect({ name, pass: vs.filter((x) => x === true).length }).toEqual({
+          name,
+          pass: bar.pass,
+        });
+        expect({ name, fail: vs.filter((x) => x === false).length }).toEqual({
+          name,
+          fail: bar.fail,
+        });
+        expect({ name, unknown: vs.filter((x) => typeof x === "string").length }).toEqual({
+          name,
+          unknown: bar.unknown,
+        });
+      }
+    }
+  });
+
+  it("is the same function healthView counts from: the live rows are an input, not a copy", () => {
+    const s = AGREE[1]!;
+    const model = cockpitModelFromSnapshot(s, NOW);
+    const live = overviewFromSnapshot(s, NOW).live;
+    expect(checkVerdicts(model, live, NOW)).toEqual(checkVerdictsFromSnapshot(s, model, NOW));
+  });
+
+  it("gives every check one distinct slug, and each slug maps back to its own check", () => {
+    const slugs = HEALTH_CHECK_NAMES.map((name) => CHECK_SLUGS[name]);
+    expect(new Set(slugs).size).toBe(HEALTH_CHECK_NAMES.length);
+    for (const name of HEALTH_CHECK_NAMES) expect(checkNameForSlug(CHECK_SLUGS[name])).toBe(name);
+    expect(slugs).toEqual([
+      "live",
+      "certificate",
+      "deploy",
+      "contact-form",
+      "security",
+      "accessibility",
+      "build-tests",
+    ]);
+  });
+
+  it("names no check for a slug it does not know, or for a prototype key", () => {
+    expect(checkNameForSlug("nope")).toBeNull();
+    expect(checkNameForSlug("constructor")).toBeNull();
+    expect(checkNameForSlug("")).toBeNull();
   });
 });
