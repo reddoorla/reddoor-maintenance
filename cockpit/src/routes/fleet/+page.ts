@@ -52,7 +52,7 @@ export const load: PageLoad = ({ parent, url }) =>
         new Map(cockpit.cards.map((c) => [c.site.id, c.tier] as const)),
         keep,
       ),
-      sites: buildSitesView(cockpit, now),
+      sites: buildSitesView(cockpit, now, snapshot.feedDeploys),
       // The overview's "Is every site live?" columns, moved here (P1-87, PR 2).
       facts: siteFactsFromSnapshot(snapshot, cockpit, now),
       check,

@@ -17,7 +17,8 @@ import { onboardingStatus, missingOnboarding } from "../../../../src/dashboard/o
 import { relativeTimeFromNow } from "../../../../src/dashboard/relative-time.js";
 import { daysFlagged, LEVEL_RANK, levelOf, type Level } from "../../../../src/alerts/ladder.js";
 import { isLeadFormType } from "../../../../src/forms/types.js";
-import type { FleetEventType } from "../../../../src/db/fleet-events.js";
+import type { FleetEvent, FleetEventType } from "../../../../src/db/fleet-events.js";
+import { RECENT_EVENTS_LIMIT } from "../../../../src/dashboard/snapshot-views.js";
 import type { WebsiteRow } from "../../../../src/fleet/site-row.js";
 import { siteSlug } from "../../../../src/fleet/site-row.js";
 import { safeUrl } from "../../../../src/util/html.js";
@@ -446,18 +447,45 @@ export const FLEET_FILTERS = [
 
 // ---- lanes ----
 
-function recently(model: CockpitModel, now: Date): RecentRowView[] {
-  return (model.recent ?? []).map((e) => ({
+/** The Recently lane (`/fleet`): the model's recent events beside the snapshot's
+ *  `feedDeploys` (P1-87 PR 9, review C1), newest first, under the read's cap. The deploys
+ *  are already `deploysToShow`-filtered, so a deploy that follows a merge on its site is
+ *  not repeated here, as the overview's feed does not repeat it. */
+function recently(
+  model: CockpitModel,
+  now: Date,
+  feedDeploys: readonly FleetEvent[],
+): RecentRowView[] {
+  const fromEvents = (model.recent ?? []).map((e) => ({
     type: e.type,
     siteName: e.siteName || null,
     summary: e.summary,
-    when: relativeTimeFromNow(e.ts, now),
-    link: e.url
-      ? { href: e.url, text: "view →" }
-      : e.slug
-        ? { href: `/s/${e.slug}`, text: "open →" }
-        : null,
+    url: e.url,
+    slug: e.slug,
+    ts: e.ts,
   }));
+  const fromDeploys = feedDeploys.map((e) => ({
+    type: e.type,
+    siteName: e.siteName || null,
+    summary: e.summary,
+    url: null,
+    slug: e.siteName ? siteSlug(e.siteName) : null,
+    ts: e.ts,
+  }));
+  return [...fromEvents, ...fromDeploys]
+    .sort((a, b) => Date.parse(b.ts) - Date.parse(a.ts))
+    .slice(0, RECENT_EVENTS_LIMIT)
+    .map((e) => ({
+      type: e.type,
+      siteName: e.siteName,
+      summary: e.summary,
+      when: relativeTimeFromNow(e.ts, now),
+      link: e.url
+        ? { href: e.url, text: "view →" }
+        : e.slug
+          ? { href: `/s/${e.slug}`, text: "open →" }
+          : null,
+    }));
 }
 
 /** Most submissions to render in the cockpit inbox lane. The summary still shows
@@ -552,7 +580,11 @@ export type SitesView = {
   archived: Array<{ name: string; status: string; slug: string }>;
 };
 
-export function buildSitesView(model: CockpitModel, now: Date): SitesView {
+export function buildSitesView(
+  model: CockpitModel,
+  now: Date,
+  feedDeploys: readonly FleetEvent[] = [],
+): SitesView {
   const cards: Record<string, CardView> = {};
   // Null-prototype: a site id of `__proto__` would otherwise set the prototype (review round 4).
   const levels = Object.create(null) as Record<string, { tier: Tier; pill: string }>;
@@ -564,7 +596,7 @@ export function buildSitesView(model: CockpitModel, now: Date): SitesView {
     filters: FLEET_FILTERS,
     cards,
     levels,
-    recently: recently(model, now),
+    recently: recently(model, now, feedDeploys),
     archived: (model.archived ?? []).map((s) => ({ name: s.name, status: s.status, slug: s.slug })),
   };
 }

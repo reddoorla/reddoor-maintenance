@@ -22,6 +22,7 @@ import type { ReportRow } from "../../../src/reports/report-fields.js";
 import type { SubmissionRow } from "../../../src/reports/submission-row.js";
 import type { ScreenOutTotals } from "../../../src/db/screenouts.js";
 import type { ProspectAuditListItem } from "../../../src/db/prospect-audits.js";
+import type { FleetEvent } from "../../../src/db/fleet-events.js";
 
 /**
  * The old string renderers' signatures, answered by the SvelteKit pages (#582
@@ -92,12 +93,16 @@ export function renderFleetTableHtml(
 /** Sites (`/fleet`) for a cockpit model, since the browse panel's cards and the
  *  Recently and Archived lanes moved there (#672 step 3): the table's rows are
  *  the model's card sites, in the default order, each with its card's health. */
-export function renderSitesHtml(model: CockpitModel, operatorEmail: string | null = null): string {
+export function renderSitesHtml(
+  model: CockpitModel,
+  operatorEmail: string | null = null,
+  feedDeploys: FleetEvent[] = [],
+): string {
   const table = buildFleetTableModel(
     model.cards.map((c) => c.site),
     parseFleetTableQuery(new URLSearchParams()),
   );
-  return renderFleetTableHtml(table, operatorEmail, buildSitesView(model, new Date()));
+  return renderFleetTableHtml(table, operatorEmail, buildSitesView(model, new Date(), feedDeploys));
 }
 
 export function renderSiteDashboardHtml(

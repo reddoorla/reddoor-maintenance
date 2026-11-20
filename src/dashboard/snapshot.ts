@@ -84,12 +84,15 @@ export async function loadCockpitSnapshot(
     read<CockpitSnapshot["reports"]>("reports", () => listAllReports(db), null),
     read("digest", () => readDigestState(db), {}),
     read("rollup", () => readCockpitRollup(db), null),
+    // P1-87 PR 9, review C1: no deploys here either. `/fleet`'s Recently lane folds the
+    // deploys in from `feedDeploys` under the same rule as the overview's feed.
     read(
       "events",
       () =>
         listFleetEvents(db, {
           sinceIso: new Date(now.getTime() - RECENT_EVENTS_DAYS * 86_400_000).toISOString(),
           limit: RECENT_EVENTS_LIMIT,
+          excludeTypes: RECENT_EXCLUDED_TYPES,
         }),
       [],
     ),
@@ -190,6 +193,11 @@ export async function loadCockpitSnapshot(
  *  deploys too: they are read on their own (`feedDeploys`, P1-87 PR 9), so a burst of
  *  them cannot push the week's other events out of this read. */
 const LATELY_EXCLUDED_TYPES: readonly FleetEventType[] = ["fleet_swept", "site_deployed"];
+
+/** The shared recent read (`recentEvents`, `/fleet`'s Recently lane) leaves out deploys
+ *  (P1-87 PR 9, review C1): a deploy after a merge repeats the merge's line, and a burst of
+ *  deploys must not fill the read's cap. They come back through `feedDeploys`. */
+const RECENT_EXCLUDED_TYPES: readonly FleetEventType[] = ["site_deployed"];
 
 /** `read`'s marker for a read that fell back. */
 const GAP = Symbol("gap");

@@ -206,5 +206,31 @@
     ],
     "test": ["cockpit/tests/overview/view.ssr.test.ts"],
     "expect": "red"
+  },
+  {
+    "id": "9-17-recent-read-keeps-deploys",
+    "why": "The shared recent read keeps site_deployed, so /fleet's Recently lane repeats a deploy after its merge and the deploys fill the read's cap (C1)",
+    "edits": [
+      {
+        "file": "src/dashboard/snapshot.ts",
+        "find": "const RECENT_EXCLUDED_TYPES: readonly FleetEventType[] = [\"site_deployed\"];",
+        "replace": "const RECENT_EXCLUDED_TYPES: readonly FleetEventType[] = [];"
+      }
+    ],
+    "test": ["tests/dashboard/snapshot-feed-events.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "9-18-recently-ignores-feed-deploys",
+    "why": "/fleet's Recently lane ignores the snapshot's feedDeploys, so a deploy with no merge before it is never shown (C1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/view.ts",
+        "find": "  return [...fromEvents, ...fromDeploys]",
+        "replace": "  return [...fromEvents]"
+      }
+    ],
+    "test": ["cockpit/tests/legacy/recently-lane.ssr.test.ts"],
+    "expect": "red"
   }
 ]

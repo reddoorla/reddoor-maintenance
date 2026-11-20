@@ -93,4 +93,12 @@ describe("loadCockpitSnapshot — the feed's deploys are read on their own (P1-8
     expect(snap.feedDeploys.every((e) => e.id !== "merged-deploy")).toBe(true);
     expect(snap.gaps).toEqual([]);
   });
+
+  // P1-87 PR 9, review C1: /fleet's Recently lane reads `recentEvents`, so the deploys leave
+  // that read too, and reach the lane through `feedDeploys` under the same rule.
+  it("recentEvents carries no deploy, so the 25 newer deploys cannot fill it (C1)", async () => {
+    const snap = await loadCockpitSnapshot(db, NOW, "https://dash");
+    expect(snap.recentEvents.some((e) => e.type === "site_deployed")).toBe(false);
+    expect(snap.recentEvents.map((e) => e.id)).toEqual(["merge"]);
+  });
 });
