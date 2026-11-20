@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { invalidate } from "$app/navigation";
-  import type { OverviewView } from "../lib/overview/view.js";
+  import type { HealthCheck, OverviewView } from "../lib/overview/view.js";
   import {
+    CHECK_SLUGS,
     launchingClauses,
     listWords,
     sparkGeometry,
@@ -365,6 +366,27 @@
           </span>{/each}
       </p>{/if}
     <h3>Sites passing each check</h3>
+    {#snippet checkParts(c: HealthCheck)}
+      <span class="ov-check-name">{c.name}</span>
+      <span class="ov-check-bar" aria-hidden="true">
+        {#if c.pass > 0}<span class="ov-check-fill" style="width: {(100 * c.pass) / c.total}%"
+          ></span>{/if}{#if c.unknown > 0}<span
+            class="ov-check-unknown"
+            style="left: {c.total === 0 ? 0 : (100 * c.pass) / c.total}%; width: {(100 *
+              c.unknown) /
+              c.total}%"
+          ></span>{/if}
+      </span>
+      <span class="ov-check-count">
+        {c.pass}{" "}<span class="visually-hidden">of {c.total}</span>{c.fail > 0
+          ? ` · ${c.fail} failing`
+          : ""}{c.testFailed > 0
+          ? ` · ${c.testFailed} test failed, not yet a verdict`
+          : ""}{c.noVerdict > 0 ? ` · ${c.noVerdict} no verdict` : ""}{c.notChecked > 0
+          ? ` · ${c.notChecked} not checked`
+          : ""}
+      </span>
+    {/snippet}
     <ul
       class="ov-checks-list"
       data-term="Sites passing each check"
@@ -373,25 +395,19 @@
     >
       {#each v.health.checks as c, i (c.name)}
         <li class="ov-check" style="--i: {i}">
-          <span class="ov-check-name">{c.name}</span>
-          <span class="ov-check-bar" aria-hidden="true">
-            {#if c.pass > 0}<span class="ov-check-fill" style="width: {(100 * c.pass) / c.total}%"
-              ></span>{/if}{#if c.unknown > 0}<span
-                class="ov-check-unknown"
-                style="left: {c.total === 0 ? 0 : (100 * c.pass) / c.total}%; width: {(100 *
-                  c.unknown) /
-                  c.total}%"
-              ></span>{/if}
-          </span>
-          <span class="ov-check-count">
-            {c.pass}{" "}<span class="visually-hidden">of {c.total}</span>{c.fail > 0
-              ? ` · ${c.fail} failing`
-              : ""}{c.testFailed > 0
-              ? ` · ${c.testFailed} test failed, not yet a verdict`
-              : ""}{c.noVerdict > 0 ? ` · ${c.noVerdict} no verdict` : ""}{c.notChecked > 0
-              ? ` · ${c.notChecked} not checked`
-              : ""}
-          </span>
+          <!-- A failing check opens the sites that failed it (P1-87, PR 8b). A bar with none
+               stays as it was: no link. -->
+          {#if c.fail > 0}
+            <a
+              class="ov-check-link"
+              href="/fleet?check={CHECK_SLUGS[c.name]}"
+              aria-label="{c.name}: {c.fail} of {c.total} sites failing. Show them on Sites."
+            >
+              {@render checkParts(c)}
+            </a>
+          {:else}
+            {@render checkParts(c)}
+          {/if}
         </li>
       {/each}
     </ul>

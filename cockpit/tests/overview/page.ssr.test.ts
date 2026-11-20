@@ -2732,3 +2732,40 @@ describe("the Lately feed's motion, on the server render (P1-87 PR 8a, item 7)",
     expect(outside).not.toMatch(/ov-feed-in|data-new/);
   });
 });
+
+/** P1-87 PR 8b: a health bar with a failing site links to `/fleet?check=<slug>`. Fixture:
+ *  Bravo and Charlie fail Certificate, Delta could not be read, and 15 pass: 2 of 18 fail. */
+describe("a failing health bar links to the sites that failed it (P1-87, PR 8b)", () => {
+  const sites = [
+    healthy({ id: "recA", name: "Acme" }),
+    healthy({ id: "recB", name: "Bravo", certDaysRemaining: 9 }),
+    healthy({ id: "recC", name: "Charlie", certDaysRemaining: 9 }),
+    healthy({ id: "recD", name: "Delta", domainCheckedAt: STALE }),
+    ...Array.from({ length: 14 }, (_, i) => healthy({ id: `recP${i}`, name: `Pass ${i}` })),
+  ];
+  const doc = parse(pageHtml(overviewFromSnapshot(snapshot({ sites }), NOW)));
+  const checkRow = (name: string) =>
+    doc
+      .querySelectorAll("ul.ov-checks-list > li.ov-check")
+      .find((li) => text(li.querySelector(".ov-check-name")!) === name)!;
+
+  it("links the failing Certificate bar to its failing sites, named with its count", () => {
+    const link = checkRow("Certificate").querySelector("a")!;
+    expect(link.getAttribute("href")).toBe("/fleet?check=certificate");
+    expect(link.getAttribute("aria-label")).toBe(
+      "Certificate: 2 of 18 sites failing. Show them on Sites.",
+    );
+  });
+
+  it("keeps the bar and its count inside the link, and the row keeps its intro index", () => {
+    const li = checkRow("Certificate");
+    expect(li.querySelector("a .ov-check-bar")).not.toBeNull();
+    expect(li.querySelector("a .ov-check-count")).not.toBeNull();
+    expect(li.getAttribute("style")).toContain("--i:");
+  });
+
+  it("leaves a bar with no failing site unlinked", () => {
+    expect(checkRow("Security").querySelector("a")).toBeNull();
+    expect(checkRow("Security").querySelector(".ov-check-bar")).not.toBeNull();
+  });
+});

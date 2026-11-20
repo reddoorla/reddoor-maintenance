@@ -1995,7 +1995,7 @@ export function trendGeometry(chart: TrendChart, width = 320, height = 132): Tre
 // ---- P1-87 PR 3: the first screen ----
 
 export type HealthCheck = {
-  name: string;
+  name: HealthCheckName;
   pass: number;
   fail: number;
   /** The three kinds of unknown below, summed (the grey part of the bar). */
