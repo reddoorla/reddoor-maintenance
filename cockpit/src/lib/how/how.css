@@ -288,6 +288,11 @@ body {
   display: inline-block;
   margin: 0 0 var(--space-4);
 }
+/* `hidden` must win over the display above: under reduced motion and without script the
+   visitor sees no Replay at all (PR 8c item 9). */
+.how-replay[hidden] {
+  display: none;
+}
 .how-branch {
   margin: 0 0 var(--space-4);
 }
