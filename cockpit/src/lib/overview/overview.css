@@ -391,13 +391,13 @@ section {
   color: inherit;
   text-decoration: none;
 }
-.ov-check-link:hover .ov-check-name,
-.ov-check-link:focus-visible .ov-check-name {
+a.ov-check-link:hover {
   text-decoration: underline;
 }
-.ov-check-link:focus-visible {
+a.ov-check-link:focus-visible {
   outline: 2px solid currentColor;
   outline-offset: 2px;
+  text-decoration: underline;
 }
 .ov-check-count {
   font-variant-numeric: tabular-nums;
