@@ -109,4 +109,31 @@ describe("fleet-events db helpers", () => {
     });
     expect(all.map((r) => r.id)).toEqual(["s2", "s1", "old"]);
   });
+
+  it("reads only the types it is told to, in the query itself (P1-87 PR 9)", async () => {
+    const db = await openDb({ url: ":memory:" });
+    await recordFleetEvent(db, ev({ id: "merge", ts: "2026-06-20T00:00:00.000Z" }));
+    await recordFleetEvent(
+      db,
+      ev({ id: "deploy", ts: "2026-06-21T00:00:00.000Z", type: "site_deployed" }),
+    );
+    await recordFleetEvent(
+      db,
+      ev({ id: "sweep", ts: "2026-06-22T00:00:00.000Z", type: "fleet_swept", siteId: null }),
+    );
+    // Capped at 2: without the type filter the sweep would fill the cap.
+    const rows = await listFleetEvents(db, {
+      sinceIso: "2026-06-01T00:00:00.000Z",
+      limit: 2,
+      types: ["site_deployed", "pr_automerged"],
+    });
+    expect(rows.map((r) => r.id)).toEqual(["deploy", "merge"]);
+    // An empty list allows no type, so it reads nothing.
+    const none = await listFleetEvents(db, {
+      sinceIso: "2026-06-01T00:00:00.000Z",
+      limit: 10,
+      types: [],
+    });
+    expect(none).toEqual([]);
+  });
 });
