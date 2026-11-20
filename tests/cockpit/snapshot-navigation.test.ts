@@ -6048,7 +6048,8 @@ describe("PR 8c, How this works motion", () => {
       new MutationObserver(() => {
         if (stage1.getAttribute("data-passed") !== "true") return;
         const anim = dot.getAnimations()[0];
-        w.__marks.push({ fresh: anim !== w.__oldAnim, at: anim?.currentTime ?? 0 });
+        const t = anim?.currentTime;
+        w.__marks.push({ fresh: anim !== w.__oldAnim, at: typeof t === "number" ? t : 0 });
       }).observe(stage1, { attributes: true, attributeFilter: ["data-passed"] });
     });
     await page.locator("section.how-lead button.how-replay").click();
