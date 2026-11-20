@@ -45,7 +45,10 @@ import {
   trafficBlock,
 } from "./fixtures.js";
 import { trafficWindows } from "../../../src/fleet-daily/traffic.js";
-import type { CockpitSnapshot } from "../../../src/dashboard/snapshot-views.js";
+import {
+  deploysToShow,
+  type CockpitSnapshot,
+} from "../../../src/dashboard/snapshot-views.js";
 
 describe("section 1: the one-line status", () => {
   it("counts the sites in our care and says all are live", () => {
@@ -3942,6 +3945,48 @@ describe("the Lately feed's new events (P1-87 PR 9)", () => {
     expect(v.lately.lines.map((l) => [l.text, l.site])).toEqual([
       ["Deploy published", "Acme"],
       ["Prismic sync PR opened", "Acme"],
+    ]);
+  });
+
+  it("lists a deploy the snapshot read on its own, as the feed's deploys (P1-87 PR 9)", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [healthy({ id: "recA", name: "Acme" })],
+        feedDeploys: [
+          event({
+            id: "site_deployed:recA:2026-10-27T09:00:00.000Z",
+            type: "site_deployed",
+            ts: "2026-10-27T09:00:00.000Z",
+            summary: "STORED-IGNORED",
+          }),
+        ],
+      }),
+      NOW,
+    );
+    expect(v.lately.lines.map((l) => [l.text, l.site])).toEqual([["Deploy published", "Acme"]]);
+  });
+
+  it("shows the merge, and not the deploy it came before on the same site (P1-87 PR 9)", () => {
+    const merge = event({
+      id: "pr_automerged:recA:1",
+      type: "pr_automerged",
+      ts: "2026-10-27T08:30:00.000Z",
+    });
+    const deploy = event({
+      id: "site_deployed:recA:2026-10-27T09:00:00.000Z",
+      type: "site_deployed",
+      ts: "2026-10-27T09:00:00.000Z",
+    });
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [healthy({ id: "recA", name: "Acme" })],
+        feedEvents: [merge],
+        feedDeploys: deploysToShow([deploy, merge]),
+      }),
+      NOW,
+    );
+    expect(v.lately.lines.map((l) => [l.text, l.site])).toEqual([
+      ["Dependency update merged", "Acme"],
     ]);
   });
 
