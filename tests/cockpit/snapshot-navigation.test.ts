@@ -7,6 +7,7 @@ import { extname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import {
   chromium,
+  expect as pwExpect,
   type Browser,
   type BrowserContext,
   type BrowserContextOptions,
@@ -6163,9 +6164,13 @@ describe("a health bar opens /fleet filtered, in a browser (P1-87 PR 8b)", () =>
     // D3: no aria-label; the name is the row's own counts, so a screen reader hears them and the
     // visible "1 failing" is inside the name (WCAG 2.5.3). Playwright computes the name from the DOM.
     expect(await bar.getAttribute("aria-label")).toBeNull();
+    // F1: the whole name, one string; the hidden phrase keeps its leading space.
+    const name = "Certificate 1 of 3 · 1 failing · 1 not checked Show them on Sites.";
+    await pwExpect(bar).toHaveAccessibleName(name);
+    // The text itself, not only the computed name: a browser may insert the space the markup
+    // lost, so the name alone cannot see the missing space.
     const linkText = ((await bar.textContent()) ?? "").replace(/\s+/g, " ").trim();
-    expect(linkText).toContain("Certificate 1 of 3 · 1 failing");
-    expect(linkText.endsWith("Show them on Sites.")).toBe(true);
+    expect(linkText).toBe(name);
     // The bar's count-up and fill settle first, so the click lands on the settled page.
     await figuresSettled(page);
     await bar.click();

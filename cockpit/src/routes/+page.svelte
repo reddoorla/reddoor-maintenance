@@ -399,7 +399,7 @@
                stays as it was: no link. -->
           {#if c.fail > 0}
             <a class="ov-check-link" href="/fleet?check={CHECK_SLUGS[c.name]}">
-              {@render checkParts(c)}<span class="visually-hidden"> Show them on Sites.</span>
+              {@render checkParts(c)}{" "}<span class="visually-hidden">Show them on Sites.</span>
             </a>
           {:else}
             {@render checkParts(c)}

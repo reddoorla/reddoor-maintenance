@@ -2757,8 +2757,8 @@ describe("a failing health bar links to the sites that failed it (P1-87, PR 8b)"
     // text, and a visually hidden phrase at its end says where it goes.
     expect(link.hasAttribute("aria-label")).toBe(false);
     const linkText = text(link);
-    expect(linkText).toContain("2 failing");
-    expect(linkText.endsWith("Show them on Sites.")).toBe(true);
+    // The whole link text, whitespace collapsed: the hidden phrase keeps its leading space (F1).
+    expect(linkText).toBe("Certificate 15 of 18 · 2 failing · 1 not checked Show them on Sites.");
   });
 
   it("keeps the bar and its count inside the link, and the row keeps its intro index", () => {
