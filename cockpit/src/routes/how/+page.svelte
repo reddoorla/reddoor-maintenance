@@ -42,7 +42,7 @@
   /** Set in onMount when motion is allowed and the dot can run. Round 1 D3: the dot and Replay
    *  show only while the counts are readable, so they follow the data, not the mount. */
   let leadRunnable = $state(false);
-  const leadShown = $derived(leadControlsShown(leadRunnable, v.leads.allTime));
+  const leadShown = $derived(leadControlsShown(leadRunnable, v.leads));
   /** On screen only while a run is: a run sets it, a resize or unreadable counts clear it (D1, D2). */
   let dotOn = $state(false);
   let leadAnim: Animation | undefined;

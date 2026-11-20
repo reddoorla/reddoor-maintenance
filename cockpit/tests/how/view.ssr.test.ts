@@ -63,10 +63,17 @@ describe("PR 8c item 8: the steps light in order", () => {
  */
 describe("PR 8c item 9, round 1 D3: the dot and Replay follow the counts", () => {
   it("shows only when motion is allowed and the counts are readable", () => {
-    expect(leadControlsShown(true, { submissions: 1 })).toBe(true);
-    expect(leadControlsShown(true, null)).toBe(false);
-    expect(leadControlsShown(false, { submissions: 1 })).toBe(false);
-    expect(leadControlsShown(false, null)).toBe(false);
+    expect(leadControlsShown(true, { allTime: { submissions: 1 } })).toBe(true);
+    expect(leadControlsShown(true, { allTime: null })).toBe(false);
+    expect(leadControlsShown(false, { allTime: { submissions: 1 } })).toBe(false);
+    expect(leadControlsShown(false, { allTime: null })).toBe(false);
+  });
+
+  it("reads the counts from the leads object itself, so the page cannot pass the wrong field", () => {
+    // The page used to pass v.leads.allTime; the helper now reads allTime itself, so the leads
+    // object is what decides, and null counts hide the controls even when the object is present.
+    expect(leadControlsShown(true, { allTime: null })).toBe(false);
+    expect(leadControlsShown(true, { allTime: { submissions: 0 } })).toBe(true);
   });
 });
 

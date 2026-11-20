@@ -90,9 +90,14 @@ export function nextToLight(seen: readonly boolean[], lit: readonly boolean[]): 
 }
 
 /** PR 8c item 9, round 1 D3: the lead's dot and Replay show only when motion is allowed and the
- *  journey has readable counts to run over (allTime null: the counts could not be read). */
-export function leadControlsShown(motionAndRunnable: boolean, allTime: unknown): boolean {
-  return motionAndRunnable && allTime !== null;
+ *  journey has readable counts to run over (allTime null: the counts could not be read). Round 2
+ *  addendum C': the helper reads allTime from the leads object itself, so the page cannot pass
+ *  the wrong field. */
+export function leadControlsShown(
+  motionAndRunnable: boolean,
+  leads: { allTime: unknown },
+): boolean {
+  return motionAndRunnable && leads.allTime !== null;
 }
 
 /** PR 8c item 9, round 1 E: the lead's chapter counts as in view at 0.6 of its own height (the

@@ -367,5 +367,31 @@
     ],
     "test": "cockpit/tests/how/view.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "C-lead-controls-test-the-leads-object",
+    "why": "The helper reads the leads object itself, not allTime, so a readable-object-with-null-counts shows Replay over counts that could not be read",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "  return motionAndRunnable && leads.allTime !== null;",
+        "replace": "  return motionAndRunnable && leads !== null;"
+      }
+    ],
+    "test": "cockpit/tests/how/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "C-lead-controls-ignore-motion",
+    "why": "The helper ignores motionAndRunnable, so the dot and Replay show when motion is reduced",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "  return motionAndRunnable && leads.allTime !== null;",
+        "replace": "  return leads.allTime !== null;"
+      }
+    ],
+    "test": "cockpit/tests/how/view.ssr.test.ts",
+    "expect": "red"
   }
 ]
