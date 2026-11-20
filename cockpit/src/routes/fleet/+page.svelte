@@ -90,7 +90,7 @@
 {#if known !== null}
   <p class="check-filter">
     {failingLine(known)}{#if known.unread > 0}
-      · {known.unread} more could not be read{/if}
+      {" "}· {known.unread} more could not be read{/if}
     · <a href={allSitesHref(m)}>Show all sites</a>
   </p>
 {:else if unknownSlug !== null}

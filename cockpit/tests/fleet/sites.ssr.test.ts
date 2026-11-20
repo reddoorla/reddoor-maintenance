@@ -80,6 +80,13 @@ describe("Sites filtered to one health check (P1-87, PR 8b)", () => {
     expect(text(checkLine(doc)!)).toContain("1 more could not be read");
   });
 
+  it("reads the whole line with a space before each dot", async () => {
+    const doc = await page("/fleet?check=certificate");
+    expect(text(checkLine(doc)!)).toBe(
+      "Failing Certificate: 2 sites · 1 more could not be read · Show all sites",
+    );
+  });
+
   it("keeps the check in every sort link and in the status form's hidden input", async () => {
     const doc = await page("/fleet?check=certificate");
     const sortHrefs = doc
