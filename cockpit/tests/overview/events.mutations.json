@@ -271,5 +271,18 @@
     ],
     "test": ["tests/dashboard/snapshot-feed-events.test.ts"],
     "expect": "red"
+  },
+  {
+    "id": "9-22-only-updated-sync-pr-records",
+    "why": "Only an updated sync PR records an event, and an opened one does not: the update branch of the sync is the only one that builds the event (T2, the x17 survivor)",
+    "edits": [
+      {
+        "file": "src/cli/commands/prismic-sync.ts",
+        "find": "      outcome: pushed ? \"updated\" : \"unchanged\",",
+        "replace": "      outcome: pushed ? \"updated\" : \"unchanged\",\n      ...(pushed ? { event: prismicSyncOpenedEvent(site.name, repo, open.number, new Date().toISOString()) } : {}),"
+      }
+    ],
+    "test": ["tests/cli/prismic-sync.test.ts"],
+    "expect": "red"
   }
 ]

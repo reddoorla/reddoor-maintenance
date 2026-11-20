@@ -330,6 +330,8 @@ describe("prismic-sync --fleet", () => {
     expect(res.output).toMatch(/^updated\s+Fixture/m);
     expect(h.github.prs).toHaveLength(1);
     expect(h.github.prs[0]!.body).toContain("`slice hero`");
+    // P1-87 PR 9, review T2: an updated PR records nothing; only the night it opened did.
+    expect(h.events).toHaveLength(1);
     const second = (await branchHead())!;
     expect(second).not.toBe(first);
     await git(["merge-base", "--is-ancestor", first, second], origin);
