@@ -5065,6 +5065,20 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     expect(await chart(page).getAttribute("aria-valuenow"), "a hover is not a key choice").toBe(
       String(n),
     );
+    // Round 4 (M2): the key step ends the preview on every chart, not only the first. The same
+    // click, step, readout and cursor on chart 1, whose preview is its own (hoverSel[1]).
+    const titles1 = await titlesOf(page, 1);
+    const centreOn1 = (k: number) =>
+      nightRects(page, 1)
+        .nth(k)
+        .evaluate((r) => Number(r.getAttribute("x")) + Number(r.getAttribute("width")) / 2);
+    await nightRects(page, 1).nth(4).hover();
+    await nightRects(page, 1).nth(4).click();
+    expect(await readoutText(page, 1), "chart 1: the click shows its key night").toBe(titles1[4]);
+    await page.keyboard.press("ArrowRight");
+    expect(await readoutText(page, 1), "chart 1: a key step ends its preview").toBe(titles1[5]);
+    expect(Number(await cursorOf(page, 1).getAttribute("x1"))).toBeCloseTo(await centreOn1(5), 1);
+    expect(await chart(page, 1).getAttribute("aria-valuenow")).toBe("6");
   });
 
   it("a hover shows its night on screen, and the slider keeps the newest night while nothing is chosen by key (item 5, review round 1 D, round 2 G)", async () => {
