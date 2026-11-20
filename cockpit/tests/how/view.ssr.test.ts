@@ -4,6 +4,7 @@ import {
   STEP_LIGHT_MS,
   LEAD_DOT_MS,
   leadControlsShown,
+  chapterInView,
 } from "../../src/lib/how/view.js";
 import {
   LEVEL_NIGHTS,
@@ -66,6 +67,23 @@ describe("PR 8c item 9, round 1 D3: the dot and Replay follow the counts", () =>
     expect(leadControlsShown(true, null)).toBe(false);
     expect(leadControlsShown(false, { submissions: 1 })).toBe(false);
     expect(leadControlsShown(false, null)).toBe(false);
+  });
+});
+
+describe("PR 8c item 9, round 1 E: the chapter counts as in view on a short screen", () => {
+  it("at 0.6 of its own height, as before", () => {
+    expect(chapterInView(0.6, 188.4, 314, 700)).toBe(true);
+    expect(chapterInView(0.59, 185, 314, 700)).toBe(false);
+  });
+
+  it("at 0.6 of the viewport when the chapter is taller than it (844x390: 662px tall)", () => {
+    expect(chapterInView(234 / 662, 234, 662, 390)).toBe(true);
+    expect(chapterInView(233 / 662, 233, 662, 390)).toBe(false);
+  });
+
+  it("a tall chapter at 390x700 (716px) needs 420px showing, not the whole screen", () => {
+    expect(chapterInView(420 / 716, 420, 716, 700)).toBe(true);
+    expect(chapterInView(419 / 716, 419, 716, 700)).toBe(false);
   });
 });
 

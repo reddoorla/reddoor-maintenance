@@ -6,6 +6,7 @@
     leadControlsShown,
     nextToLight,
     STEP_LIGHT_MS,
+    chapterInView,
     type Tier,
   } from "../../lib/how/view.js";
   import { HOW_WE_COUNT, NOT_YET, UNREADABLE } from "../../lib/overview/view.js";
@@ -215,12 +216,24 @@
     if (canRun) {
       // The run starts once the chapter is at least 0.6 in view, and only once. A run that
       // Replay starts first disconnects this, since it has nothing left to start.
+      // Round 1 E: the thresholds are every 0.05, so a chapter taller than the viewport still
+      // reports the visible height that chapterInView tests.
       revealObs = new IntersectionObserver(
         (entries) => {
-          if (!leadStarted && entries.some((e) => e.isIntersecting && e.intersectionRatio >= 0.6))
+          if (
+            !leadStarted &&
+            entries.some((e) =>
+              chapterInView(
+                e.intersectionRatio,
+                e.intersectionRect.height,
+                e.boundingClientRect.height,
+                window.innerHeight,
+              ),
+            )
+          )
             runLead();
         },
-        { threshold: 0.6 },
+        { threshold: Array.from({ length: 21 }, (_, i) => i / 20) },
       );
       revealObs.observe(leadEl!);
       replayEl!.addEventListener("click", runLead);

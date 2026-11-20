@@ -5680,6 +5680,27 @@ describe("PR 8c, How this works motion", () => {
     ).toBe(true);
   });
 
+  it("round 1 E: on a short screen (844x390) the dot runs once the chapter fills the view", async () => {
+    // Measured round 1: the chapter is 662px tall at 844x390, so 0.6 of it (397px) never fits in
+    // a 390px viewport and the old 0.6 test never passes. At 390x700 (716px of 1167px allowed)
+    // and 1280x700 (314px) the old test is reached, and the new one must not change them.
+    const page = await signedIn();
+    await page.setViewportSize({ width: 844, height: 390 });
+    await page.goto(`${origin}/how`);
+    await leadScripted(page);
+    await scrollToLead(page);
+    const m = await page.locator("section.how-lead").evaluate((el) => ({
+      sectionPx: Math.round(el.getBoundingClientRect().height),
+      innerHeight: window.innerHeight,
+    }));
+    await expect
+      .poll(async () => (await dotAnimations(page)).length, {
+        timeout: 4_000,
+        message: `the dot starts once the chapter fills the view: ${JSON.stringify(m)}`,
+      })
+      .toBe(1);
+  });
+
   it("Replay restarts the run from the form", async () => {
     const page = await signedIn();
     await page.setViewportSize({ width: 1280, height: 700 });

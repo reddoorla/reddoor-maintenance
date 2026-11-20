@@ -315,5 +315,18 @@
     ],
     "test": "cockpit/tests/how/view.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "E-viewport-rule-dropped",
+    "why": "The lead starts only at 0.6 of its own height, so a chapter taller than the viewport at 844x390 never starts",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "  return ratio >= 0.6 || visiblePx >= 0.6 * Math.min(sectionPx, viewportPx);",
+        "replace": "  return ratio >= 0.6;"
+      }
+    ],
+    "test": "cockpit/tests/how/view.ssr.test.ts",
+    "expect": "red"
   }
 ]

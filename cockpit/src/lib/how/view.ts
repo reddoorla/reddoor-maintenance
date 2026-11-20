@@ -95,6 +95,18 @@ export function leadControlsShown(motionAndRunnable: boolean, allTime: unknown):
   return motionAndRunnable && allTime !== null;
 }
 
+/** PR 8c item 9, round 1 E: the lead's chapter counts as in view at 0.6 of its own height (the
+ *  rule since item 9), or when 0.6 of the viewport's height is showing, which a chapter taller
+ *  than the viewport can reach (662px at 844x390, where 0.6 of its height never fits). */
+export function chapterInView(
+  ratio: number,
+  visiblePx: number,
+  sectionPx: number,
+  viewportPx: number,
+): boolean {
+  return ratio >= 0.6 || visiblePx >= 0.6 * Math.min(sectionPx, viewportPx);
+}
+
 /** The ladder's four lines ("Broken: a visitor…"), split into name and text, mildest
  *  first. Throws if a line goes missing, so the chapter never shows three levels. */
 export function ladder(): Array<Pick<LadderLevel, "tier" | "name" | "text">> {
