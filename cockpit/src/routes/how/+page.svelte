@@ -82,6 +82,11 @@
             const i = items.indexOf(e.target as HTMLElement);
             if (i !== -1 && e.isIntersecting && e.intersectionRatio >= 0.6) seen[i] = true;
           }
+          // A step the visitor has scrolled past counts as seen, even one that never
+          // intersected (a jump): the same test as at mount.
+          items.forEach((el, i) => {
+            if (el.getBoundingClientRect().top < window.innerHeight) seen[i] = true;
+          });
           if (timer === undefined) light();
         },
         { threshold: 0.6 },
