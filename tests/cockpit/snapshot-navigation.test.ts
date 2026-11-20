@@ -5924,11 +5924,6 @@ describe("PR 8c, How this works motion", () => {
     await levelButton(page, tier!).click();
     await levelPanel(page, tier!).waitFor({ state: "visible" });
     const site = page.locator(`#how-level-${tier} .how-level-sites > li`).first();
-    await page.screenshot({
-      path:
-        process.env.F_SHOT ??
-        "/tmp/claude-0/-home-user-reddoor-workspace/fe5affeb-9455-53c6-9bee-28c773ee41d0/scratchpad/F-panel.png",
-    });
     const m = await site.evaluate((li) => {
       const name = li.querySelector(".how-level-site")!.getBoundingClientRect();
       const r = li.getBoundingClientRect();

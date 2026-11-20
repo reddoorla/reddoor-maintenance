@@ -227,7 +227,7 @@
   },
   {
     "id": "10-10-ok-site-named-with-no-reason",
-    "why": "An OK site is named without its every-check-passing line",
+    "why": "An OK site is named without its no-open-items line",
     "edits": [
       {
         "file": "cockpit/src/lib/how/view.ts",
