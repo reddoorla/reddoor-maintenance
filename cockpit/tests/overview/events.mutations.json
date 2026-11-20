@@ -141,5 +141,70 @@
     ],
     "test": ["tests/cli/prismic-sync-events.test.ts", "tests/cli/prismic-sync.test.ts"],
     "expect": "red"
+  },
+  {
+    "id": "9-12-window-compares-wrong-way",
+    "why": "The window's upper bound is flipped, so a merge after the deploy hides it and one before does not",
+    "edits": [
+      {
+        "file": "src/dashboard/snapshot-views.ts",
+        "find": "return t >= at - DEPLOY_AFTER_MERGE_MS && t <= at;",
+        "replace": "return t >= at - DEPLOY_AFTER_MERGE_MS && t >= at;"
+      }
+    ],
+    "test": ["tests/dashboard/deploys-to-show.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "9-13-site-match-dropped",
+    "why": "The same-site check is dropped, so any site's merge hides the deploy",
+    "edits": [
+      {
+        "file": "src/dashboard/snapshot-views.ts",
+        "find": "if (m.siteId !== d.siteId) return false;",
+        "replace": "if (false) return false;"
+      }
+    ],
+    "test": ["tests/dashboard/deploys-to-show.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "9-14-lately-keeps-site-deployed",
+    "why": "LATELY_EXCLUDED_TYPES loses site_deployed, so the deploys are read twice into the feed",
+    "edits": [
+      {
+        "file": "src/dashboard/snapshot.ts",
+        "find": "[\"fleet_swept\", \"site_deployed\"]",
+        "replace": "[\"fleet_swept\"]"
+      }
+    ],
+    "test": ["tests/dashboard/snapshot-feed-events.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "9-15-deploy-window-zero",
+    "why": "DEPLOY_AFTER_MERGE_MS is 0, so only a merge at the same instant hides a deploy",
+    "edits": [
+      {
+        "file": "src/dashboard/snapshot-views.ts",
+        "find": "export const DEPLOY_AFTER_MERGE_MS = 3_600_000;",
+        "replace": "export const DEPLOY_AFTER_MERGE_MS = 0;"
+      }
+    ],
+    "test": ["tests/dashboard/deploys-to-show.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "9-16-view-leaves-out-feed-deploys",
+    "why": "The overview's feed ignores feedDeploys, so no deploy line is shown",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "[...(s.feedEvents ?? []), ...(s.feedDeploys ?? [])]",
+        "replace": "[...(s.feedEvents ?? [])]"
+      }
+    ],
+    "test": ["cockpit/tests/overview/view.ssr.test.ts"],
+    "expect": "red"
   }
 ]
