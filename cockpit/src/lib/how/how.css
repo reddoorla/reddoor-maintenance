@@ -98,7 +98,8 @@ body {
    colour (OK's bar is faint on purpose: the level is told by its word). */
 .how-ladder {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  /* Round 2 D: minmax(0, 1fr), so a long unbroken word in a card cannot widen its track. */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-2);
   padding: 0;
   margin: 0 0 var(--space-4);
@@ -189,6 +190,8 @@ body {
 }
 .how-level-site {
   font-weight: var(--weight-bold);
+  /* Round 2 D: a long unbroken name wraps at the card's edge, not past it (WCAG 1.4.10). */
+  overflow-wrap: anywhere;
 }
 @media (prefers-reduced-motion: no-preference) {
   .how-level-panel:not([hidden]) {
@@ -205,12 +208,12 @@ body {
 }
 @media (min-width: 60rem) {
   .how-ladder {
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 @media (max-width: 30rem) {
   .how-ladder {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

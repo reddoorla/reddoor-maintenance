@@ -5945,6 +5945,51 @@ describe("PR 8c, How this works motion", () => {
     expect(m.sameLine, `the name and its reason share a line: ${JSON.stringify(m)}`).toBe(true);
   });
 
+  // Round 2 D: the seeded Broken site's name is one unbroken 52-letter word (LONG_NAME).
+  const openEveryLevel = async (page: Page) => {
+    await ladderScripted(page);
+    for (const tier of ["ok", "watch", "attention", "broken"]) {
+      await levelButton(page, tier).click();
+      await levelPanel(page, tier).waitFor({ state: "visible" });
+    }
+  };
+
+  it("round 2 D: at 390 with every level open, a long unbroken site name wraps and the page does not scroll sideways (WCAG 1.4.10)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 390, height: 800 });
+    await page.goto(`${origin}/how`);
+    await openEveryLevel(page);
+    const m = await page.evaluate(() => ({
+      innerWidth: window.innerWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      cardRights: Array.from(document.querySelectorAll(".how-ladder > li")).map((li) =>
+        Math.round(li.getBoundingClientRect().right),
+      ),
+    }));
+    expect(m.scrollWidth, `no sideways scroll: ${JSON.stringify(m)}`).toBeLessThanOrEqual(
+      m.innerWidth,
+    );
+    m.cardRights.forEach((right, i) =>
+      expect(right, `card ${i} is within the viewport: ${JSON.stringify(m)}`).toBeLessThanOrEqual(
+        m.innerWidth,
+      ),
+    );
+  });
+
+  it("round 2 D: at 1280 with every level open, the four cards are equal width", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await openEveryLevel(page);
+    const widths = await page
+      .locator(".how-ladder > li")
+      .evaluateAll((lis) => lis.map((li) => li.getBoundingClientRect().width));
+    expect(widths).toHaveLength(4);
+    expect(Math.max(...widths) - Math.min(...widths), `card widths ${widths}`).toBeLessThanOrEqual(
+      1,
+    );
+  });
+
   it("round 1 G: under forced colours the dot is drawn with a border, so it can be seen", async () => {
     const page = await signedIn("op", { forcedColors: "active" });
     await page.setViewportSize({ width: 1280, height: 700 });
