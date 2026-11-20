@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { readFileSync } from "node:fs";
 import { createRawSnippet } from "svelte";
 import { render } from "svelte/server";
 import { parse, TextNode, type HTMLElement, type Node } from "node-html-parser";
@@ -206,7 +207,8 @@ describe("five chapters, each with its diagram", () => {
   });
 
   it("chapter 2 shows the ladder's four levels, mildest first, in the overview's words", () => {
-    const levels = DOC.querySelectorAll(".how-ladder li");
+    // The four levels are the list's own items: each level's sites are a nested list (item 10).
+    const levels = DOC.querySelectorAll(".how-ladder > li");
     expect(levels.map((l) => l.getAttribute("class"))).toEqual([
       "ok",
       "watch",
@@ -751,5 +753,121 @@ describe("How we count's Lately entry (P1-87 PR 4, review round 3 D)", () => {
     expect(terms).toContain("Lately");
     expect(text(entry)).toContain("naming up to two steps that did not run to the end");
     expect(text(entry)).toContain("from six Pacific calendar days back carries its date");
+  });
+});
+
+describe("PR 8c item 8: the night fills in as you scroll (server render)", () => {
+  it("the server renders every step lit, so no script and no reduced motion show the end state", () => {
+    const steps = DOC.querySelectorAll(".how-steps li");
+    expect(steps.length).toBe(NIGHTLY_STEPS.length);
+    expect(steps.map((li) => li.getAttribute("data-lit"))).toEqual(NIGHTLY_STEPS.map(() => "true"));
+  });
+
+  it("the server render carries no script marker, so the browser tests wait for the script", () => {
+    expect(DOC.querySelector('[data-js="true"]')).toBeNull();
+  });
+
+  it("every step's result is in the DOM, whatever its light", () => {
+    const steps = DOC.querySelectorAll(".how-steps li");
+    expect(steps.every((li) => text(li.querySelector(".how-step-last")!).length > 0)).toBe(true);
+  });
+});
+
+describe("PR 8c item 9: a lead's journey (server render)", () => {
+  const LEAD = () => DOC.querySelector("section:has(#how-lead)")!;
+
+  it("the dot is aria-hidden, carries no text, and is hidden in the server render", () => {
+    const dot = LEAD().querySelector(".how-dot")!;
+    expect(dot, "the dot exists").not.toBeNull();
+    expect(dot.getAttribute("aria-hidden")).toBe("true");
+    expect(text(dot)).toBe("");
+    expect(dot.hasAttribute("hidden")).toBe(true);
+  });
+
+  it("Replay is a type=button hidden in the server render, so no script shows no Replay", () => {
+    const replay = LEAD().querySelector("button.how-replay")!;
+    expect(replay, "the Replay button exists").not.toBeNull();
+    expect(replay.getAttribute("type")).toBe("button");
+    // Round 1 fold: the visible word; the accessible name says what it replays (aria-label).
+    expect(text(replay)).toBe("Replay");
+    expect(replay.getAttribute("aria-label")).toBe("Replay the lead's journey");
+    expect(replay.hasAttribute("hidden")).toBe(true);
+  });
+
+  it("the branch is a disclosure button, open in the server render, naming the branch", () => {
+    const toggle = LEAD().querySelector("button.how-branch-toggle")!;
+    expect(toggle, "the branch toggle exists").not.toBeNull();
+    expect(toggle.getAttribute("type")).toBe("button");
+    expect(text(toggle)).toBe("If an email to the client fails");
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("the branch's button controls a region that holds the existing sentence, word for word", () => {
+    const toggle = LEAD().querySelector("button.how-branch-toggle")!;
+    const id = toggle.getAttribute("aria-controls");
+    expect(id, "aria-controls names an id").toBeTruthy();
+    const region = DOC.querySelector(`#${id}`)!;
+    expect(region, "the controlled region exists").not.toBeNull();
+    expect(region.hasAttribute("hidden")).toBe(false);
+    expect(text(region)).toBe(
+      "If an email to the client fails, the lead is still kept in our own inbox, and repeated bounces raise an alarm for us.",
+    );
+  });
+
+  it("the aria-expanded of the branch agrees with whether its region is open", () => {
+    const toggle = LEAD().querySelector("button.how-branch-toggle")!;
+    const region = DOC.querySelector(`#${toggle.getAttribute("aria-controls")}`)!;
+    expect(toggle.getAttribute("aria-expanded") === "true").toBe(!region.hasAttribute("hidden"));
+  });
+
+  it("the lead flow's server render is not marked as scripted, so the browser tests wait for the script", () => {
+    expect(LEAD().querySelector('[data-js="true"]')).toBeNull();
+  });
+});
+
+describe("PR 8c item 10: the ladder's levels open", () => {
+  it("each level's name is a disclosure button that controls its panel", () => {
+    const buttons = DOC.querySelectorAll(".how-ladder li button");
+    expect(buttons).toHaveLength(4);
+    for (const b of buttons) {
+      expect(b.getAttribute("type")).toBe("button");
+      const panel = DOC.getElementById(b.getAttribute("aria-controls") ?? "");
+      expect(panel).not.toBeNull();
+    }
+  });
+
+  it("without script every panel is open, so no visitor loses its sites or the nights line", () => {
+    expect(DOC.querySelectorAll(".how-ladder li button")).toHaveLength(4);
+    for (const b of DOC.querySelectorAll(".how-ladder li button")) {
+      expect(b.getAttribute("aria-expanded")).toBe("true");
+      const panel = DOC.getElementById(b.getAttribute("aria-controls")!)!;
+      expect(panel.hasAttribute("hidden")).toBe(false);
+    }
+  });
+
+  it("the OK level names its sites as no open items; a level with none says so", () => {
+    const panelOf = (tier: string) =>
+      DOC.getElementById(
+        DOC.querySelector(`.how-ladder li.${tier} button`)!.getAttribute("aria-controls")!,
+      )!;
+    const ok = text(panelOf("ok"));
+    expect(ok).toContain("Acme");
+    expect(ok).toContain("no open items");
+    expect(ok).not.toContain("every check passing");
+    expect(text(panelOf("broken"))).toContain("None today");
+    expect(text(panelOf("broken"))).toMatch(/[Nn]ights/);
+  });
+});
+
+describe("PR 8c round 1 G: the dot under forced colours", () => {
+  it("how.css draws the dot with a border under forced-colors: active, and no colour keyword", () => {
+    const css = readFileSync(
+      new URL("../../src/lib/how/how.css", import.meta.url).pathname,
+      "utf8",
+    );
+    const forced = css.match(/@media \(forced-colors: active\)\s*\{\s*\.how-dot\s*\{([^}]*)\}/);
+    expect(forced, "a forced-colours rule for .how-dot").not.toBeNull();
+    expect(forced![1]).toMatch(/border:\s*0\.375rem solid\s*;/);
+    expect(forced![1]).not.toMatch(/#|rgb|canvas|buttontext|currentcolor/i);
   });
 });
