@@ -16,7 +16,14 @@ import { openDb } from "../../src/db/client.js";
 import { recordFleetEvent } from "../../src/db/fleet-events.js";
 import { NIGHTLIES } from "../../scripts/nightly-conductor.mjs";
 import { seededNights } from "../_helpers/bar-nights.js";
-import { expectedNight } from "../../cockpit/src/lib/overview/view.js";
+import { expectedNight, HEALTH_CHECK_NAMES } from "../../cockpit/src/lib/overview/view.js";
+import {
+  BAR_MS,
+  BAR_STAGGER_MS,
+  INTRO_MS,
+  MAX_MOTION_MS,
+  SPARK_MS,
+} from "../../cockpit/src/lib/overview/motion.js";
 import { trafficWindows } from "../../src/fleet-daily/traffic.js";
 
 /**
@@ -488,6 +495,15 @@ async function follow(page: Page, href: string, heading: string): Promise<void> 
     .toContain(heading);
 }
 
+/** P1-87 PR 8a, item 4: a measured figure's text is the count's until it has counted up (its digits
+ *  sit over the model's string meanwhile), so a test that reads a figure waits for every one to finish. */
+const figuresSettled = (page: Page) =>
+  expect
+    .poll(() => page.locator(".ov-num[data-countable]:not([data-counted])").count(), {
+      timeout: 10_000,
+    })
+    .toBe(0);
+
 /** The text of every page stylesheet in the head, in order. */
 function pageSheets(page: Page): Promise<string[]> {
   return page.$$eval("style[data-page-style]", (els) => els.map((e) => e.textContent ?? ""));
@@ -861,6 +877,7 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       await page.setViewportSize({ width, height: 844 });
       await page.goto(`${origin}/`);
       await expect.poll(() => page.locator(".ov-tile").count()).toBe(8);
+      await figuresSettled(page);
       const fit = await page.evaluate(() => {
         const num = [...document.querySelectorAll(".ov-num")].find(
           (e) => e.textContent?.trim() === "12,345,678",
@@ -1057,6 +1074,7 @@ describe("cockpit navigation, in a browser, against the built app", () => {
           }
           await page.goto(`${origin}/`);
           await expect.poll(() => page.locator(".ov-tile").count()).toBe(8);
+          await figuresSettled(page);
           return page;
         };
         // The sideways-scroll check is kept to the three cases the round-2 test checked: at
@@ -1610,6 +1628,7 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       // first tick, or one load can be read between hydration and the tick (P1-87 PR 5a:
       // CI at 9b296709 read erik after the tick and tim before it).
       await expect.poll(() => page.locator(".ov-cycle-until").count()).toBe(1);
+      await figuresSettled(page);
       const html = await page.evaluate(() =>
         [...document.querySelectorAll("h1, section")].map((e) => e.outerHTML).join("\n"),
       );
@@ -1998,12 +2017,18 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
    *  the row, so a count alone can pass before the script attaches its listeners, and a slow runner
    *  then acts on a page that cannot respond (0 listeners counted, a drag that never starts). The
    *  script sets data-js in the same effect that attaches every listener, and the attribute reaches
-   *  the DOM only after that effect has run, on each mount, to its end. */
+   *  the DOM only after that effect has run, on each mount, to its end.
+   *  P1-87 PR 8a: then the overview's count-up has finished. It rewrites the figures every frame for
+   *  900 ms, and each layout lets Chromium re-hover a stale pointer position: after a drag dropped
+   *  outside the window, that stale pointerover (#2134, pre-existing) landed inside it far more often
+   *  while the figures counted (the drag-out and pen tests failed at 1x; with a settled page they pass).
+   *  These tests are about the ticker, not the intro, so they act on a settled page. */
   const tickerReady = async (page: Page, items = 2) => {
     await expect
       .poll(() => page.locator(".ov-ticker-list:not(.copy) > li").count())
       .toBeGreaterThanOrEqual(items);
     await page.locator('.ov-ticker-window[data-js="true"]').waitFor({ state: "attached" });
+    await figuresSettled(page);
   };
 
   /** #2152 round 1: a looping test closes the previous run's pages before opening the next, so one
@@ -4258,6 +4283,1124 @@ describe("the site ticker, in a browser (P1-87 PR 5b)", () => {
         }),
         `link 1 is in the window once the row is still at ${width}px`,
       ).toBe(true);
+    }
+  });
+});
+
+describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
+  /** The page's script has run: it sets this marker in onMount, on the element the intro reads. */
+  const motionReady = async (page: Page) => {
+    await page.locator('.ov-first[data-motion-ready="true"]').waitFor({ state: "attached" });
+  };
+  /** Every bar's row: its name, its inline style, and the timing of its fill and unknown spans. */
+  const barRows = (page: Page) =>
+    page.locator(".ov-checks-list > li.ov-check").evaluateAll((lis) =>
+      lis.map((li) => {
+        const timing = (el: Element | null) =>
+          el
+            ? el.getAnimations().map((a) => ({
+                name: (a as CSSAnimation).animationName,
+                // calc() is float arithmetic in the browser (680 ms reads as 679.9999999999999).
+                delay: Math.round(Number(a.effect!.getTiming().delay)),
+                duration: Number(a.effect!.getTiming().duration),
+              }))
+            : null;
+        return {
+          name: li.querySelector(".ov-check-name")!.textContent!.trim(),
+          fill: timing(li.querySelector(".ov-check-fill")),
+          unknown: timing(li.querySelector(".ov-check-unknown")),
+        };
+      }),
+    );
+  /** Each bar's rendered fill against the model's share of the bar, read from the row's own count
+   *  (the pass count, and the "of N" the page keeps for assistive tech). */
+  const barShares = (page: Page) =>
+    page.locator(".ov-checks-list > li.ov-check").evaluateAll((lis) =>
+      lis.map((li) => {
+        const bar = li.querySelector(".ov-check-bar")!.getBoundingClientRect().width;
+        const count = li.querySelector(".ov-check-count")!;
+        const pass = Number(count.textContent!.trim().split(/\s/)[0]);
+        const total = Number(
+          count.querySelector(".visually-hidden")!.textContent!.replace(/\D/g, ""),
+        );
+        const fill = li.querySelector(".ov-check-fill")?.getBoundingClientRect().width ?? 0;
+        return { fill, expected: (bar * pass) / total, bar };
+      }),
+    );
+  const barAnimations = (page: Page) =>
+    page.evaluate(
+      () => document.querySelector(".ov-checks-list")!.getAnimations({ subtree: true }).length,
+    );
+
+  it("fills each bar in check order: ov-bar-fill, 80 ms apart, for 600 ms (item 3)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const rows = await barRows(page);
+    expect(rows.map((r) => r.name)).toEqual([...HEALTH_CHECK_NAMES]);
+    const filled = rows.filter((r) => r.fill !== null);
+    expect(filled.length, "the seeded sites give more than one bar a fill").toBeGreaterThan(1);
+    // P1-87 PR 8a, review round 1 (n1): the unknown segments' order is pinned only if one exists.
+    expect(
+      rows.filter((r) => r.unknown !== null).length,
+      "the seeded sites give an unknown segment",
+    ).toBeGreaterThan(0);
+    rows.forEach((r, i) => {
+      if (r.fill !== null) {
+        expect(r.fill, `${r.name}'s fill`).toHaveLength(1);
+        expect(r.fill![0]).toMatchObject({
+          name: "ov-bar-fill",
+          delay: i * BAR_STAGGER_MS,
+          duration: BAR_MS,
+        });
+      }
+      if (r.unknown !== null) {
+        expect(r.unknown, `${r.name}'s unknown`).toHaveLength(1);
+        expect(r.unknown![0]).toMatchObject({
+          name: "ov-bar-fill",
+          delay: i * BAR_STAGGER_MS + BAR_MS,
+          duration: BAR_MS,
+        });
+      }
+    });
+  });
+
+  it("ends each fill at its model's share of the bar (item 3)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    await page.evaluate(() =>
+      Promise.all(
+        document
+          .querySelector(".ov-checks-list")!
+          .getAnimations({ subtree: true })
+          .map((a) => a.finished),
+      ),
+    );
+    for (const s of await barShares(page)) {
+      if (s.fill === 0) continue;
+      expect(
+        Math.abs(s.fill - s.expected),
+        `a fill is ${s.fill}px, its share ${s.expected}px`,
+      ).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("under reduced motion no bar animates, and every fill is at its share at once (item 3)", async () => {
+    const page = await signedIn("op", { reducedMotion: "reduce" });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    expect(await barAnimations(page)).toBe(0);
+    for (const s of await barShares(page)) {
+      if (s.fill === 0) continue;
+      expect(Math.abs(s.fill - s.expected)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("a client return to / plays no bar animation (item 3)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    await follow(page, "/fleet", "Sites");
+    await follow(page, "/", "Overview");
+    await motionReady(page);
+    expect(await page.locator(".ov-checks-list").getAttribute("data-intro")).toBeNull();
+    expect(await barAnimations(page)).toBe(0);
+  });
+
+  // P1-87 PR 8a, review round 1 (F2): a refresh that inserts a fill does not replay the intro on it.
+  // The refresh is the page's own: the Contact form's second site passes in the DB, and the page's
+  // clock moves on so its cycle clock re-reads (as the feed test does). The site is put back after.
+  const contactFills = (page: Page) =>
+    page
+      .locator(".ov-check", { hasText: "Contact form" })
+      .locator(".ov-check-fill")
+      .evaluateAll((els) =>
+        els.map((el) => el.getAnimations().map((a) => (a as CSSAnimation).animationName)),
+      );
+  const setContactForm = async (value: "pass" | null) => {
+    const db = await openDb({ url: dbUrl });
+    try {
+      await db
+        .updateTable("site_health")
+        .set({ form_e2e_ok: value, form_e2e_checked_at: new Date().toISOString() } as never)
+        .where("site_id", "=", "recB")
+        .execute();
+    } finally {
+      await db.destroy();
+    }
+  };
+  it("a refresh that adds a fill plays no intro on it (item 3, review round 1 F2)", async () => {
+    const page = await signedIn();
+    await page.clock.install();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    // Past the intro's end, so the refresh is not a first load.
+    await page.waitForTimeout(INTRO_MS + 500);
+    expect(await contactFills(page)).toEqual([]);
+    try {
+      await setContactForm("pass");
+      const now = await page.evaluate(() => Date.now());
+      await page.clock.setSystemTime(now + 25 * 3_600_000);
+      await page.clock.runFor(60_000);
+      await expect.poll(() => contactFills(page), { timeout: 10_000 }).toHaveLength(1);
+      expect(await contactFills(page), "the new fill runs no animation").toEqual([[]]);
+      expect(await page.locator(".ov-checks-list").getAttribute("data-intro")).toBeNull();
+    } finally {
+      await setContactForm(null);
+    }
+  });
+
+  // P1-87 PR 8a, review round 1 (F3, T1): the fail-safe and the count never show at once. A frame
+  // sampler, installed before the page's script, records each frame's time, whether the first
+  // countable figure's final number is visible, and what its count span shows.
+  const sampleFigure = (page: Page) =>
+    page.addInitScript(() => {
+      const w = window as unknown as {
+        __figure: { t: number; visible: boolean; count: string; start: number | null }[];
+      };
+      w.__figure = [];
+      const frame = () => {
+        const p = document.querySelector<HTMLElement>(".ov-num[data-countable]");
+        if (p) {
+          const fin = p.querySelector<HTMLElement>(".ov-num-final");
+          const count = p.querySelector<HTMLElement>(".ov-num-count");
+          // The fail-safe's own start: the 2 s runs from when the page first styles, which is
+          // after navigation start (about 0.5 s here), so the window is read from this start.
+          const fail = fin
+            ?.getAnimations()
+            .find((a) => (a as CSSAnimation).animationName === "ov-failsafe");
+          w.__figure.push({
+            t: performance.now(),
+            visible: fin ? getComputedStyle(fin).visibility === "visible" : false,
+            count: count?.textContent ?? "",
+            start: typeof fail?.startTime === "number" ? fail.startTime : null,
+          });
+        }
+        requestAnimationFrame(frame);
+      };
+      requestAnimationFrame(frame);
+    });
+  const figureFrames = (page: Page) =>
+    page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            __figure: { t: number; visible: boolean; count: string; start: number | null }[];
+          }
+        ).__figure,
+    );
+  /** The last sampled frame shows the final number: polled, since a sample can predate the style update. */
+  const endsVisible = (page: Page) =>
+    expect
+      .poll(async () => (await figureFrames(page)).at(-1)?.visible ?? false, { timeout: 5_000 })
+      .toBe(true);
+  it("with the script blocked, a countable figure shows at the fail-safe, not before (item 4, review round 1 C)", async () => {
+    const page = await signedIn();
+    await sampleFigure(page);
+    await page.route("**/_app/**", (route) => route.abort());
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await page.waitForFunction(() => performance.now() > 2500);
+    const frames = await figureFrames(page);
+    const timed = frames.filter((f) => f.start !== null);
+    expect(timed.length, "the fail-safe runs").toBeGreaterThan(0);
+    const at = (f: { t: number; start: number | null }) => f.t - f.start!;
+    const before = timed.filter((f) => at(f) < 1800);
+    expect(before.length, "frames sampled in the first 1.8 s of the fail-safe").toBeGreaterThan(0);
+    expect(
+      before.some((f) => f.visible),
+      "the figure is hidden before 1.8 s",
+    ).toBe(false);
+    expect(
+      timed.some((f) => at(f) <= 2300 && f.visible),
+      "the figure is visible by 2.3 s of the fail-safe",
+    ).toBe(true);
+    expect(
+      frames.every((f) => f.count === ""),
+      "nothing counts without the script",
+    ).toBe(true);
+  });
+
+  // Round 2 (r2): the bundle is held 2.5 s, not 1.5 s, so a count that began just after the fail-safe
+  // (style at about 0.46 s, plus the hold) cannot pass for one the test should have seen.
+  it("with the script delayed 2.5 s, the figure never shows with a count, and it ends visible (item 4, review round 1 C)", async () => {
+    const page = await signedIn();
+    await sampleFigure(page);
+    await page.route("**/_app/**", async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 2500));
+      await route.continue();
+    });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await page.waitForFunction(() => performance.now() > 4500);
+    const frames = await figureFrames(page);
+    expect(frames.length).toBeGreaterThan(0);
+    expect(
+      frames.some((f) => f.visible && f.count !== ""),
+      "no frame shows the final number and a count at once",
+    ).toBe(false);
+    expect(
+      frames.every((f) => f.count === ""),
+      "no count runs after the fail-safe",
+    ).toBe(true);
+    await endsVisible(page);
+  });
+
+  it("the fail-safe never reveals the final number over a running count (item 4, review round 1 C)", async () => {
+    const page = await signedIn();
+    await sampleFigure(page);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    // Wait for the first countable figure's count to be running (data-counting, digits in it).
+    await page.waitForFunction(() => {
+      const p = document.querySelector<HTMLElement>(".ov-num[data-countable]");
+      return (
+        p?.hasAttribute("data-counting") &&
+        (p.querySelector(".ov-num-count")?.textContent ?? "") !== ""
+      );
+    });
+    // The fail-safe fires now: finish its animation where it is, if the page still has one. A page
+    // with the selector guard has none while the figure counts, so nothing changes there.
+    await page.evaluate(() => {
+      const f = document.querySelector<HTMLElement>(".ov-num[data-countable] .ov-num-final");
+      for (const a of f?.getAnimations() ?? [])
+        if ((a as CSSAnimation).animationName === "ov-failsafe") a.finish();
+    });
+    await figuresSettled(page);
+    const frames = await figureFrames(page);
+    expect(
+      frames.some((f) => f.visible && f.count !== ""),
+      "no frame shows the final number over a count",
+    ).toBe(false);
+    await endsVisible(page);
+  });
+
+  it("at 1x a normal load hides the figure from its first frame, and the count runs (item 4, review round 1 C)", async () => {
+    const page = await signedIn();
+    await sampleFigure(page);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    await figuresSettled(page);
+    const frames = await figureFrames(page);
+    expect(frames.length).toBeGreaterThan(0);
+    expect(frames[0]!.visible, "the first frame hides the final number").toBe(false);
+    expect(
+      frames.some((f) => f.count !== ""),
+      "the count runs",
+    ).toBe(true);
+    await endsVisible(page);
+  });
+
+  it("with no script, the fills reach their shares (item 3)", async () => {
+    const page = await signedIn("op", { javaScriptEnabled: false });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    // The model's share of each filled bar, as the server wrote it (the inline width).
+    const shares = [
+      ...(await page.content()).matchAll(/class="ov-check-fill" style="width: ([\d.]+)%"/g),
+    ].map((m) => Number(m[1]));
+    expect(shares.length, "the seeded sites give more than one bar a fill").toBeGreaterThan(1);
+    // The bars are CSS only and run without script: wait past the last fill's end (1.1 s for seven
+    // bars), then read the rendered widths.
+    await page.waitForTimeout(MAX_MOTION_MS / 2);
+    const fills = await page.locator(".ov-check-fill").evaluateAll((els) =>
+      els.map((el) => {
+        const bar = el.parentElement!.getBoundingClientRect().width;
+        return { rendered: el.getBoundingClientRect().width, bar };
+      }),
+    );
+    expect(fills.length).toBe(shares.length);
+    fills.forEach((f, i) =>
+      expect(Math.abs(f.rendered - (f.bar * shares[i]!) / 100), `fill ${i}`).toBeLessThanOrEqual(1),
+    );
+  });
+
+  it("every animation on the overview ends by MAX_MOTION_MS, except the ticker's (item 3)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    // Pre-8a animations on this page: the ticker's row only (.ov-ticker-run), which loops by design.
+    const ends = await page.evaluate(() =>
+      document
+        .getAnimations()
+        .filter(
+          (a) =>
+            !((a.effect as KeyframeEffect | null)?.target as Element | null)?.matches?.(
+              ".ov-ticker-run",
+            ),
+        )
+        .map((a) => ({
+          name: (a as CSSAnimation).animationName ?? "",
+          end: a.effect!.getComputedTiming().endTime as number,
+        })),
+    );
+    expect(ends.length, "the bars animate").toBeGreaterThan(0);
+    // Item 4's draw-ins are in the same list: the sparklines' line draw and its dots' fade.
+    expect(ends.map((e) => e.name)).toEqual(expect.arrayContaining(["ov-spark-draw"]));
+    for (const e of ends) {
+      expect(Number.isFinite(e.end), `${e.name} has a finite end`).toBe(true);
+      expect(e.end, `${e.name} ends`).toBeLessThanOrEqual(MAX_MOTION_MS);
+    }
+  });
+
+  /** Every frame until each measured figure has finished counting (3 s at most). Per tile, the
+   *  counting digits, the visually hidden copy, the whole text of the figure and its flags, all read
+   *  in the page's own frames, so a sample is never a stale read. */
+  type TileFrame = {
+    counting: boolean;
+    counted: boolean;
+    countable: boolean;
+    unknown: boolean;
+    digits: string;
+    copy: string;
+    text: string;
+  };
+  const countFrames = (page: Page) =>
+    page.evaluate(
+      () =>
+        new Promise<TileFrame[][]>((done) => {
+          const out: TileFrame[][] = [];
+          const started = performance.now();
+          const frame = () => {
+            out.push(
+              [...document.querySelectorAll<HTMLElement>(".ov-tiles > .ov-tile")].map((t) => {
+                const num = t.querySelector<HTMLElement>(".ov-num")!;
+                return {
+                  counting: num.hasAttribute("data-counting"),
+                  counted: num.hasAttribute("data-counted"),
+                  countable: num.hasAttribute("data-countable"),
+                  unknown: num.classList.contains("unknown"),
+                  digits: num.querySelector(".ov-num-count")?.textContent ?? "",
+                  copy: (t.querySelector(":scope > .visually-hidden")?.textContent ?? "").replace(
+                    /\s+/g,
+                    "",
+                  ),
+                  text: (num.textContent ?? "").replace(/\s+/g, ""),
+                };
+              }),
+            );
+            const pending = document.querySelectorAll(
+              ".ov-num:not([data-counted])[data-countable]",
+            ).length;
+            if (pending === 0 || performance.now() - started > 3000) done(out);
+            else requestAnimationFrame(frame);
+          };
+          frame();
+        }),
+    );
+
+  it("counts each measured figure up once, from 0, to the model's own string (item 4)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const frames = await countFrames(page);
+    const first = frames[0]!;
+    const model = first.map((t) => t.copy);
+    // Measured from the model's own words (digits, with commas where they group), not from a marker.
+    const measured = model.flatMap((m, i) => (/^(\d+|\d{1,3}(,\d{3})+)$/.test(m) ? [i] : []));
+    expect(
+      measured.length,
+      "the seeded tiles include more than one measured figure",
+    ).toBeGreaterThan(1);
+    const counted = new Map<number, boolean>();
+    for (const [k, f] of frames.entries()) {
+      f.forEach((t, i) => {
+        const at = `frame ${k}, tile ${i} (${model[i]})`;
+        expect(t.copy, `${at}: the visually hidden copy`).toBe(model[i]);
+        if (t.counted) counted.set(i, true);
+        // Once counted, a figure never counts again.
+        if (counted.get(i)) expect(t.counting, `${at}: counted, then counting again`).toBe(false);
+        if (!t.counting) return;
+        expect(measured, `${at}: only a measured figure counts`).toContain(i);
+        expect(
+          t.digits.length,
+          `${at}: its digits are no longer than the model's`,
+        ).toBeLessThanOrEqual(model[i]!.length);
+        expect(
+          Number(t.digits.replace(/,/g, "")),
+          `${at}: its digits never pass the model's`,
+        ).toBeLessThanOrEqual(Number(model[i]!.replace(/,/g, "")));
+      });
+    }
+    const last = frames.at(-1)!;
+    for (const i of measured) {
+      expect(last[i]!.text, `tile ${i} ends on the model's string`).toBe(model[i]);
+    }
+    const below = frames.some((f) => f.some((t, i) => t.counting && t.digits !== model[i]));
+    expect(below, "a count-up frame shows a number below the model's").toBe(true);
+  });
+
+  it("a figure that reads a word never counts (item 4)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const frames = await countFrames(page);
+    const words = frames[0]!.flatMap((t, i) => (t.unknown ? [i] : []));
+    expect(words.length, "the seeded tiles include a figure that reads a word").toBeGreaterThan(0);
+    for (const f of frames) {
+      for (const i of words) {
+        expect(f[i]!.counting, `tile ${i} is counting`).toBe(false);
+        expect(f[i]!.countable, `tile ${i} is countable`).toBe(false);
+      }
+    }
+  });
+
+  it("under reduced motion no figure counts, and each reads its model's string at once (item 4)", async () => {
+    const page = await signedIn("op", { reducedMotion: "reduce" });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const frames = await countFrames(page);
+    expect(frames.length).toBe(1);
+    expect(frames.flat().some((t) => t.counting)).toBe(false);
+    expect(frames[0]!.every((t) => t.text === t.copy)).toBe(true);
+  });
+
+  it("a full load of /fleet, then its Overview link, plays no intro: no bar animates and no figure counts (item 3's correction, item 4)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/fleet`);
+    await expect
+      .poll(() => page.locator("h1").first().textContent(), { timeout: 10_000 })
+      .toContain("Sites");
+    await follow(page, "/", "Overview");
+    await motionReady(page);
+    expect(await page.locator(".ov-tiles").getAttribute("data-intro")).toBeNull();
+    expect(await barAnimations(page)).toBe(0);
+    const frames = await countFrames(page);
+    expect(frames.flat().some((t) => t.counting)).toBe(false);
+  });
+
+  it("a client return to / after a full load of / shows the final figures at once (item 4)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    await follow(page, "/fleet", "Sites");
+    await follow(page, "/", "Overview");
+    await motionReady(page);
+    const frames = await countFrames(page);
+    expect(frames.length).toBe(1);
+    expect(frames.flat().some((t) => t.counting)).toBe(false);
+    expect(frames[0]!.every((t) => t.text === t.copy)).toBe(true);
+  });
+
+  it("with no script, every figure reads its model's string and shows; the sparklines end drawn (item 4)", async () => {
+    const page = await signedIn("op", { javaScriptEnabled: false });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    const figures = await page.locator(".ov-tile").evaluateAll((tiles) =>
+      tiles.map((t) => {
+        const num = t.querySelector<HTMLElement>(".ov-num")!;
+        return {
+          text: (num.textContent ?? "").replace(/\s+/g, ""),
+          copy: (t.querySelector(":scope > .visually-hidden")?.textContent ?? "").replace(
+            /\s+/g,
+            "",
+          ),
+          visibility: getComputedStyle(num.querySelector(".ov-num-final")!).visibility,
+        };
+      }),
+    );
+    expect(figures.length).toBeGreaterThan(1);
+    for (const f of figures) {
+      expect(f.text).toBe(f.copy);
+      expect(f.visibility).toBe("visible");
+    }
+    await page.evaluate(() =>
+      Promise.all(
+        [...document.querySelectorAll(".ov-spark polyline")].flatMap((el) =>
+          el.getAnimations().map((a) => a.finished),
+        ),
+      ),
+    );
+    const offsets = await page
+      .locator(".ov-spark polyline")
+      .evaluateAll((els) => els.map((el) => getComputedStyle(el).strokeDashoffset));
+    expect(offsets.length).toBeGreaterThan(0);
+    for (const o of offsets) expect(o).toBe("0px");
+  });
+
+  it("the sparklines draw in over SPARK_MS and end whole; under reduced motion they do not move (item 4)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const lines = await page.locator(".ov-spark polyline").evaluateAll((els) =>
+      els.map((el) =>
+        el.getAnimations().map((a) => ({
+          name: (a as CSSAnimation).animationName,
+          duration: Number(a.effect!.getTiming().duration),
+        })),
+      ),
+    );
+    expect(lines.length).toBeGreaterThan(0);
+    for (const l of lines) {
+      expect(l).toEqual([{ name: "ov-spark-draw", duration: SPARK_MS }]);
+    }
+    await page.evaluate(() =>
+      Promise.all(
+        [...document.querySelectorAll(".ov-spark polyline")].map(
+          (el) => el.getAnimations()[0]!.finished,
+        ),
+      ),
+    );
+    const ends = await page
+      .locator(".ov-spark polyline")
+      .evaluateAll((els) => els.map((el) => getComputedStyle(el).strokeDashoffset));
+    for (const o of ends) expect(o).toBe("0px");
+
+    const still = await signedIn("op", { reducedMotion: "reduce" });
+    await still.setViewportSize({ width: 1280, height: 900 });
+    await still.goto(`${origin}/`);
+    await motionReady(still);
+    expect(
+      await still
+        .locator(".ov-spark polyline")
+        .evaluateAll((els) => els.reduce((n, el) => n + el.getAnimations().length, 0)),
+    ).toBe(0);
+    const stillEnds = await still
+      .locator(".ov-spark polyline")
+      .evaluateAll((els) => els.map((el) => getComputedStyle(el).strokeDashoffset));
+    for (const o of stillEnds) expect(o).toBe("0px");
+  });
+  // P1-87 PR 8a, item 5: the trend charts' hover line and readout, by mouse, keyboard and touch.
+  const chart = (page: Page, ci = 0) =>
+    page.locator("figure.ov-trend").nth(ci).locator("svg.ov-chart");
+  const readout = (page: Page, ci = 0) =>
+    page.locator("figure.ov-trend").nth(ci).locator("p.ov-trend-readout");
+  /** The readout's words, trimmed of the markup's whitespace. */
+  const readoutText = async (page: Page, ci = 0) =>
+    ((await readout(page, ci).textContent()) ?? "").trim();
+  const nightRects = (page: Page, ci = 0) =>
+    page.locator("figure.ov-trend").nth(ci).locator("rect.ov-hit");
+  const cursorOf = (page: Page, ci = 0) =>
+    page.locator("figure.ov-trend").nth(ci).locator("line.ov-trend-cursor");
+  /** The chart's nights' words, in order, from the hover targets' data. */
+  const titlesOf = (page: Page, ci = 0) =>
+    nightRects(page, ci).evaluateAll((rs) => rs.map((r) => r.getAttribute("data-title")!));
+  /** WCAG 2.x relative luminance and contrast ratio, from an `rgb()`/`rgba()` string. */
+  const contrastOf = (a: string, b: string) => {
+    const lum = (c: string) => {
+      const [r, g, bl] = (c.match(/\d+(\.\d+)?/g) ?? []).slice(0, 3).map((v) => {
+        const x = Number(v) / 255;
+        return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * r! + 0.7152 * g! + 0.0722 * bl!;
+    };
+    const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+    return (hi! + 0.05) / (lo! + 0.05);
+  };
+
+  it("a hover draws the line at that night's centre and reads that night's words (item 5)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    expect(titles.length, "the seeded chart has a night per slot").toBeGreaterThan(5);
+    const k = 5;
+    await nightRects(page).nth(k).hover();
+    const geo = await nightRects(page)
+      .nth(k)
+      .evaluate((r) => ({
+        centre: Number(r.getAttribute("x")) + Number(r.getAttribute("width")) / 2,
+      }));
+    const cursor = page.locator("figure.ov-trend").nth(0).locator("line.ov-trend-cursor");
+    expect(await cursor.count()).toBe(1);
+    expect(Number(await cursor.getAttribute("x1"))).toBeCloseTo(geo.centre, 1);
+    expect(await readoutText(page)).toBe(titles[k]);
+  });
+
+  it("the arrow keys step a night at a time, End and Home go to the ends, and Escape clears (item 5)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    await chart(page).focus();
+    // Round 2 (H): with no night chosen the slider reports the newest, so Right selects it (not the
+    // oldest) and Left steps back from it.
+    await page.keyboard.press("ArrowRight");
+    expect(await readoutText(page), "from no night, Right selects the newest").toBe(titles.at(-1));
+    await page.keyboard.press("ArrowLeft");
+    expect(await readoutText(page), "Left steps back one from the newest").toBe(titles.at(-2));
+    await page.keyboard.press("ArrowRight");
+    expect(await readoutText(page)).toBe(titles.at(-1));
+    await page.keyboard.press("End");
+    expect(await readoutText(page)).toBe(titles.at(-1));
+    await page.keyboard.press("ArrowRight");
+    expect(await readoutText(page), "the last night stays").toBe(titles.at(-1));
+    await page.keyboard.press("Home");
+    expect(await readoutText(page)).toBe(titles[0]);
+    await page.keyboard.press("ArrowLeft");
+    expect(await readoutText(page), "the first night stays, no wrap").toBe(titles[0]);
+    await page.keyboard.press("Escape");
+    expect(await readoutText(page)).toBe(
+      "Point at a night, or focus the chart and use the arrow keys, to read it.",
+    );
+    expect(
+      await page.locator("figure.ov-trend").nth(0).locator("line.ov-trend-cursor").count(),
+    ).toBe(0);
+  });
+
+  // P1-87 PR 8a, review round 1 (D), changed in round 2 (G, R1, R2): the slider's value is the
+  // announcement. A key step moves it; leaving the chart returns it to the newest night.
+  it("the slider's value follows the keys, and falls back to the newest night once focus leaves (item 5, review round 1 D, round 2 G)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    const n = titles.length;
+    expect(await chart(page).getAttribute("aria-valuenow"), "at rest: the newest night").toBe(
+      String(n),
+    );
+    await chart(page).focus();
+    await page.keyboard.press("Home");
+    expect(await chart(page).getAttribute("aria-valuetext"), "a key speaks its night").toBe(
+      titles[0],
+    );
+    expect(await chart(page).getAttribute("aria-valuenow")).toBe("1");
+    await page.keyboard.press("ArrowRight");
+    expect(await chart(page).getAttribute("aria-valuetext")).toBe(titles[1]);
+    expect(await chart(page).getAttribute("aria-valuenow")).toBe("2");
+    await page.keyboard.press("Tab");
+    expect(await chart(page).getAttribute("aria-valuenow"), "leaving: the newest night").toBe(
+      String(n),
+    );
+    expect(await chart(page).getAttribute("aria-valuetext")).toBe(titles[n - 1]);
+    expect(await readoutText(page), "the visible readout is idle again").toBe(
+      "Point at a night, or focus the chart and use the arrow keys, to read it.",
+    );
+  });
+
+  // P1-87 PR 8a, round 2 (G, R1, R2): a hover previews a night; the keyboard's night stays put.
+  it("a hover on a focused chart previews a night and leaves the slider on the key night; leaving restores it (item 5, round 2 G)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    const keyNight = titles.length - 2;
+    await chart(page).focus();
+    await page.keyboard.press("End");
+    await page.keyboard.press("ArrowLeft");
+    const keyNow = String(keyNight + 1);
+    expect(await chart(page).getAttribute("aria-valuenow")).toBe(keyNow);
+    expect(await chart(page).getAttribute("aria-valuetext")).toBe(titles[keyNight]);
+    for (const k of [3, 6]) {
+      await nightRects(page).nth(k).hover();
+      expect(await readoutText(page), `hover ${k} shows its night`).toBe(titles[k]);
+      const centre = await nightRects(page)
+        .nth(k)
+        .evaluate((r) => Number(r.getAttribute("x")) + Number(r.getAttribute("width")) / 2);
+      expect(Number(await cursorOf(page).getAttribute("x1"))).toBeCloseTo(centre, 1);
+      expect(
+        await chart(page).getAttribute("aria-valuenow"),
+        `hover ${k} keeps the key night`,
+      ).toBe(keyNow);
+      expect(await chart(page).getAttribute("aria-valuetext")).toBe(titles[keyNight]);
+    }
+    await page.mouse.move(0, 0);
+    expect(await readoutText(page), "leaving: the key night is back").toBe(titles[keyNight]);
+    expect(await chart(page).getAttribute("aria-valuenow")).toBe(keyNow);
+    expect(
+      await page.locator("figure.ov-trend").nth(0).locator("line.ov-trend-cursor").count(),
+    ).toBe(1);
+    // Round 2 (G-3): the chart has no live region; the slider's value is the one announcement.
+    // Round 3 (t1): any live role counts, and the figure itself too.
+    const live = '[aria-live],[role="status"],[role="log"],[role="alert"]';
+    expect(
+      await page.locator("figure.ov-trend").nth(0).locator(live).count(),
+      "no live region inside the chart",
+    ).toBe(0);
+    expect(
+      await page
+        .locator("figure.ov-trend")
+        .nth(0)
+        .evaluate((f, sel) => f.matches(sel) || f.hasAttribute("aria-live"), live),
+      "the figure itself is no live region",
+    ).toBe(false);
+  });
+
+  // P1-87 PR 8a, round 3 (I, R3-A1): a key step is an act, so it ends a hover's preview. After a click
+  // and a key, the readout and the cursor follow the key night, and a pointer that moves on previews again.
+  it("a key step after a click ends the hover preview: the readout and cursor follow the keys, and a new hover previews again (item 5, round 3 I)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    const n = titles.length;
+    const centreOf = (k: number) =>
+      nightRects(page)
+        .nth(k)
+        .evaluate((r) => Number(r.getAttribute("x")) + Number(r.getAttribute("width")) / 2);
+    await nightRects(page).nth(4).hover();
+    await nightRects(page).nth(4).click();
+    expect(await readoutText(page)).toBe(titles[4]);
+    await page.keyboard.press("ArrowRight");
+    expect(await readoutText(page), "a key step after a click shows the key night").toBe(titles[5]);
+    expect(Number(await cursorOf(page).getAttribute("x1"))).toBeCloseTo(await centreOf(5), 1);
+    expect(await chart(page).getAttribute("aria-valuenow")).toBe("6");
+    await page.keyboard.press("End");
+    expect(await readoutText(page)).toBe(titles[n - 1]);
+    expect(Number(await cursorOf(page).getAttribute("x1"))).toBeCloseTo(await centreOf(n - 1), 1);
+    expect(await chart(page).getAttribute("aria-valuenow")).toBe(String(n));
+    await nightRects(page).nth(2).hover();
+    expect(await readoutText(page), "a new hover previews again").toBe(titles[2]);
+    expect(Number(await cursorOf(page).getAttribute("x1"))).toBeCloseTo(await centreOf(2), 1);
+    expect(await chart(page).getAttribute("aria-valuenow"), "a hover is not a key choice").toBe(
+      String(n),
+    );
+    // Round 4 (M2): the key step ends the preview on every chart, not only the first. The same
+    // click, step, readout and cursor on chart 1, whose preview is its own (hoverSel[1]).
+    const titles1 = await titlesOf(page, 1);
+    const centreOn1 = (k: number) =>
+      nightRects(page, 1)
+        .nth(k)
+        .evaluate((r) => Number(r.getAttribute("x")) + Number(r.getAttribute("width")) / 2);
+    await nightRects(page, 1).nth(4).hover();
+    await nightRects(page, 1).nth(4).click();
+    expect(await readoutText(page, 1), "chart 1: the click shows its key night").toBe(titles1[4]);
+    await page.keyboard.press("ArrowRight");
+    expect(await readoutText(page, 1), "chart 1: a key step ends its preview").toBe(titles1[5]);
+    expect(Number(await cursorOf(page, 1).getAttribute("x1"))).toBeCloseTo(await centreOn1(5), 1);
+    expect(await chart(page, 1).getAttribute("aria-valuenow")).toBe("6");
+  });
+
+  it("a hover shows its night on screen, and the slider keeps the newest night while nothing is chosen by key (item 5, review round 1 D, round 2 G)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    const k = 4;
+    await nightRects(page).nth(k).hover();
+    expect(await readoutText(page), "the visible readout shows the night").toBe(titles[k]);
+    expect(await chart(page).getAttribute("aria-valuenow"), "a hover is not a key choice").toBe(
+      String(titles.length),
+    );
+    expect(await chart(page).getAttribute("aria-valuetext")).toBe(titles.at(-1));
+  });
+
+  // P1-87 PR 8a, review round 1 (E): a chart clears on Tab away, a hover is its own chart's, and a pointer
+  // that leaves the chart clears it.
+  const IDLE = "Point at a night, or focus the chart and use the arrow keys, to read it.";
+  const cursors = (page: Page, ci: number) =>
+    page.locator("figure.ov-trend").nth(ci).locator("line.ov-trend-cursor").count();
+  it("Tab away from a focused chart clears its night and its cursor (item 5, review round 1 T2)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    await chart(page).focus();
+    // Round 2 (H): from no night, Right selects the newest; Home selects the oldest, as this test reads.
+    await page.keyboard.press("Home");
+    expect(await readoutText(page)).toBe(titles[0]);
+    await page.keyboard.press("Tab");
+    expect(await readoutText(page), "the idle prompt is visible again").toBe(IDLE);
+    expect(await cursors(page, 0), "no cursor on chart 0").toBe(0);
+  });
+
+  // P1-87 PR 8a, round 2 (H, R3): with nothing selected the slider reports the newest night, and Right
+  // selects that night; it must not jump to the oldest.
+  it("ArrowRight with no night selected keeps the slider on the newest night, not the oldest (item 5, round 2 H)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    await chart(page).focus();
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("ArrowRight");
+    expect(await chart(page).getAttribute("aria-valuenow"), "Right selects the newest").toBe(
+      String(titles.length),
+    );
+    expect(await chart(page).getAttribute("aria-valuetext")).toBe(titles.at(-1));
+  });
+
+  it("a hover on one chart does not select a night on the next (item 5, review round 1 T3)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    await nightRects(page, 0).nth(5).hover();
+    expect(await readoutText(page, 0)).toBe(titles[5]);
+    expect(await cursors(page, 0)).toBe(1);
+    expect(await cursors(page, 1), "chart 1 draws no cursor").toBe(0);
+    expect(await readoutText(page, 1), "chart 1 reads idle").toBe(IDLE);
+  });
+
+  it("a pointer that moves off a chart clears its night and its cursor (item 5, review round 1 T4)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    await nightRects(page).nth(5).hover();
+    expect(await cursors(page, 0)).toBe(1);
+    await page.mouse.move(0, 0);
+    expect(await readoutText(page), "the idle prompt is back").toBe(IDLE);
+    expect(await cursors(page, 0), "no cursor after the pointer leaves").toBe(0);
+  });
+
+  it("a night with no reading reads as the model says, never as 0 (item 5)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    // The seed writes sixteen nights and skips the ninth before the newest (i = 9): that gap is on
+    // every chart, so chart 0 has one.
+    const titles = await titlesOf(page);
+    const gap = titles.findIndex((t) => t.endsWith("no count that night"));
+    expect(gap, "the seed has a gap night on the first chart").toBeGreaterThan(-1);
+    await nightRects(page).nth(gap).hover();
+    const words = await readoutText(page);
+    expect(words).toBe(titles[gap]);
+    expect(words).toMatch(/no count that night$/);
+    expect(words).not.toMatch(/: 0/);
+  });
+
+  it("the focus ring is at least 2px wide and 3:1 against the page, in light and dark, at 1280px and 390px", async () => {
+    for (const width of [1280, 390])
+      for (const scheme of ["light", "dark"] as const) {
+        const page = await signedIn();
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ colorScheme: scheme });
+        await page.goto(`${origin}/`);
+        await motionReady(page);
+        await chart(page).focus();
+        await page.keyboard.press("ArrowRight");
+        const ring = await chart(page).evaluate((svg) => {
+          const cs = getComputedStyle(svg);
+          let el: Element | null = svg;
+          let bg = "";
+          while (el) {
+            const c = getComputedStyle(el).backgroundColor;
+            if (c !== "transparent" && !/rgba\(.*,\s*0\)$/.test(c)) {
+              bg = c;
+              break;
+            }
+            el = el.parentElement;
+          }
+          return {
+            width: Number.parseFloat(cs.outlineWidth),
+            style: cs.outlineStyle,
+            colour: cs.outlineColor,
+            bg: bg || getComputedStyle(document.documentElement).backgroundColor,
+          };
+        });
+        const where = `${width}px ${scheme}`;
+        expect(ring.style, where).toBe("solid");
+        expect(ring.width, where).toBeGreaterThanOrEqual(2);
+        expect(contrastOf(ring.colour, ring.bg), where).toBeGreaterThanOrEqual(3);
+      }
+  });
+
+  it("a click on a column selects it, so a touch reads it too, at 390px (item 5)", async () => {
+    const page = await signedIn("op", { hasTouch: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    await nightRects(page).nth(4).tap();
+    expect(await readoutText(page)).toBe(titles[4]);
+    expect(
+      await page.locator("figure.ov-trend").nth(0).locator("line.ov-trend-cursor").count(),
+    ).toBe(1);
+    // Round 3 (t2): the tap chooses the night for the slider too. A touch never sets a hover preview,
+    // so the assertions below pin the key night the slider reports, not the absence of a preview.
+    expect(await chart(page).getAttribute("aria-valuenow"), "the tap is the key night").toBe("5");
+    expect(await chart(page).getAttribute("aria-valuetext")).toBe(titles[4]);
+  });
+
+  it("reduced motion changes nothing but the motion: the readout works and the line does not animate (item 5)", async () => {
+    const page = await signedIn("op", { reducedMotion: "reduce" });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    await nightRects(page).nth(3).hover();
+    expect(await readoutText(page)).toBe(titles[3]);
+    const animating = await page
+      .locator("line.ov-trend-cursor")
+      .evaluateAll((els) => els.reduce((n, el) => n + el.getAnimations().length, 0));
+    expect(animating).toBe(0);
+  });
+
+  it("forced colours draw the hover line in CanvasText (item 5)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.emulateMedia({ forcedColors: "active" });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    await nightRects(page).nth(2).hover();
+    const stroke = await page
+      .locator("figure.ov-trend")
+      .nth(0)
+      .locator("line.ov-trend-cursor")
+      .evaluate((el) => {
+        const probe = document.createElement("span");
+        probe.style.color = "CanvasText";
+        document.body.append(probe);
+        const canvasText = getComputedStyle(probe).color;
+        probe.remove();
+        return { stroke: getComputedStyle(el).stroke, canvasText };
+      });
+    expect(stroke.stroke).toBe(stroke.canvasText);
+  });
+
+  // P1-87 PR 8a, item 7: a new feed line slides in on a data refresh. The refresh is the page's own:
+  // its cycle clock re-reads the snapshot once the view is stale, so the test moves the page's clock
+  // past that point (no hook in product code). The new event is written to the test DB and removed.
+  const oneLine = (s: string | null) => (s ?? "").replace(/\s+/g, " ").trim();
+  /** Records, from before the page's script, each line the page marks new (`data-new`). The
+   *  observer sees a mark however short its life, so a 400 ms slide cannot be missed. */
+  const watchNewLines = (page: Page) =>
+    page.addInitScript(() => {
+      const w = window as unknown as { __newMarks: string[] };
+      w.__newMarks = [];
+      const note = (el: Element) => {
+        if (el.matches(".ov-lately li[data-new]"))
+          w.__newMarks.push((el.textContent ?? "").replace(/\s+/g, " ").trim());
+      };
+      new MutationObserver((records) => {
+        for (const r of records) {
+          if (r.type === "attributes") note(r.target as Element);
+          else
+            for (const n of r.addedNodes) {
+              if (!(n instanceof Element)) continue;
+              note(n);
+              n.querySelectorAll(".ov-lately li[data-new]").forEach((el) => note(el));
+            }
+        }
+      }).observe(document, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: ["data-new"],
+      });
+    });
+  const newMarks = (page: Page) =>
+    page.evaluate(() => (window as unknown as { __newMarks: string[] }).__newMarks);
+  /** Adds one feed event, then moves the page's clock a day on, so the next tick re-reads. */
+  const refreshFeed = async (page: Page, id: string) => {
+    const db = await openDb({ url: dbUrl });
+    try {
+      await recordFleetEvent(db, {
+        id,
+        ts: new Date().toISOString(),
+        type: "vuln_cleared",
+        siteId: null,
+        siteName: "Hillcrest Veterinary",
+        summary: "cleared",
+        data: null,
+      });
+    } finally {
+      await db.destroy();
+    }
+    const now = await page.evaluate(() => Date.now());
+    await page.clock.setSystemTime(now + 25 * 3_600_000);
+    await page.clock.runFor(60_000);
+  };
+  const removeFeedEvent = async (id: string) => {
+    const db = await openDb({ url: dbUrl });
+    try {
+      await db.deleteFrom("fleet_events").where("id", "=", id).execute();
+    } finally {
+      await db.destroy();
+    }
+  };
+
+  it("slides the one new feed line in on a data refresh, and no other line moves (item 7)", async () => {
+    const id = "pr8a-feed-refresh";
+    const page = await signedIn();
+    await watchNewLines(page);
+    await page.clock.install();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    // The first load marks no line new.
+    expect(await newMarks(page)).toEqual([]);
+    // Each row names its place, so a row can be followed across the refresh.
+    await page
+      .locator(".ov-lately li")
+      .evaluateAll((lis) => lis.forEach((li, i) => li.setAttribute("data-probe", String(i))));
+    const oldFirst = oneLine(await page.locator('.ov-lately li[data-probe="0"]').textContent());
+    try {
+      await refreshFeed(page, id);
+      // The refresh has landed when the new line is in the list (before any marking is judged).
+      await expect
+        .poll(() => page.locator(".ov-lately li", { hasText: "Vulnerability cleared" }).count(), {
+          timeout: 10_000,
+        })
+        .toBe(1);
+      await expect.poll(() => newMarks(page), { timeout: 10_000 }).toHaveLength(1);
+      expect((await newMarks(page))[0]).toContain("Vulnerability cleared");
+      expect(await page.locator(".ov-lately li[data-new]").count()).toBe(1);
+      // The new line slides in with the feed's animation.
+      const names = await page.waitForFunction(
+        () => {
+          const el = document.querySelector<HTMLElement>(".ov-lately li[data-new]");
+          const found = el ? el.getAnimations().map((a) => (a as CSSAnimation).animationName) : [];
+          return found.length > 0 ? found : null;
+        },
+        undefined,
+        { timeout: 5_000 },
+      );
+      expect(await names.jsonValue()).toEqual(["ov-feed-in"]);
+      // The other lines carry no animation.
+      const others = await page
+        .locator(".ov-lately li:not([data-new])")
+        .evaluateAll((lis) => lis.map((li) => li.getAnimations().length));
+      expect(others.length).toBeGreaterThan(0);
+      expect(others.every((n) => n === 0)).toBe(true);
+      // The line that was first is still the same row, one place down: keyed by its line, not its place.
+      expect(oneLine(await page.locator('.ov-lately li[data-probe="0"]').textContent())).toBe(
+        oldFirst,
+      );
+    } finally {
+      await removeFeedEvent(id);
+    }
+  });
+
+  it("under reduced motion the new feed line is marked but nothing animates (item 7)", async () => {
+    const id = "pr8a-feed-still";
+    const page = await signedIn("op", { reducedMotion: "reduce" });
+    await watchNewLines(page);
+    await page.clock.install();
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    expect(await newMarks(page)).toEqual([]);
+    try {
+      await refreshFeed(page, id);
+      await expect
+        .poll(() => page.locator(".ov-lately li", { hasText: "Vulnerability cleared" }).count(), {
+          timeout: 10_000,
+        })
+        .toBe(1);
+      await expect.poll(() => newMarks(page), { timeout: 10_000 }).toHaveLength(1);
+      expect(await page.locator(".ov-lately li[data-new]").count()).toBe(1);
+      const running = await page
+        .locator(".ov-lately li")
+        .evaluateAll((lis) => lis.map((li) => li.getAnimations().length));
+      expect(running.every((n) => n === 0)).toBe(true);
+    } finally {
+      await removeFeedEvent(id);
     }
   });
 });
