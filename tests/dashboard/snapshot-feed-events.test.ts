@@ -56,3 +56,37 @@ describe("loadCockpitSnapshot — the Lately feed's events leave out the sweeps"
     expect(snap.recentEvents.every((e) => e.type === "fleet_swept")).toBe(true);
   });
 });
+
+describe("loadCockpitSnapshot — the feed's deploys are read on their own (P1-87 PR 9)", () => {
+  let dir: string;
+  let db: Db;
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), "snapshot-deploys-"));
+    db = await openDb({ url: `file:${join(dir, "fleet.db")}` });
+    // Twenty-five deploys on other sites, newer than everything else: without their own
+    // read they would fill the feed's 20-row read and push the merge out of it.
+    for (let i = 0; i < 25; i++)
+      await recordFleetEvent(db, {
+        ...ev(`deploy-${i}`, `2026-11-16T${String(i).padStart(2, "0")}:30:00.000Z`, "site_deployed"),
+        siteId: `recOTHER${i}`,
+      });
+    // A merge and then a deploy on the same site, 30 minutes later: the deploy is left out.
+    await recordFleetEvent(db, ev("merge", "2026-11-15T10:00:00.000Z", "pr_automerged"));
+    await recordFleetEvent(db, ev("merged-deploy", "2026-11-15T10:30:00.000Z", "site_deployed"));
+  });
+  afterEach(async () => {
+    await db.destroy();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("feedEvents carries no deploy, and feedDeploys only the deploys left in", async () => {
+    const snap = await loadCockpitSnapshot(db, NOW, "https://dash");
+    expect(snap.feedEvents.some((e) => e.type === "site_deployed")).toBe(false);
+    expect(snap.feedEvents.map((e) => e.id)).toEqual(["merge"]);
+    expect(snap.feedDeploys.map((e) => e.id)).toEqual(
+      Array.from({ length: 20 }, (_, i) => `deploy-${24 - i}`),
+    );
+    expect(snap.feedDeploys.every((e) => e.id !== "merged-deploy")).toBe(true);
+    expect(snap.gaps).toEqual([]);
+  });
+});
