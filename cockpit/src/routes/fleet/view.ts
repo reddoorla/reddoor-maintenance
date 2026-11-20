@@ -5,11 +5,31 @@ import {
   noStatusFilterActive,
 } from "../../../../src/dashboard/fleet-table.js";
 import type { FleetSortKey, FleetTableModel } from "../../../../src/dashboard/fleet-table.js";
+import type { HealthCheckName } from "../../lib/overview/view.js";
 
 /** The checks the overview's "Is every site live?" table showed, moved here
  *  (P1-87, PR 2). They sit just before Level, as they did there; they are not
  *  sortable. */
 export const FACT_COLUMNS = ["Live", "Certificate", "Deploy", "Forms"] as const;
+
+/** The fact column that shows a check's own cell (P1-87, PR 8b). Security, Accessibility
+ *  and Build + tests have no column here, so nothing is marked for them. */
+export const CHECK_COLUMN: Partial<Record<HealthCheckName, (typeof FACT_COLUMNS)[number]>> = {
+  Live: "Live",
+  Certificate: "Certificate",
+  Deploy: "Deploy",
+  "Contact form": "Forms",
+};
+
+/** The check filter the route resolved (P1-87, PR 8b): a known check with its failing and
+ *  unread counts, or the slug no check has (named on the page; the table is left whole). */
+export type CheckFilter =
+  { slug: string; name: HealthCheckName; failing: number; unread: number } | { unknown: string };
+
+/** The line above the table: "Failing Certificate: 2 sites". */
+export function failingLine(c: { name: HealthCheckName; failing: number }): string {
+  return `Failing ${c.name}: ${c.failing} ${c.failing === 1 ? "site" : "sites"}`;
+}
 
 /** A cell's verdict as the overview styled it. */
 export const okClass = (ok: boolean | null): "ok" | "bad" | "unknown" =>
@@ -40,6 +60,7 @@ export function sortHref(m: FleetTableModel, key: FleetSortKey): string {
   p.set("dir", m.query.sort === key && m.query.dir === "asc" ? "desc" : "asc");
   if (m.query.status) p.set("status", m.query.status);
   if (m.query.q) p.set("q", m.query.q);
+  if (m.query.check) p.set("check", m.query.check);
   return `/fleet?${p.toString()}`;
 }
 
@@ -55,6 +76,18 @@ export function showHiddenHref(m: FleetTableModel): string {
   p.set("sort", m.query.sort);
   p.set("dir", m.query.dir);
   p.set("status", ALL_STATUSES_FILTER);
+  if (m.query.check) p.set("check", m.query.check);
+  return `/fleet?${p.toString()}`;
+}
+
+/** The check line's "Show all sites": every site the check does not narrow, keeping the
+ *  sort, status and search and dropping the check (P1-87, PR 8b). */
+export function allSitesHref(m: FleetTableModel): string {
+  const p = new URLSearchParams();
+  p.set("sort", m.query.sort);
+  p.set("dir", m.query.dir);
+  if (m.query.status) p.set("status", m.query.status);
+  if (m.query.q) p.set("q", m.query.q);
   return `/fleet?${p.toString()}`;
 }
 

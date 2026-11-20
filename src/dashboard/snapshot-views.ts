@@ -254,8 +254,10 @@ export function fleetTableModelFromSnapshot(
   /** Each site's level by id, for the Level sort (P1-87, PR 2). Required: without
    *  it a `?sort=level` would come back in name order under a "Level" arrow. */
   tiers: ReadonlyMap<string, Tier>,
+  /** The site ids the check filter keeps, when a check is in force (P1-87, PR 8b). */
+  keep?: ReadonlySet<string>,
 ): FleetTableModel {
-  return buildFleetTableModel(sitesOf(s), parseFleetTableQuery(params), tiers);
+  return buildFleetTableModel(sitesOf(s), parseFleetTableQuery(params), tiers, keep);
 }
 
 /** `/s/:slug`. Null when no site has the slug, as `loadSiteDashboard`. */
