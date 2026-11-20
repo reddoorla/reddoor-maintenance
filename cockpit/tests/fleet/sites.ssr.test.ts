@@ -127,6 +127,9 @@ describe("Sites filtered to one health check (P1-87, PR 8b)", () => {
   it("says nothing of unread sites when none is unread", async () => {
     const doc = await page("/fleet?check=security");
     expect(text(checkLine(doc)!)).toBe("Failing Security: 0 sites · Show all sites");
+    // Nor is the known check's line a live region: it is read with the page.
+    expect(checkLine(doc)!.hasAttribute("role")).toBe(false);
+    expect(checkLine(doc)!.hasAttribute("aria-live")).toBe(false);
   });
 
   it("names an unknown check, shows the full table, and prints the slug as text", async () => {
@@ -136,6 +139,7 @@ describe("Sites filtered to one health check (P1-87, PR 8b)", () => {
     expect(text(checkLine(doc)!)).toBe('No check is called "nope". Showing all sites.');
     // Not a live region: the line is read on load, and a role would announce it again.
     expect(checkLine(doc)!.hasAttribute("role")).toBe(false);
+    expect(checkLine(doc)!.hasAttribute("aria-live")).toBe(false);
     expect(doc.querySelector("input[name='check']")).toBeNull();
     // The unknown slug is dropped, not carried: no sort link keeps a check parameter.
     const sortLinks = doc
