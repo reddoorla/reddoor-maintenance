@@ -310,6 +310,19 @@ describe("PR 8c item 10: today's sites at each level", () => {
     expect(buildNeedsYouFeed(model).some((r) => r.slug === siteSlug("Smoky"))).toBe(false);
     expect(todayAtLevels(s, NOW).ok).toEqual([{ name: "Smoky", reason: "no open items" }]);
   });
+
+  it("a level lists its sites by name, not by how bad their items are (round 1 fold)", () => {
+    // Tee's certificate expires in 8 days, worse than Alpha's 10 (both Attention): order stays by name.
+    const s = snapshot({
+      sites: [
+        healthy({ id: "recTe", name: "Tee", certDaysRemaining: 8 }),
+        healthy({ id: "recAl", name: "Alpha", certDaysRemaining: 10 }),
+      ],
+      digest: {},
+      slugById: new Map(),
+    });
+    expect(todayAtLevels(s, NOW).attention.map((x) => x.name)).toEqual(["Alpha", "Tee"]);
+  });
 });
 
 describe("PR 8c item 10: the level's sites, by their own status and count", () => {

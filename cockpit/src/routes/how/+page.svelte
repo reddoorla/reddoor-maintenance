@@ -124,6 +124,8 @@
       const lit = items.map(() => false);
       const show = () => {
         unlit = lit.map((l) => !l);
+        // Round 1 fold: once every step is lit there is nothing left to watch.
+        if (lit.every(Boolean)) observer?.disconnect();
       };
       // A step whose top edge is already above the viewport's bottom at mount is seen and
       // lit at mount, in order. The rest wait for the observer.
@@ -157,6 +159,7 @@
         { threshold: 0.6 },
       );
       items.forEach((el) => observer!.observe(el));
+      if (lit.every(Boolean)) observer.disconnect();
     }
     scripted = true;
 
@@ -334,7 +337,7 @@
             <p>None today</p>
           {:else}
             <ul role="list" class="how-level-sites">
-              {#each l.sites as site (site.name)}
+              {#each l.sites as site, i (i)}
                 <li>
                   <span class="how-level-site">{site.name}</span>{#if site.reason !== null}:
                     {site.reason}{/if}
@@ -404,7 +407,9 @@
   </ol>
   <!-- The dot runs the journey once (PR 8c item 9); hidden until the script shows it. -->
   <span class="how-dot" aria-hidden="true" hidden={!leadShown || !dotOn} bind:this={dotEl}></span>
-  <button type="button" class="how-replay" hidden={!leadShown} bind:this={replayEl}>Replay</button>
+  <button type="button" class="how-replay" hidden={!leadShown} bind:this={replayEl}
+    >Replay<span class="how-sr-only">{" "}the lead's journey</span></button
+  >
   <div class="how-branch">
     <button
       type="button"
