@@ -4495,6 +4495,11 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
           }
         ).__figure,
     );
+  /** The last sampled frame shows the final number: polled, since a sample can predate the style update. */
+  const endsVisible = (page: Page) =>
+    expect
+      .poll(async () => (await figureFrames(page)).at(-1)?.visible ?? false, { timeout: 5_000 })
+      .toBe(true);
   it("with the script blocked, a countable figure shows at the fail-safe, not before (item 4, review round 1 C)", async () => {
     const page = await signedIn();
     await sampleFigure(page);
@@ -4533,7 +4538,7 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
       "no frame shows the final number and a count at once",
     ).toBe(false);
     expect(frames.every((f) => f.count === ""), "no count runs after the fail-safe").toBe(true);
-    expect(frames.at(-1)!.visible, "the figure ends visible").toBe(true);
+    await endsVisible(page);
   });
 
   it("the fail-safe never reveals the final number over a running count (item 4, review round 1 C)", async () => {
@@ -4557,7 +4562,7 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     await figuresSettled(page);
     const frames = await figureFrames(page);
     expect(frames.some((f) => f.visible && f.count !== ""), "no frame shows the final number over a count").toBe(false);
-    expect(frames.at(-1)!.visible, "the figure ends visible").toBe(true);
+    await endsVisible(page);
   });
 
   it("at 1x a normal load hides the figure from its first frame, and the count runs (item 4, review round 1 C)", async () => {
@@ -4571,7 +4576,7 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     expect(frames.length).toBeGreaterThan(0);
     expect(frames[0]!.visible, "the first frame hides the final number").toBe(false);
     expect(frames.some((f) => f.count !== ""), "the count runs").toBe(true);
-    expect(frames.at(-1)!.visible, "the figure ends visible").toBe(true);
+    await endsVisible(page);
   });
 
   it("with no script, the fills reach their shares (item 3)", async () => {
