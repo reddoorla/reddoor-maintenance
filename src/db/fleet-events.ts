@@ -71,14 +71,23 @@ export async function recordFleetEvent(db: Db, e: FleetEvent): Promise<void> {
 
 /** Recent events at/after `sinceIso`, newest-first, capped at `limit`. `excludeTypes`
  *  leaves those types out in the query, before the cap, so they cannot fill it (the
- *  Lately feed leaves out `fleet_swept`, P1-87 PR 4). */
+ *  Lately feed leaves out `fleet_swept`, P1-87 PR 4). `types` reads only those types,
+ *  in the query too (the feed's deploys are read on their own, P1-87 PR 9); an empty
+ *  `types` allows none, so it reads nothing. */
 export async function listFleetEvents(
   db: Db,
-  opts: { sinceIso: string; limit: number; excludeTypes?: readonly FleetEventType[] },
+  opts: {
+    sinceIso: string;
+    limit: number;
+    excludeTypes?: readonly FleetEventType[];
+    types?: readonly FleetEventType[];
+  },
 ): Promise<FleetEvent[]> {
+  if (opts.types && opts.types.length === 0) return [];
   let q = db.selectFrom("fleet_events").selectAll().where("ts", ">=", opts.sinceIso);
   if (opts.excludeTypes && opts.excludeTypes.length > 0)
     q = q.where("type", "not in", [...opts.excludeTypes]);
+  if (opts.types) q = q.where("type", "in", [...opts.types]);
   const rows = await q.orderBy("ts", "desc").limit(opts.limit).execute();
   return rows.map(rowToEvent);
 }
