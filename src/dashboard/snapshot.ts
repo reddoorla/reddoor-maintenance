@@ -19,6 +19,7 @@ import {
   RECENT_EVENTS_DAYS,
   RECENT_EVENTS_LIMIT,
   SNAPSHOT_SCREENOUT_DAYS,
+  deploysToShow,
   type CockpitSnapshot,
 } from "./snapshot-views.js";
 
@@ -64,6 +65,7 @@ export async function loadCockpitSnapshot(
     rollup,
     recentEvents,
     feedEvents,
+    feedDeploys,
     deadLetters,
     deadLetterOldest,
     submissions,
@@ -100,6 +102,21 @@ export async function loadCockpitSnapshot(
           limit: RECENT_EVENTS_LIMIT,
           excludeTypes: LATELY_EXCLUDED_TYPES,
         }),
+      [],
+    ),
+    // P1-87 PR 9: the same week's deploys, read on their own (so they cannot fill the
+    // feed's read above), then left out where a dependency merge on their site came
+    // first (`deploysToShow`). Under the same gap name, so an unread feed still says so.
+    read(
+      "feed events",
+      async () =>
+        deploysToShow(
+          await listFleetEvents(db, {
+            sinceIso: new Date(now.getTime() - RECENT_EVENTS_DAYS * 86_400_000).toISOString(),
+            limit: 500,
+            types: ["site_deployed", "pr_automerged"],
+          }),
+        ),
       [],
     ),
     read<ReadonlyMap<string, number>>(
@@ -156,6 +173,7 @@ export async function loadCockpitSnapshot(
     rollup,
     recentEvents,
     feedEvents,
+    feedDeploys,
     deadLetters,
     deadLetterOldest,
     submissions: submissions === null ? null : boundLeadText(submissions.rows),
@@ -168,8 +186,10 @@ export async function loadCockpitSnapshot(
 }
 
 /** The Lately feed's read leaves out the nightly's sweeps: they are the nightly's own
- *  steps, shown there, and up to three a night would fill the feed's cap. */
-const LATELY_EXCLUDED_TYPES: readonly FleetEventType[] = ["fleet_swept"];
+ *  steps, shown there, and up to three a night would fill the feed's cap. It leaves out
+ *  deploys too: they are read on their own (`feedDeploys`, P1-87 PR 9), so a burst of
+ *  them cannot push the week's other events out of this read. */
+const LATELY_EXCLUDED_TYPES: readonly FleetEventType[] = ["fleet_swept", "site_deployed"];
 
 /** `read`'s marker for a read that fell back. */
 const GAP = Symbol("gap");

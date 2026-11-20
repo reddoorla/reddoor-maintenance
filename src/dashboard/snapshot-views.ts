@@ -98,8 +98,12 @@ export type CockpitSnapshot = {
   rollup: CockpitRollup | null;
   recentEvents: FleetEvent[];
   /** P1-87 PR 4: the same week's events for the overview's Lately feed, without the
-   *  `fleet_swept` rows (`snapshot.ts`). Empty when the read failed (`gaps` names it). */
+   *  `fleet_swept` and `site_deployed` rows (`snapshot.ts`). Empty when the read failed
+   *  (`gaps` names it). */
   feedEvents: FleetEvent[];
+  /** P1-87 PR 9: the same week's deploys the feed lists (`deploysToShow`), newest first.
+   *  Empty when the read failed (`gaps` names it). */
+  feedDeploys: FleetEvent[];
   deadLetters: ReadonlyMap<string, number>;
   deadLetterOldest: ReadonlyMap<string, string>;
   /** Every submission, newest first. Null when the read failed: `/` and `/s/:slug`
