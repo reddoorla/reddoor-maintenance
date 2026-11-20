@@ -2485,7 +2485,20 @@ const PLAIN_EVENT: Partial<Record<FleetEvent["type"], string>> = {
   ci_recovered: "Build + tests back to passing",
   site_launched: "Site launched, now in our care",
   report_sent_with_override: "Report sent with an override",
+  site_deployed: "Deploy published",
+  prismic_sync_opened: "Prismic sync PR opened",
 };
+
+/** The backup line, formatted from the event's own counts (P1-87 PR 9), so it never
+ *  depends on the stored summary. A data shape that does not hold two whole numbers
+ *  drops the counts rather than printing a guess. */
+function backupText(data: unknown): string {
+  const d = (data ?? null) as { tables?: unknown; rows?: unknown } | null;
+  const whole = (n: unknown): n is number => Number.isInteger(n) && (n as number) >= 0;
+  if (d && whole(d.tables) && whole(d.rows))
+    return `Backup restored in rehearsal: ${d.tables} tables, ${d.rows.toLocaleString("en-US")} rows`;
+  return "Backup restored in rehearsal";
+}
 
 const LATELY_WHEN = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/Los_Angeles",
@@ -2581,7 +2594,13 @@ export function latelyView(
     const stored = e.siteName?.trim() || null;
     return e.siteId === null ? stored : (siteName(e.siteId) ?? stored ?? GONE_SITE);
   };
-  for (const e of events) push(e.ts, PLAIN_EVENT[e.type] ?? e.summary, eventSite(e), 0);
+  for (const e of events)
+    push(
+      e.ts,
+      e.type === "backup_verified" ? backupText(e.data) : (PLAIN_EVENT[e.type] ?? e.summary),
+      eventSite(e),
+      0,
+    );
   const named = new Set(events.map(eventReportId).filter((x): x is string => x !== null));
   // Reports sent (rank 1): not a test send, not withdrawn.
   for (const r of s.reports ?? []) {
