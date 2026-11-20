@@ -5030,10 +5030,7 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
       await page
         .locator("figure.ov-trend")
         .nth(0)
-        .evaluate(
-          (f, sel) => f.matches(sel) || f.hasAttribute("aria-live"),
-          live,
-        ),
+        .evaluate((f, sel) => f.matches(sel) || f.hasAttribute("aria-live"), live),
       "the figure itself is no live region",
     ).toBe(false);
   });
@@ -5055,9 +5052,7 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     await nightRects(page).nth(4).click();
     expect(await readoutText(page)).toBe(titles[4]);
     await page.keyboard.press("ArrowRight");
-    expect(await readoutText(page), "a key step after a click shows the key night").toBe(
-      titles[5],
-    );
+    expect(await readoutText(page), "a key step after a click shows the key night").toBe(titles[5]);
     expect(Number(await cursorOf(page).getAttribute("x1"))).toBeCloseTo(await centreOf(5), 1);
     expect(await chart(page).getAttribute("aria-valuenow")).toBe("6");
     await page.keyboard.press("End");

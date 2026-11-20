@@ -995,10 +995,7 @@ describe("P1-78h: section 8 drawn, once fleet_daily holds 14 nights", () => {
       // P1-87 PR 8a, round 3 (t1): a region is a live region whatever its role, and the figure itself
       // can carry the attribute, so the check covers the figure and every descendant.
       const LIVE = '[aria-live],[role="status"],[role="log"],[role="alert"]';
-      expect(
-        f.querySelectorAll(LIVE).length,
-        `chart ${ci}: no live region inside a chart`,
-      ).toBe(0);
+      expect(f.querySelectorAll(LIVE).length, `chart ${ci}: no live region inside a chart`).toBe(0);
       expect(
         f.hasAttribute("aria-live") ||
           ["status", "log", "alert"].includes(f.getAttribute("role") ?? ""),
