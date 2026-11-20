@@ -273,7 +273,7 @@
     "expect": "red"
   },
   {
-    "id": "9-22-only-updated-sync-pr-records",
+    "id": "9-22-updated-sync-pr-records-too",
     "why": "An updated sync PR records an event too (only an opened PR should): the mutant adds the event on the update branch, so the updated night must see none (T2, the x17 survivor)",
     "edits": [
       {
