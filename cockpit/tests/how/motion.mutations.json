@@ -276,5 +276,31 @@
     ],
     "test": "cockpit/tests/how/view.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "C1-most-over-every-night",
+    "why": "The most on one night is taken over every night in the window, so an earlier-version or unreadable night counts",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "const most = Math.max(...counted);",
+        "replace": "const most = Math.max(...counted, ...nights.map((n) => Number((n.counts.sites?.value as { tiers?: Record<string, unknown> } | null | undefined)?.tiers?.broken ?? 0)));"
+      }
+    ],
+    "test": "cockpit/tests/how/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "C2-version-from-oldest-night",
+    "why": "The ladder version is read from the oldest night, not the newest, so version-1 nights are counted",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "    .sort((a, b) => b.night.localeCompare(a.night))",
+        "replace": "    .sort((a, b) => a.night.localeCompare(b.night))"
+      }
+    ],
+    "test": "cockpit/tests/how/view.ssr.test.ts",
+    "expect": "red"
   }
 ]

@@ -168,6 +168,32 @@ describe("PR 8c item 10: the nights line", () => {
       "At least one site sat here on 3 of the last 21 nights; the most on one night was 3.",
     );
   });
+
+  it("the most on one night is taken over counted nights only (an earlier or unreadable night's count is ignored)", () => {
+    // Round 1, C1: the earlier-version night carries 9, and the unreadable night reads "9" as
+    // a tier count, which is not a count. Neither is counted, so the most is the counted 3.
+    const nights = window21([0, "earlier", 1, 0, 3, ...ZEROS]);
+    nights[1]!.counts.sites = sitesBlock("broken", 9);
+    nights[2]!.counts.sites = {
+      value: { cards: 2, tiers: { broken: "9" } },
+    } as unknown as OverviewNight["counts"]["sites"];
+    expect(line(nights)).toBe(
+      "At least one site sat here on 1 of the 19 nights counted in the last 21; the most on one night was 3.",
+    );
+  });
+
+  it("the version comes from the newest night: older nights on version 1 are left out", () => {
+    // Round 1, C2: the ten oldest nights are on version 1 with 5 sites each; the eleven newest
+    // are on version 2. Only the version-2 nights count, so the most is 3, over 11 nights.
+    const nights = window21([...Array(10).fill(5), 0, 2, 1, 0, 3, 0, 0, 0, 0, 0, 0]);
+    for (const n of nights.slice(0, 10)) {
+      n.counts.ladderVersion = 1;
+      n.counts.sites = sitesBlock("broken", 5);
+    }
+    expect(line(nights)).toBe(
+      "At least one site sat here on 3 of the 11 nights counted in the last 21; the most on one night was 3.",
+    );
+  });
 });
 
 describe("PR 8c item 10: today's sites at each level", () => {
