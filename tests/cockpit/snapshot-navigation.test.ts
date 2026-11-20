@@ -6052,6 +6052,16 @@ describe("PR 8c, How this works motion", () => {
         w.__marks.push({ fresh: anim !== w.__oldAnim, at: typeof t === "number" ? t : 0 });
       }).observe(stage1, { attributes: true, attributeFilter: ["data-passed"] });
     });
+    // Premise: Replay must land before the old run marks stage 1 (875 ms of its clock). If the old
+    // run has already marked it, the old timer's mark proves nothing, so the test says so.
+    const stage1Passed = await page
+      .locator("ol.how-lead-flow > li")
+      .nth(1)
+      .getAttribute("data-passed");
+    expect(
+      stage1Passed,
+      "premise: Replay is clicked before the first run marks stage 1, so a stale timer can show",
+    ).not.toBe("true");
     await page.locator("section.how-lead button.how-replay").click();
     const fresh = () =>
       page.evaluate(() =>

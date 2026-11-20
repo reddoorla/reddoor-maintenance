@@ -187,11 +187,12 @@ body {
   padding: 0;
   background: none;
   border: 0;
+  /* Round 2 D: a long unbroken name or reason wraps at the card's edge, not past it (WCAG 1.4.10).
+     Set on the item so the reason wraps too; the name inherits it. */
+  overflow-wrap: anywhere;
 }
 .how-level-site {
   font-weight: var(--weight-bold);
-  /* Round 2 D: a long unbroken name wraps at the card's edge, not past it (WCAG 1.4.10). */
-  overflow-wrap: anywhere;
 }
 @media (prefers-reduced-motion: no-preference) {
   .how-level-panel:not([hidden]) {

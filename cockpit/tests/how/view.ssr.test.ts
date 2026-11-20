@@ -69,7 +69,7 @@ describe("PR 8c item 9, round 1 D3: the dot and Replay follow the counts", () =>
     expect(leadControlsShown(false, { allTime: null })).toBe(false);
   });
 
-  it("reads the counts from the leads object itself, so the page cannot pass the wrong field", () => {
+  it("reads allTime from the leads object the caller passes, not from a field the caller picks", () => {
     // The page used to pass v.leads.allTime; the helper now reads allTime itself, so the leads
     // object is what decides, and null counts hide the controls even when the object is present.
     expect(leadControlsShown(true, { allTime: null })).toBe(false);
