@@ -1,6 +1,8 @@
 import type { WebsiteRow, SecurityCounts, DomainResult } from "../fleet/site-fields.js";
 import type { GitHubSignalsRow } from "./github-signals.js";
 import type { FleetEvent } from "../db/fleet-events.js";
+import type { NetlifyDeployResult } from "../fleet/site-fields.js";
+import { isReadyState } from "./netlify-deploy.js";
 
 /** YYYY-MM-DD slice of an ISO timestamp, for per-site-per-day deterministic ids. */
 function ymd(iso: string): string {
@@ -60,10 +62,39 @@ function groupThousands(n: number): string {
  *  reads as 0 (vuln) or "not a renewal" (cert) — both fire only on a real transition. */
 export function detectAuditEvents(
   prev: WebsiteRow,
-  audits: { security?: SecurityCounts; domain?: DomainResult },
+  audits: {
+    security?: SecurityCounts;
+    domain?: DomainResult;
+    netlifyDeploy?: NetlifyDeployResult;
+  },
   at: string,
 ): FleetEvent[] {
   const events: FleetEvent[] = [];
+
+  // site_deployed: a new `ready` production deploy, stamped with its own publish time
+  // (not the audit time), so the feed says when it went live. A first-ever reading
+  // (no prior deployedAt) and an unchanged deployedAt record nothing.
+  if (audits.netlifyDeploy) {
+    const d = audits.netlifyDeploy;
+    const deployedAt = d.deployedAt;
+    if (
+      isReadyState(d.state) &&
+      deployedAt !== null &&
+      !Number.isNaN(Date.parse(deployedAt)) &&
+      prev.lastDeployAt != null &&
+      prev.lastDeployAt !== deployedAt
+    ) {
+      events.push({
+        id: `site_deployed:${prev.id}:${deployedAt}`,
+        ts: deployedAt,
+        type: "site_deployed",
+        siteId: prev.id,
+        siteName: prev.name,
+        summary: "Deploy published",
+        data: null,
+      });
+    }
+  }
 
   if (audits.security) {
     const prevCH = (prev.securityVulnsCritical ?? 0) + (prev.securityVulnsHigh ?? 0);
