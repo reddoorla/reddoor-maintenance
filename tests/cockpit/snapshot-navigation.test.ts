@@ -1244,7 +1244,7 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     await page.emulateMedia({ colorScheme: "light" });
     await page.goto(`${origin}/how`);
     await expect.poll(() => page.locator("h1").first().textContent()).toContain("How this works");
-    const tops = await page.$$eval(".how-ladder li", (els) =>
+    const tops = await page.$$eval(".how-ladder > li", (els) =>
       els.map((e) => Math.round(e.getBoundingClientRect().top)),
     );
     expect(tops).toHaveLength(4);
@@ -1264,7 +1264,7 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       await page.emulateMedia({ colorScheme: scheme });
       await page.goto(`${origin}/how`);
       await expect.poll(() => page.locator("h1").first().textContent()).toContain("How this works");
-      const ladder = await page.$$eval(".how-ladder li", (els) =>
+      const ladder = await page.$$eval(".how-ladder > li", (els) =>
         els.map((e) => ({
           cls: e.className,
           top: Math.round(e.getBoundingClientRect().top),
@@ -1328,7 +1328,7 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       await page.emulateMedia({ colorScheme: "light" });
       await page.goto(`${origin}/how`);
       await expect.poll(() => page.locator("h1").first().textContent()).toContain("How this works");
-      const boxes = await page.$$eval(".how-ladder li", (els) =>
+      const boxes = await page.$$eval(".how-ladder > li", (els) =>
         els.map((e) => {
           const r = e.getBoundingClientRect();
           return { top: Math.round(r.top), left: Math.round(r.left) };
@@ -1349,7 +1349,7 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     await page.emulateMedia({ colorScheme: "light" });
     await page.goto(`${origin}/how`);
     await expect.poll(() => page.locator("h1").first().textContent()).toContain("How this works");
-    const tops = await page.$$eval(".how-ladder li", (els) =>
+    const tops = await page.$$eval(".how-ladder > li", (els) =>
       els.map((e) => Math.round(e.getBoundingClientRect().top)),
     );
     expect(tops).toHaveLength(4);
@@ -1443,7 +1443,7 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       );
       for (const r of contrast) expect(r).toBeGreaterThanOrEqual(4.5);
       // Broken's bar is the Broken red, and no other level's is.
-      const bars = await page.$$eval(".how-ladder li", (els) =>
+      const bars = await page.$$eval(".how-ladder > li", (els) =>
         els.map((e) => [e.className, getComputedStyle(e).borderTopColor]),
       );
       const red = await page.evaluate(() => {
@@ -5402,6 +5402,743 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     } finally {
       await removeFeedEvent(id);
     }
+  });
+});
+
+describe("PR 8c, How this works motion", () => {
+  /** Each step's data-lit, in order. */
+  const litFlags = (page: Page) =>
+    page
+      .locator("ol.how-steps > li")
+      .evaluateAll((els) => els.map((el) => el.getAttribute("data-lit")));
+  /** The script's marker, set in the same effect that attaches the observer (never server-rendered). */
+  const stepsScripted = (page: Page) =>
+    page.locator('ol.how-steps[data-js="true"]').waitFor({ state: "attached" });
+  /** Brings step i to the middle of the viewport, so it is well past the 0.6 threshold. */
+  const scrollToStep = (page: Page, i: number) =>
+    page
+      .locator("ol.how-steps > li")
+      .nth(i)
+      .evaluate((el) => el.scrollIntoView({ block: "center" }));
+  /** The WCAG contrast ratio of two computed rgb(...) colours. */
+  const contrast = (a: string, b: string) => {
+    const lum = (rgb: string) => {
+      const [r, g, bl] = rgb
+        .match(/\d+(\.\d+)?/g)!
+        .slice(0, 3)
+        .map((x) => Number(x) / 255)
+        .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * r! + 0.7152 * g! + 0.0722 * bl!;
+    };
+    const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+    return (hi! + 0.05) / (lo! + 0.05);
+  };
+
+  // Measured 2026-11-20 at 390x700 (one column, step tops in px): 534, 718, 880, 1086, 1271, 1520,
+  // 1661, 1802 (innerHeight 700). Step 0 is in view at mount; steps 1 to 7 are below the fold. At
+  // 1280x700 all eight steps are in view on load (tops 338 and 587), so no step is below the fold there.
+  it("on load at 390x700, the steps below the fold are unlit, and scrolling each into view lights it", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 390, height: 700 });
+    await page.goto(`${origin}/how`);
+    await stepsScripted(page);
+    const below = await page
+      .locator("ol.how-steps > li")
+      .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().top >= window.innerHeight));
+    expect(below.some(Boolean), "the premise: at least one step is below the fold").toBe(true);
+    const before = await litFlags(page);
+    below.forEach((isBelow, i) =>
+      expect(before[i], `step ${i} below the fold is unlit on load`).toBe(
+        isBelow ? "false" : "true",
+      ),
+    );
+    for (let i = 0; i < below.length; i++) {
+      await scrollToStep(page, i);
+      await expect
+        .poll(async () => (await litFlags(page))[i], { message: `step ${i} lights once in view` })
+        .toBe("true");
+    }
+  });
+
+  it("step k never lights before step k-1", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 390, height: 700 });
+    await page.goto(`${origin}/how`);
+    await stepsScripted(page);
+    // Record the order in which steps turn lit after the observer is installed.
+    await page.evaluate(() => {
+      const ol = document.querySelector("ol.how-steps")!;
+      const items = Array.from(ol.children);
+      const order: number[] = [];
+      (window as unknown as { __lightOrder: number[] }).__lightOrder = order;
+      new MutationObserver((records) => {
+        for (const r of records) {
+          const el = r.target as Element;
+          if (el.getAttribute("data-lit") === "true" && r.oldValue !== "true")
+            order.push(items.indexOf(el));
+        }
+      }).observe(ol, {
+        attributes: true,
+        attributeFilter: ["data-lit"],
+        attributeOldValue: true,
+        subtree: true,
+      });
+    });
+    // The last step first: it is in view, but every step above it must light before it does.
+    const n = await page.locator("ol.how-steps > li").count();
+    await scrollToStep(page, n - 1);
+    // The chain lights seven steps, 300 ms apiece (about 2.1 s): the poll's 1 s default is too short.
+    await expect
+      .poll(async () => (await litFlags(page)).every((f) => f === "true"), { timeout: 5_000 })
+      .toBe(true);
+    const order = await page.evaluate(
+      () => (window as unknown as { __lightOrder: number[] }).__lightOrder,
+    );
+    expect(order.length, "some steps lit after the observer was installed").toBeGreaterThan(0);
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+  });
+
+  it("each step's light takes 300 ms, the transition's length", async () => {
+    const page = await signedIn();
+    await page.goto(`${origin}/how`);
+    await stepsScripted(page);
+    const duration = await page
+      .locator("ol.how-steps > li")
+      .first()
+      .evaluate((el) => getComputedStyle(el, "::before").transitionDuration);
+    expect(duration.split(",")[0]).toBe("0.3s");
+  });
+
+  it("under reduced motion nothing moves: every step is lit on load, and nothing is animating", async () => {
+    const page = await signedIn("op", { reducedMotion: "reduce" });
+    await page.setViewportSize({ width: 390, height: 700 });
+    await page.goto(`${origin}/how`);
+    await stepsScripted(page);
+    const below = await page
+      .locator("ol.how-steps > li")
+      .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().top >= window.innerHeight));
+    expect(below.some(Boolean), "the premise: at least one step is below the fold").toBe(true);
+    expect(new Set(await litFlags(page)), "every step lit on load").toEqual(new Set(["true"]));
+    const n = await page.locator("ol.how-steps > li").count();
+    await scrollToStep(page, n - 1);
+    expect(
+      (await litFlags(page)).every((f) => f === "true"),
+      "every step lit after scrolling to the last",
+    ).toBe(true);
+    const running = await page
+      .locator("ol.how-steps, ol.how-steps *")
+      .evaluateAll((els) => els.reduce((k, el) => k + el.getAnimations().length, 0));
+    expect(running, "no animation is running under reduced motion").toBe(0);
+  });
+
+  it("with no script, the server render shows every step lit and no script marker", async () => {
+    const page = await signedIn("op", { javaScriptEnabled: false });
+    await page.goto(`${origin}/how`);
+    const html = await page.content();
+    expect(html.match(/<ol class="how-steps"[^>]*>/)![0]).not.toContain("data-js");
+    expect((html.match(/data-lit="true"/g) ?? []).length).toBe(8);
+    expect(html).not.toContain('data-lit="false"');
+  });
+
+  it("an unlit step keeps its result in the DOM, and its muted text meets 4.5:1 on its panel in both themes", async () => {
+    for (const colorScheme of ["light", "dark"] as const) {
+      const page = await signedIn("op", { colorScheme });
+      await page.setViewportSize({ width: 390, height: 700 });
+      await page.goto(`${origin}/how`);
+      await stepsScripted(page);
+      const unlit = await page.locator("ol.how-steps > li[data-lit='false']").evaluateAll((els) =>
+        els.map((el) => {
+          const result = el.querySelector(".how-step-last")!;
+          return {
+            text: result.textContent?.trim() ?? "",
+            display: getComputedStyle(result).display,
+            visibility: getComputedStyle(result).visibility,
+            color: getComputedStyle(result).color,
+            panel: getComputedStyle(el).backgroundColor,
+          };
+        }),
+      );
+      expect(unlit.length, `${colorScheme}: some steps are unlit below the fold`).toBeGreaterThan(
+        0,
+      );
+      for (const u of unlit) {
+        expect(u.text.length, `${colorScheme}: the result text is in the DOM`).toBeGreaterThan(0);
+        expect(u.display, `${colorScheme}: the result is not display:none`).not.toBe("none");
+        expect(u.visibility, `${colorScheme}: the result is not hidden`).not.toBe("hidden");
+        expect(
+          contrast(u.color, u.panel),
+          `${colorScheme}: unlit result ${u.color} on ${u.panel}`,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+      await page.close();
+    }
+  });
+
+  // PR 8c item 9: a lead's journey. The dot runs once, Replay restarts it, and the branch is a
+  // disclosure. Nothing here moves under reduced motion, and the server render shows the end state.
+  /** The dot's running and finished animations, with their timing. */
+  const dotAnimations = (page: Page) =>
+    page.locator("section.how-lead .how-dot").evaluate((el) =>
+      el.getAnimations().map((a) => {
+        const t = (a.effect as KeyframeEffect).getTiming();
+        return { playState: a.playState, duration: t.duration, iterations: t.iterations };
+      }),
+    );
+  /** The script's marker on the lead flow, set in the same effect that attaches the listeners. */
+  const leadScripted = (page: Page) =>
+    page.locator('ol.how-lead-flow[data-js="true"]').waitFor({ state: "attached" });
+  /** Brings the lead chapter to the middle of the viewport, well past the 0.6 threshold. */
+  const scrollToLead = (page: Page) =>
+    page.locator("section.how-lead").evaluate((el) => el.scrollIntoView({ block: "center" }));
+
+  it("the lead's dot starts when the chapter is 0.6 in view, runs once in 3.5 s, and rests at the inbox", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await leadScripted(page);
+    const below = await page
+      .locator("section.how-lead")
+      .evaluate((el) => el.getBoundingClientRect().top >= window.innerHeight);
+    expect(below, "the premise: the lead chapter is below the fold on load").toBe(true);
+    expect(await dotAnimations(page), "the dot does not run before the chapter is in view").toEqual(
+      [],
+    );
+    await scrollToLead(page);
+    await expect
+      .poll(async () => (await dotAnimations(page)).length, { message: "the dot starts once" })
+      .toBe(1);
+    const [run] = await dotAnimations(page);
+    expect(run!.duration, "the run's length is LEAD_DOT_MS, 3.5 s").toBe(3500);
+    expect(run!.iterations, "the run is not a loop").toBe(1);
+    await expect
+      .poll(async () => (await dotAnimations(page))[0]?.playState, { timeout: 4_500 })
+      .toBe("finished");
+    const dot = page.locator("section.how-lead .how-dot");
+    expect(await dot.getAttribute("aria-hidden")).toBe("true");
+    expect(await dot.isVisible(), "the dot is shown once the script runs").toBe(true);
+  });
+
+  it("round 1 D1: no dot is visible before a run starts, on load or before the chapter is in view", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await leadScripted(page);
+    const dot = page.locator("section.how-lead .how-dot");
+    const box = await dot.boundingBox();
+    const top = await page
+      .locator("section.how-lead")
+      .evaluate((el) => el.getBoundingClientRect().top);
+    expect(
+      await dot.isVisible(),
+      `the dot is hidden on load: box ${JSON.stringify(box)}, chapter top ${top}, innerHeight 700`,
+    ).toBe(false);
+  });
+
+  it("round 1 D2: after a run, a resize across the stacking breakpoint leaves no dot outside the inbox stage", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await leadScripted(page);
+    await scrollToLead(page);
+    await expect
+      .poll(async () => (await dotAnimations(page))[0]?.playState, { timeout: 4_500 })
+      .toBe("finished");
+    const where = () =>
+      page.evaluate(() => {
+        const dot = document.querySelector("section.how-lead .how-dot") as HTMLElement;
+        const stages = Array.from(document.querySelectorAll("ol.how-lead-flow > li"));
+        const inbox = stages[stages.length - 1]!.getBoundingClientRect();
+        const d = dot.getBoundingClientRect();
+        const cx = d.left + d.width / 2;
+        const cy = d.top + d.height / 2;
+        return {
+          display: getComputedStyle(dot).display,
+          dot: { x: Math.round(cx), y: Math.round(cy) },
+          inbox: {
+            l: Math.round(inbox.left),
+            t: Math.round(inbox.top),
+            r: Math.round(inbox.right),
+            b: Math.round(inbox.bottom),
+          },
+          inside: cx >= inbox.left && cx <= inbox.right && cy >= inbox.top && cy <= inbox.bottom,
+        };
+      });
+    const before = await where();
+    expect(before.inside, `premise: at rest on the inbox at 1280 ${JSON.stringify(before)}`).toBe(
+      true,
+    );
+    await page.setViewportSize({ width: 390, height: 700 });
+    // The resize event fires on the next frame, after setViewportSize resolves: wait two frames.
+    await page.evaluate(
+      () =>
+        new Promise<void>((done) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => done())),
+        ),
+    );
+    expect(await page.evaluate(() => window.innerWidth), "the resize took effect").toBe(390);
+    const after = await where();
+    expect(
+      after.display === "none" || after.inside,
+      `after the resize the dot is hidden or on the inbox: ${JSON.stringify(after)}`,
+    ).toBe(true);
+  });
+
+  it("round 2 A: a resize that changes no width does not stop a run (a phone's toolbar fires one as the chapter scrolls in)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await leadScripted(page);
+    await scrollToLead(page);
+    await expect
+      .poll(async () => (await dotAnimations(page))[0]?.playState, { timeout: 4_000 })
+      .toBe("running");
+    await page.evaluate(() => window.dispatchEvent(new Event("resize")));
+    expect(
+      (await dotAnimations(page))[0]?.playState,
+      "the run carries on past a resize at the same width",
+    ).toBe("running");
+    await expect
+      .poll(async () => (await dotAnimations(page))[0]?.playState, { timeout: 4_500 })
+      .toBe("finished");
+    const dot = page.locator("section.how-lead .how-dot");
+    expect(await dot.isVisible(), "the dot is shown at the end of the run").toBe(true);
+    expect(
+      await page.locator("ol.how-lead-flow > li").last().getAttribute("data-passed"),
+      "the run reaches the inbox",
+    ).toBe("true");
+  });
+
+  it("round 2 A: a real width change mid-run stops the run, leaves no stage outlined, and Replay runs again", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await leadScripted(page);
+    await scrollToLead(page);
+    const clock = () =>
+      page.evaluate(
+        () =>
+          document.querySelector("section.how-lead .how-dot")!.getAnimations()[0]?.currentTime ?? 0,
+      );
+    // Past the first stage's mark (875 ms into the run), so a stage is outlined when the width changes.
+    await expect.poll(clock, { timeout: 4_000 }).toBeGreaterThan(1_000);
+    expect(
+      await page.locator("ol.how-lead-flow [data-passed]").count(),
+      "premise: a stage is outlined mid-run",
+    ).toBeGreaterThan(0);
+    await page.setViewportSize({ width: 390, height: 700 });
+    await page.evaluate(
+      () =>
+        new Promise<void>((done) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => done())),
+        ),
+    );
+    expect(
+      await page.locator("ol.how-lead-flow [data-passed]").count(),
+      "no stage is left outlined after a real width change",
+    ).toBe(0);
+    expect(await page.locator("section.how-lead .how-dot").isVisible(), "no dot").toBe(false);
+    await page.locator("section.how-lead button.how-replay").click();
+    await expect
+      .poll(async () => (await dotAnimations(page))[0]?.playState, { timeout: 4_500 })
+      .toBe("finished");
+    expect(
+      await page.locator("ol.how-lead-flow > li").last().getAttribute("data-passed"),
+      "Replay runs to the inbox",
+    ).toBe("true");
+  });
+
+  it("round 1 E: on a short screen (844x390) the dot runs once the chapter fills the view", async () => {
+    // Measured round 1: the chapter is 662px tall at 844x390, so 0.6 of it (397px) never fits in
+    // a 390px viewport and the old 0.6 test never passes. At 390x700 (716px of 1167px allowed)
+    // and 1280x700 (314px) the old test is reached, and the new one must not change them.
+    const page = await signedIn();
+    await page.setViewportSize({ width: 844, height: 390 });
+    await page.goto(`${origin}/how`);
+    await leadScripted(page);
+    await scrollToLead(page);
+    const m = await page.locator("section.how-lead").evaluate((el) => ({
+      sectionPx: Math.round(el.getBoundingClientRect().height),
+      innerHeight: window.innerHeight,
+    }));
+    await expect
+      .poll(async () => (await dotAnimations(page)).length, {
+        timeout: 4_000,
+        message: `the dot starts once the chapter fills the view: ${JSON.stringify(m)}`,
+      })
+      .toBe(1);
+  });
+
+  it("Replay restarts the run from the form", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await leadScripted(page);
+    await scrollToLead(page);
+    await expect
+      .poll(async () => (await dotAnimations(page))[0]?.playState, { timeout: 4_500 })
+      .toBe("finished");
+    const replay = page.locator("section.how-lead button.how-replay");
+    expect(await replay.isVisible(), "Replay is shown once the script runs").toBe(true);
+    expect(await replay.getAttribute("type")).toBe("button");
+    await replay.click();
+    const again = await page.evaluate(() => {
+      const [a] = document.querySelector("section.how-lead .how-dot")!.getAnimations();
+      return { playState: a?.playState, currentTime: a?.currentTime ?? null };
+    });
+    expect(again.playState, "Replay starts a new run").toBe("running");
+    expect(again.currentTime, "the new run starts at the form").toBeLessThan(1000);
+  });
+
+  it("under reduced motion nothing moves: no dot, no Replay, no running animation, and no stage is marked", async () => {
+    const page = await signedIn("op", { reducedMotion: "reduce" });
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await leadScripted(page);
+    await scrollToLead(page);
+    expect(await page.locator("section.how-lead .how-dot").isVisible(), "hidden").toBe(false);
+    expect(await page.locator("section.how-lead button.how-replay").isVisible(), "hidden").toBe(
+      false,
+    );
+    expect(await dotAnimations(page)).toEqual([]);
+    const running = await page.evaluate(
+      () => document.getAnimations().filter((a) => a.playState === "running").length,
+    );
+    expect(running, "no animation is running under reduced motion").toBe(0);
+    expect(
+      await page.locator("ol.how-lead-flow [data-passed]").count(),
+      "no stage is marked as passed",
+    ).toBe(0);
+  });
+
+  it("the branch is closed on the client, and its button toggles it by mouse, Enter and Space", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await leadScripted(page);
+    const toggle = page.locator("section.how-lead button.how-branch-toggle");
+    const region = page.locator("#how-branch-text");
+    expect(await toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(await region.isVisible(), "closed on the client").toBe(false);
+    await toggle.click();
+    expect(await toggle.getAttribute("aria-expanded")).toBe("true");
+    expect((await region.textContent())?.replace(/\s+/g, " ").trim()).toBe(
+      "If an email to the client fails, the lead is still kept in our own inbox, and repeated bounces raise an alarm for us.",
+    );
+    await toggle.focus();
+    await page.keyboard.press("Enter");
+    expect(await toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(await region.isVisible(), "hidden").toBe(false);
+    await page.keyboard.press("Space");
+    expect(await toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(await region.isVisible(), "visible").toBe(true);
+  });
+
+  it("with no script, the branch is open with its text, and Replay and the dot are hidden", async () => {
+    const page = await signedIn("op", { javaScriptEnabled: false });
+    await page.goto(`${origin}/how`);
+    expect(
+      await page.locator("section.how-lead button.how-branch-toggle").getAttribute("aria-expanded"),
+    ).toBe("true");
+    expect(await page.locator("#how-branch-text").isVisible(), "visible").toBe(true);
+    expect(await page.locator("section.how-lead button.how-replay").isVisible(), "hidden").toBe(
+      false,
+    );
+    expect(await page.locator("section.how-lead .how-dot").isVisible(), "hidden").toBe(false);
+  });
+
+  // PR 8c item 10: the ladder's levels are disclosures. Each opens its panel (today's sites and
+  // the 21-night line); Escape closes an open panel and returns focus to its button.
+  /** The script's marker on the ladder, set in the same effect that attaches its listeners. */
+  const ladderScripted = (page: Page) =>
+    page.locator('ol.how-ladder[data-js="true"]').waitFor({ state: "attached" });
+  const levelButton = (page: Page, tier: string) =>
+    page.locator(`ol.how-ladder button.how-level[data-level="${tier}"]`);
+  const levelPanel = (page: Page, tier: string) => page.locator(`#how-level-${tier}`);
+
+  it("each level's button opens its panel by click, Enter and Space, and Escape closes it and returns focus", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await ladderScripted(page);
+    for (const tier of ["ok", "watch", "attention", "broken"]) {
+      expect(
+        await levelButton(page, tier).getAttribute("aria-expanded"),
+        `${tier} starts closed`,
+      ).toBe("false");
+      expect(await levelPanel(page, tier).isVisible(), `${tier} panel closed`).toBe(false);
+    }
+    await levelButton(page, "broken").click();
+    expect(await levelButton(page, "broken").getAttribute("aria-expanded")).toBe("true");
+    expect(await levelPanel(page, "broken").isVisible(), "panel open after click").toBe(true);
+    expect(await levelPanel(page, "ok").isVisible(), "other levels stay closed").toBe(false);
+    await page.keyboard.press("Escape");
+    expect(await levelButton(page, "broken").getAttribute("aria-expanded"), "Escape closes").toBe(
+      "false",
+    );
+    expect(await levelPanel(page, "broken").isVisible()).toBe(false);
+    expect(
+      await page.evaluate(() => document.activeElement?.getAttribute("data-level")),
+      "focus returns to the level's button",
+    ).toBe("broken");
+    await levelButton(page, "attention").focus();
+    await page.keyboard.press("Enter");
+    expect(await levelButton(page, "attention").getAttribute("aria-expanded")).toBe("true");
+    await page.keyboard.press("Space");
+    expect(await levelButton(page, "attention").getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("opening fades in over 200 ms under motion, and under reduced motion it opens at once with no animation", async () => {
+    const page = await signedIn();
+    await page.goto(`${origin}/how`);
+    await ladderScripted(page);
+    await levelButton(page, "ok").click();
+    const [anim] = await levelPanel(page, "ok").evaluate((el) =>
+      el
+        .getAnimations()
+        .map((a) => ({ duration: (a.effect as KeyframeEffect).getTiming().duration })),
+    );
+    expect(anim?.duration, "the open runs 200 ms").toBe(200);
+
+    const still = await signedIn("op", { reducedMotion: "reduce" });
+    await still.goto(`${origin}/how`);
+    await ladderScripted(still);
+    await levelButton(still, "ok").click();
+    expect(await levelPanel(still, "ok").isVisible(), "open at once").toBe(true);
+    const running = await still.evaluate(
+      () => document.getAnimations().filter((a) => a.playState === "running").length,
+    );
+    expect(running, "no animation under reduced motion").toBe(0);
+  });
+
+  it("round 1 F: a site item in an open panel has no level bar, and its name and reason share a line at 1280", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await page.locator('ol.how-ladder[data-js="true"]').waitFor({ state: "attached" });
+    // Open the first level that lists a site (the seed decides which levels hold one).
+    const tier = await page.evaluate(() => {
+      const li = document.querySelector(".how-ladder .how-level-sites > li");
+      return li?.closest("li.ok, li.watch, li.attention, li.broken")?.className ?? null;
+    });
+    expect(tier, "premise: some level lists a site").not.toBeNull();
+    await levelButton(page, tier!).click();
+    await levelPanel(page, tier!).waitFor({ state: "visible" });
+    const site = page.locator(`#how-level-${tier} .how-level-sites > li`).first();
+    const m = await site.evaluate((li) => {
+      const name = li.querySelector(".how-level-site")!.getBoundingClientRect();
+      const r = li.getBoundingClientRect();
+      const cs = getComputedStyle(li);
+      return {
+        borderTop: cs.borderTopWidth,
+        background: cs.backgroundColor,
+        liHeight: Math.round(r.height),
+        nameHeight: Math.round(name.height),
+        sameLine: r.height <= name.height * 1.6,
+      };
+    });
+    expect(m.borderTop, `no level bar on a site item: ${JSON.stringify(m)}`).toBe("0px");
+    expect(m.sameLine, `the name and its reason share a line: ${JSON.stringify(m)}`).toBe(true);
+  });
+
+  // Round 2 D: the seeded Broken site's name is one unbroken 52-letter word (LONG_NAME).
+  const openEveryLevel = async (page: Page) => {
+    await ladderScripted(page);
+    for (const tier of ["ok", "watch", "attention", "broken"]) {
+      await levelButton(page, tier).click();
+      await levelPanel(page, tier).waitFor({ state: "visible" });
+    }
+  };
+
+  it("round 2 D: at 390 with every level open, a long unbroken site name wraps and the page does not scroll sideways (WCAG 1.4.10)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 390, height: 800 });
+    await page.goto(`${origin}/how`);
+    await openEveryLevel(page);
+    const m = await page.evaluate(() => ({
+      innerWidth: window.innerWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      cardRights: Array.from(document.querySelectorAll(".how-ladder > li")).map((li) =>
+        Math.round(li.getBoundingClientRect().right),
+      ),
+    }));
+    expect(m.scrollWidth, `no sideways scroll: ${JSON.stringify(m)}`).toBeLessThanOrEqual(
+      m.innerWidth,
+    );
+    m.cardRights.forEach((right, i) =>
+      expect(right, `card ${i} is within the viewport: ${JSON.stringify(m)}`).toBeLessThanOrEqual(
+        m.innerWidth,
+      ),
+    );
+  });
+
+  it("round 2 D: at 1280 with every level open, the four cards are equal width", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await openEveryLevel(page);
+    const widths = await page
+      .locator(".how-ladder > li")
+      .evaluateAll((lis) => lis.map((li) => li.getBoundingClientRect().width));
+    expect(widths).toHaveLength(4);
+    expect(Math.max(...widths) - Math.min(...widths), `card widths ${widths}`).toBeLessThanOrEqual(
+      1,
+    );
+  });
+
+  it("round 1 G: under forced colours the dot is drawn with a border, so it can be seen", async () => {
+    const page = await signedIn("op", { forcedColors: "active" });
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await leadScripted(page);
+    await scrollToLead(page);
+    await expect.poll(async () => (await dotAnimations(page)).length, { timeout: 4_000 }).toBe(1);
+    const dot = await page.locator("section.how-lead .how-dot").evaluate((el) => {
+      const cs = getComputedStyle(el);
+      const r = el.getBoundingClientRect();
+      return {
+        borderTop: cs.borderTopWidth,
+        background: cs.backgroundColor,
+        box: [Math.round(r.width), Math.round(r.height)],
+        forced: matchMedia("(forced-colors: active)").matches,
+      };
+    });
+    expect(dot.forced, "the page is under forced colours").toBe(true);
+    expect(dot.borderTop, `the dot has a border: ${JSON.stringify(dot)}`).not.toBe("0px");
+  });
+
+  it("round 1 B2: Replay clears the passed marks at once, so a finished run's inbox mark does not show on the next run", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await leadScripted(page);
+    await scrollToLead(page);
+    await expect
+      .poll(async () => (await dotAnimations(page))[0]?.playState, { timeout: 4_500 })
+      .toBe("finished");
+    const marked = () => page.locator("ol.how-lead-flow [data-passed]").count();
+    expect(await marked(), "premise: the finished run marks its stages").toBeGreaterThan(0);
+    await page.locator("section.how-lead button.how-replay").click();
+    expect(await marked(), "the new run starts with no stage marked").toBe(0);
+  });
+
+  it("round 1 B2: a Replay mid-run leaves no stale timer that marks a stage of the new run early", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await leadScripted(page);
+    await scrollToLead(page);
+    const clock = () =>
+      page.evaluate(
+        () =>
+          document.querySelector("section.how-lead .how-dot")!.getAnimations()[0]?.currentTime ?? 0,
+      );
+    await expect.poll(clock, { timeout: 4_000 }).toBeGreaterThan(500);
+    // Each mark of stage 1 records the dot's clock and whether its animation is the one the old
+    // run started, so the record does not depend on when the poll reads the page. The marks are
+    // watched from before Replay, so a stale timer's mark is seen whatever its time.
+    await page.evaluate(() => {
+      const w = window as unknown as {
+        __oldAnim: Animation | undefined;
+        __marks: Array<{ fresh: boolean; at: number }>;
+      };
+      const dot = document.querySelector("section.how-lead .how-dot")!;
+      const stage1 = document.querySelectorAll("ol.how-lead-flow > li")[1] as HTMLElement;
+      w.__oldAnim = dot.getAnimations()[0];
+      w.__marks = [];
+      new MutationObserver(() => {
+        if (stage1.getAttribute("data-passed") !== "true") return;
+        const anim = dot.getAnimations()[0];
+        const t = anim?.currentTime;
+        w.__marks.push({ fresh: anim !== w.__oldAnim, at: typeof t === "number" ? t : 0 });
+      }).observe(stage1, { attributes: true, attributeFilter: ["data-passed"] });
+    });
+    // Premise: Replay must land before the old run marks stage 1 (875 ms of its clock). If the old
+    // run has already marked it, the old timer's mark proves nothing, so the test says so.
+    const stage1Passed = await page
+      .locator("ol.how-lead-flow > li")
+      .nth(1)
+      .getAttribute("data-passed");
+    expect(
+      stage1Passed,
+      "premise: Replay is clicked before the first run marks stage 1, so a stale timer can show",
+    ).not.toBe("true");
+    await page.locator("section.how-lead button.how-replay").click();
+    const fresh = () =>
+      page.evaluate(() =>
+        (window as unknown as { __marks: Array<{ fresh: boolean; at: number }> }).__marks
+          .filter((m) => m.fresh)
+          .map((m) => m.at),
+      );
+    // The new run marks stage 1 at LEAD_DOT_MS / 4 = 875 ms of its own clock (four stages after
+    // the form). A stale timer from the old run, which had run at least 500 ms, would mark it by
+    // 875 - 500 = 375 ms of the new run, so the first mark of the new run must be at least 600 ms.
+    await expect.poll(async () => (await fresh()).length, { timeout: 4_000 }).toBeGreaterThan(0);
+    const [firstMark] = await fresh();
+    expect(firstMark, "stage 1 is not marked early by an old run's timer").toBeGreaterThanOrEqual(
+      600,
+    );
+  });
+
+  it("round 1 B3: the steps light about 300 ms apart, one after another, not together", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 390, height: 700 });
+    await page.goto(`${origin}/how`);
+    await stepsScripted(page);
+    const unlit = (await litFlags(page)).filter((f) => f === "false").length;
+    expect(unlit, "premise: some steps are unlit on load").toBeGreaterThan(1);
+    await page.evaluate(() => {
+      const w = window as unknown as { __litAt: number[] };
+      w.__litAt = [];
+      const mo = new MutationObserver((muts) => {
+        for (const m of muts)
+          if ((m.target as HTMLElement).getAttribute("data-lit") === "true")
+            w.__litAt.push(performance.now());
+      });
+      document
+        .querySelectorAll("ol.how-steps > li")
+        .forEach((li) => mo.observe(li, { attributes: true, attributeFilter: ["data-lit"] }));
+    });
+    // Scrolling to the end passes every unlit step at once: they light in order, each after the last.
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    const litAt = () => page.evaluate(() => (window as unknown as { __litAt: number[] }).__litAt);
+    await expect.poll(async () => (await litAt()).length, { timeout: 6_000 }).toBe(unlit);
+    const times = await litAt();
+    const gaps = times.slice(1).map((t, i) => t - times[i]!);
+    expect(
+      Math.min(...gaps),
+      `the gaps between lights, in ms: ${gaps.map(Math.round).join(", ")}`,
+    ).toBeGreaterThanOrEqual(250);
+  });
+
+  it("round 1 B6: scrolling away and back does not start a second run", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await leadScripted(page);
+    await scrollToLead(page);
+    await expect
+      .poll(async () => (await dotAnimations(page))[0]?.playState, { timeout: 4_500 })
+      .toBe("finished");
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForTimeout(300);
+    await scrollToLead(page);
+    await page.waitForTimeout(500);
+    const after = await page.evaluate(() => {
+      const a = document.querySelector("section.how-lead .how-dot")!.getAnimations();
+      return { count: a.length, state: a[0]?.playState, time: a[0]?.currentTime ?? null };
+    });
+    expect(after.count, "still one animation").toBe(1);
+    expect(after.state, `no second run: ${JSON.stringify(after)}`).toBe("finished");
+  });
+
+  it("with no script, every level's panel is open, with its sites and nights line", async () => {
+    const page = await signedIn("op", { javaScriptEnabled: false });
+    await page.goto(`${origin}/how`);
+    for (const tier of ["ok", "watch", "attention", "broken"]) {
+      expect(await levelButton(page, tier).getAttribute("aria-expanded")).toBe("true");
+      expect(await levelPanel(page, tier).isVisible(), `${tier} panel visible`).toBe(true);
+    }
+    expect(await levelPanel(page, "ok").textContent()).toContain("no open items");
   });
 });
 
