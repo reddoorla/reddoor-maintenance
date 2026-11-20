@@ -88,13 +88,13 @@ describe("Sites filtered to one health check (P1-87, PR 8b)", () => {
     const doc = await page("/fleet?check=certificate");
     expect(rowNames(doc)).toEqual(["Bravo", "Charlie"]);
     expect(text(checkLine(doc)!)).toContain("Failing Certificate: 2 sites");
-    expect(text(checkLine(doc)!)).toContain("1 more have no verdict yet");
+    expect(text(checkLine(doc)!)).toContain("1 more neither passes nor fails");
   });
 
   it("reads the whole line with a space before each dot", async () => {
     const doc = await page("/fleet?check=certificate");
     expect(text(checkLine(doc)!)).toBe(
-      "Failing Certificate: 2 sites · 1 more have no verdict yet · Show all sites",
+      "Failing Certificate: 2 sites · 1 more neither passes nor fails · Show all sites",
     );
   });
 
@@ -161,7 +161,7 @@ describe("Sites filtered to one health check (P1-87, PR 8b)", () => {
     const doc = await page("/fleet?check=contact-form", FORM_SNAP);
     expect(rowNames(doc)).toEqual([]);
     expect(text(checkLine(doc)!)).toBe(
-      "Failing Contact form: 0 sites · 3 more have no verdict yet · Show all sites",
+      "Failing Contact form: 0 sites · 3 more neither pass nor fail · Show all sites",
     );
   });
 

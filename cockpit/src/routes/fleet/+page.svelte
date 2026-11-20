@@ -90,7 +90,9 @@
 {#if known !== null}
   <p class="check-filter">
     {failingLine(known)}{#if known.unread > 0}
-      {" "}· {known.unread} more have no verdict yet{/if}
+      {" "}· {known.unread} more {known.unread === 1
+        ? "neither passes nor fails"
+        : "neither pass nor fail"}{/if}
     · <a href={allSitesHref(m)}>Show all sites</a>
   </p>
 {:else if unknownSlug !== null}
