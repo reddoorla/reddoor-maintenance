@@ -35,6 +35,8 @@ import { fleetWorkdir } from "../../util/fleet-workdir.js";
 import { isOwnerRepo } from "../../util/git.js";
 import { siteLabel } from "../../util/site.js";
 import type { Site } from "../../types.js";
+import type { FleetEvent } from "../../db/fleet-events.js";
+import { recordFleetEventsBestEffort } from "../../audits/fleet-events-writer.js";
 import { PRETTIER_FLAG_NOTE } from "../../recipes/_prettier.js";
 import {
   defaultDeps as defaultModelDeps,
@@ -123,6 +125,9 @@ export type PrismicSyncDeps = {
   redact: (text: string) => string;
   /** Tars a clone's working tree, without `.git` and without following links. */
   archive: (root: string, tarFile: string) => Promise<void>;
+  /** Records the feed events the publish stage produced. Best effort by contract;
+   *  the default is recordFleetEventsBestEffort. */
+  recordEvents?: (events: FleetEvent[]) => Promise<void>;
 };
 
 const describe = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -271,7 +276,27 @@ export type SiteOutcome =
   | "skipped"
   | "failed";
 
-type SiteReport = { label: string; outcome: SiteOutcome; detail: string };
+type SiteReport = { label: string; outcome: SiteOutcome; detail: string; event?: FleetEvent };
+
+/** prismic_sync_opened: a sync PR this run opened, named for its site. Null for a
+ *  site with no name: the feed shows the site's name, never its path. PURE. */
+export function prismicSyncOpenedEvent(
+  name: string | null,
+  repo: string,
+  number: number,
+  at: string,
+): FleetEvent | null {
+  if (!name) return null;
+  return {
+    id: `prismic_sync_opened:${repo}#${number}`,
+    ts: at,
+    type: "prismic_sync_opened",
+    siteId: null,
+    siteName: name,
+    summary: "Prismic sync PR opened",
+    data: null,
+  };
+}
 
 type SyncView = Pick<Synced, "repositoryName" | "changed" | "adopted" | "localOnly">;
 
@@ -291,6 +316,9 @@ export type SitePlan =
       label: string;
       outcome: "build";
       id: string;
+      /** The site's own name, or null when it has none: the feed names a site by this
+       *  and never by its path, so a nameless site records no event. */
+      name: string | null;
       repo: string;
       base: string;
       baseHead: string;
@@ -460,6 +488,7 @@ async function fetchOneSite(
     label,
     outcome: "build",
     id,
+    name: site.name || null,
     repo,
     base,
     baseHead,
@@ -873,7 +902,13 @@ async function publishOneSite(
     };
   }
   const created = await github.createPr(repo, { head: SYNC_BRANCH, base, title, body });
-  return { label, outcome: "opened", detail: `opened ${created.url} — ${summary}` };
+  const event = prismicSyncOpenedEvent(site.name, repo, created.number, new Date().toISOString());
+  return {
+    label,
+    outcome: "opened",
+    detail: `opened ${created.url} — ${summary}`,
+    ...(event ? { event } : {}),
+  };
 }
 
 async function publishPlan(
@@ -955,6 +990,12 @@ async function runPublishStage(
     openPrs,
     github,
   });
+  const events = reports.flatMap((r) => (r.event ? [r.event] : []));
+  if (events.length > 0) {
+    await (
+      deps.recordEvents ?? ((es: FleetEvent[]) => recordFleetEventsBestEffort(es, new Date()))
+    )(events);
+  }
   return renderReports(reports, !openPrs);
 }
 

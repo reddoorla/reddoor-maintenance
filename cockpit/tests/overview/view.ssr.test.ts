@@ -52,6 +52,7 @@ import {
 import { trafficWindows } from "../../../src/fleet-daily/traffic.js";
 import {
   cockpitModelFromSnapshot,
+  deploysToShow,
   type CockpitSnapshot,
 } from "../../../src/dashboard/snapshot-views.js";
 
@@ -3877,6 +3878,182 @@ describe("the Lately feed's line keys (P1-87 PR 8a, item 7)", () => {
     expect(new Set(a).size).toBe(2);
     const b = overviewFromSnapshot(twin, NOW).lately.lines.map((l) => l.key);
     expect(b).toEqual(a);
+  });
+});
+
+// P1-87 PR 9 (d). The three new events. The backup line is formatted from its data, so
+// it never depends on the stored summary; a site's line names the site and says what
+// happened; no line carries a URL, a commit message or a PR title.
+describe("the Lately feed's new events (P1-87 PR 9)", () => {
+  it("formats the backup line's counts from data, not from the stored summary", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        feedEvents: [
+          event({
+            id: "backup_verified:2026-10-27",
+            type: "backup_verified",
+            ts: "2026-10-27T10:00:00.000Z",
+            siteId: null,
+            siteName: null,
+            summary: "WRONG-SUMMARY",
+            data: { tables: 44, rows: 12345 },
+          }),
+        ],
+      }),
+      NOW,
+    );
+    expect(v.lately.lines.map((l) => [l.text, l.site])).toEqual([
+      ["Backup restored in rehearsal: 44 tables, 12,345 rows", null],
+    ]);
+  });
+
+  it("drops the counts from a backup line whose data does not hold them", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        feedEvents: [
+          event({
+            id: "backup_verified:2026-10-27",
+            type: "backup_verified",
+            ts: "2026-10-27T10:00:00.000Z",
+            siteId: null,
+            siteName: null,
+            summary: "x",
+            data: { tables: "44", rows: null },
+          }),
+        ],
+      }),
+      NOW,
+    );
+    expect(v.lately.lines.map((l) => l.text)).toEqual(["Backup restored in rehearsal"]);
+  });
+
+  it("says a site's deploy and sync PR, naming the site and nothing else", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [healthy({ id: "recA", name: "Acme" })],
+        feedEvents: [
+          event({
+            id: "site_deployed:recA:2026-10-27T09:00:00.000Z",
+            type: "site_deployed",
+            ts: "2026-10-27T09:00:00.000Z",
+            summary: "STORED-IGNORED",
+          }),
+          event({
+            id: "prismic_sync_opened:reddoorla/acme#7",
+            type: "prismic_sync_opened",
+            ts: "2026-10-27T08:00:00.000Z",
+            summary: "STORED-IGNORED",
+          }),
+        ],
+      }),
+      NOW,
+    );
+    expect(v.lately.lines.map((l) => [l.text, l.site])).toEqual([
+      ["Deploy published", "Acme"],
+      ["Prismic sync PR opened", "Acme"],
+    ]);
+  });
+
+  it("lists a deploy the snapshot read on its own, as the feed's deploys (P1-87 PR 9)", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [healthy({ id: "recA", name: "Acme" })],
+        feedDeploys: [
+          event({
+            id: "site_deployed:recA:2026-10-27T09:00:00.000Z",
+            type: "site_deployed",
+            ts: "2026-10-27T09:00:00.000Z",
+            summary: "STORED-IGNORED",
+          }),
+        ],
+      }),
+      NOW,
+    );
+    expect(v.lately.lines.map((l) => [l.text, l.site])).toEqual([["Deploy published", "Acme"]]);
+  });
+
+  it("shows the merge, and not the deploy it came before on the same site (P1-87 PR 9)", () => {
+    const merge = event({
+      id: "pr_automerged:recA:1",
+      type: "pr_automerged",
+      ts: "2026-10-27T08:30:00.000Z",
+    });
+    const deploy = event({
+      id: "site_deployed:recA:2026-10-27T09:00:00.000Z",
+      type: "site_deployed",
+      ts: "2026-10-27T09:00:00.000Z",
+    });
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [healthy({ id: "recA", name: "Acme" })],
+        feedEvents: [merge],
+        feedDeploys: deploysToShow([deploy, merge]),
+      }),
+      NOW,
+    );
+    expect(v.lately.lines.map((l) => [l.text, l.site])).toEqual([
+      ["Dependency update merged", "Acme"],
+    ]);
+  });
+
+  it("never shows a URL, a title or a commit message from an event's data", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [healthy({ id: "recA", name: "Acme" })],
+        feedEvents: [
+          event({
+            id: "prismic_sync_opened:reddoorla/acme#7",
+            type: "prismic_sync_opened",
+            ts: "2026-10-27T08:00:00.000Z",
+            summary: "Prismic sync PR opened",
+            data: {
+              url: "https://github.com/reddoorla/acme/pull/7",
+              title: "SENTINEL-TITLE-N",
+              body: "SENTINEL-COMMIT-N",
+            },
+          }),
+          event({
+            id: "site_deployed:recA:2026-10-27T09:00:00.000Z",
+            type: "site_deployed",
+            ts: "2026-10-27T09:00:00.000Z",
+            summary: "Deploy published",
+            data: { url: "https://SENTINEL-URL-N.example.test/" },
+          }),
+        ],
+      }),
+      NOW,
+    );
+    const json = JSON.stringify(v.lately.lines);
+    for (const sentinel of [
+      "github.com",
+      "pull/7",
+      "SENTINEL-TITLE-N",
+      "SENTINEL-COMMIT-N",
+      "SENTINEL-URL-N",
+      "http",
+    ])
+      expect(json).not.toContain(sentinel);
+  });
+
+  it("holds the feed to its eight newest lines with the new types present", () => {
+    const feedEvents = Array.from({ length: 10 }, (_, i) =>
+      event({
+        id: `mix-${i}`,
+        type: (["site_deployed", "prismic_sync_opened", "backup_verified"] as const)[i % 3]!,
+        ts: `2026-10-27T${String(9 - (i % 9)).padStart(2, "0")}:${String(i).padStart(2, "0")}:00.000Z`,
+        siteId: i % 3 === 2 ? null : "recA",
+        siteName: i % 3 === 2 ? null : "Acme",
+        summary: "x",
+        data: i % 3 === 2 ? { tables: 1, rows: i } : null,
+      }),
+    );
+    const v = overviewFromSnapshot(
+      snapshot({ sites: [healthy({ id: "recA", name: "Acme" })], feedEvents }),
+      NOW,
+    );
+    expect(v.lately.lines).toHaveLength(8);
+    const ts = v.lately.lines.map((l) => l.atIso);
+    expect(ts).toEqual([...ts].sort().reverse());
   });
 });
 

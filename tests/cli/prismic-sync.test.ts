@@ -33,6 +33,7 @@ import {
 import type { PrismicModelsDeps } from "../../src/cli/commands/prismic-models.js";
 import { buildSite, realSteps } from "../../scripts/prismic-sync-build.mjs";
 import type { RemoteEntry } from "../../src/prismic/models/types.js";
+import type { FleetEvent } from "../../src/db/fleet-events.js";
 
 const run = promisify(execFile);
 
@@ -155,6 +156,7 @@ function fakeGitHub(): SyncGitHub & {
 }
 
 type Harness = {
+  events: FleetEvent[];
   deps: PrismicSyncDeps;
   github: ReturnType<typeof fakeGitHub>;
   setRemote: (models: RemoteEntry[]) => void;
@@ -169,6 +171,7 @@ const asRemote = (page: object, hero: object): RemoteEntry[] => [
 ];
 
 function harness(opts: { secret?: string } = {}): Harness {
+  const events: FleetEvent[] = [];
   let remote: RemoteEntry[] = asRemote(PAGE, HERO);
   const github = fakeGitHub();
   const codegen = vi.fn(async (root: string) => {
@@ -209,11 +212,22 @@ function harness(opts: { secret?: string } = {}): Harness {
         );
       }),
     github: () => github,
+    recordEvents: async (es) => {
+      events.push(...es);
+    },
     cloneUrl: () => origin,
     redact: (t) => (opts.secret ? t.split(opts.secret).join("***") : t),
     archive: defaultSyncDeps({}).archive,
   };
-  return { deps, github, setRemote: (m) => (remote = m), codegen, install, format };
+  return {
+    events,
+    deps,
+    github,
+    setRemote: (m) => (remote = m),
+    codegen,
+    install,
+    format,
+  };
 }
 
 let night = 0;
@@ -316,6 +330,8 @@ describe("prismic-sync --fleet", () => {
     expect(res.output).toMatch(/^updated\s+Fixture/m);
     expect(h.github.prs).toHaveLength(1);
     expect(h.github.prs[0]!.body).toContain("`slice hero`");
+    // P1-87 PR 9, review T2: an updated PR records nothing; only the night it opened did.
+    expect(h.events).toHaveLength(1);
     const second = (await branchHead())!;
     expect(second).not.toBe(first);
     await git(["merge-base", "--is-ancestor", first, second], origin);
@@ -1060,5 +1076,60 @@ describe("forPull", () => {
     );
     expect(forPull("+ Main.title")).toBe("+ Main.title (only in the repo: this PR removes it)");
     expect(forPull("~ (model) label")).toBe("~ (model) label");
+  });
+});
+
+// P1-87 PR 9 (c). The feed event for a sync PR this run opened. Only "opened" records
+// one, and the site's own name is what it shows.
+describe("prismic-sync --fleet — the feed event for an opened sync PR", () => {
+  it("records one prismic_sync_opened event, named for the site, when a sync PR opens", async () => {
+    await makeOrigin(STANDARD);
+    const h = harness();
+    h.setRemote(asRemote({ ...PAGE, label: "Landing page" }, HERO));
+    const res = await fleet(h);
+    expect(res.output).toContain("opened=1");
+    expect(h.events).toEqual([
+      {
+        id: "prismic_sync_opened:reddoorla/fixture#1",
+        ts: expect.any(String),
+        type: "prismic_sync_opened",
+        siteId: null,
+        siteName: "Fixture",
+        summary: "Prismic sync PR opened",
+        data: null,
+      },
+    ]);
+  });
+
+  it("records nothing more on a second night that only updates or keeps the same PR", async () => {
+    await makeOrigin(STANDARD);
+    const h = harness();
+    h.setRemote(asRemote({ ...PAGE, label: "Landing page" }, HERO));
+    await fleet(h);
+    expect(h.events).toHaveLength(1);
+    const again = await fleet(h);
+    expect(again.output).not.toContain("opened=1");
+    expect(h.events).toHaveLength(1);
+  });
+
+  it("records nothing on a dry run, which opens no PR", async () => {
+    await makeOrigin(STANDARD);
+    const h = harness();
+    h.setRemote(asRemote({ ...PAGE, label: "Landing page" }, HERO));
+    const res = await fleet(h, false);
+    expect(res.code).toBe(0);
+    expect(h.github.prs).toEqual([]);
+    expect(h.events).toEqual([]);
+  });
+
+  it("records nothing for a site with no name, though its PR still opens", async () => {
+    await makeOrigin(STANDARD);
+    const h = harness();
+    h.deps.resolveSites = async () => [{ path: "", gitRepo: "reddoorla/fixture" }];
+    h.setRemote(asRemote({ ...PAGE, label: "Landing page" }, HERO));
+    const res = await fleet(h);
+    expect(res.output).toContain("opened=1");
+    expect(h.github.prs).toHaveLength(1);
+    expect(h.events).toEqual([]);
   });
 });

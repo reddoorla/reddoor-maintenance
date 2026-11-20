@@ -236,6 +236,7 @@ export function planAuditWrite(args: {
     {
       ...(audits.security !== undefined ? { security: audits.security } : {}),
       ...(audits.domain !== undefined ? { domain: audits.domain } : {}),
+      ...(audits.netlifyDeploy !== undefined ? { netlifyDeploy: audits.netlifyDeploy } : {}),
     },
     new Date().toISOString(),
   );

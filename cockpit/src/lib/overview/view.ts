@@ -2519,7 +2519,20 @@ const PLAIN_EVENT: Partial<Record<FleetEvent["type"], string>> = {
   ci_recovered: "Build + tests back to passing",
   site_launched: "Site launched, now in our care",
   report_sent_with_override: "Report sent with an override",
+  site_deployed: "Deploy published",
+  prismic_sync_opened: "Prismic sync PR opened",
 };
+
+/** The backup line, formatted from the event's own counts (P1-87 PR 9), so it never
+ *  depends on the stored summary. A data shape that does not hold two whole numbers
+ *  drops the counts rather than printing a guess. */
+function backupText(data: unknown): string {
+  const d = (data ?? null) as { tables?: unknown; rows?: unknown } | null;
+  const whole = (n: unknown): n is number => Number.isInteger(n) && (n as number) >= 0;
+  if (d && whole(d.tables) && whole(d.rows))
+    return `Backup restored in rehearsal: ${d.tables} tables, ${d.rows.toLocaleString("en-US")} rows`;
+  return "Backup restored in rehearsal";
+}
 
 const LATELY_WHEN = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/Los_Angeles",
@@ -2607,7 +2620,10 @@ export function latelyView(
     });
   };
   // Events (rank 0). An override's report is said by its event alone (rank 1 skips it).
-  const events = (s.feedEvents ?? []).filter((e) => e.type !== "fleet_swept");
+  // The deploys come from their own read (P1-87 PR 9), so they sit beside the other events.
+  const events = [...(s.feedEvents ?? []), ...(s.feedDeploys ?? [])].filter(
+    (e) => e.type !== "fleet_swept",
+  );
   // An event names its site as stored when the site is gone; a blank stored name reads as
   // "A site no longer listed", as a report does. The stored name is trimmed before it is
   // tested, so a name of spaces is no name.
@@ -2615,7 +2631,13 @@ export function latelyView(
     const stored = e.siteName?.trim() || null;
     return e.siteId === null ? stored : (siteName(e.siteId) ?? stored ?? GONE_SITE);
   };
-  for (const e of events) push(e.ts, PLAIN_EVENT[e.type] ?? e.summary, eventSite(e), 0);
+  for (const e of events)
+    push(
+      e.ts,
+      e.type === "backup_verified" ? backupText(e.data) : (PLAIN_EVENT[e.type] ?? e.summary),
+      eventSite(e),
+      0,
+    );
   const named = new Set(events.map(eventReportId).filter((x): x is string => x !== null));
   // Reports sent (rank 1): not a test send, not withdrawn.
   for (const r of s.reports ?? []) {
@@ -2921,7 +2943,7 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Lately",
-    text: "The newest 8 lines from the last 7 days, Pacific time: fleet events (a dependency update merged, a vulnerability cleared, a certificate renewed, and the like), reports sent, leads delivered, and the night the tiles count (before 6am, the night before last). A lead line names its site and how many, never who sent it. The nightly is one line saying how many of its steps ran to the end, naming up to two steps that did not run to the end and how many more did not; a sweep is shown only as those steps. A line from six Pacific calendar days back carries its date (Wed Oct 21, 12:00pm), so two days with the same weekday never read alike. A test send and a withdrawn report are not listed. When a source could not be read, the panel says so, and does not read as nothing recorded.",
+    text: "The newest 8 lines from the last 7 days, Pacific time: fleet events (a dependency update merged, a vulnerability cleared, a certificate renewed, and the like; a deploy is listed only when no dependency update merged on its site in the hour before it, since that merge's line already says the site changed), reports sent, leads delivered, and the night the tiles count (before 6am, the night before last). A lead line names its site and how many, never who sent it. The nightly is one line saying how many of its steps ran to the end, naming up to two steps that did not run to the end and how many more did not; a sweep is shown only as those steps. A line from six Pacific calendar days back carries its date (Wed Oct 21, 12:00pm), so two days with the same weekday never read alike. A test send and a withdrawn report are not listed. When a source could not be read, the panel says so, and does not read as nothing recorded.",
   },
   {
     term: "The nightly audit bar",

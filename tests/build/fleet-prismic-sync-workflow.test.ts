@@ -138,6 +138,13 @@ describe("fleet-prismic-sync — wiring", () => {
     expect(src).toMatch(/owner: reddoorla/);
   });
 
+  it("gives the publish step the two TURSO_* secrets the fetch step holds, to record the feed event", () => {
+    const env = stepEnv(wf, STEP);
+    expect(env.TURSO_DATABASE_URL).toBe("${{ secrets.TURSO_DATABASE_URL }}");
+    expect(env.TURSO_AUTH_TOKEN).toBe("${{ secrets.TURSO_AUTH_TOKEN }}");
+    expect(stepEnv(wf, FETCH_STEP).TURSO_AUTH_TOKEN).toBe(env.TURSO_AUTH_TOKEN);
+  });
+
   it("publishes after a failed fetch or build too, so a red run still files its issue", () => {
     expect((load(wf) as { jobs: Record<string, { if?: string }> }).jobs.publish!.if).toBe(
       "always()",

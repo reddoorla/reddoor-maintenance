@@ -56,3 +56,51 @@ describe("loadCockpitSnapshot — the Lately feed's events leave out the sweeps"
     expect(snap.recentEvents.every((e) => e.type === "fleet_swept")).toBe(true);
   });
 });
+
+describe("loadCockpitSnapshot — the feed's deploys are read on their own (P1-87 PR 9)", () => {
+  let dir: string;
+  let db: Db;
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), "snapshot-deploys-"));
+    db = await openDb({ url: `file:${join(dir, "fleet.db")}` });
+    // Twenty-five deploys on other sites, newer than everything else: without their own
+    // read they would fill the feed's 20-row read and push the merge out of it.
+    // Hourly from 2026-11-16T00:30Z (the 24th lands on the 17th, still before the merge below).
+    for (let i = 0; i < 25; i++)
+      await recordFleetEvent(db, {
+        ...ev(
+          `deploy-${i}`,
+          new Date(Date.UTC(2026, 10, 16, 0, 30) + i * 3_600_000).toISOString(),
+          "site_deployed",
+        ),
+        siteId: `recOTHER${i}`,
+      });
+    // A merge and then a deploy on the same site, 30 minutes later: the deploy is left out.
+    // Both are newer than every filler deploy, so the 20-row cap cannot be what hides it.
+    await recordFleetEvent(db, ev("merge", "2026-11-17T10:00:00.000Z", "pr_automerged"));
+    await recordFleetEvent(db, ev("merged-deploy", "2026-11-17T10:30:00.000Z", "site_deployed"));
+  });
+  afterEach(async () => {
+    await db.destroy();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("feedEvents carries no deploy, and feedDeploys only the deploys left in", async () => {
+    const snap = await loadCockpitSnapshot(db, NOW, "https://dash");
+    expect(snap.feedEvents.some((e) => e.type === "site_deployed")).toBe(false);
+    expect(snap.feedEvents.map((e) => e.id)).toEqual(["merge"]);
+    expect(snap.feedDeploys.map((e) => e.id)).toEqual(
+      Array.from({ length: 20 }, (_, i) => `deploy-${24 - i}`),
+    );
+    expect(snap.feedDeploys.every((e) => e.id !== "merged-deploy")).toBe(true);
+    expect(snap.gaps).toEqual([]);
+  });
+
+  // P1-87 PR 9, review C1: /fleet's Recently lane reads `recentEvents`, so the deploys leave
+  // that read too, and reach the lane through `feedDeploys` under the same rule.
+  it("recentEvents carries no deploy, so the 25 newer deploys cannot fill it (C1)", async () => {
+    const snap = await loadCockpitSnapshot(db, NOW, "https://dash");
+    expect(snap.recentEvents.some((e) => e.type === "site_deployed")).toBe(false);
+    expect(snap.recentEvents.map((e) => e.id)).toEqual(["merge"]);
+  });
+});

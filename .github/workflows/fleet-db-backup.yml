@@ -210,6 +210,17 @@ jobs:
           fi
           echo "monthly Dropbox copy ok: /Processes & Procedures/Backups/turso/$name"
 
+      # P1-87 PR 9 (a). Last, so it records only a night whose rehearsal, round-trip,
+      # upload and due Dropbox copy all finished. No `if:` of its own: the default
+      # success() gate is the point. The CLI exits 0 whether or not it recorded.
+      - name: Record the backup event
+        timeout-minutes: 5
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          node dist/cli/bin.js db record-backup-event --file "${RUNNER_TEMP:-/tmp}/verify.out"
+
       # Mirror fleet-smoke's alarm plumbing: a red nightly is otherwise only a
       # best-effort email. continue-on-error so the alert machinery can never
       # turn a green run red.
