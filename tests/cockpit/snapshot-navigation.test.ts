@@ -7,6 +7,7 @@ import { extname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import {
   chromium,
+  expect as pwExpect,
   type Browser,
   type BrowserContext,
   type BrowserContextOptions,
@@ -6139,5 +6140,120 @@ describe("PR 8c, How this works motion", () => {
       expect(await levelPanel(page, tier).isVisible(), `${tier} panel visible`).toBe(true);
     }
     expect(await levelPanel(page, "ok").textContent()).toContain("no open items");
+  });
+});
+
+/** P1-87 PR 8b, item 6: a health bar opens `/fleet` filtered to the sites that failed it. Not run
+ *  by the implementing session (no browser there); the owning session runs it. The seed's three
+ *  maintained sites decide the counts: Longname has 12 days of certificate (fails), Acme has 90
+ *  (passes), and Beta has no domain check (not read, the bar's unknown segment). So Certificate
+ *  reads 1 of 3 sites passing, its one failing site is Longname, and the line says 1 more could
+ *  not be read. */
+describe("a health bar opens /fleet filtered, in a browser (P1-87 PR 8b)", () => {
+  const nextRun = async (user?: string, options?: BrowserContextOptions) => {
+    for (const c of contexts.splice(0)) await c.close();
+    return signedIn(user, options);
+  };
+
+  it("a click on the failing Certificate bar lands on /fleet?check=certificate, with the rows the bar counts", async () => {
+    const page = await nextRun();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    const bar = page.locator('a[href="/fleet?check=certificate"]');
+    await expect.poll(() => bar.count()).toBe(1);
+    // D3: no aria-label; the name is the row's own counts, so a screen reader hears them and the
+    // visible "1 failing" is inside the name (WCAG 2.5.3). Playwright computes the name from the DOM.
+    expect(await bar.getAttribute("aria-label")).toBeNull();
+    // F1: the whole name, one string; the hidden phrase keeps its leading space.
+    const name = "Certificate 1 of 3 · 1 failing · 1 not checked Show them on Sites.";
+    await pwExpect(bar).toHaveAccessibleName(name);
+    // The text itself, not only the computed name: a browser may insert the space the markup
+    // lost, so the name alone cannot see the missing space.
+    const linkText = ((await bar.textContent()) ?? "").replace(/\s+/g, " ").trim();
+    expect(linkText).toBe(name);
+    // The bar's count-up and fill settle first, so the click lands on the settled page.
+    await figuresSettled(page);
+    await bar.click();
+    await page.waitForURL(`${origin}/fleet?check=certificate`);
+    await expect.poll(() => page.locator("tr.fleet-row").count()).toBe(1);
+    await expect
+      .poll(() => page.locator("tr.fleet-row td").first().textContent())
+      .toContain(LONG_NAME);
+    const line = await page.locator(".check-filter").textContent();
+    expect(line).toMatch(/Failing Certificate: 1 site(?!s)/);
+    expect(line).toContain("1 more neither passes nor fails");
+  });
+
+  // D2: the filtered column's "(filtered)" span is visually hidden; it must sit inside the table's
+  // own scroller, or it widens the page. The premise: the filtered header is there.
+  it("a filtered /fleet at 390px does not scroll sideways", async () => {
+    const page = await nextRun();
+    await page.setViewportSize({ width: 390, height: 844 });
+    for (const path of ["/fleet?check=certificate", "/fleet?check=live"]) {
+      await page.goto(`${origin}${path}`);
+      await expect.poll(() => page.locator("th.filtered-col").count()).toBe(1);
+      const widths = await page.evaluate(() => ({
+        scroll: document.documentElement.scrollWidth,
+        inner: window.innerWidth,
+      }));
+      expect(widths.scroll, path).toBeLessThanOrEqual(widths.inner);
+    }
+  });
+
+  // BR-1: a linked row keeps the row's own grid, so its name, bar and count start where an
+  // unlinked row's do. The premise: both kinds of row are on the page.
+  it("a linked check row's name, bar and count sit where an unlinked row's do at 1280px", async () => {
+    const page = await nextRun();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await expect.poll(() => page.locator("a.ov-check-link").count()).toBeGreaterThan(0);
+    const rows = await page.evaluate(() => {
+      const lefts = (li: Element) =>
+        ["ov-check-name", "ov-check-bar", "ov-check-count"].map((c) =>
+          Math.round(li.querySelector(`.${c}`)!.getBoundingClientRect().left),
+        );
+      const items = [...document.querySelectorAll("ul.ov-checks-list > li.ov-check")];
+      return {
+        linked: items.filter((li) => li.querySelector("a.ov-check-link")).map(lefts),
+        unlinked: items.filter((li) => !li.querySelector("a.ov-check-link")).map(lefts),
+      };
+    });
+    expect(rows.unlinked.length, "an unlinked row is on the page").toBeGreaterThan(0);
+    expect(rows.linked.length, "a linked row is on the page").toBeGreaterThan(0);
+    for (const xs of rows.linked) expect(xs).toEqual(rows.unlinked[0]);
+  });
+
+  // BR-2: keyboard focus on a linked row shows a ring at least 2px wide.
+  it("a focused linked check row shows a focus ring of at least 2px", async () => {
+    const page = await nextRun();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    const bar = page.locator('a[href="/fleet?check=certificate"]');
+    await expect.poll(() => bar.count()).toBe(1);
+    // Focus by keyboard, so the browser shows the focus ring (:focus-visible).
+    await bar.focus();
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Tab");
+    expect(await bar.evaluate((el) => el === document.activeElement)).toBe(true);
+    expect(await bar.evaluate((el) => el.matches(":focus-visible"))).toBe(true);
+    // base.css already gives every :focus-visible a 2px solid ring in --focus, and the link uses
+    // the same ring (BR-2), so the ring must be --focus as this page resolves it.
+    const ring = await bar.evaluate((el) => {
+      const s = getComputedStyle(el);
+      const probe = document.createElement("span");
+      probe.style.color = "var(--focus)";
+      document.body.appendChild(probe);
+      const focus = getComputedStyle(probe).color;
+      probe.remove();
+      return {
+        width: parseFloat(s.outlineWidth),
+        style: s.outlineStyle,
+        ring: s.outlineColor,
+        focus,
+      };
+    });
+    expect(ring.width).toBeGreaterThanOrEqual(2);
+    expect(ring.style).toBe("solid");
+    expect(ring.ring).toBe(ring.focus);
   });
 });

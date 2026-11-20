@@ -18,7 +18,7 @@ import { canonical, renderPage } from "../_helpers/parity.js";
  */
 const BASE = "https://reddoor-maintenance.netlify.app";
 const NOW = new Date("2026-06-11T12:00:00Z");
-const DEFAULT_QUERY: FleetTableQuery = { sort: "name", dir: "asc", status: "", q: "" };
+const DEFAULT_QUERY: FleetTableQuery = { sort: "name", dir: "asc", status: "", q: "", check: "" };
 
 function sites() {
   return [

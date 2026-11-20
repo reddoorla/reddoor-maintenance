@@ -92,6 +92,9 @@ export type FleetTableQuery = {
   status: string;
   /** Case-insensitive substring matched against site name AND slug ("" = all). */
   q: string;
+  /** A health check's slug, lowercased ("" = none). The route turns it into the site ids
+   *  to keep and passes those as `keep`; this module never names a check (P1-87, PR 8b). */
+  check: string;
 };
 
 /** The render-ready row: exactly the WebsiteRow fields the table shows. */
@@ -134,7 +137,7 @@ function asSortKey(v: string): FleetSortKey {
   return FLEET_SORT_KEYS.find((k) => k.toLowerCase() === want) ?? "name";
 }
 
-/** Parse ?sort/?dir/?status/?q — junk degrades to defaults, never throws. A
+/** Parse ?sort/?dir/?status/?q/?check — junk degrades to defaults, never throws. A
  *  repeated param takes its FIRST value (URLSearchParams.get). Length caps only
  *  bound hostile input (real statuses/searches are short). */
 export function parseFleetTableQuery(params: URLSearchParams): FleetTableQuery {
@@ -142,7 +145,8 @@ export function parseFleetTableQuery(params: URLSearchParams): FleetTableQuery {
   const dir = params.get("dir")?.trim().toLowerCase() === "desc" ? "desc" : "asc";
   const status = (params.get("status")?.trim() ?? "").slice(0, 64);
   const q = (params.get("q")?.trim() ?? "").slice(0, 200);
-  return { sort, dir, status, q };
+  const check = (params.get("check")?.trim().toLowerCase() ?? "").slice(0, 64);
+  return { sort, dir, status, q, check };
 }
 
 /** The status this table speaks: the RAW stored cell, never the canonical one.
@@ -216,6 +220,9 @@ export function buildFleetTableModel(
   query: FleetTableQuery,
   /** Each site's level by id, for the Level sort; a site absent has none. */
   tiers: ReadonlyMap<string, Tier> = new Map(),
+  /** When given, only these site ids are listed (the route's check filter, P1-87 PR 8b).
+   *  A site outside it is neither listed nor counted as hidden. */
+  keep?: ReadonlySet<string>,
 ): FleetTableModel {
   // Codepoint order on the lowercased value — the SAME collation the rows use,
   // which is in turn what `listSites`' SQL ORDER BY gives under SQLite's BINARY
@@ -239,6 +246,7 @@ export function buildFleetTableModel(
   const hideQuiet = query.status === "" && qLower === "";
   let hiddenCount = 0;
   const filtered = sites.filter((s) => {
+    if (keep !== undefined && !keep.has(s.id)) return false;
     if (hideQuiet && s.status !== null && HIDDEN_BY_DEFAULT.has(s.status)) {
       hiddenCount++;
       return false;

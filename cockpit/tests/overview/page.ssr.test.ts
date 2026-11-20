@@ -12,6 +12,7 @@ import {
   trendGeometry,
   HOW_WE_COUNT,
   HEALTH_CHECK_NAMES,
+  CHECK_SLUGS,
   type OverviewView,
 } from "../../src/lib/overview/view.js";
 import { BAR_MS, BAR_STAGGER_MS, SPARK_MS, FEED_MS } from "../../src/lib/overview/motion.js";
@@ -2730,5 +2731,75 @@ describe("the Lately feed's motion, on the server render (P1-87 PR 8a, item 7)",
     for (const block of mediaBodies(css, "@media (prefers-reduced-motion: no-preference)"))
       outside = outside.replace(block, "");
     expect(outside).not.toMatch(/ov-feed-in|data-new/);
+  });
+});
+
+/** P1-87 PR 8b: a health bar with a failing site links to `/fleet?check=<slug>`. Fixture:
+ *  Bravo and Charlie fail Certificate, Delta could not be read, and 15 pass: 2 of 18 fail. */
+describe("a failing health bar links to the sites that failed it (P1-87, PR 8b)", () => {
+  const sites = [
+    healthy({ id: "recA", name: "Acme" }),
+    healthy({ id: "recB", name: "Bravo", certDaysRemaining: 9 }),
+    healthy({ id: "recC", name: "Charlie", certDaysRemaining: 9 }),
+    healthy({ id: "recD", name: "Delta", domainCheckedAt: STALE }),
+    ...Array.from({ length: 14 }, (_, i) => healthy({ id: `recP${i}`, name: `Pass ${i}` })),
+  ];
+  const doc = parse(pageHtml(overviewFromSnapshot(snapshot({ sites }), NOW)));
+  const checkRow = (name: string) =>
+    doc
+      .querySelectorAll("ul.ov-checks-list > li.ov-check")
+      .find((li) => text(li.querySelector(".ov-check-name")!) === name)!;
+
+  it("links the failing Certificate bar to its failing sites, with its count in the link's own text", () => {
+    const link = checkRow("Certificate").querySelector("a")!;
+    expect(link.getAttribute("href")).toBe("/fleet?check=certificate");
+    // No aria-label: it would replace the row's counts (WCAG 2.5.3). The link's text is the row's
+    // text, and a visually hidden phrase at its end says where it goes.
+    expect(link.hasAttribute("aria-label")).toBe(false);
+    const linkText = text(link);
+    // The whole link text, whitespace collapsed: the hidden phrase keeps its leading space (F1).
+    expect(linkText).toBe("Certificate 15 of 18 · 2 failing · 1 not checked Show them on Sites.");
+  });
+
+  it("keeps the bar and its count inside the link, and the row keeps its intro index", () => {
+    const li = checkRow("Certificate");
+    expect(li.querySelector("a .ov-check-bar")).not.toBeNull();
+    expect(li.querySelector("a .ov-check-count")).not.toBeNull();
+    expect(li.getAttribute("style")).toContain("--i:");
+  });
+
+  it("leaves a bar with no failing site unlinked", () => {
+    expect(checkRow("Security").querySelector("a")).toBeNull();
+    expect(checkRow("Security").querySelector(".ov-check-bar")).not.toBeNull();
+  });
+
+  // T3: every failing bar links to its own slug, and the two-word names (Build + tests fails
+  // here) are among them. The bar's own failing count decides which links exist.
+  it("links every failing bar to its own slug, a two-word name included", () => {
+    const fixture = snapshot({
+      sites: [
+        healthy({ id: "recA", name: "Acme" }),
+        healthy({ id: "recB", name: "Bravo", smokeOk: "fail", lastSmokeAt: FRESH }),
+        healthy({ id: "recC", name: "Charlie", deployStatus: "error" }),
+        healthy({ id: "recD", name: "Delta", securityVulnsHigh: 1 }),
+      ],
+    });
+    const view = overviewFromSnapshot(fixture, NOW);
+    const doc2 = parse(pageHtml(view));
+    const hrefOf = (name: string) =>
+      doc2
+        .querySelectorAll("ul.ov-checks-list > li.ov-check")
+        .find((li) => text(li.querySelector(".ov-check-name")!) === name)!
+        .querySelector("a")
+        ?.getAttribute("href") ?? null;
+    const failing = HEALTH_CHECK_NAMES.filter(
+      (name) => view.health.checks.find((c) => c.name === name)!.fail > 0,
+    );
+    expect(failing).toEqual(expect.arrayContaining(["Build + tests", "Deploy", "Security"]));
+    for (const name of HEALTH_CHECK_NAMES) {
+      expect(hrefOf(name), name).toBe(
+        failing.includes(name) ? `/fleet?check=${CHECK_SLUGS[name]}` : null,
+      );
+    }
   });
 });

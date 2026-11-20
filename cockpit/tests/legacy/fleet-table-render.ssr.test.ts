@@ -9,7 +9,7 @@ import type { FleetTableQuery, FleetTableRow } from "../../../src/dashboard/flee
 import type { WebsiteRow } from "../../../src/fleet/site-row.js";
 import { makeWebsiteRow } from "../../../tests/_helpers/website-row.js";
 
-const DEFAULT_QUERY: FleetTableQuery = { sort: "name", dir: "asc", status: "", q: "" };
+const DEFAULT_QUERY: FleetTableQuery = { sort: "name", dir: "asc", status: "", q: "", check: "" };
 
 /** The filter <form> only — so "the page contains X somewhere" can never stand
  *  in for "the form offers X". */

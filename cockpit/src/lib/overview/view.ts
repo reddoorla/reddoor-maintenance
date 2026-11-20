@@ -1995,7 +1995,7 @@ export function trendGeometry(chart: TrendChart, width = 320, height = 132): Tre
 // ---- P1-87 PR 3: the first screen ----
 
 export type HealthCheck = {
-  name: string;
+  name: HealthCheckName;
   pass: number;
   fail: number;
   /** The three kinds of unknown below, summed (the grey part of the bar). */
@@ -2033,26 +2033,18 @@ export type NumberTile = {
  *  no verdict (no form, a partial scan, a deploy in progress, no deploy recorded...). */
 export type UnknownKind = "notChecked" | "testFailed" | "noVerdict";
 /** A check's verdict for one site: pass (true), fail (false), or the kind of unknown. */
-type Verdict = boolean | UnknownKind;
+export type Verdict = boolean | UnknownKind;
+
+/** One maintained site's verdict on each of the seven checks (P1-87 PR 8b). */
+export type SiteVerdicts = { siteId: string; verdicts: Record<HealthCheckName, Verdict> };
 
 /** Maintained sites only (launching, pre-launch and archived sites never count). Live,
  *  Certificate, Deploy and Contact form read the cells the Live columns showed; the
- *  rest read the same fields and freshness rules their own alarms read. */
-export function healthView(
-  model: CockpitModel,
-  live: LiveRow[],
-  now: Date,
-  status?: StatusView,
-): HealthView {
-  const maintained = model.cards.filter((c) => c.site.status === "maintained");
-  const tiers = { ok: 0, watch: 0, attention: 0, broken: 0 };
-  for (const c of maintained) {
-    if (c.tier === "healthy") tiers.ok++;
-    else if (c.tier === "watch") tiers.watch++;
-    else if (c.tier === "attention") tiers.attention++;
-    else if (c.tier === "broken") tiers.broken++;
-  }
-  const sites = maintained.map((c) => c.site);
+ *  rest read the same fields and freshness rules their own alarms read. The health bars
+ *  count from these verdicts, and `/fleet?check=` lists from them, so the two cannot
+ *  disagree (P1-87 PR 8b). */
+export function checkVerdicts(model: CockpitModel, live: LiveRow[], now: Date): SiteVerdicts[] {
+  const sites = model.cards.filter((c) => c.site.status === "maintained").map((c) => c.site);
   const row = (s: WebsiteRow) => live.find((r) => r.siteId === s.id);
   // Security: a fresh audit with a count; none of critical or high is a pass.
   const security = (s: WebsiteRow): Verdict => {
@@ -2102,17 +2094,39 @@ export function healthView(
     if (!c.fresh) return "notChecked";
     return c.testFailed ? "testFailed" : "noVerdict";
   };
-  const verdicts: Record<string, (s: WebsiteRow) => Verdict> = {
-    Live: liveV,
-    Certificate: domain,
-    Deploy: deploy,
-    "Contact form": form,
-    Security: security,
-    Accessibility: a11y,
-    "Build + tests": build,
-  };
+  return sites.map((s) => ({
+    siteId: s.id,
+    verdicts: {
+      Live: liveV(s),
+      Certificate: domain(s),
+      Deploy: deploy(s),
+      "Contact form": form(s),
+      Security: security(s),
+      Accessibility: a11y(s),
+      "Build + tests": build(s),
+    },
+  }));
+}
+
+/** The health bars: each check's pass, fail and unknown counts over the maintained sites. */
+export function healthView(
+  model: CockpitModel,
+  live: LiveRow[],
+  now: Date,
+  status?: StatusView,
+): HealthView {
+  const maintained = model.cards.filter((c) => c.site.status === "maintained");
+  const tiers = { ok: 0, watch: 0, attention: 0, broken: 0 };
+  for (const c of maintained) {
+    if (c.tier === "healthy") tiers.ok++;
+    else if (c.tier === "watch") tiers.watch++;
+    else if (c.tier === "attention") tiers.attention++;
+    else if (c.tier === "broken") tiers.broken++;
+  }
+  const sites = maintained.map((c) => c.site);
+  const verdictRows = checkVerdicts(model, live, now);
   const checks = HEALTH_CHECK_NAMES.map((name) => {
-    const v = sites.map(verdicts[name]!);
+    const v = verdictRows.map((r) => r.verdicts[name]);
     const count = (k: UnknownKind) => v.filter((x) => x === k).length;
     const notChecked = count("notChecked");
     const testFailed = count("testFailed");
@@ -2181,6 +2195,26 @@ export const HEALTH_CHECK_NAMES = [
   "Accessibility",
   "Build + tests",
 ] as const;
+export type HealthCheckName = (typeof HEALTH_CHECK_NAMES)[number];
+
+/** Each check's slug in `/fleet?check=<slug>` (P1-87 PR 8b). Typed over every name, so a
+ *  check cannot lack one; distinctness is pinned by the tests. */
+export const CHECK_SLUGS: Record<HealthCheckName, string> = {
+  Live: "live",
+  Certificate: "certificate",
+  Deploy: "deploy",
+  "Contact form": "contact-form",
+  Security: "security",
+  Accessibility: "accessibility",
+  "Build + tests": "build-tests",
+};
+
+/** The check a `?check=` slug names, or null for any slug no check has (an inherited key
+ *  such as "constructor" is none). */
+export function checkNameForSlug(slug: string): HealthCheckName | null {
+  for (const name of HEALTH_CHECK_NAMES) if (CHECK_SLUGS[name] === slug) return name;
+  return null;
+}
 
 /** The six number tiles: this month's leads, the spam stopped, last night's checks, the
  *  dependency updates merged, the client reports sent, and the changes shipped. Each
@@ -2730,6 +2764,17 @@ export function overviewFromSnapshot(s: CockpitSnapshot, now: Date): OverviewVie
           ? `at least ${OVERVIEW_NIGHTS} nights`
           : count(s.nights.length, "night", "nights"),
   };
+}
+
+/** The verdicts from the snapshot, built the way `overviewFromSnapshot` builds its bars'
+ *  live rows, so `/fleet?check=` and the overview's bar read the same verdicts (P1-87 PR 8b). */
+export function checkVerdictsFromSnapshot(
+  s: CockpitSnapshot,
+  model: CockpitModel,
+  now: Date,
+): SiteVerdicts[] {
+  const live = liveRows(model, s.submissions, (r) => storedStatus(s, r), now);
+  return checkVerdicts(model, live, now);
 }
 
 /** The ladder, in four lines (section 6). */
