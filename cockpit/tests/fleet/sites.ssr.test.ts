@@ -134,6 +134,8 @@ describe("Sites filtered to one health check (P1-87, PR 8b)", () => {
     // 18 maintained sites and Lima (launching, visible); Xray (archived) stays hidden by default.
     expect(rowNames(doc)).toHaveLength(19);
     expect(text(checkLine(doc)!)).toBe('No check is called "nope". Showing all sites.');
+    // Not a live region: the line is read on load, and a role would announce it again.
+    expect(checkLine(doc)!.hasAttribute("role")).toBe(false);
     expect(doc.querySelector("input[name='check']")).toBeNull();
     // The unknown slug is dropped, not carried: no sort link keeps a check parameter.
     const sortLinks = doc
