@@ -440,7 +440,7 @@ export async function runDbCommand(
   }
 
   return {
-    output: `unknown db action '${action}'. Use: migrate, replay-deadletters, dump, verify-dump, restore, usage.`,
+    output: `unknown db action '${action}'. Use: migrate, replay-deadletters, dump, verify-dump, record-backup-event, restore, usage.`,
     code: 1,
   };
 }

@@ -1026,7 +1026,7 @@ cli
 cli
   .command(
     "db <action>",
-    "Operate the libSQL store (migrate | replay-deadletters | dump | verify-dump | restore | usage).",
+    "Operate the libSQL store (migrate | replay-deadletters | dump | verify-dump | record-backup-event | restore | usage).",
   )
   .option("--file <path>", "verify-dump / restore: the dump file to load")
   .option(

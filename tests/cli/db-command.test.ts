@@ -55,7 +55,7 @@ describe("retired db actions", () => {
       const r = await runDbCommand(action, {});
       expect(r.code).toBe(1);
       expect(r.output).toBe(
-        `unknown db action '${action}'. Use: migrate, replay-deadletters, dump, verify-dump, restore, usage.`,
+        `unknown db action '${action}'. Use: migrate, replay-deadletters, dump, verify-dump, record-backup-event, restore, usage.`,
       );
     },
   );
