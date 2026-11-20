@@ -861,7 +861,10 @@ describe("PR 8c item 10: the ladder's levels open", () => {
 
 describe("PR 8c round 1 G: the dot under forced colours", () => {
   it("how.css draws the dot with a border under forced-colors: active, and no colour keyword", () => {
-    const css = readFileSync(new URL("../../src/lib/how/how.css", import.meta.url).pathname, "utf8");
+    const css = readFileSync(
+      new URL("../../src/lib/how/how.css", import.meta.url).pathname,
+      "utf8",
+    );
     const forced = css.match(/@media \(forced-colors: active\)\s*\{\s*\.how-dot\s*\{([^}]*)\}/);
     expect(forced, "a forced-colours rule for .how-dot").not.toBeNull();
     expect(forced![1]).toMatch(/border:\s*0\.375rem solid\s*;/);

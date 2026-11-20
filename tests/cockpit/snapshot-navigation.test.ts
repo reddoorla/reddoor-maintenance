@@ -5670,7 +5670,10 @@ describe("PR 8c, How this works motion", () => {
     await page.setViewportSize({ width: 390, height: 700 });
     // The resize event fires on the next frame, after setViewportSize resolves: wait two frames.
     await page.evaluate(
-      () => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
+      () =>
+        new Promise<void>((done) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => done())),
+        ),
     );
     expect(await page.evaluate(() => window.innerWidth), "the resize took effect").toBe(390);
     const after = await where();
@@ -5858,7 +5861,9 @@ describe("PR 8c, How this works motion", () => {
     await levelPanel(page, tier!).waitFor({ state: "visible" });
     const site = page.locator(`#how-level-${tier} .how-level-sites > li`).first();
     await page.screenshot({
-      path: process.env.F_SHOT ?? "/tmp/claude-0/-home-user-reddoor-workspace/fe5affeb-9455-53c6-9bee-28c773ee41d0/scratchpad/F-panel.png",
+      path:
+        process.env.F_SHOT ??
+        "/tmp/claude-0/-home-user-reddoor-workspace/fe5affeb-9455-53c6-9bee-28c773ee41d0/scratchpad/F-panel.png",
     });
     const m = await site.evaluate((li) => {
       const name = li.querySelector(".how-level-site")!.getBoundingClientRect();
@@ -5882,9 +5887,7 @@ describe("PR 8c, How this works motion", () => {
     await page.goto(`${origin}/how`);
     await leadScripted(page);
     await scrollToLead(page);
-    await expect
-      .poll(async () => (await dotAnimations(page)).length, { timeout: 4_000 })
-      .toBe(1);
+    await expect.poll(async () => (await dotAnimations(page)).length, { timeout: 4_000 }).toBe(1);
     const dot = await page.locator("section.how-lead .how-dot").evaluate((el) => {
       const cs = getComputedStyle(el);
       const r = el.getBoundingClientRect();
@@ -5922,7 +5925,8 @@ describe("PR 8c, How this works motion", () => {
     await scrollToLead(page);
     const clock = () =>
       page.evaluate(
-        () => document.querySelector("section.how-lead .how-dot")!.getAnimations()[0]?.currentTime ?? 0,
+        () =>
+          document.querySelector("section.how-lead .how-dot")!.getAnimations()[0]?.currentTime ?? 0,
       );
     await expect.poll(clock, { timeout: 4_000 }).toBeGreaterThan(500);
     await page.locator("section.how-lead button.how-replay").click();
@@ -5954,8 +5958,7 @@ describe("PR 8c, How this works motion", () => {
     });
     // Scrolling to the end passes every unlit step at once: they light in order, each after the last.
     await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-    const litAt = () =>
-      page.evaluate(() => (window as unknown as { __litAt: number[] }).__litAt);
+    const litAt = () => page.evaluate(() => (window as unknown as { __litAt: number[] }).__litAt);
     await expect.poll(async () => (await litAt()).length, { timeout: 6_000 }).toBe(unlit);
     const times = await litAt();
     const gaps = times.slice(1).map((t, i) => t - times[i]!);

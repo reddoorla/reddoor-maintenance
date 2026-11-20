@@ -412,8 +412,10 @@
     class="how-replay"
     hidden={!leadShown}
     aria-label="Replay the lead's journey"
-    bind:this={replayEl}>Replay</button
+    bind:this={replayEl}
   >
+    Replay
+  </button>
   <div class="how-branch">
     <button
       type="button"
