@@ -1244,7 +1244,7 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     await page.emulateMedia({ colorScheme: "light" });
     await page.goto(`${origin}/how`);
     await expect.poll(() => page.locator("h1").first().textContent()).toContain("How this works");
-    const tops = await page.$$eval(".how-ladder li", (els) =>
+    const tops = await page.$$eval(".how-ladder > li", (els) =>
       els.map((e) => Math.round(e.getBoundingClientRect().top)),
     );
     expect(tops).toHaveLength(4);
@@ -1264,7 +1264,7 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       await page.emulateMedia({ colorScheme: scheme });
       await page.goto(`${origin}/how`);
       await expect.poll(() => page.locator("h1").first().textContent()).toContain("How this works");
-      const ladder = await page.$$eval(".how-ladder li", (els) =>
+      const ladder = await page.$$eval(".how-ladder > li", (els) =>
         els.map((e) => ({
           cls: e.className,
           top: Math.round(e.getBoundingClientRect().top),
@@ -1328,7 +1328,7 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       await page.emulateMedia({ colorScheme: "light" });
       await page.goto(`${origin}/how`);
       await expect.poll(() => page.locator("h1").first().textContent()).toContain("How this works");
-      const boxes = await page.$$eval(".how-ladder li", (els) =>
+      const boxes = await page.$$eval(".how-ladder > li", (els) =>
         els.map((e) => {
           const r = e.getBoundingClientRect();
           return { top: Math.round(r.top), left: Math.round(r.left) };
@@ -1349,7 +1349,7 @@ describe("cockpit navigation, in a browser, against the built app", () => {
     await page.emulateMedia({ colorScheme: "light" });
     await page.goto(`${origin}/how`);
     await expect.poll(() => page.locator("h1").first().textContent()).toContain("How this works");
-    const tops = await page.$$eval(".how-ladder li", (els) =>
+    const tops = await page.$$eval(".how-ladder > li", (els) =>
       els.map((e) => Math.round(e.getBoundingClientRect().top)),
     );
     expect(tops).toHaveLength(4);
@@ -1443,7 +1443,7 @@ describe("cockpit navigation, in a browser, against the built app", () => {
       );
       for (const r of contrast) expect(r).toBeGreaterThanOrEqual(4.5);
       // Broken's bar is the Broken red, and no other level's is.
-      const bars = await page.$$eval(".how-ladder li", (els) =>
+      const bars = await page.$$eval(".how-ladder > li", (els) =>
         els.map((e) => [e.className, getComputedStyle(e).borderTopColor]),
       );
       const red = await page.evaluate(() => {
@@ -5434,9 +5434,12 @@ describe("PR 8c, How this works motion", () => {
     return (hi! + 0.05) / (lo! + 0.05);
   };
 
-  it("on load at 1280x700, the steps below the fold are unlit, and scrolling each into view lights it", async () => {
+  // Measured 2026-11-20 at 390x700 (one column, step tops in px): 534, 718, 880, 1086, 1271, 1520,
+  // 1661, 1802 (innerHeight 700). Step 0 is in view at mount; steps 1 to 7 are below the fold. At
+  // 1280x700 all eight steps are in view on load (tops 338 and 587), so no step is below the fold there.
+  it("on load at 390x700, the steps below the fold are unlit, and scrolling each into view lights it", async () => {
     const page = await signedIn();
-    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.setViewportSize({ width: 390, height: 700 });
     await page.goto(`${origin}/how`);
     await stepsScripted(page);
     const below = await page
@@ -5459,7 +5462,7 @@ describe("PR 8c, How this works motion", () => {
 
   it("step k never lights before step k-1", async () => {
     const page = await signedIn();
-    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.setViewportSize({ width: 390, height: 700 });
     await page.goto(`${origin}/how`);
     await stepsScripted(page);
     // Record the order in which steps turn lit after the observer is installed.
@@ -5505,9 +5508,13 @@ describe("PR 8c, How this works motion", () => {
 
   it("under reduced motion nothing moves: every step is lit on load, and nothing is animating", async () => {
     const page = await signedIn("op", { reducedMotion: "reduce" });
-    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.setViewportSize({ width: 390, height: 700 });
     await page.goto(`${origin}/how`);
     await stepsScripted(page);
+    const below = await page
+      .locator("ol.how-steps > li")
+      .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().top >= window.innerHeight));
+    expect(below.some(Boolean), "the premise: at least one step is below the fold").toBe(true);
     expect(new Set(await litFlags(page)), "every step lit on load").toEqual(new Set(["true"]));
     const n = await page.locator("ol.how-steps > li").count();
     await scrollToStep(page, n - 1);
@@ -5533,7 +5540,7 @@ describe("PR 8c, How this works motion", () => {
   it("an unlit step keeps its result in the DOM, and its muted text meets 4.5:1 on its panel in both themes", async () => {
     for (const colorScheme of ["light", "dark"] as const) {
       const page = await signedIn("op", { colorScheme });
-      await page.setViewportSize({ width: 1280, height: 700 });
+      await page.setViewportSize({ width: 390, height: 700 });
       await page.goto(`${origin}/how`);
       await stepsScripted(page);
       const unlit = await page.locator("ol.how-steps > li[data-lit='false']").evaluateAll((els) =>
