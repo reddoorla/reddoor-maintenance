@@ -842,14 +842,15 @@ describe("PR 8c item 10: the ladder's levels open", () => {
     }
   });
 
-  it("the OK level names its sites as every check passing; a level with none says so", () => {
+  it("the OK level names its sites as no open items; a level with none says so", () => {
     const panelOf = (tier: string) =>
       DOC.getElementById(
         DOC.querySelector(`.how-ladder li.${tier} button`)!.getAttribute("aria-controls")!,
       )!;
     const ok = text(panelOf("ok"));
     expect(ok).toContain("Acme");
-    expect(ok).toContain("every check passing");
+    expect(ok).toContain("no open items");
+    expect(ok).not.toContain("every check passing");
     expect(text(panelOf("broken"))).toContain("None today");
     expect(text(panelOf("broken"))).toMatch(/[Nn]ights/);
   });

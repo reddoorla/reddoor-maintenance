@@ -15,6 +15,7 @@ import {
 } from "../../../src/dashboard/fleet-cockpit.js";
 import type { OverviewNight } from "../../../src/fleet-daily/read.js";
 import { cockpitCounts } from "../../../src/fleet-daily/write.js";
+import { siteSlug } from "../../../src/fleet/site-row.js";
 import { NOW, FRESH, healthy, night, snapshot } from "../overview/fixtures.js";
 
 /**
@@ -233,8 +234,23 @@ describe("PR 8c item 10: today's sites at each level", () => {
     }
   });
 
-  it("an OK site says every check is passing", () => {
-    expect(today.ok[0]!.reason).toBe("every check passing");
+  it("an OK site says no open items, and never that every check is passing", () => {
+    expect(today.ok[0]!.reason).toBe("no open items");
+  });
+
+  it("a healthy site with a failing smoke test reads no open items, not every check passing", () => {
+    // Reproduced in node (correctness F3): the card sits at healthy with a fresh failed smoke
+    // test, and the overview counts that check as failing. A healthy card holds no open
+    // Triage item, so the line is "no open items"; "every check passing" would be false here.
+    const s = snapshot({
+      sites: [healthy({ id: "recS", name: "Smoky", smokeOk: "fail", lastSmokeAt: FRESH })],
+      digest: {},
+      slugById: new Map(),
+    });
+    const model = cockpitModelFromSnapshot(s, NOW);
+    expect(model.cards.find((c) => c.site.name === "Smoky")!.tier).toBe("healthy");
+    expect(buildNeedsYouFeed(model).some((r) => r.slug === siteSlug("Smoky"))).toBe(false);
+    expect(todayAtLevels(s, NOW).ok).toEqual([{ name: "Smoky", reason: "no open items" }]);
   });
 });
 

@@ -5767,6 +5767,6 @@ describe("PR 8c, How this works motion", () => {
       expect(await levelButton(page, tier).getAttribute("aria-expanded")).toBe("true");
       expect(await levelPanel(page, tier).isVisible(), `${tier} panel visible`).toBe(true);
     }
-    expect(await levelPanel(page, "ok").textContent()).toContain("every check passing");
+    expect(await levelPanel(page, "ok").textContent()).toContain("no open items");
   });
 });

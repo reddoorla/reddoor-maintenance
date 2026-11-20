@@ -55,8 +55,10 @@ const LADDER_ORDER: readonly Tier[] = ["ok", "watch", "attention", "broken"];
  *  night expected by now (the trends' window end). */
 export const LEVEL_NIGHTS = 21;
 
-/** The reason an OK site is named with: nothing for us to act on at its last checks. */
-export const EVERY_CHECK_PASSING = "every check passing";
+/** The reason an OK site is named with: nothing on the site needs anyone (the Triage page's
+ *  standard). A healthy card holds no open Triage item, so this is the claim that is true;
+ *  "every check passing" is not, since a healthy card can sit beside a failing check. */
+export const NO_OPEN_ITEMS = "no open items";
 
 /** A site at a level today: its name and the reason Triage gives for it (its worst open
  *  item's title), or null when Triage has none to give. */
@@ -148,7 +150,7 @@ export function todayFromModel(model: CockpitModel): Record<Tier, LevelSite[]> {
     if (tier === undefined) continue;
     const name = c.site.name;
     if (tier === "ok") {
-      out.ok.push({ name, reason: EVERY_CHECK_PASSING });
+      out.ok.push({ name, reason: NO_OPEN_ITEMS });
       continue;
     }
     // The row's approval reasons come after its item reasons, and a row at another level

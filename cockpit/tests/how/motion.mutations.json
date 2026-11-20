@@ -231,7 +231,7 @@
     "edits": [
       {
         "file": "cockpit/src/lib/how/view.ts",
-        "find": "out.ok.push({ name, reason: EVERY_CHECK_PASSING });",
+        "find": "out.ok.push({ name, reason: NO_OPEN_ITEMS });",
         "replace": "out.ok.push({ name, reason: null });"
       }
     ],
@@ -259,6 +259,19 @@
         "file": "cockpit/src/lib/how/view.ts",
         "find": "const key = NIGHT_TIER_KEY[tier];",
         "replace": "const key = tier;"
+      }
+    ],
+    "test": "cockpit/tests/how/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "B-every-check-passing-again",
+    "why": "The OK line is the old every-check-passing claim, which a healthy site with a failing check makes false",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "out.ok.push({ name, reason: NO_OPEN_ITEMS });",
+        "replace": "out.ok.push({ name, reason: \"every check passing\" });"
       }
     ],
     "test": "cockpit/tests/how/view.ssr.test.ts",
