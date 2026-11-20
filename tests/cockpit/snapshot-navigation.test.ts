@@ -5899,6 +5899,93 @@ describe("PR 8c, How this works motion", () => {
     expect(dot.borderTop, `the dot has a border: ${JSON.stringify(dot)}`).not.toBe("0px");
   });
 
+  it("round 1 B2: Replay clears the passed marks at once, so a finished run's inbox mark does not show on the next run", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await leadScripted(page);
+    await scrollToLead(page);
+    await expect
+      .poll(async () => (await dotAnimations(page))[0]?.playState, { timeout: 4_500 })
+      .toBe("finished");
+    const marked = () => page.locator("ol.how-lead-flow [data-passed]").count();
+    expect(await marked(), "premise: the finished run marks its stages").toBeGreaterThan(0);
+    await page.locator("section.how-lead button.how-replay").click();
+    expect(await marked(), "the new run starts with no stage marked").toBe(0);
+  });
+
+  it("round 1 B2: a Replay mid-run leaves no stale timer that marks a stage of the new run early", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await leadScripted(page);
+    await scrollToLead(page);
+    const clock = () =>
+      page.evaluate(
+        () => document.querySelector("section.how-lead .how-dot")!.getAnimations()[0]?.currentTime ?? 0,
+      );
+    await expect.poll(clock, { timeout: 4_000 }).toBeGreaterThan(500);
+    await page.locator("section.how-lead button.how-replay").click();
+    // The first run marks stage 1 at 1167 ms of its clock. The new run marks it at 1167 ms of its
+    // own, so at 800 ms of the new run stage 1 must still be unmarked.
+    await expect.poll(clock, { timeout: 4_000 }).toBeGreaterThanOrEqual(800);
+    const stage1 = await page.locator("ol.how-lead-flow > li").nth(1).getAttribute("data-passed");
+    expect(stage1, "stage 1 is not marked by an old run's timer").toBeNull();
+  });
+
+  it("round 1 B3: the steps light about 300 ms apart, one after another, not together", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 390, height: 700 });
+    await page.goto(`${origin}/how`);
+    await stepsScripted(page);
+    const unlit = (await litFlags(page)).filter((f) => f === "false").length;
+    expect(unlit, "premise: some steps are unlit on load").toBeGreaterThan(1);
+    await page.evaluate(() => {
+      const w = window as unknown as { __litAt: number[] };
+      w.__litAt = [];
+      const mo = new MutationObserver((muts) => {
+        for (const m of muts)
+          if ((m.target as HTMLElement).getAttribute("data-lit") === "true")
+            w.__litAt.push(performance.now());
+      });
+      document
+        .querySelectorAll("ol.how-steps > li")
+        .forEach((li) => mo.observe(li, { attributes: true, attributeFilter: ["data-lit"] }));
+    });
+    // Scrolling to the end passes every unlit step at once: they light in order, each after the last.
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    const litAt = () =>
+      page.evaluate(() => (window as unknown as { __litAt: number[] }).__litAt);
+    await expect.poll(async () => (await litAt()).length, { timeout: 6_000 }).toBe(unlit);
+    const times = await litAt();
+    const gaps = times.slice(1).map((t, i) => t - times[i]!);
+    expect(
+      Math.min(...gaps),
+      `the gaps between lights, in ms: ${gaps.map(Math.round).join(", ")}`,
+    ).toBeGreaterThanOrEqual(250);
+  });
+
+  it("round 1 B6: scrolling away and back does not start a second run", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await leadScripted(page);
+    await scrollToLead(page);
+    await expect
+      .poll(async () => (await dotAnimations(page))[0]?.playState, { timeout: 4_500 })
+      .toBe("finished");
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForTimeout(300);
+    await scrollToLead(page);
+    await page.waitForTimeout(500);
+    const after = await page.evaluate(() => {
+      const a = document.querySelector("section.how-lead .how-dot")!.getAnimations();
+      return { count: a.length, state: a[0]?.playState, time: a[0]?.currentTime ?? null };
+    });
+    expect(after.count, "still one animation").toBe(1);
+    expect(after.state, `no second run: ${JSON.stringify(after)}`).toBe("finished");
+  });
+
   it("with no script, every level's panel is open, with its sites and nights line", async () => {
     const page = await signedIn("op", { javaScriptEnabled: false });
     await page.goto(`${origin}/how`);
