@@ -2586,7 +2586,10 @@ export function latelyView(
     });
   };
   // Events (rank 0). An override's report is said by its event alone (rank 1 skips it).
-  const events = (s.feedEvents ?? []).filter((e) => e.type !== "fleet_swept");
+  // The deploys come from their own read (P1-87 PR 9), so they sit beside the other events.
+  const events = [...(s.feedEvents ?? []), ...(s.feedDeploys ?? [])].filter(
+    (e) => e.type !== "fleet_swept",
+  );
   // An event names its site as stored when the site is gone; a blank stored name reads as
   // "A site no longer listed", as a report does. The stored name is trimmed before it is
   // tested, so a name of spaces is no name.
@@ -2895,7 +2898,7 @@ export const HOW_WE_COUNT: ReadonlyArray<{ term: string; text: string }> = [
   },
   {
     term: "Lately",
-    text: "The newest 8 lines from the last 7 days, Pacific time: fleet events (a dependency update merged, a vulnerability cleared, a certificate renewed, and the like), reports sent, leads delivered, and the night the tiles count (before 6am, the night before last). A lead line names its site and how many, never who sent it. The nightly is one line saying how many of its steps ran to the end, naming up to two steps that did not run to the end and how many more did not; a sweep is shown only as those steps. A line from six Pacific calendar days back carries its date (Wed Oct 21, 12:00pm), so two days with the same weekday never read alike. A test send and a withdrawn report are not listed. When a source could not be read, the panel says so, and does not read as nothing recorded.",
+    text: "The newest 8 lines from the last 7 days, Pacific time: fleet events (a dependency update merged, a vulnerability cleared, a certificate renewed, and the like; a deploy is listed only when no dependency update merged on its site in the hour before it, since that merge's line already says the site changed), reports sent, leads delivered, and the night the tiles count (before 6am, the night before last). A lead line names its site and how many, never who sent it. The nightly is one line saying how many of its steps ran to the end, naming up to two steps that did not run to the end and how many more did not; a sweep is shown only as those steps. A line from six Pacific calendar days back carries its date (Wed Oct 21, 12:00pm), so two days with the same weekday never read alike. A test send and a withdrawn report are not listed. When a source could not be read, the panel says so, and does not read as nothing recorded.",
   },
   {
     term: "The nightly audit bar",
