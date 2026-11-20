@@ -2749,12 +2749,15 @@ describe("a failing health bar links to the sites that failed it (P1-87, PR 8b)"
       .querySelectorAll("ul.ov-checks-list > li.ov-check")
       .find((li) => text(li.querySelector(".ov-check-name")!) === name)!;
 
-  it("links the failing Certificate bar to its failing sites, named with its count", () => {
+  it("links the failing Certificate bar to its failing sites, with its count in the link's own text", () => {
     const link = checkRow("Certificate").querySelector("a")!;
     expect(link.getAttribute("href")).toBe("/fleet?check=certificate");
-    expect(link.getAttribute("aria-label")).toBe(
-      "Certificate: 2 of 18 sites failing. Show them on Sites.",
-    );
+    // No aria-label: it would replace the row's counts (WCAG 2.5.3). The link's text is the row's
+    // text, and a visually hidden phrase at its end says where it goes.
+    expect(link.hasAttribute("aria-label")).toBe(false);
+    const linkText = text(link);
+    expect(linkText).toContain("2 failing");
+    expect(linkText.endsWith("Show them on Sites.")).toBe(true);
   });
 
   it("keeps the bar and its count inside the link, and the row keeps its intro index", () => {

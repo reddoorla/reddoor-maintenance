@@ -6160,9 +6160,12 @@ describe("a health bar opens /fleet filtered, in a browser (P1-87 PR 8b)", () =>
     await page.goto(`${origin}/`);
     const bar = page.locator('a[href="/fleet?check=certificate"]');
     await expect.poll(() => bar.count()).toBe(1);
-    expect(await bar.getAttribute("aria-label")).toBe(
-      "Certificate: 1 of 3 sites failing. Show them on Sites.",
-    );
+    // D3: no aria-label; the name is the row's own counts, so a screen reader hears them and the
+    // visible "1 failing" is inside the name (WCAG 2.5.3). Playwright computes the name from the DOM.
+    expect(await bar.getAttribute("aria-label")).toBeNull();
+    const linkText = ((await bar.textContent()) ?? "").replace(/\s+/g, " ").trim();
+    expect(linkText).toContain("Certificate 1 of 3 · 1 failing");
+    expect(linkText.endsWith("Show them on Sites.")).toBe(true);
     // The bar's count-up and fill settle first, so the click lands on the settled page.
     await figuresSettled(page);
     await bar.click();

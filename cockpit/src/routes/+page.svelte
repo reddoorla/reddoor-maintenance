@@ -398,12 +398,8 @@
           <!-- A failing check opens the sites that failed it (P1-87, PR 8b). A bar with none
                stays as it was: no link. -->
           {#if c.fail > 0}
-            <a
-              class="ov-check-link"
-              href="/fleet?check={CHECK_SLUGS[c.name]}"
-              aria-label="{c.name}: {c.fail} of {c.total} sites failing. Show them on Sites."
-            >
-              {@render checkParts(c)}
+            <a class="ov-check-link" href="/fleet?check={CHECK_SLUGS[c.name]}">
+              {@render checkParts(c)}<span class="visually-hidden"> Show them on Sites.</span>
             </a>
           {:else}
             {@render checkParts(c)}
