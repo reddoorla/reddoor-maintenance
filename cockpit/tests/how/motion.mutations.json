@@ -309,7 +309,7 @@
     "edits": [
       {
         "file": "cockpit/src/lib/how/view.ts",
-        "find": "  return motionAndRunnable && allTime !== null;",
+        "find": "  return motionAndRunnable && leads.allTime !== null;",
         "replace": "  return motionAndRunnable;"
       }
     ],
