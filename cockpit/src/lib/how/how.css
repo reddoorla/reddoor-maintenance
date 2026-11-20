@@ -104,7 +104,9 @@ body {
   margin: 0 0 var(--space-4);
   list-style: none;
 }
-.how-ladder li {
+/* Round 1 F: only the ladder's own items are level cards. A bare `li` also matched each site in
+   a level's panel (.how-level-sites), which then got the surface, the bar and a column. */
+.how-ladder > li {
   background: var(--surface);
   border-top: 4px solid var(--band);
   padding: var(--space-3);
@@ -112,13 +114,13 @@ body {
   flex-direction: column;
   gap: var(--space-1);
 }
-.how-ladder li.watch {
+.how-ladder > li.watch {
   border-top-color: var(--ink-muted);
 }
-.how-ladder li.attention {
+.how-ladder > li.attention {
   border-top-color: var(--ink);
 }
-.how-ladder li.broken {
+.how-ladder > li.broken {
   border-top-color: var(--broken-fill);
   /* Twice the others' bar: a non-colour cue, which holds in dark mode too. The
      padding gives back the extra 4px, so Broken's word sits level with its row-mates. */
@@ -176,6 +178,14 @@ body {
 }
 .how-level-sites {
   list-style: none;
+}
+/* A site's name and its reason run on one line where they fit: a plain item, no card. */
+.how-level-sites li {
+  display: block;
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: 0;
 }
 .how-level-site {
   font-weight: var(--weight-bold);

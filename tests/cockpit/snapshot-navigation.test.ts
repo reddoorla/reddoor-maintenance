@@ -5843,6 +5843,39 @@ describe("PR 8c, How this works motion", () => {
     expect(running, "no animation under reduced motion").toBe(0);
   });
 
+  it("round 1 F: a site item in an open panel has no level bar, and its name and reason share a line at 1280", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await page.locator('ol.how-ladder[data-js="true"]').waitFor({ state: "attached" });
+    // Open the first level that lists a site (the seed decides which levels hold one).
+    const tier = await page.evaluate(() => {
+      const li = document.querySelector(".how-ladder .how-level-sites > li");
+      return li?.closest("li.ok, li.watch, li.attention, li.broken")?.className ?? null;
+    });
+    expect(tier, "premise: some level lists a site").not.toBeNull();
+    await levelButton(page, tier!).click();
+    await levelPanel(page, tier!).waitFor({ state: "visible" });
+    const site = page.locator(`#how-level-${tier} .how-level-sites > li`).first();
+    await page.screenshot({
+      path: process.env.F_SHOT ?? "/tmp/claude-0/-home-user-reddoor-workspace/fe5affeb-9455-53c6-9bee-28c773ee41d0/scratchpad/F-panel.png",
+    });
+    const m = await site.evaluate((li) => {
+      const name = li.querySelector(".how-level-site")!.getBoundingClientRect();
+      const r = li.getBoundingClientRect();
+      const cs = getComputedStyle(li);
+      return {
+        borderTop: cs.borderTopWidth,
+        background: cs.backgroundColor,
+        liHeight: Math.round(r.height),
+        nameHeight: Math.round(name.height),
+        sameLine: r.height <= name.height * 1.6,
+      };
+    });
+    expect(m.borderTop, `no level bar on a site item: ${JSON.stringify(m)}`).toBe("0px");
+    expect(m.sameLine, `the name and its reason share a line: ${JSON.stringify(m)}`).toBe(true);
+  });
+
   it("with no script, every level's panel is open, with its sites and nights line", async () => {
     const page = await signedIn("op", { javaScriptEnabled: false });
     await page.goto(`${origin}/how`);
