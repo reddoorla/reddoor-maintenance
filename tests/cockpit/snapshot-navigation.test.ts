@@ -4928,10 +4928,14 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     await motionReady(page);
     const titles = await titlesOf(page);
     await chart(page).focus();
+    // Round 2 (H): with no night chosen the slider reports the newest, so Right selects it (not the
+    // oldest) and Left steps back from it.
     await page.keyboard.press("ArrowRight");
-    expect(await readoutText(page)).toBe(titles[0]);
+    expect(await readoutText(page), "from no night, Right selects the newest").toBe(titles.at(-1));
+    await page.keyboard.press("ArrowLeft");
+    expect(await readoutText(page), "Left steps back one from the newest").toBe(titles.at(-2));
     await page.keyboard.press("ArrowRight");
-    expect(await readoutText(page)).toBe(titles[1]);
+    expect(await readoutText(page)).toBe(titles.at(-1));
     await page.keyboard.press("End");
     expect(await readoutText(page)).toBe(titles.at(-1));
     await page.keyboard.press("ArrowRight");
@@ -5047,11 +5051,29 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     await motionReady(page);
     const titles = await titlesOf(page);
     await chart(page).focus();
-    await page.keyboard.press("ArrowRight");
+    // Round 2 (H): from no night, Right selects the newest; Home selects the oldest, as this test reads.
+    await page.keyboard.press("Home");
     expect(await readoutText(page)).toBe(titles[0]);
     await page.keyboard.press("Tab");
     expect(await readoutText(page), "the idle prompt is visible again").toBe(IDLE);
     expect(await cursors(page, 0), "no cursor on chart 0").toBe(0);
+  });
+
+  // P1-87 PR 8a, round 2 (H, R3): with nothing selected the slider reports the newest night, and Right
+  // selects that night; it must not jump to the oldest.
+  it("ArrowRight with no night selected keeps the slider on the newest night, not the oldest (item 5, round 2 H)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    await chart(page).focus();
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("ArrowRight");
+    expect(await chart(page).getAttribute("aria-valuenow"), "Right selects the newest").toBe(
+      String(titles.length),
+    );
+    expect(await chart(page).getAttribute("aria-valuetext")).toBe(titles.at(-1));
   });
 
   it("a hover on one chart does not select a night on the next (item 5, review round 1 T3)", async () => {

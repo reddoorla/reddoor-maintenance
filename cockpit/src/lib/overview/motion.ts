@@ -94,8 +94,9 @@ export function countUp(
 
 /** P1-87 PR 8a, item 5: a key on a focused trend. Returns the night it selects (`null`: none), or
  *  `undefined` when the key is not one the trend handles. Right and Left step one night and stop at
- *  the ends (no wrap); with no night selected, Right selects the first and Left the last. Home and
- *  End go to the first and last nights, and Escape clears. */
+ *  the ends (no wrap). With no night selected the slider reports the newest, so the steps start from
+ *  it: Right selects the newest, Left the one before it (round 2, H: Right never jumps to the oldest).
+ *  Home and End go to the first and last nights, and Escape clears. */
 export function trendKey(
   key: string,
   selected: number | null,
@@ -105,11 +106,12 @@ export function trendKey(
   if (!["ArrowRight", "ArrowLeft", "Home", "End"].includes(key)) return undefined;
   if (count === 0) return null;
   const last = count - 1;
+  const from = selected ?? last;
   switch (key) {
     case "ArrowRight":
-      return selected === null ? 0 : Math.min(selected + 1, last);
+      return Math.min(from + 1, last);
     case "ArrowLeft":
-      return selected === null ? last : Math.max(selected - 1, 0);
+      return Math.max(from - 1, 0);
     case "Home":
       return 0;
     default:

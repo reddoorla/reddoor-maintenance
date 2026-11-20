@@ -148,8 +148,34 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/motion.ts",
-        "find": "return selected === null ? last : Math.max(selected - 1, 0);",
-        "replace": "return selected === null ? last : (selected - 1 + count) % count;"
+        "find": "return Math.max(from - 1, 0);",
+        "replace": "return (from - 1 + count) % count;"
+      }
+    ],
+    "test": ["cockpit/tests/overview/motion.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "H-1-right-from-none-reads-oldest",
+    "why": "From no selection ArrowRight selects the oldest night, not the newest the slider reports (round 2 H, R3: today's behaviour)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/motion.ts",
+        "find": "return Math.min(from + 1, last);",
+        "replace": "return selected === null ? 0 : Math.min(from + 1, last);"
+      }
+    ],
+    "test": ["cockpit/tests/overview/motion.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "H-2-left-from-none-reads-newest",
+    "why": "From no selection ArrowLeft selects the newest night, not the one before it (round 2 H, R3: the first ArrowLeft leaves the slider where it is)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/motion.ts",
+        "find": "return Math.max(from - 1, 0);",
+        "replace": "return selected === null ? last : Math.max(from - 1, 0);"
       }
     ],
     "test": ["cockpit/tests/overview/motion.ssr.test.ts"],

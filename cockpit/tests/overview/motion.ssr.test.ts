@@ -85,17 +85,29 @@ describe("the count-up's helpers (P1-87 PR 8a, item 4)", () => {
 
 /** P1-87 PR 8a, item 5: the trend hover and keyboard readout's pure helpers. */
 describe("the trend readout's helpers (P1-87 PR 8a, item 5)", () => {
-  it("moves one night on ArrowRight from no selection to the first, then one at a time, stopping at the last", () => {
-    expect(trendKey("ArrowRight", null, 21)).toBe(0);
+  it("moves one night on ArrowRight, one at a time, stopping at the last (from no selection, see round 2 H)", () => {
     expect(trendKey("ArrowRight", 0, 21)).toBe(1);
     expect(trendKey("ArrowRight", 1, 21)).toBe(2);
     expect(trendKey("ArrowRight", 20, 21)).toBe(20);
   });
 
-  it("moves back one night on ArrowLeft, stops at the first (no wrap), and from no selection goes to the last", () => {
-    expect(trendKey("ArrowLeft", null, 21)).toBe(20);
+  it("moves back one night on ArrowLeft, stops at the first (no wrap), and from no selection steps back from the newest (round 2 H)", () => {
     expect(trendKey("ArrowLeft", 2, 21)).toBe(1);
     expect(trendKey("ArrowLeft", 0, 21)).toBe(0);
+  });
+
+  // P1-87 PR 8a, round 2 (H, R3): the slider reports the newest night when none is selected, so the
+  // first key steps from it. Right never jumps to the oldest; Left steps back one from the newest.
+  it("steps from the newest night when none is selected: Right and End select the newest, Left the one before, Home the oldest (round 2 H)", () => {
+    expect(trendKey("ArrowRight", null, 17), "Right").toBe(16);
+    expect(trendKey("End", null, 17), "End").toBe(16);
+    expect(trendKey("ArrowLeft", null, 17), "Left").toBe(15);
+    expect(trendKey("Home", null, 17), "Home").toBe(0);
+  });
+
+  it("with one night and none selected, ArrowLeft selects it (round 2 H)", () => {
+    expect(trendKey("ArrowLeft", null, 1)).toBe(0);
+    expect(trendKey("ArrowRight", null, 1)).toBe(0);
   });
 
   it("goes to the first and last nights with Home and End, clears with Escape, and leaves other keys unhandled", () => {
