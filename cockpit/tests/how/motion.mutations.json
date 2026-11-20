@@ -328,5 +328,18 @@
     ],
     "test": "cockpit/tests/how/view.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "G-forced-dot-border-dropped",
+    "why": "The forced-colours border is dropped, so under forced colours the dot has no outline and cannot be seen",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "    border: 0.375rem solid;",
+        "replace": "    border: 0;"
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
   }
 ]

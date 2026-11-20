@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { readFileSync } from "node:fs";
 import { createRawSnippet } from "svelte";
 import { render } from "svelte/server";
 import { parse, TextNode, type HTMLElement, type Node } from "node-html-parser";
@@ -853,5 +854,15 @@ describe("PR 8c item 10: the ladder's levels open", () => {
     expect(ok).not.toContain("every check passing");
     expect(text(panelOf("broken"))).toContain("None today");
     expect(text(panelOf("broken"))).toMatch(/[Nn]ights/);
+  });
+});
+
+describe("PR 8c round 1 G: the dot under forced colours", () => {
+  it("how.css draws the dot with a border under forced-colors: active, and no colour keyword", () => {
+    const css = readFileSync(new URL("../../src/lib/how/how.css", import.meta.url).pathname, "utf8");
+    const forced = css.match(/@media \(forced-colors: active\)\s*\{\s*\.how-dot\s*\{([^}]*)\}/);
+    expect(forced, "a forced-colours rule for .how-dot").not.toBeNull();
+    expect(forced![1]).toMatch(/border:\s*0\.375rem solid\s*;/);
+    expect(forced![1]).not.toMatch(/#|rgb|canvas|buttontext|currentcolor/i);
   });
 });

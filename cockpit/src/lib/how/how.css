@@ -381,3 +381,12 @@ body {
     border-width: 3px;
   }
 }
+
+/* Round 1 G: forced colours drop the dot's fill, so it keeps a border in the text colour. The
+   border-box keeps its 0.75rem size and its centring margin. */
+@media (forced-colors: active) {
+  .how-dot {
+    box-sizing: border-box;
+    border: 0.375rem solid;
+  }
+}

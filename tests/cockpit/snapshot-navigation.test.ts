@@ -5876,6 +5876,29 @@ describe("PR 8c, How this works motion", () => {
     expect(m.sameLine, `the name and its reason share a line: ${JSON.stringify(m)}`).toBe(true);
   });
 
+  it("round 1 G: under forced colours the dot is drawn with a border, so it can be seen", async () => {
+    const page = await signedIn("op", { forcedColors: "active" });
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await leadScripted(page);
+    await scrollToLead(page);
+    await expect
+      .poll(async () => (await dotAnimations(page)).length, { timeout: 4_000 })
+      .toBe(1);
+    const dot = await page.locator("section.how-lead .how-dot").evaluate((el) => {
+      const cs = getComputedStyle(el);
+      const r = el.getBoundingClientRect();
+      return {
+        borderTop: cs.borderTopWidth,
+        background: cs.backgroundColor,
+        box: [Math.round(r.width), Math.round(r.height)],
+        forced: matchMedia("(forced-colors: active)").matches,
+      };
+    });
+    expect(dot.forced, "the page is under forced colours").toBe(true);
+    expect(dot.borderTop, `the dot has a border: ${JSON.stringify(dot)}`).not.toBe("0px");
+  });
+
   it("with no script, every level's panel is open, with its sites and nights line", async () => {
     const page = await signedIn("op", { javaScriptEnabled: false });
     await page.goto(`${origin}/how`);
