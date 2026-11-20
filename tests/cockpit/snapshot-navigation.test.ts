@@ -5487,7 +5487,10 @@ describe("PR 8c, How this works motion", () => {
     // The last step first: it is in view, but every step above it must light before it does.
     const n = await page.locator("ol.how-steps > li").count();
     await scrollToStep(page, n - 1);
-    await expect.poll(async () => (await litFlags(page)).every((f) => f === "true")).toBe(true);
+    // The chain lights seven steps, 300 ms apiece (about 2.1 s): the poll's 1 s default is too short.
+    await expect
+      .poll(async () => (await litFlags(page)).every((f) => f === "true"), { timeout: 5_000 })
+      .toBe(true);
     const order = await page.evaluate(
       () => (window as unknown as { __lightOrder: number[] }).__lightOrder,
     );
