@@ -284,5 +284,18 @@
     ],
     "test": ["tests/cli/prismic-sync.test.ts"],
     "expect": "red"
+  },
+  {
+    "id": "9-23-recently-deploys-not-rewindowed",
+    "why": "/fleet's Recently lane takes the snapshot's feedDeploys without re-windowing them at the page's now, so a deploy older than the 7-day window still shows two days later (R2-C1)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/view.ts",
+        "find": "    .filter((e) => Date.parse(e.ts) >= since)\n",
+        "replace": ""
+      }
+    ],
+    "test": ["cockpit/tests/legacy/recently-lane.ssr.test.ts"],
+    "expect": "red"
   }
 ]

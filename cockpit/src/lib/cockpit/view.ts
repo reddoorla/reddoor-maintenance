@@ -18,7 +18,10 @@ import { relativeTimeFromNow } from "../../../../src/dashboard/relative-time.js"
 import { daysFlagged, LEVEL_RANK, levelOf, type Level } from "../../../../src/alerts/ladder.js";
 import { isLeadFormType } from "../../../../src/forms/types.js";
 import type { FleetEvent, FleetEventType } from "../../../../src/db/fleet-events.js";
-import { RECENT_EVENTS_LIMIT } from "../../../../src/dashboard/snapshot-views.js";
+import {
+  RECENT_EVENTS_DAYS,
+  RECENT_EVENTS_LIMIT,
+} from "../../../../src/dashboard/snapshot-views.js";
 import type { WebsiteRow } from "../../../../src/fleet/site-row.js";
 import { siteSlug } from "../../../../src/fleet/site-row.js";
 import { safeUrl } from "../../../../src/util/html.js";
@@ -464,14 +467,19 @@ function recently(
     slug: e.slug,
     ts: e.ts,
   }));
-  const fromDeploys = feedDeploys.map((e) => ({
-    type: e.type,
-    siteName: e.siteName || null,
-    summary: e.summary,
-    url: null,
-    slug: e.siteName ? siteSlug(e.siteName) : null,
-    ts: e.ts,
-  }));
+  // The same window the recent events get (`cockpitModelFromSnapshot`: `e.ts >= eventsSince`).
+  // The deploys were read with the snapshot, so they re-window at the page's `now` (R2-C1).
+  const since = now.getTime() - RECENT_EVENTS_DAYS * 86_400_000;
+  const fromDeploys = feedDeploys
+    .filter((e) => Date.parse(e.ts) >= since)
+    .map((e) => ({
+      type: e.type,
+      siteName: e.siteName || null,
+      summary: e.summary,
+      url: null,
+      slug: e.siteName ? siteSlug(e.siteName) : null,
+      ts: e.ts,
+    }));
   return [...fromEvents, ...fromDeploys]
     .sort((a, b) => Date.parse(b.ts) - Date.parse(a.ts))
     .slice(0, RECENT_EVENTS_LIMIT)

@@ -1,8 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { renderCockpitHtml, renderSitesHtml } from "./render.js";
+import { renderCockpitHtml, renderFleetTableHtml, renderSitesHtml } from "./render.js";
 import { buildCockpitModel } from "../../../src/dashboard/fleet-cockpit.js";
 import type { FleetEvent } from "../../../src/db/fleet-events.js";
-import { deploysToShow } from "../../../src/dashboard/snapshot-views.js";
+import { cockpitModelFromSnapshot, deploysToShow } from "../../../src/dashboard/snapshot-views.js";
+import { buildSitesView } from "../../src/lib/cockpit/view.js";
+import { buildFleetTableModel, parseFleetTableQuery } from "../../../src/dashboard/fleet-table.js";
+import { snapshot } from "../overview/fixtures.js";
 
 function modelWith(events: FleetEvent[]) {
   return buildCockpitModel([], [], {}, "https://d.test", new Date(), [], null, events);
@@ -117,5 +120,55 @@ describe("renderRecentlyLane: deploys follow the overview's rule (P1-87 PR 9, C1
     }));
     const html = renderSitesHtml(modelWith(recent), null, deploys);
     expect(html).toContain("Recently (20)");
+  });
+});
+
+// P1-87 PR 9, review R2-C1: a deploy re-windows at the page's `now`, as the recent events do.
+describe("renderRecentlyLane: deploys re-window at the page's now (P1-87 PR 9, R2-C1)", () => {
+  const OLD = "2026-11-11T12:00:00.000Z";
+  const event: FleetEvent = {
+    id: "vuln_cleared:recC:2026-11-11",
+    ts: OLD,
+    type: "vuln_cleared",
+    siteId: "recC",
+    siteName: "Caltex",
+    summary: "cleared 2 critical/high vulns",
+    data: { from: 2 },
+  };
+  const deploy: FleetEvent = {
+    id: "site_deployed:recC:2026-11-11",
+    ts: OLD,
+    type: "site_deployed",
+    siteId: "recC",
+    siteName: "Caltex",
+    summary: "Deploy published",
+    data: null,
+  };
+  // Taken on the 17th; the page is derived from it at a later `now`, as `/fleet` does.
+  const snap = snapshot({
+    takenAt: "2026-11-17T18:00:00.000Z",
+    recentEvents: [event],
+    feedDeploys: [deploy],
+  });
+  function laneAt(now: Date): string {
+    const cockpit = cockpitModelFromSnapshot(snap, now);
+    const table = buildFleetTableModel(
+      cockpit.cards.map((c) => c.site),
+      parseFleetTableQuery(new URLSearchParams()),
+    );
+    return renderFleetTableHtml(table, null, buildSitesView(cockpit, now, snap.feedDeploys));
+  }
+
+  it("leaves out a recent event and a deploy older than the window at the page's now", () => {
+    const html = laneAt(new Date("2026-11-19T18:00:00.000Z"));
+    expect(html).not.toContain("cleared 2 critical/high vulns");
+    expect(html).not.toContain("Deploy published");
+  });
+
+  it("shows both when the page's now is the snapshot's time", () => {
+    const html = laneAt(new Date("2026-11-17T18:00:00.000Z"));
+    expect(html).toContain("cleared 2 critical/high vulns");
+    expect(html).toContain("Deploy published");
+    expect(html).toContain("Recently (2)");
   });
 });
