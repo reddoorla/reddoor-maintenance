@@ -4883,6 +4883,8 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     ((await readout(page, ci).textContent()) ?? "").trim();
   const nightRects = (page: Page, ci = 0) =>
     page.locator("figure.ov-trend").nth(ci).locator("rect.ov-hit");
+  const cursorOf = (page: Page, ci = 0) =>
+    page.locator("figure.ov-trend").nth(ci).locator("line.ov-trend-cursor");
   /** The chart's nights' words, in order, from the hover targets' data. */
   const titlesOf = (page: Page, ci = 0) =>
     nightRects(page, ci).evaluateAll((rs) => rs.map((r) => r.getAttribute("data-title")!));
@@ -4947,30 +4949,78 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     ).toBe(0);
   });
 
-  // P1-87 PR 8a, review round 1 (D): the live region speaks a night the keys chose, and only that.
-  const liveText = async (page: Page, ci = 0) =>
-    ((await page.locator(`#ov-trend-${ci}-live`).textContent()) ?? "").trim();
-  it("the live region speaks a night the keys chose, and is empty once focus leaves (item 5, review round 1 D)", async () => {
+  // P1-87 PR 8a, review round 1 (D), changed in round 2 (G, R1, R2): the slider's value is the
+  // announcement. A key step moves it; leaving the chart returns it to the newest night.
+  it("the slider's value follows the keys, and falls back to the newest night once focus leaves (item 5, review round 1 D, round 2 G)", async () => {
     const page = await signedIn();
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`${origin}/`);
     await motionReady(page);
     const titles = await titlesOf(page);
-    expect(await liveText(page), "the live region is empty at rest").toBe("");
+    const n = titles.length;
+    expect(await chart(page).getAttribute("aria-valuenow"), "at rest: the newest night").toBe(
+      String(n),
+    );
     await chart(page).focus();
+    await page.keyboard.press("Home");
+    expect(await chart(page).getAttribute("aria-valuetext"), "a key speaks its night").toBe(
+      titles[0],
+    );
+    expect(await chart(page).getAttribute("aria-valuenow")).toBe("1");
     await page.keyboard.press("ArrowRight");
-    expect(await liveText(page), "a key speaks its night").toBe(titles[0]);
-    await page.keyboard.press("ArrowRight");
-    expect(await liveText(page)).toBe(titles[1]);
-    await page.keyboard.press("ArrowLeft");
+    expect(await chart(page).getAttribute("aria-valuetext")).toBe(titles[1]);
+    expect(await chart(page).getAttribute("aria-valuenow")).toBe("2");
     await page.keyboard.press("Tab");
-    expect(await liveText(page), "leaving the chart speaks nothing, not the prompt").toBe("");
+    expect(await chart(page).getAttribute("aria-valuenow"), "leaving: the newest night").toBe(
+      String(n),
+    );
+    expect(await chart(page).getAttribute("aria-valuetext")).toBe(titles[n - 1]);
     expect(await readoutText(page), "the visible readout is idle again").toBe(
       "Point at a night, or focus the chart and use the arrow keys, to read it.",
     );
   });
 
-  it("a hover shows its night on screen and speaks nothing, and the slider reports it (item 5, review round 1 D)", async () => {
+  // P1-87 PR 8a, round 2 (G, R1, R2): a hover previews a night; the keyboard's night stays put.
+  it("a hover on a focused chart previews a night and leaves the slider on the key night; leaving restores it (item 5, round 2 G)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    const keyNight = titles.length - 2;
+    await chart(page).focus();
+    await page.keyboard.press("End");
+    await page.keyboard.press("ArrowLeft");
+    const keyNow = String(keyNight + 1);
+    expect(await chart(page).getAttribute("aria-valuenow")).toBe(keyNow);
+    expect(await chart(page).getAttribute("aria-valuetext")).toBe(titles[keyNight]);
+    for (const k of [3, 6]) {
+      await nightRects(page).nth(k).hover();
+      expect(await readoutText(page), `hover ${k} shows its night`).toBe(titles[k]);
+      const centre = await nightRects(page)
+        .nth(k)
+        .evaluate((r) => Number(r.getAttribute("x")) + Number(r.getAttribute("width")) / 2);
+      expect(Number(await cursorOf(page).getAttribute("x1"))).toBeCloseTo(centre, 1);
+      expect(
+        await chart(page).getAttribute("aria-valuenow"),
+        `hover ${k} keeps the key night`,
+      ).toBe(keyNow);
+      expect(await chart(page).getAttribute("aria-valuetext")).toBe(titles[keyNight]);
+    }
+    await page.mouse.move(0, 0);
+    expect(await readoutText(page), "leaving: the key night is back").toBe(titles[keyNight]);
+    expect(await chart(page).getAttribute("aria-valuenow")).toBe(keyNow);
+    expect(
+      await page.locator("figure.ov-trend").nth(0).locator("line.ov-trend-cursor").count(),
+    ).toBe(1);
+    // Round 2 (G-3): the chart has no live region; the slider's value is the one announcement.
+    expect(
+      await page.locator("figure.ov-trend").nth(0).locator("[aria-live]").count(),
+      "no live region inside the chart",
+    ).toBe(0);
+  });
+
+  it("a hover shows its night on screen, and the slider keeps the newest night while nothing is chosen by key (item 5, review round 1 D, round 2 G)", async () => {
     const page = await signedIn();
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`${origin}/`);
@@ -4979,9 +5029,10 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     const k = 4;
     await nightRects(page).nth(k).hover();
     expect(await readoutText(page), "the visible readout shows the night").toBe(titles[k]);
-    expect(await liveText(page), "a pointer speaks nothing").toBe("");
-    expect(await chart(page).getAttribute("aria-valuenow")).toBe(String(k + 1));
-    expect(await chart(page).getAttribute("aria-valuetext")).toBe(titles[k]);
+    expect(await chart(page).getAttribute("aria-valuenow"), "a hover is not a key choice").toBe(
+      String(titles.length),
+    );
+    expect(await chart(page).getAttribute("aria-valuetext")).toBe(titles.at(-1));
   });
 
   // P1-87 PR 8a, review round 1 (E): a chart clears on Tab away, a hover is its own chart's, and a pointer

@@ -130,13 +130,13 @@
     "expect": "red"
   },
   {
-    "id": "5-4-readout-not-live",
-    "why": "The live region loses aria-live, so a night chosen by the arrow keys is not announced",
+    "id": "5-4-chart-has-live-region",
+    "why": "A live region inside the chart speaks each key step a second time, after the slider's own value (round 2, G-3: the value is the one announcement; no chart has a live region)",
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "<p id=\"ov-trend-{ci}-live\" class=\"visually-hidden\" aria-live=\"polite\">",
-        "replace": "<p id=\"ov-trend-{ci}-live\" class=\"visually-hidden\">"
+        "find": "            aria-valuemin=\"1\"",
+        "replace": "            aria-live=\"polite\"\n            aria-valuemin=\"1\""
       }
     ],
     "test": ["cockpit/tests/overview/page.ssr.test.ts"],

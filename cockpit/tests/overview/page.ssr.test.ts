@@ -966,7 +966,7 @@ describe("P1-78h: section 8 drawn, once fleet_daily holds 14 nights", () => {
 
   // P1-87 PR 8a, item 5: each chart is reachable by keyboard and is a slider (review round 1, D): its
   // value is the selected night, and its text is that night's words. Its visible readout is idle
-  // until a night is read, and the live region holds no prompt.
+  // until a night is read.
   it("makes each chart a focusable slider over its nights (P1-87 PR 8a, item 5, review round 1 D)", () => {
     const figs = section.querySelectorAll("figure.ov-trend");
     expect(figs.length).toBe(TVIEW.trends.charts!.length);
@@ -990,9 +990,12 @@ describe("P1-78h: section 8 drawn, once fleet_daily holds 14 nights", () => {
       expect(readout.text.trim(), `chart ${ci}`).toBe(
         "Point at a night, or focus the chart and use the arrow keys, to read it.",
       );
-      const live = f.querySelector(`#ov-trend-${ci}-live`)!;
-      expect(live.getAttribute("aria-live"), `chart ${ci}`).toBe("polite");
-      expect(live.text.trim(), `chart ${ci}: the live region is empty at rest`).toBe("");
+      // P1-87 PR 8a, round 2 (G, R2): the slider's own value is the announcement, so a chart has
+      // no live region: a key step is said once, not again by a polite region.
+      expect(
+        f.querySelectorAll("[aria-live]").length,
+        `chart ${ci}: no live region inside a chart`,
+      ).toBe(0);
       const hint = f.querySelector(`#ov-trend-${ci}-hint`)!;
       expect(hint.text.trim(), `chart ${ci}`).toBe(
         "Point at a night, or focus the chart and use the arrow keys, to read it.",

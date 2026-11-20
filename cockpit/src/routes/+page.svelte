@@ -55,16 +55,17 @@
   // `js` marks a page with script: the CSS's no-script fallback keys on its absence.
   let still = $state(false);
   let js = $state(false);
-  // P1-87 PR 8a, item 5: the night each trend's hover or keys select, by chart index (absent or
-  // null: none). The readout names it; the table below keeps every night at once.
-  let trendSel = $state<Record<number, number | null>>({});
+  // P1-87 PR 8a, item 5, and round 2 (G): two nights per chart, by chart index (absent or null:
+  // none). `keySel` is the night the keys, a click or a tap chose: the slider reports it, and it is
+  // the one announcement. `hoverSel` is a pointer's preview of another night: the readout and the
+  // cursor show it while the pointer is on a night, and it never moves the slider (R1).
+  let keySel = $state<Record<number, number | null>>({});
+  let hoverSel = $state<Record<number, number | null>>({});
   const TREND_IDLE = "Point at a night, or focus the chart and use the arrow keys, to read it.";
-  // How each chart's night was chosen: "key" fills the live region, "pointer" (hover, click) does not
-  // (P1-87 PR 8a, review round 1, D: a pointer moving across a chart announces nothing).
-  let trendSrc = $state<Record<number, "key" | "pointer" | null>>({});
-  const selectNight = (ci: number, k: number | null, src: "key" | "pointer" | null = null) => {
-    trendSel[ci] = k;
-    trendSrc[ci] = src;
+  // Clearing the key night (blur, Escape) clears a preview too; a key step never touches the preview.
+  const setKeyNight = (ci: number, k: number | null) => {
+    keySel[ci] = k;
+    if (k === null) hoverSel[ci] = null;
   };
   // An action, not onkeydown: Svelte delegates onkeydown to the document, which would add a
   // document listener on the first overview visit that outlives it (the ticker's listener count).
@@ -743,10 +744,10 @@
     <div class="ov-trends">
       {#each v.trends.charts as c, ci (c.title)}
         {@const g = trendGeometry(c)}
-        {@const sel = trendSel[ci] ?? null}
+        {@const sel = keySel[ci] ?? null}
         {@const titles = g.slots.map((t) => t.title)}
         {@const shown = sel ?? titles.length - 1}
-        {@const live = sel !== null && trendSrc[ci] === "key" ? trendReadout(titles, sel) : ""}
+        {@const show = hoverSel[ci] ?? sel}
         <figure class="ov-trend">
           <figcaption id="ov-trend-{ci}">{c.title}</figcaption>
           {#if c.series.length > 1}
@@ -775,8 +776,8 @@
           {/if}
           <!-- P1-87 PR 8a, item 5: the chart stays an image for assistive tech; its keys and its
                pointer readout are the extra reading, and the table below has every night. -->
-          <!-- A slider: its value is the selected night (the newest when none is), and its text is that
-               night's words. The live region below speaks only a night chosen by the keys. -->
+          <!-- A slider: its value is the key night (the newest when none is), and its text is that
+               night's words. Its value is the one announcement: a hover previews a night without it. -->
           <svg
             class="ov-chart"
             viewBox="0 0 {g.width} {g.height}"
@@ -789,16 +790,13 @@
             aria-valuenow={shown + 1}
             aria-valuetext={trendReadout(titles, shown)}
             use:trendKeys={(e: KeyboardEvent) => {
-              const next = trendKey(e.key, trendSel[ci] ?? null, g.slots.length);
+              const next = trendKey(e.key, keySel[ci] ?? null, g.slots.length);
               if (next === undefined) return;
               e.preventDefault();
-              selectNight(ci, next, "key");
+              setKeyNight(ci, next);
             }}
-            onblur={() => selectNight(ci, null)}
-            onpointerleave={(e) => {
-              // A chart with focus keeps its night when the pointer leaves it (the brief).
-              if (document.activeElement !== e.currentTarget) selectNight(ci, null);
-            }}
+            onblur={() => setKeyNight(ci, null)}
+            onpointerleave={() => (hoverSel[ci] = null)}
           >
             <desc id="ov-trend-{ci}-desc">{c.summary}</desc>
             {#each g.earlier as e, ei (ei)}
@@ -871,28 +869,27 @@
                 height={g.baseline - g.top}
                 data-title={t.title}
                 onpointerenter={(e) => {
-                  if (e.pointerType === "mouse") selectNight(ci, ti, "pointer");
+                  if (e.pointerType === "mouse") hoverSel[ci] = ti;
                 }}
-                onclick={() => selectNight(ci, ti, "pointer")}
+                onclick={() => (keySel[ci] = ti)}
               />
             {/each}
-            {#if sel !== null && g.slots[sel]}
+            {#if show !== null && g.slots[show]}
               <line
                 class="ov-trend-cursor"
-                x1={g.slots[sel]!.x}
-                x2={g.slots[sel]!.x}
+                x1={g.slots[show]!.x}
+                x2={g.slots[show]!.x}
                 y1={g.top}
                 y2={g.baseline}
               />
             {/if}
           </svg>
-          <!-- The visible readout: hover and keys both show here. It is hidden from assistive tech, which
-               reads the slider's value and the live region instead. -->
+          <!-- The visible readout: a hover's night, else the key night. It is hidden from assistive
+               tech, which reads the slider's value instead. -->
           <p id="ov-trend-{ci}-readout" class="muted ov-trend-readout" aria-hidden="true">
-            {sel === null ? TREND_IDLE : trendReadout(titles, sel)}
+            {show === null ? TREND_IDLE : trendReadout(titles, show)}
           </p>
           <span id="ov-trend-{ci}-hint" class="visually-hidden">{TREND_IDLE}</span>
-          <p id="ov-trend-{ci}-live" class="visually-hidden" aria-live="polite">{live}</p>
           {#if c.note}<p class="muted ov-trend-note">{c.note}</p>{/if}
           <details class="ov-trend-table">
             <summary>As a table</summary>
