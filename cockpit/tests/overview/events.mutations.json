@@ -336,5 +336,18 @@
     ],
     "test": ["cockpit/tests/legacy/recently-lane.ssr.test.ts"],
     "expect": "red"
+  },
+  {
+    "id": "9-27-fleet-load-windows-at-snapshot-time",
+    "why": "/fleet's load windows the Recently lane's feed deploys at the snapshot's takenAt, not the page's now, so a page read days after its snapshot still shows an event and a deploy that have aged out of the 7-day window (T12)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.ts",
+        "find": "      sites: buildSitesView(cockpit, now, snapshot.feedDeploys),",
+        "replace": "      sites: buildSitesView(cockpit, new Date(snapshot.takenAt), snapshot.feedDeploys),"
+      }
+    ],
+    "test": ["cockpit/tests/fleet/sites.ssr.test.ts"],
+    "expect": "red"
   }
 ]

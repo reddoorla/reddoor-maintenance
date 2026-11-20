@@ -273,3 +273,66 @@ describe("/fleet's Recently lane shows the snapshot's deploys through its load (
     expect(html).toContain("Recently (1)");
   });
 });
+
+/** P1-87 PR 9, review T12: `/fleet`'s load windows the snapshot's event and deploy at the page's
+ *  own now, not at the snapshot's takenAt. A page read two days after its snapshot must drop the
+ *  event and the deploy, which were inside the window when the snapshot was taken. */
+describe("/fleet's Recently lane windows at the page's now, not the snapshot's time (P1-87, PR 9, T12)", () => {
+  type Data = Parameters<typeof Page>[1]["data"];
+  const SNAP_AT = "2026-11-17T18:00:00.000Z";
+  const EVENT_TS = "2026-11-11T12:00:00.000Z";
+  const EVENT_SUMMARY = "cleared 2 critical/high vulns";
+  const DEPLOY_SUMMARY = "Deploy published";
+
+  const takenSnapshot = () =>
+    snapshot({
+      takenAt: SNAP_AT,
+      recentEvents: [
+        {
+          id: "vuln_cleared:recA:1",
+          ts: EVENT_TS,
+          type: "vuln_cleared",
+          siteId: "recA",
+          siteName: "Caltex",
+          summary: EVENT_SUMMARY,
+          data: null,
+        },
+      ],
+      feedDeploys: [
+        {
+          id: "site_deployed:recA:1",
+          ts: EVENT_TS,
+          type: "site_deployed",
+          siteId: "recA",
+          siteName: "Caltex",
+          summary: DEPLOY_SUMMARY,
+          data: null,
+        },
+      ],
+    });
+
+  async function renderAt(systemTime: string): Promise<string> {
+    vi.setSystemTime(new Date(systemTime));
+    const data = (await (load as unknown as (e: unknown) => Promise<Data>)({
+      url: new URL("/fleet", "https://dash.example"),
+      parent: async () => ({ snapshot: takenSnapshot(), failure: null, clockOffsetMs: 0 }),
+    })) as Data;
+    return render(Page, { props: { data } }).body;
+  }
+
+  afterAll(() => {
+    vi.setSystemTime(OVERVIEW_NOW);
+  });
+
+  it("instrument: read at the snapshot's own time, both the event and the deploy show", async () => {
+    const html = await renderAt(SNAP_AT);
+    expect(html).toContain(EVENT_SUMMARY);
+    expect(html).toContain(DEPLOY_SUMMARY);
+  });
+
+  it("drops both two days after the snapshot, because the window is at the page's now", async () => {
+    const html = await renderAt("2026-11-19T18:00:00.000Z");
+    expect(html).not.toContain(EVENT_SUMMARY);
+    expect(html).not.toContain(DEPLOY_SUMMARY);
+  });
+});
