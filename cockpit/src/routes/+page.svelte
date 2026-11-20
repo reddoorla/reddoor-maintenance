@@ -62,10 +62,12 @@
   let keySel = $state<Record<number, number | null>>({});
   let hoverSel = $state<Record<number, number | null>>({});
   const TREND_IDLE = "Point at a night, or focus the chart and use the arrow keys, to read it.";
-  // Clearing the key night (blur, Escape) clears a preview too; a key step never touches the preview.
+  // A key night set by a key, a click, a blur or Escape ends the chart's preview: a key step is an
+  // act, so the readout and the cursor follow the key night until the pointer moves to another night
+  // (P1-87 PR 8a, round 3 I). A click clears it too, so a tap cannot leave a preview stuck.
   const setKeyNight = (ci: number, k: number | null) => {
     keySel[ci] = k;
-    if (k === null) hoverSel[ci] = null;
+    hoverSel[ci] = null;
   };
   // An action, not onkeydown: Svelte delegates onkeydown to the document, which would add a
   // document listener on the first overview visit that outlives it (the ticker's listener count).
@@ -872,7 +874,7 @@
                 onpointerenter={(e) => {
                   if (e.pointerType === "mouse") hoverSel[ci] = ti;
                 }}
-                onclick={() => (keySel[ci] = ti)}
+                onclick={() => setKeyNight(ci, ti)}
               />
             {/each}
             {#if show !== null && g.slots[show]}

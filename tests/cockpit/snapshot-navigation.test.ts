@@ -5026,6 +5026,40 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     ).toBe(0);
   });
 
+  // P1-87 PR 8a, round 3 (I, R3-A1): a key step is an act, so it ends a hover's preview. After a click
+  // and a key, the readout and the cursor follow the key night, and a pointer that moves on previews again.
+  it("a key step after a click ends the hover preview: the readout and cursor follow the keys, and a new hover previews again (item 5, round 3 I)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    const n = titles.length;
+    const centreOf = (k: number) =>
+      nightRects(page)
+        .nth(k)
+        .evaluate((r) => Number(r.getAttribute("x")) + Number(r.getAttribute("width")) / 2);
+    await nightRects(page).nth(4).hover();
+    await nightRects(page).nth(4).click();
+    expect(await readoutText(page)).toBe(titles[4]);
+    await page.keyboard.press("ArrowRight");
+    expect(await readoutText(page), "a key step after a click shows the key night").toBe(
+      titles[5],
+    );
+    expect(Number(await cursorOf(page).getAttribute("x1"))).toBeCloseTo(await centreOf(5), 1);
+    expect(await chart(page).getAttribute("aria-valuenow")).toBe("6");
+    await page.keyboard.press("End");
+    expect(await readoutText(page)).toBe(titles[n - 1]);
+    expect(Number(await cursorOf(page).getAttribute("x1"))).toBeCloseTo(await centreOf(n - 1), 1);
+    expect(await chart(page).getAttribute("aria-valuenow")).toBe(String(n));
+    await nightRects(page).nth(2).hover();
+    expect(await readoutText(page), "a new hover previews again").toBe(titles[2]);
+    expect(Number(await cursorOf(page).getAttribute("x1"))).toBeCloseTo(await centreOf(2), 1);
+    expect(await chart(page).getAttribute("aria-valuenow"), "a hover is not a key choice").toBe(
+      String(n),
+    );
+  });
+
   it("a hover shows its night on screen, and the slider keeps the newest night while nothing is chosen by key (item 5, review round 1 D, round 2 G)", async () => {
     const page = await signedIn();
     await page.setViewportSize({ width: 1280, height: 900 });
