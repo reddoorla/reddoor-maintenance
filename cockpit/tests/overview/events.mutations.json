@@ -297,5 +297,18 @@
     ],
     "test": ["cockpit/tests/legacy/recently-lane.ssr.test.ts"],
     "expect": "red"
+  },
+  {
+    "id": "9-24-fleet-load-drops-feed-deploys",
+    "why": "/fleet's load builds the sites view without the snapshot's feedDeploys, so the Recently lane shows no deploy at all and every test that does not go through the load stays green (T9)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.ts",
+        "find": "      sites: buildSitesView(cockpit, now, snapshot.feedDeploys),",
+        "replace": "      sites: buildSitesView(cockpit, now),"
+      }
+    ],
+    "test": ["cockpit/tests/fleet/sites.ssr.test.ts"],
+    "expect": "red"
   }
 ]
