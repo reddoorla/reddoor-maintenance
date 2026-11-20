@@ -99,6 +99,8 @@ describe("renderRecentlyLane: deploys follow the overview's rule (P1-87 PR 9, C1
     const html = renderSitesHtml(modelWith([]), null, deploysToShow([deploy]));
     expect(html).toContain("Deploy published");
     expect(html).toContain("Recently (1)");
+    // The deploy row links to its site's page (P1-87 PR 9, T11): the slug of "Caltex".
+    expect(html).toContain('href="/s/caltex"');
   });
 
   it("keeps the lane at its cut of 20 rows across the recent events and the deploys", () => {
@@ -120,6 +122,12 @@ describe("renderRecentlyLane: deploys follow the overview's rule (P1-87 PR 9, C1
     }));
     const html = renderSitesHtml(modelWith(recent), null, deploys);
     expect(html).toContain("Recently (20)");
+    // Which rows the cut keeps, not only how many (P1-87 PR 9, T10): the five deploys are the
+    // newest, then the events from "cleared 19" down to "cleared 5"; "cleared 4" is cut.
+    expect(html.match(/Deploy published/g)).toHaveLength(5);
+    expect(html).toContain("cleared 5");
+    expect(html).not.toContain("cleared 4");
+    expect(html.indexOf("Deploy published")).toBeLessThan(html.indexOf("cleared 19"));
   });
 });
 

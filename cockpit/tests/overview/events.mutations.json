@@ -310,5 +310,31 @@
     ],
     "test": ["cockpit/tests/fleet/sites.ssr.test.ts"],
     "expect": "red"
+  },
+  {
+    "id": "9-25-recently-cut-not-sorted",
+    "why": "The Recently lane's merged rows are not sorted newest first before the cut, so a busy week cuts the deploys (which come second in the concatenation) and the lane shows only events (T10)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/view.ts",
+        "find": "    .sort((a, b) => Date.parse(b.ts) - Date.parse(a.ts))\n",
+        "replace": ""
+      }
+    ],
+    "test": ["cockpit/tests/legacy/recently-lane.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "9-26-deploy-row-slug-null",
+    "why": "A deploy row's slug is null, so the row has no link to its site's page and the 'open →' link is gone (T11)",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/view.ts",
+        "find": "      slug: e.siteName ? siteSlug(e.siteName) : null,",
+        "replace": "      slug: null,"
+      }
+    ],
+    "test": ["cockpit/tests/legacy/recently-lane.ssr.test.ts"],
+    "expect": "red"
   }
 ]
