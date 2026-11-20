@@ -341,5 +341,31 @@
     ],
     "test": "cockpit/tests/how/page.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "B-nights-watch-reads-healthy",
+    "why": "The Watch nights line reads the healthy count, so a watch site on the nights is never counted",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "  ok: \"healthy\",\n  watch: \"watch\",",
+        "replace": "  ok: \"healthy\",\n  watch: \"healthy\","
+      }
+    ],
+    "test": "cockpit/tests/how/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "B-nights-attention-reads-watch",
+    "why": "The Attention nights line reads the watch count, so attention sites are counted as watch sites",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "  watch: \"watch\",\n  attention: \"attention\",",
+        "replace": "  watch: \"watch\",\n  attention: \"watch\","
+      }
+    ],
+    "test": "cockpit/tests/how/view.ssr.test.ts",
+    "expect": "red"
   }
 ]

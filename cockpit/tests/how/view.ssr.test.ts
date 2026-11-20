@@ -109,7 +109,11 @@ type Entry = number | "missing" | "unread" | "earlier";
 /** The writer's sites block for `n` cards at one card tier: cockpitCounts builds it, so the
  *  tests read the keys production writes (`healthy`, `watch`, `attention`, `broken`). */
 function sitesBlock(tier: CardTier, n: number): OverviewNight["counts"]["sites"] {
-  const cards = Array.from({ length: n }, () => ({ tier, items: [], setup: [] }));
+  return sitesBlockOf(Array.from({ length: n }, () => tier));
+}
+/** The writer's sites block for one card per entry, each at its own card tier. */
+function sitesBlockOf(tiers: CardTier[]): OverviewNight["counts"]["sites"] {
+  const cards = tiers.map((tier) => ({ tier, items: [], setup: [] }));
   const model = { cards, cardless: [], summary: { preLaunch: 0 } } as unknown as CockpitModel;
   return { value: cockpitCounts(model).sites } as unknown as OverviewNight["counts"]["sites"];
 }
@@ -224,6 +228,26 @@ describe("PR 8c item 10: the nights line", () => {
     }
     expect(line(nights)).toBe(
       "At least one site sat here on 3 of the 11 nights counted in the last 21; the most on one night was 3.",
+    );
+  });
+
+  it("the Watch and Attention lines read their own tier's count, not the healthy count (round 2 B)", () => {
+    // One watch site on the five oldest nights, two attention sites on the three newest, built as
+    // cockpitCounts writes them. Watch and Attention must each read their own key.
+    const nights = Array.from({ length: 21 }, (_, i) =>
+      night(shift("2026-10-26", i - 20), {
+        ladderVersion: 2,
+        sites: sitesBlockOf([
+          ...(i < 5 ? (["watch"] as const) : []),
+          ...(i >= 18 ? (["attention", "attention"] as const) : []),
+        ]),
+      }),
+    );
+    expect(levelNights(nights, "watch", NOW)).toBe(
+      "At least one site sat here on 5 of the last 21 nights; the most on one night was 1.",
+    );
+    expect(levelNights(nights, "attention", NOW)).toBe(
+      "At least one site sat here on 3 of the last 21 nights; the most on one night was 2.",
     );
   });
 });
