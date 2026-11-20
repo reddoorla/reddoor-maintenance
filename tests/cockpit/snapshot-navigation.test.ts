@@ -5208,7 +5208,8 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     expect(
       await page.locator("figure.ov-trend").nth(0).locator("line.ov-trend-cursor").count(),
     ).toBe(1);
-    // Round 3 (t2): the tap chooses the night for the slider too, and leaves no hover preview behind.
+    // Round 3 (t2): the tap chooses the night for the slider too. A touch never sets a hover preview,
+    // so the assertions below pin the key night the slider reports, not the absence of a preview.
     expect(await chart(page).getAttribute("aria-valuenow"), "the tap is the key night").toBe("5");
     expect(await chart(page).getAttribute("aria-valuetext")).toBe(titles[4]);
   });

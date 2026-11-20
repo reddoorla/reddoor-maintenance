@@ -232,5 +232,57 @@
     ],
     "test": ["cockpit/tests/overview/motion.ssr.test.ts"],
     "expect": "red"
+  },
+  {
+    "id": "t1-1-figure-has-a-status-region",
+    "why": "A status region inside the chart speaks each step a second time, like a polite live region (P1-87 PR 8a, round 4 r4t1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "<figcaption id=\"ov-trend-{ci}\">{c.title}</figcaption>",
+        "replace": "<figcaption id=\"ov-trend-{ci}\">{c.title}</figcaption>\n          <p role=\"status\"></p>"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "t1-2-figure-is-polite-live",
+    "why": "The figure itself carries aria-live, so the chart speaks a second time (P1-87 PR 8a, round 4 r4t1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "<figure class=\"ov-trend\">",
+        "replace": "<figure class=\"ov-trend\" aria-live=\"polite\">"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "t1-3-figure-is-an-alert",
+    "why": "The figure itself is role=alert, so every step is announced assertively (P1-87 PR 8a, round 4 r4t1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "<figure class=\"ov-trend\">",
+        "replace": "<figure class=\"ov-trend\" role=\"alert\">"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "t1-4-readout-is-a-log",
+    "why": "The readout is role=log, a live region the readout's own text would announce (P1-87 PR 8a, round 4 r4t1)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "<p id=\"ov-trend-{ci}-readout\" class=\"muted ov-trend-readout\" aria-hidden=\"true\">",
+        "replace": "<p id=\"ov-trend-{ci}-readout\" class=\"muted ov-trend-readout\" aria-hidden=\"true\" role=\"log\">"
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
   }
 ]

@@ -58,7 +58,8 @@
   // P1-87 PR 8a, item 5, and round 2 (G): two nights per chart, by chart index (absent or null:
   // none). `keySel` is the night the keys, a click or a tap chose: the slider reports it, and it is
   // the one announcement. `hoverSel` is a pointer's preview of another night: the readout and the
-  // cursor show it while the pointer is on a night, and it never moves the slider (R1).
+  // cursor show it while the pointer rests on a night, and it never moves the slider (R1). A key
+  // step or a click ends it (setKeyNight), so after a key step the readout follows the key night.
   let keySel = $state<Record<number, number | null>>({});
   let hoverSel = $state<Record<number, number | null>>({});
   const TREND_IDLE = "Point at a night, or focus the chart and use the arrow keys, to read it.";
