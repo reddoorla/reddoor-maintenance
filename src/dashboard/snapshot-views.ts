@@ -45,6 +45,10 @@ const SPAM_REASONS_CAP = 2000;
 /** The cockpit's Recently lane: the last week's events, at most this many. */
 export const RECENT_EVENTS_DAYS = 7;
 export const RECENT_EVENTS_LIMIT = 20;
+/** P1-87 PR 9: a site's deploy is left out of the overview's feed when a dependency
+ *  update merged on that site in this long before it (the merge's line already says the
+ *  site changed). The window is inclusive at both ends. */
+export const DEPLOY_AFTER_MERGE_MS = 3_600_000;
 /** `/audits` lists this many: plenty for one screen of "recent" without a pager; the
  *  design deliberately has no pagination for this list (v1 non-goal). */
 export const RECENT_AUDITS_LIMIT = 25;
@@ -53,6 +57,27 @@ export const RECENT_AUDITS_LIMIT = 25;
 export const SNAPSHOT_SCREENOUT_DAYS = 31;
 const SITE_SPAM_WINDOW_DAYS = 30;
 const AUTO_SPAM_WINDOW_DAYS = 7;
+
+/** The deploys the overview's feed lists (P1-87 PR 9), newest first, at most
+ *  `RECENT_EVENTS_LIMIT`. A deploy is left out when a `pr_automerged` event on the same
+ *  non-null site has its `ts` in `[deploy.ts - DEPLOY_AFTER_MERGE_MS, deploy.ts]`; a deploy
+ *  with no site is always kept. Other types are ignored. */
+export function deploysToShow(events: readonly FleetEvent[]): FleetEvent[] {
+  const merges = events.filter((e) => e.type === "pr_automerged" && e.siteId !== null);
+  return events
+    .filter((e) => e.type === "site_deployed")
+    .filter((d) => {
+      if (d.siteId === null) return true;
+      const at = Date.parse(d.ts);
+      return !merges.some((m) => {
+        if (m.siteId !== d.siteId) return false;
+        const t = Date.parse(m.ts);
+        return t >= at - DEPLOY_AFTER_MERGE_MS && t <= at;
+      });
+    })
+    .sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0))
+    .slice(0, RECENT_EVENTS_LIMIT);
+}
 
 export type CockpitSnapshot = {
   takenAt: string;
