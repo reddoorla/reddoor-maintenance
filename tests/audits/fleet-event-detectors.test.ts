@@ -216,6 +216,11 @@ describe("backupEventFromVerify", () => {
       "a non-integer row count",
       "DUMP_VERIFY loaded=true tables=44 rows=1.5 blob_bytes=987 hashed=44 mismatches=0",
     ],
+    // #2200, the operator's answer (a): 0 tables restored is not a verified backup.
+    [
+      "a rehearsal that restored no table",
+      "DUMP_VERIFY loaded=true tables=0 rows=0 blob_bytes=0 hashed=0 mismatches=0",
+    ],
     ["no machine line at all", "✗ sites: dump=44 restored=43"],
     ["empty text", ""],
   ])("returns null for %s", (_name, text) => {

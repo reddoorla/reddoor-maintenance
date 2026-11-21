@@ -157,5 +157,18 @@
     ],
     "test": "cockpit/tests/how/page.ssr.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "E12-zero-tables-verified",
+    "why": "#2200 (answer (a)): a rehearsal that restored no table records a verified backup",
+    "edits": [
+      {
+        "file": "src/audits/fleet-event-detectors.ts",
+        "find": "  if (t === 0) return null;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/audits/fleet-event-detectors.test.ts",
+    "expect": "red"
   }
 ]
