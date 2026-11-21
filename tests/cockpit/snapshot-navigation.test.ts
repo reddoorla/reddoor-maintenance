@@ -5383,6 +5383,10 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`${origin}/`);
     await motionReady(page);
+    // P1-87 minors (PR 2 review round 1): the installed clock runs with real time until paused, so
+    // the feed's FEED_MS timer could fire before the checks below read the mark. Paused, the page's
+    // timers fire only when the test moves the clock on.
+    await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 1_000);
     // The first load marks no line new.
     expect(await newMarks(page)).toEqual([]);
     // Each row names its place, so a row can be followed across the refresh.
@@ -5422,8 +5426,8 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
       expect(oneLine(await page.locator('.ov-lately li[data-probe="0"]').textContent())).toBe(
         oldFirst,
       );
-      // P1-87 minors, #2165: the mark lasts the slide and no longer. The page's clock is installed,
-      // so FEED_MS of it passes here and nowhere else.
+      // P1-87 minors, #2165: the mark lasts the slide and no longer. The page's clock is paused, so
+      // FEED_MS of it passes here and nowhere else.
       await page.clock.runFor(FEED_MS);
       await expect
         .poll(() => page.locator(".ov-lately li[data-new]").count(), { timeout: 2_000 })
