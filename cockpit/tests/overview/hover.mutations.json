@@ -62,8 +62,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "    document.addEventListener(\"visibilitychange\", onShown);\n    startIntro(false);\n",
-        "replace": "    introTimer = setTimeout(() => (intro = false), INTRO_MS);\n"
+        "find": "    document.addEventListener(\"visibilitychange\", startIntro);\n    startIntro();\n",
+        "replace": "    introTimer = setTimeout(endIntro, INTRO_MS);\n"
       }
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
@@ -75,8 +75,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "    document.addEventListener(\"visibilitychange\", onShown);\n    startIntro(false);\n",
-        "replace": "    if (document.visibilityState === \"visible\") startIntro(false);\n    else intro = false;\n"
+        "find": "    document.addEventListener(\"visibilitychange\", startIntro);\n    startIntro();\n",
+        "replace": "    if (document.visibilityState === \"visible\") startIntro();\n    else intro = false;\n"
       }
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
@@ -122,26 +122,26 @@
     "expect": "red"
   },
   {
-    "id": "2164-d-count-outlives-intro",
-    "why": "#2164 review round 1: a count keeps running after its intro is dropped",
-    "edits": [
-      {
-        "file": "cockpit/src/lib/overview/motion.ts",
-        "find": "      else if (!p.enabled && node.hasAttribute(\"data-counting\")) finish();\n",
-        "replace": ""
-      }
-    ],
-    "test": "cockpit/tests/overview/motion.ssr.test.ts",
-    "expect": "red"
-  },
-  {
-    "id": "2164-e-late-show-ignores-due-reread",
-    "why": "#2164 review round 1 (F2): a page first shown with its view due a re-read still plays its intro, so the re-read on that show inserts rows that play it",
+    "id": "2164-e-reread-not-held",
+    "why": "#2164 review rounds 1 and 2 (F2): a re-read asked for during the intro runs at once, so rows a shown tab's re-read inserts play the intro",
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "      if (shownLate && refreshDue(v.cycle, Date.now() + offsetMs)) intro = false;\n      else introTimer",
-        "replace": "      introTimer"
+        "find": "        if (!intro) return invalidate(\"cockpit:snapshot\");\n        rereadHeld = true;\n        return Promise.resolve();\n",
+        "replace": "        return invalidate(\"cockpit:snapshot\");\n"
+      }
+    ],
+    "test": "cockpit/tests/overview/page-intro.dom.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2164-f-held-reread-dropped",
+    "why": "#2164 review round 2: a re-read held for the intro is dropped at its end, so a tab shown with a stale view keeps it until the clock's next re-read",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "        void invalidate(\"cockpit:snapshot\");\n",
+        "replace": ""
       }
     ],
     "test": "cockpit/tests/overview/page-intro.dom.test.ts",

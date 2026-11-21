@@ -4476,7 +4476,8 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
       tiles: true,
     });
     // The instrument is proven here, on a page with a known answer: its intro ends INTRO_MS after
-    // the script runs (onMount starts the timer just before it sets data-motion-ready).
+    // the script runs (onMount sets motionReady and starts the timer; the attribute reaches the DOM
+    // as onMount returns).
     const timing = (p: Page) =>
       p.evaluate(() => {
         const w = window as unknown as { __ready: number | null; __introEnd: number | null };

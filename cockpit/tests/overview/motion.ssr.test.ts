@@ -204,7 +204,7 @@ describe("the count-up action on a refresh (P1-87 PR 8a, review round 1, F1)", (
     }
   });
   // P1-87 minors, #2164: a hidden mount runs no frame until the page is shown, so its count starts
-  // at the first frame, not at the mount; and an intro dropped mid-count ends the count with it.
+  // at the first frame, not at the mount.
   const withFrames = (run: () => void) => {
     now = 0;
     pending = new Map();
@@ -250,20 +250,6 @@ describe("the count-up action on a refresh (P1-87 PR 8a, review round 1, F1)", (
       countUp(node, { to: "1,674", enabled: true });
       tick(COUNT_MS + 16);
       expect(attrs.has("data-counted"), "a visible count ends COUNT_MS after its mount").toBe(true);
-    });
-  });
-
-  it("an intro dropped while a figure counts ends the count at once (#2164)", () => {
-    withFrames(() => {
-      const { node, attrs, text } = setup();
-      const action = countUp(node, { to: "1,674", enabled: true });
-      tick(300);
-      expect(attrs.has("data-counting")).toBe(true);
-      action.update({ to: "1,674", enabled: false });
-      expect(text(), "the count span is empty").toBe("");
-      expect(attrs.has("data-counted")).toBe(true);
-      expect(attrs.has("data-counting")).toBe(false);
-      expect(pending.size, "no frame is left to run").toBe(0);
     });
   });
 });

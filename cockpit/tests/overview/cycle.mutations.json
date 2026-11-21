@@ -187,8 +187,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/cycle-clock.ts",
-        "find": "    if (!refreshDue(deps.getView(), now)) return;",
-        "replace": "    if (!refreshDue(deps.getView(), now) && false) return;"
+        "find": "    if (!due) return;",
+        "replace": "    if (!due && false) return;"
       }
     ],
     "test": ["cockpit/tests/overview/cycle-clock.ssr.test.ts"],
@@ -395,8 +395,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/cycle-clock.ts",
-        "find": "  return (from <= nowMs && nowMs < until) || nowMs >= Date.parse(staleAfterIso);",
-        "replace": "  return from <= nowMs && nowMs < until;"
+        "find": "    const due = (from <= now && now < until) || now >= Date.parse(staleAfterIso);",
+        "replace": "    const due = from <= now && now < until;"
       }
     ],
     "test": ["cockpit/tests/overview/cycle-clock.ssr.test.ts"],

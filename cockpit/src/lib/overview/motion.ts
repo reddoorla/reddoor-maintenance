@@ -94,9 +94,6 @@ export function countUp(
       // A refresh to a value that is not a figure (a word) ends the count at once: no frame may
       // write it, and the figure shows its own words (P1-87 PR 8a, review round 1, F1).
       if (!countable(to)) finish();
-      // The intro ended while the count ran (a page first shown with its view due a re-read ends
-      // its intro at once, #2164): the count ends with it, as the sparklines do.
-      else if (!p.enabled && node.hasAttribute("data-counting")) finish();
     },
     destroy() {
       if (node.hasAttribute("data-counting")) finish();

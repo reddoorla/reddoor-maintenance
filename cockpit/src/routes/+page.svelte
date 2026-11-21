@@ -12,7 +12,7 @@
   } from "../lib/overview/view.js";
   import { tickerSeconds } from "../lib/overview/ticker.js";
   import { markerAt, untilWords } from "../lib/overview/cycle.js";
-  import { refreshDue, startCycleClock } from "../lib/overview/cycle-clock.js";
+  import { startCycleClock } from "../lib/overview/cycle-clock.js";
   import {
     BAR_MS,
     BAR_STAGGER_MS,
@@ -303,19 +303,26 @@
     // P1-87 minors, #2164: the intro's timer starts once the page is visible. A page loaded in a
     // background tab holds its CSS animations until it is shown, so a timer started at mount would
     // cut the bars' fill short (shown 0.3 to 2 s later) or drop it (shown later still). The intro
-    // waits instead, and plays whole when the tab is first shown. One exception keeps F2 (a refresh
-    // plays no intro on what it inserts): a page first shown when its view is due a re-read, which
-    // the cycle clock starts on that same show, ends the intro at once, as a late show did before.
+    // waits instead, and plays whole when the tab is first shown. A re-read the cycle clock asks
+    // for while the intro is on (a tab shown with its view due, which the clock re-reads on that
+    // show, or due within the intro) waits for the intro's end, so a re-read never inserts a row
+    // or a figure under it (F2: a refresh plays no intro on what it inserts).
     let introTimer: ReturnType<typeof setTimeout> | undefined;
-    const startIntro = (shownLate: boolean) => {
-      if (document.visibilityState !== "visible") return;
-      document.removeEventListener("visibilitychange", onShown);
-      if (shownLate && refreshDue(v.cycle, Date.now() + offsetMs)) intro = false;
-      else introTimer = setTimeout(() => (intro = false), INTRO_MS);
+    let rereadHeld = false;
+    const endIntro = () => {
+      intro = false;
+      if (rereadHeld) {
+        rereadHeld = false;
+        void invalidate("cockpit:snapshot");
+      }
     };
-    const onShown = () => startIntro(true);
-    document.addEventListener("visibilitychange", onShown);
-    startIntro(false);
+    const startIntro = () => {
+      if (document.visibilityState !== "visible") return;
+      document.removeEventListener("visibilitychange", startIntro);
+      introTimer = setTimeout(endIntro, INTRO_MS);
+    };
+    document.addEventListener("visibilitychange", startIntro);
+    startIntro();
     offsetMs = Date.parse(v.cycle.nowIso) - Date.now();
     clock = Date.now() + offsetMs;
     const cycle = startCycleClock({
@@ -326,7 +333,11 @@
         document.addEventListener("visibilitychange", handler);
         return () => document.removeEventListener("visibilitychange", handler);
       },
-      invalidate: () => invalidate("cockpit:snapshot"),
+      invalidate: () => {
+        if (!intro) return invalidate("cockpit:snapshot");
+        rereadHeld = true;
+        return Promise.resolve();
+      },
       onTick: (t) => {
         clock = t;
       },
@@ -335,7 +346,7 @@
     });
     return () => {
       cycle.stop();
-      document.removeEventListener("visibilitychange", onShown);
+      document.removeEventListener("visibilitychange", startIntro);
       clearTimeout(introTimer);
       for (const t of freshTimers.values()) clearTimeout(t);
     };
