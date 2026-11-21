@@ -1,0 +1,121 @@
+[
+  {
+    "id": "J1-feed-keyed-by-slug",
+    "why": "#2178: the Needs-you feed groups by slug again, so Acme Co and Acme-Co share a row",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "    let a = byId.get(siteId);",
+        "replace": "    let a = byId.get(siteSlug(siteName));"
+      },
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "      byId.set(siteId, a);",
+        "replace": "      byId.set(siteSlug(siteName), a);"
+      }
+    ],
+    "test": "tests/dashboard/fleet-cockpit.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "J2-pending-keyed-off-its-site",
+    "why": "#2178: a waiting report is grouped under its namesake's key, not its own site's",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "    const a = get(p.siteId, p.siteName);",
+        "replace": "    const a = get(`slug:${p.slug}`, p.siteName);"
+      }
+    ],
+    "test": "tests/dashboard/fleet-cockpit.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "J3-ladder-matches-by-name",
+    "why": "#2178: the ladder matches cards to rows by site name, which survived before because no fixture had namesakes",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "buildNeedsYouFeed(model).map((r) => [r.siteId, r])",
+        "replace": "buildNeedsYouFeed(model).map((r) => [r.slug, r])"
+      },
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "    const row = feed.get(c.site.id);",
+        "replace": "    const row = feed.get(c.site.name.toLowerCase().replace(/[^a-z0-9]+/g, \"-\").replace(/^-|-$/g, \"\"));"
+      }
+    ],
+    "test": "cockpit/tests/how/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "K1-aria-controls-swapped",
+    "why": "#2177: the watch and attention buttons control each other's panels",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "aria-controls=\"how-level-{l.tier}\"",
+        "replace": "aria-controls=\"how-level-{l.tier === 'watch' ? 'attention' : l.tier === 'attention' ? 'watch' : l.tier}\""
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "L1-fractional-count-read",
+    "why": "#2179: a night counting 1.5 sites is read as a count",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "Number.isInteger(v) && v >= 0",
+        "replace": "Number.isFinite(v) && v >= 0"
+      }
+    ],
+    "test": "cockpit/tests/how/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M1-no-forced-colours-lit-marker",
+    "why": "#2180: under forced colours a lit and an unlit step look the same again",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/how.css",
+        "find": "  .how-steps li[data-lit=\"true\"]::before {\n    border: 0.3rem solid;\n  }\n",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "N1-zero-height-in-view",
+    "why": "#2183: a section of no height counts as in view",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "  if (sectionPx <= 0) return false;\n",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/how/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "N2-observer-never-disconnected",
+    "why": "#2183: the step observer stays connected after every step is lit",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "        if (lit.every(Boolean)) observer?.disconnect();\n",
+        "replace": ""
+      },
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "      if (lit.every(Boolean)) observer.disconnect();\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  }
+]
