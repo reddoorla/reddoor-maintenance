@@ -374,7 +374,7 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "      for (const k of added) left.delete(k);\n      fresh = left;\n",
+        "find": "          left.delete(k);\n          fresh = left;\n",
         "replace": ""
       }
     ],
