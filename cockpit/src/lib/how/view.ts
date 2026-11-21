@@ -170,7 +170,10 @@ export function todayFromModel(model: CockpitModel): Record<Tier, LevelSite[]> {
     broken: "broken",
   };
   for (const c of model.cards) {
-    if (c.site.status !== "maintained") continue;
+    // #2182 (the operator's answer (a)): a launching site is listed when its card sits at a
+    // level (an alarm that breaks through the pre-launch mute), as the nights line counts it.
+    // A still-muted launching card is `pre-launch`, which has no level here.
+    if (c.site.status !== "maintained" && c.site.status !== "launching") continue;
     const tier = levelOf[c.tier];
     if (tier === undefined) continue;
     const name = c.site.name;

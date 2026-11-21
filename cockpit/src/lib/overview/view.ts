@@ -251,7 +251,9 @@ function statusView(
     ...feed
       .filter((i) => i.group === "broken")
       .map((i) => ({
-        key: i.slug || i.siteName,
+        // #2178: by site id. Two Broken sites whose names slug alike ("Acme Co", "Acme-Co")
+        // are two rows now, and a keyed {#each} throws on a repeated key.
+        key: i.siteId,
         siteName: i.siteName,
         url: i.url,
         reasons:

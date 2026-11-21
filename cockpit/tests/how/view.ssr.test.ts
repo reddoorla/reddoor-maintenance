@@ -371,14 +371,33 @@ describe("PR 8c item 10: today's sites at each level", () => {
 });
 
 describe("PR 8c item 10: the level's sites, by their own status and count", () => {
-  it("a site that is not maintained is never listed, even at a broken tier", () => {
+  // #2182, the operator's answer (a), 2026-11-21: a launching site whose card sits at a level
+  // (its alarm broke through the pre-launch mute) is listed there, as the nights line counts
+  // it. A muted launching card is `pre-launch`, and any other status is never listed.
+  it("a launching site at a level is listed there; a muted one and any other status never are", () => {
     const card = (name: string, status: string, tier: string) =>
-      ({ site: { name, status }, tier, items: [], watchReasons: [] }) as unknown as SiteCard;
+      ({
+        site: { id: `rec${name}`, name, status },
+        tier,
+        items: [],
+        watchReasons: [],
+      }) as unknown as SiteCard;
     const model = {
-      cards: [card("Tower", "launching", "broken"), card("Maint", "maintained", "broken")],
+      cards: [
+        card("Tower", "launching", "broken"),
+        card("Maint", "maintained", "broken"),
+        card("Muted", "launching", "pre-launch"),
+        card("Gone", "archived", "broken"),
+      ],
       pending: [],
     } as unknown as CockpitModel;
-    expect(todayFromModel(model).broken.map((s) => s.name)).toEqual(["Maint"]);
+    const today = todayFromModel(model);
+    expect(today.broken.map((s) => s.name)).toEqual(["Maint", "Tower"]);
+    expect(
+      Object.values(today)
+        .flat()
+        .map((s) => s.name),
+    ).not.toContain("Muted");
   });
 
   it("a tier count that is not a count is left out, never read as 0", () => {

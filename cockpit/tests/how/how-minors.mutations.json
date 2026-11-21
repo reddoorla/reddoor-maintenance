@@ -148,5 +148,44 @@
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "O1-broken-list-keyed-by-slug",
+    "why": "#2178 (answer (a)): the overview's Broken list keys namesakes alike again, so its keyed {#each} throws",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "        key: i.siteId,",
+        "replace": "        key: i.slug || i.siteName,"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "P1-launching-never-listed",
+    "why": "#2182 (answer (a)): a launching site at a level is left off its list again",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "if (c.site.status !== \"maintained\" && c.site.status !== \"launching\") continue;",
+        "replace": "if (c.site.status !== \"maintained\") continue;"
+      }
+    ],
+    "test": "cockpit/tests/how/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "P2-any-status-listed",
+    "why": "#2182: an archived site at a level is listed",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/how/view.ts",
+        "find": "if (c.site.status !== \"maintained\" && c.site.status !== \"launching\") continue;",
+        "replace": "if (c.site.status === undefined) continue;"
+      }
+    ],
+    "test": "cockpit/tests/how/view.ssr.test.ts",
+    "expect": "red"
   }
 ]
