@@ -104,3 +104,36 @@ describe("loadCockpitSnapshot — the feed's deploys are read on their own (P1-8
     expect(snap.recentEvents.map((e) => e.id)).toEqual(["merge"]);
   });
 });
+
+// #2193: the week's start is NOW - 7 days. A merge 20 minutes before it hides the
+// same site's deploy 10 minutes after it; a deploy before the start is never listed.
+describe("loadCockpitSnapshot — a merge just before the week still hides the deploy after it", () => {
+  let dir: string;
+  let db: Db;
+  const START = NOW.getTime() - 7 * 86_400_000;
+  const iso = (ms: number): string => new Date(START + ms).toISOString();
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), "snapshot-deploy-edge-"));
+    db = await openDb({ url: `file:${join(dir, "fleet.db")}` });
+    await recordFleetEvent(db, ev("early-merge", iso(-20 * 60_000), "pr_automerged"));
+    await recordFleetEvent(db, ev("edge-deploy", iso(10 * 60_000), "site_deployed"));
+    await recordFleetEvent(db, {
+      ...ev("old-deploy", iso(-5 * 60_000), "site_deployed"),
+      siteId: "recOTHER",
+    });
+    await recordFleetEvent(db, {
+      ...ev("kept-deploy", iso(30 * 60_000), "site_deployed"),
+      siteId: "recOTHER",
+    });
+  });
+  afterEach(async () => {
+    await db.destroy();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("feedDeploys holds only the other site's deploy inside the week", async () => {
+    const snap = await loadCockpitSnapshot(db, NOW, "https://dash");
+    expect(snap.feedDeploys.map((e) => e.id)).toEqual(["kept-deploy"]);
+    expect(snap.gaps).toEqual([]);
+  });
+});
