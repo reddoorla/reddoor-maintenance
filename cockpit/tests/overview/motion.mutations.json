@@ -284,5 +284,101 @@
     ],
     "test": ["cockpit/tests/overview/page.ssr.test.ts"],
     "expect": "red"
+  },
+  {
+    "id": "2162-a-css-failsafe-3s",
+    "why": "#2162: the stylesheet's fail-safe waits 3 s while FAILSAFE_MS stays 2000",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "animation: ov-failsafe 0s linear 2s forwards;",
+        "replace": "animation: ov-failsafe 0s linear 3s forwards;"
+      }
+    ],
+    "test": "cockpit/tests/overview/motion.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2162-b-failsafe-ms-2500",
+    "why": "#2162: FAILSAFE_MS moves to 2500 while the stylesheet stays at 2 s",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/motion.ts",
+        "find": "export const FAILSAFE_MS = 2000;",
+        "replace": "export const FAILSAFE_MS = 2500;"
+      }
+    ],
+    "test": "cockpit/tests/overview/motion.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2163-a-feed-clip-dropped",
+    "why": "#2163: the feed line's slide-in loses its clip-path, so a new line appears at once",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "      transform: translateY(-0.5rem);\n      clip-path: inset(0 0 100% 0);\n",
+        "replace": "      transform: translateY(-0.5rem);\n"
+      },
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "      transform: translateY(0);\n      clip-path: inset(0);\n",
+        "replace": "      transform: translateY(0);\n"
+      }
+    ],
+    "test": "cockpit/tests/overview/motion.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2163-b-dot-transform-box-dropped",
+    "why": "#2163: the sparkline dot loses transform-box: fill-box, so it scales from the svg's origin",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "    transform-box: fill-box;\n    transform-origin: center;\n    animation: ov-spark-dot",
+        "replace": "    transform-origin: center;\n    animation: ov-spark-dot"
+      }
+    ],
+    "test": "cockpit/tests/overview/motion.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2170-a-slider-speaks-gap-as-0",
+    "why": "#2170: the slider's text says 0 for a night with no count, while the visible readout keeps the model's words",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "aria-valuetext={trendReadout(titles, shown)}",
+        "replace": "aria-valuetext={trendReadout(titles, shown).replace(/no count that night$/, \"0\")}"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2175-m1-click-sets-key-only",
+    "why": "#2175 (M1): a click sets the key night without ending the hover preview",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "onclick={() => setKeyNight(ci, ti)}",
+        "replace": "onclick={() => (keySel[ci] = ti)}"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2165-a-fresh-never-cleared",
+    "why": "#2165: the feed's fresh set is never cleared, so a new line keeps data-new after its slide",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "    freshTimer = setTimeout(() => {\n      fresh = new Set();\n    }, FEED_MS);",
+        "replace": "    freshTimer = setTimeout(() => {}, FEED_MS);"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
   }
 ]
