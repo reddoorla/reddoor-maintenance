@@ -4888,6 +4888,32 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     page.locator("figure.ov-trend").nth(ci).locator("rect.ov-hit");
   const cursorOf = (page: Page, ci = 0) =>
     page.locator("figure.ov-trend").nth(ci).locator("line.ov-trend-cursor");
+  /** Night k's cursor x, computed from the chart's own plot edges (its first grid line) and its
+   *  night count, and rounded to the 0.1 every chart coordinate is (#2188). The hit rect's
+   *  `x + width / 2` is no expectation: its left and right are rounded apart, so it can sit 0.05
+   *  off the rounded centre. With 18 nights, night 5 reads 117.45 against the cursor's 117.5, and
+   *  the night count moves with the hour, so a 0.05 tolerance failed only at some hours. */
+  const expectCursorAt = async (page: Page, k: number, ci = 0) => {
+    const fig = page.locator("figure.ov-trend").nth(ci);
+    const { left, right, n, rectLeft, rectRight } = await fig.evaluate((f, k) => {
+      const grid = f.querySelector("svg.ov-chart line.ov-grid")!;
+      const r = f.querySelectorAll("rect.ov-hit")[k]!;
+      const rl = Number(r.getAttribute("x"));
+      return {
+        left: Number(grid.getAttribute("x1")),
+        right: Number(grid.getAttribute("x2")),
+        n: f.querySelectorAll("rect.ov-hit").length,
+        rectLeft: rl,
+        rectRight: rl + Number(r.getAttribute("width")),
+      };
+    }, k);
+    const x = Number(await cursorOf(page, ci).getAttribute("x1"));
+    expect(x, `the cursor is at night ${k}'s centre`).toBe(
+      Math.round((left + ((k + 0.5) * (right - left)) / n) * 10) / 10,
+    );
+    expect(x, `the cursor is inside night ${k}'s column`).toBeGreaterThan(rectLeft);
+    expect(x).toBeLessThan(rectRight);
+  };
   /** The chart's nights' words, in order, from the hover targets' data. */
   const titlesOf = (page: Page, ci = 0) =>
     nightRects(page, ci).evaluateAll((rs) => rs.map((r) => r.getAttribute("data-title")!));
@@ -4913,14 +4939,9 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     expect(titles.length, "the seeded chart has a night per slot").toBeGreaterThan(5);
     const k = 5;
     await nightRects(page).nth(k).hover();
-    const geo = await nightRects(page)
-      .nth(k)
-      .evaluate((r) => ({
-        centre: Number(r.getAttribute("x")) + Number(r.getAttribute("width")) / 2,
-      }));
     const cursor = page.locator("figure.ov-trend").nth(0).locator("line.ov-trend-cursor");
     expect(await cursor.count()).toBe(1);
-    expect(Number(await cursor.getAttribute("x1"))).toBeCloseTo(geo.centre, 1);
+    await expectCursorAt(page, k);
     expect(await readoutText(page)).toBe(titles[k]);
   });
 
@@ -5004,10 +5025,7 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     for (const k of [3, 6]) {
       await nightRects(page).nth(k).hover();
       expect(await readoutText(page), `hover ${k} shows its night`).toBe(titles[k]);
-      const centre = await nightRects(page)
-        .nth(k)
-        .evaluate((r) => Number(r.getAttribute("x")) + Number(r.getAttribute("width")) / 2);
-      expect(Number(await cursorOf(page).getAttribute("x1"))).toBeCloseTo(centre, 1);
+      await expectCursorAt(page, k);
       expect(
         await chart(page).getAttribute("aria-valuenow"),
         `hover ${k} keeps the key night`,
@@ -5045,40 +5063,32 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     await motionReady(page);
     const titles = await titlesOf(page);
     const n = titles.length;
-    const centreOf = (k: number) =>
-      nightRects(page)
-        .nth(k)
-        .evaluate((r) => Number(r.getAttribute("x")) + Number(r.getAttribute("width")) / 2);
     await nightRects(page).nth(4).hover();
     await nightRects(page).nth(4).click();
     expect(await readoutText(page)).toBe(titles[4]);
     await page.keyboard.press("ArrowRight");
     expect(await readoutText(page), "a key step after a click shows the key night").toBe(titles[5]);
-    expect(Number(await cursorOf(page).getAttribute("x1"))).toBeCloseTo(await centreOf(5), 1);
+    await expectCursorAt(page, 5);
     expect(await chart(page).getAttribute("aria-valuenow")).toBe("6");
     await page.keyboard.press("End");
     expect(await readoutText(page)).toBe(titles[n - 1]);
-    expect(Number(await cursorOf(page).getAttribute("x1"))).toBeCloseTo(await centreOf(n - 1), 1);
+    await expectCursorAt(page, n - 1);
     expect(await chart(page).getAttribute("aria-valuenow")).toBe(String(n));
     await nightRects(page).nth(2).hover();
     expect(await readoutText(page), "a new hover previews again").toBe(titles[2]);
-    expect(Number(await cursorOf(page).getAttribute("x1"))).toBeCloseTo(await centreOf(2), 1);
+    await expectCursorAt(page, 2);
     expect(await chart(page).getAttribute("aria-valuenow"), "a hover is not a key choice").toBe(
       String(n),
     );
     // Round 4 (M2): the key step ends the preview on every chart, not only the first. The same
     // click, step, readout and cursor on chart 1, whose preview is its own (hoverSel[1]).
     const titles1 = await titlesOf(page, 1);
-    const centreOn1 = (k: number) =>
-      nightRects(page, 1)
-        .nth(k)
-        .evaluate((r) => Number(r.getAttribute("x")) + Number(r.getAttribute("width")) / 2);
     await nightRects(page, 1).nth(4).hover();
     await nightRects(page, 1).nth(4).click();
     expect(await readoutText(page, 1), "chart 1: the click shows its key night").toBe(titles1[4]);
     await page.keyboard.press("ArrowRight");
     expect(await readoutText(page, 1), "chart 1: a key step ends its preview").toBe(titles1[5]);
-    expect(Number(await cursorOf(page, 1).getAttribute("x1"))).toBeCloseTo(await centreOn1(5), 1);
+    await expectCursorAt(page, 5, 1);
     expect(await chart(page, 1).getAttribute("aria-valuenow")).toBe("6");
   });
 
