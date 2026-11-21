@@ -2495,7 +2495,9 @@ export function sparkGeometry(
 /** P1-87 PR 4: the Lately feed. One line: `text`, then the site when one is named. */
 export type LatelyLine = {
   /** P1-87 PR 8a, item 7: the line's identity in the list, so a refresh animates only a new line.
-   *  Made from the rank, the stamp, the site and the text; a repeat in the same list gets `#2`. */
+   *  Made from the rank, the stamp, the site and the text; a repeat in the same list gets `#2`. A
+   *  line whose words can change while it is the same line (a site's leads that day, a night's
+   *  run) is keyed by the rank and what it is instead (P1-87 minors, #2167). */
   key: string;
   atIso: string;
   /** The stamp whole: `whenDate` then `whenTime`, one space apart. */
@@ -2608,14 +2610,24 @@ export function latelyView(
   const since = now.getTime() - RECENT_EVENTS_DAYS * DAY_MS;
   // A report or lead names its site as the leads panel does: a site no longer listed.
   const siteOf = (id: string): string => siteName(id) ?? GONE_SITE;
-  const found: Array<{ t: number; rank: number; line: Omit<LatelyLine, "key"> }> = [];
-  const push = (iso: string, text: string, site: string | null, rank: number) => {
+  const found: Array<{
+    t: number;
+    rank: number;
+    id: string | null;
+    line: Omit<LatelyLine, "key">;
+  }> = [];
+  // `id` names a line whose words (and time) can change while it stays the same line: a site's
+  // leads that day, a night's run. Its key is then the id alone, so a refresh that changes its
+  // count does not slide it in as new (P1-87 minors, #2167). A line without one never changes
+  // its words, and is keyed by them.
+  const push = (iso: string, text: string, site: string | null, rank: number, id?: string) => {
     const t = Date.parse(iso);
     if (!Number.isFinite(t) || t < since) return;
     const w = latelyWhen(iso, now);
     found.push({
       t,
       rank,
+      id: id ?? null,
       line: { atIso: iso, when: `${w.whenDate} ${w.whenTime}`, ...w, text, site },
     });
   };
@@ -2648,7 +2660,7 @@ export function latelyView(
   // Leads delivered (rank 2): one line per site per Pacific day, at its newest. A lead
   // outside the window is dropped before it is grouped, and the day is dated, so a
   // lead on the same day of an earlier year never joins this one's line.
-  const delivered = new Map<string, { siteId: string; n: number; newest: string }>();
+  const delivered = new Map<string, { key: string; siteId: string; n: number; newest: string }>();
   for (const r of s.submissions ?? []) {
     if (
       r.submittedAt === null ||
@@ -2659,13 +2671,19 @@ export function latelyView(
     )
       continue;
     const key = `${r.siteId}|${pacificYmd(new Date(r.submittedAt))}`;
-    const g = delivered.get(key) ?? { siteId: r.siteId, n: 0, newest: r.submittedAt };
+    const g = delivered.get(key) ?? { key, siteId: r.siteId, n: 0, newest: r.submittedAt };
     g.n += 1;
     if (Date.parse(r.submittedAt) > Date.parse(g.newest)) g.newest = r.submittedAt;
     delivered.set(key, g);
   }
   for (const g of delivered.values())
-    push(g.newest, g.n === 1 ? "Lead delivered" : `${g.n} leads delivered`, siteOf(g.siteId), 2);
+    push(
+      g.newest,
+      g.n === 1 ? "Lead delivered" : `${g.n} leads delivered`,
+      siteOf(g.siteId),
+      2,
+      `leads|${g.key}`,
+    );
   // The nightly (rank 3): the newest night expected by now, one line per step with a result.
   const expected = expectedNight(now);
   const night = (s.nights ?? []).find((n) => n.night <= expected);
@@ -2690,6 +2708,7 @@ export function latelyView(
         `Nightly run: ${ran} of ${count(results.length, "step", "steps")} ran to the end${tail}`,
         null,
         3,
+        `nightly|${night.night}`,
       );
     }
   }
@@ -2698,7 +2717,10 @@ export function latelyView(
     .sort((a, b) => b.t - a.t || a.rank - b.rank)
     .slice(0, LATELY_LINES)
     .map((x) => {
-      const base = `${x.rank}|${x.line.atIso}|${x.line.site ?? ""}|${x.line.text}`;
+      const base =
+        x.id !== null
+          ? `${x.rank}|${x.id}`
+          : `${x.rank}|${x.line.atIso}|${x.line.site ?? ""}|${x.line.text}`;
       let key = base;
       for (let n = 2; used.has(key); n++) key = `${base}#${n}`;
       used.add(key);

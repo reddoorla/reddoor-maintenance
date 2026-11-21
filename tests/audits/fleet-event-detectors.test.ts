@@ -222,6 +222,17 @@ describe("backupEventFromVerify", () => {
     expect(backupEventFromVerify(text, AT)).toBeNull();
   });
 
+  // #2198: the same refusal with the failed line first, so a parser that reads
+  // the last line (the clean one) cannot pass.
+  it("returns null when two machine lines disagree, the failed one first", () => {
+    expect(
+      backupEventFromVerify(
+        `DUMP_VERIFY loaded=true tables=44 rows=12000 blob_bytes=987 hashed=44 mismatches=3\n${CLEAN}`,
+        AT,
+      ),
+    ).toBeNull();
+  });
+
   it("returns null when two machine lines disagree", () => {
     expect(
       backupEventFromVerify(
