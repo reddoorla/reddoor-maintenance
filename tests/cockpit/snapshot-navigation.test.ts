@@ -5207,10 +5207,14 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     expect(await readoutText(page), "the visible readout says the same").toBe(titles[gap]);
   });
 
-  // P1-87 minors, #2175: a tap chooses its night even while a mouse rests on another; the click ends
-  // the mouse's preview, so the readout and the cursor are the tapped night's.
-  it("a tap on one night while a mouse rests on another shows the tapped night (#2175)", async () => {
-    const page = await signedIn("op", { hasTouch: true });
+  // P1-87 minors, #2175: a pen's tap chooses its night even while a mouse rests on another; the
+  // click ends the mouse's preview, so the readout and the cursor are the tapped night's. A pen, not
+  // a touch: Chromium follows a touch tap with compatibility mouse events that move the preview to the
+  // tapped night anyway, so a touch cannot tell the click's own clearing from that (mutant M1 survived
+  // a touch tap, PR 2's mutation run). A pen's tap is a pen pointerenter and a click, with no mouse
+  // events, and the real mouse stays resting on the first night.
+  it("a pen's tap on one night while a mouse rests on another shows the tapped night (#2175)", async () => {
+    const page = await signedIn();
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`${origin}/`);
     await motionReady(page);
@@ -5218,7 +5222,15 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     const [rest, tapped] = [2, 6];
     await nightRects(page).nth(rest).hover();
     expect(await readoutText(page), "the mouse previews its night").toBe(titles[rest]);
-    await nightRects(page).nth(tapped).tap();
+    await nightRects(page)
+      .nth(tapped)
+      .evaluate((r) => {
+        const pen = { bubbles: false, pointerType: "pen", isPrimary: true, pointerId: 2 };
+        r.dispatchEvent(new PointerEvent("pointerenter", pen));
+        r.dispatchEvent(new PointerEvent("pointerdown", { ...pen, bubbles: true }));
+        r.dispatchEvent(new PointerEvent("pointerup", { ...pen, bubbles: true }));
+        r.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
     expect(await readoutText(page), "the readout is the tapped night").toBe(titles[tapped]);
     await expectCursorAt(page, tapped);
     expect(await chart(page).getAttribute("aria-valuenow")).toBe(String(tapped + 1));
