@@ -170,5 +170,31 @@
     ],
     "test": "tests/audits/fleet-event-detectors.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "E12b-zero-rows-refused",
+    "why": "#2200 round 4: the guard reads rows instead of tables",
+    "edits": [
+      {
+        "file": "src/audits/fleet-event-detectors.ts",
+        "find": "  if (t === 0) return null;\n",
+        "replace": "  if (r === 0) return null;\n"
+      }
+    ],
+    "test": "tests/audits/fleet-event-detectors.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "E12c-zero-tables-and-rows-only",
+    "why": "#2200 round 4: only a line with 0 tables and 0 rows is refused",
+    "edits": [
+      {
+        "file": "src/audits/fleet-event-detectors.ts",
+        "find": "  if (t === 0) return null;\n",
+        "replace": "  if (t === 0 && r === 0) return null;\n"
+      }
+    ],
+    "test": "tests/audits/fleet-event-detectors.test.ts",
+    "expect": "red"
   }
 ]

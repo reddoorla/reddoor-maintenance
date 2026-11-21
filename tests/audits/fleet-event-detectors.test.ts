@@ -219,7 +219,7 @@ describe("backupEventFromVerify", () => {
     // #2200, the operator's answer (a): 0 tables restored is not a verified backup.
     [
       "a rehearsal that restored no table",
-      "DUMP_VERIFY loaded=true tables=0 rows=0 blob_bytes=0 hashed=0 mismatches=0",
+      "DUMP_VERIFY loaded=true tables=0 rows=5 blob_bytes=0 hashed=0 mismatches=0",
     ],
     ["no machine line at all", "✗ sites: dump=44 restored=43"],
     ["empty text", ""],
@@ -236,6 +236,16 @@ describe("backupEventFromVerify", () => {
         AT,
       ),
     ).toBeNull();
+  });
+
+  // #2200 round 4: the guard reads tables, not rows: a rehearsal of real tables that hold no
+  // rows is still a verified restore.
+  it("records a rehearsal of 3 tables and 0 rows", () => {
+    const e = backupEventFromVerify(
+      "DUMP_VERIFY loaded=true tables=3 rows=0 blob_bytes=0 hashed=3 mismatches=0",
+      AT,
+    );
+    expect(e?.data).toEqual({ tables: 3, rows: 0 });
   });
 
   it("returns null when two machine lines disagree", () => {
