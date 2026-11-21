@@ -105,9 +105,10 @@ describe("loadCockpitSnapshot — the feed's deploys are read on their own (P1-8
   });
 });
 
-// #2193: the week's start is NOW - 7 days. A merge 55 minutes before it hides the
-// same site's deploy 1 minute after it (56 minutes apart, inside the hour), so the
-// merges must be read a whole hour early; a deploy before the start is never listed.
+// #2193: the week's start is NOW - 7 days. A merge exactly an hour before it hides the
+// same site's deploy exactly at it (DEPLOY_AFTER_MERGE_MS apart; both ends inclusive), so
+// the merges must be read the whole hour early, to the millisecond; a deploy before the
+// start is never listed.
 describe("loadCockpitSnapshot — a merge just before the week still hides the deploy after it", () => {
   let dir: string;
   let db: Db;
@@ -116,8 +117,8 @@ describe("loadCockpitSnapshot — a merge just before the week still hides the d
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), "snapshot-deploy-edge-"));
     db = await openDb({ url: `file:${join(dir, "fleet.db")}` });
-    await recordFleetEvent(db, ev("early-merge", iso(-55 * 60_000), "pr_automerged"));
-    await recordFleetEvent(db, ev("edge-deploy", iso(1 * 60_000), "site_deployed"));
+    await recordFleetEvent(db, ev("early-merge", iso(-60 * 60_000), "pr_automerged"));
+    await recordFleetEvent(db, ev("edge-deploy", iso(0), "site_deployed"));
     await recordFleetEvent(db, {
       ...ev("old-deploy", iso(-5 * 60_000), "site_deployed"),
       siteId: "recOTHER",
