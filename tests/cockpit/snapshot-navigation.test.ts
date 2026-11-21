@@ -5209,10 +5209,11 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
 
   // P1-87 minors, #2175: a pen's tap chooses its night even while a mouse rests on another; the
   // click ends the mouse's preview, so the readout and the cursor are the tapped night's. A pen, not
-  // a touch: Chromium follows a touch tap with compatibility mouse events that move the preview to the
-  // tapped night anyway, so a touch cannot tell the click's own clearing from that (mutant M1 survived
-  // a touch tap, PR 2's mutation run). A pen's tap is a pen pointerenter and a click, with no mouse
-  // events, and the real mouse stays resting on the first night.
+  // a touch: after a touch tap Chromium fires a mouse-typed pointerenter on the tapped night, which
+  // moves the preview there anyway, so a touch cannot tell the click's own clearing from it (mutant
+  // M1 survived a touch tap, PR 2's mutation run). A pen's pointer events are pen-typed, so only the
+  // click can end the resting mouse's preview. (A real pen's later pointerleave would end it too;
+  // this pins the click's own clearing, before that.)
   it("a pen's tap on one night while a mouse rests on another shows the tapped night (#2175)", async () => {
     const page = await signedIn();
     await page.setViewportSize({ width: 1280, height: 900 });
