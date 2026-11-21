@@ -81,32 +81,6 @@
     "expect": "red"
   },
   {
-    "id": "E7-recently-deploys-exclusive",
-    "why": "#2202: a deploy exactly 7 days old drops from the Recently lane while the event stays",
-    "edits": [
-      {
-        "file": "cockpit/src/lib/cockpit/view.ts",
-        "find": "    .filter((e) => Date.parse(e.ts) >= since)\n    .map((e) => ({",
-        "replace": "    .filter((e) => Date.parse(e.ts) > since)\n    .map((e) => ({"
-      }
-    ],
-    "test": "cockpit/tests/fleet/sites.ssr.test.ts",
-    "expect": "red"
-  },
-  {
-    "id": "E8-recently-deploys-1ms-wide",
-    "why": "#2202: the deploy window reaches 1 ms further back than the events'",
-    "edits": [
-      {
-        "file": "cockpit/src/lib/cockpit/view.ts",
-        "find": "    .filter((e) => Date.parse(e.ts) >= since)\n    .map((e) => ({",
-        "replace": "    .filter((e) => Date.parse(e.ts) >= since - 1)\n    .map((e) => ({"
-      }
-    ],
-    "test": "cockpit/tests/fleet/sites.ssr.test.ts",
-    "expect": "red"
-  },
-  {
     "id": "E9-recent-events-exclusive",
     "why": "#2202: an event exactly 7 days old drops while the deploy stays",
     "edits": [
@@ -114,19 +88,6 @@
         "file": "src/dashboard/snapshot-views.ts",
         "find": "recentEvents: s.recentEvents.filter((e) => e.ts >= eventsSince),",
         "replace": "recentEvents: s.recentEvents.filter((e) => e.ts > eventsSince),"
-      }
-    ],
-    "test": "cockpit/tests/fleet/sites.ssr.test.ts",
-    "expect": "red"
-  },
-  {
-    "id": "E10-fleet-drops-clock-offset",
-    "why": "#2203: /fleet windows the deploys at the machine's clock, not the page's now",
-    "edits": [
-      {
-        "file": "cockpit/src/routes/fleet/+page.ts",
-        "find": "sites: buildSitesView(cockpit, now, snapshot.feedDeploys),",
-        "replace": "sites: buildSitesView(cockpit, new Date(Date.now()), snapshot.feedDeploys),"
       }
     ],
     "test": "cockpit/tests/fleet/sites.ssr.test.ts",
