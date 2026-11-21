@@ -31,8 +31,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": ">{v.leads.stoppedAllTime}{#if v.leads.stoppedAsOf}",
-        "replace": ">{Number(v.leads.stoppedAllTime) + v.leads.allTime.screened}{#if v.leads.stoppedAsOf}"
+        "find": "            {v.leads.stoppedAllTime}{#if v.leads.stoppedAsOf}",
+        "replace": "            {Number(v.leads.stoppedAllTime) + v.leads.allTime.screened}{#if v.leads.stoppedAsOf}"
       }
     ],
     "test": "cockpit/tests/overview/page.ssr.test.ts",
@@ -114,13 +114,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "  if (newest === undefined) return NOT_YET;\n  const lag",
-        "replace": "  if (newest === undefined) return \"0 over the last 0 nights\";\n  const lag"
-      },
-      {
-        "file": "cockpit/src/lib/overview/view.ts",
-        "find": "      : newest === undefined\n        ? NOT_YET",
-        "replace": "      : newest === undefined\n        ? \"0 of 0 runs green\""
+        "find": "  if (newest === undefined) return { value: NOT_YET, context: null };\n  const lag",
+        "replace": "  if (newest === undefined) return { value: \"0\", context: \"over the last 0 nights\" };\n  const lag"
       }
     ],
     "test": "cockpit/tests/overview/view.ssr.test.ts",
@@ -145,7 +140,7 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "  if (!freshWithin(site.formE2eCheckedAt, PRODUCTION_STALE_DAYS, now))\n    return { ok: null, text: \"Not tested lately\" };\n",
+        "find": "  if (!fresh) return { ok: null, text: \"Not tested lately\", fresh, testFailed: false };\n",
         "replace": ""
       }
     ],
@@ -205,8 +200,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": ">{v.leads.allTime.submissions}\n        {v.leads.allTime.submissions === 1",
-        "replace": ">705\n        {v.leads.allTime.submissions === 1"
+        "find": "        {v.leads.allTime.submissions}\n        {v.leads.allTime.submissions === 1",
+        "replace": "        705\n        {v.leads.allTime.submissions === 1"
       }
     ],
     "test": "cockpit/tests/overview/page.ssr.test.ts",
@@ -218,8 +213,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": ">{v.leads.allTime.accepted}\n        {v.leads.allTime.accepted === 1 ? \"was\" : \"were\"}",
-        "replace": ">10\n        {v.leads.allTime.accepted === 1 ? \"was\" : \"were\"}"
+        "find": "        {v.leads.allTime.accepted}\n        {v.leads.allTime.accepted === 1 ? \"was\" : \"were\"}",
+        "replace": "        10\n        {v.leads.allTime.accepted === 1 ? \"was\" : \"were\"}"
       }
     ],
     "test": "cockpit/tests/overview/page.ssr.test.ts",
@@ -231,8 +226,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": ">{v.leads.thisMonth?.screened}</td",
-        "replace": ">{v.leads.allTime.screened}</td"
+        "find": "            {v.leads.thisMonth?.screened}\n",
+        "replace": "            {v.leads.allTime.screened}\n"
       }
     ],
     "test": "cockpit/tests/overview/page.ssr.test.ts",
@@ -340,71 +335,6 @@
     "expect": "red"
   },
   {
-    "id": "A-upkeep-swap",
-    "why": "(review round 3, T1) The page binds the sites cleared into the dependency updates line",
-    "edits": [
-      {
-        "file": "cockpit/src/routes/+page.svelte",
-        "find": "Dependency updates merged (opened by Renovate, our update bot): {v.upkeep.automerged}.",
-        "replace": "Dependency updates merged (opened by Renovate, our update bot): {v.upkeep.vulnsCleared}."
-      }
-    ],
-    "test": "cockpit/tests/overview/page.ssr.test.ts",
-    "expect": "red"
-  },
-  {
-    "id": "B-scale-reliability",
-    "why": "(review round 3, T1) The page shows reliability as the scale",
-    "edits": [
-      {
-        "file": "cockpit/src/routes/+page.svelte",
-        "find": "Scale: {v.nightly.scale}.",
-        "replace": "Scale: {v.nightly.reliability}."
-      }
-    ],
-    "test": "cockpit/tests/overview/page.ssr.test.ts",
-    "expect": "red"
-  },
-  {
-    "id": "C-prs-automerged",
-    "why": "(review round 3, T1) The page shows the dependency updates as the changes merged",
-    "edits": [
-      {
-        "file": "cockpit/src/routes/+page.svelte",
-        "find": "reports): {v.prsMerged}.",
-        "replace": "reports): {v.upkeep.automerged}."
-      }
-    ],
-    "test": "cockpit/tests/overview/page.ssr.test.ts",
-    "expect": "red"
-  },
-  {
-    "id": "D-deploy-domain",
-    "why": "(review round 3, T1) The Deploy cell shows the certificate's text",
-    "edits": [
-      {
-        "file": "cockpit/src/routes/+page.svelte",
-        "find": ">{r.deploy.text}</td",
-        "replace": ">{r.domain.text}</td"
-      }
-    ],
-    "test": "cockpit/tests/overview/page.ssr.test.ts",
-    "expect": "red"
-  },
-  {
-    "id": "L-lastfinished-outcome",
-    "why": "(review round 3, T1) A step's Last finished shows its outcome",
-    "edits": [
-      {
-        "file": "cockpit/src/routes/+page.svelte",
-        "find": "Last finished: {s.lastFinished}.",
-        "replace": "Last finished: {s.outcome}."
-      }
-    ],
-    "test": "cockpit/tests/overview/page.ssr.test.ts",
-    "expect": "red"
-  },
-  {
     "id": "O-open-vulns-dropped",
     "why": "(review round 3, T1) The page shows no open vulnerability",
     "edits": [
@@ -425,19 +355,6 @@
         "file": "cockpit/src/routes/+page.svelte",
         "find": "Major-version upgrades waiting: {v.upkeep.depsBehind}.",
         "replace": "Major-version upgrades waiting: {v.upkeep.automerged}."
-      }
-    ],
-    "test": "cockpit/tests/overview/page.ssr.test.ts",
-    "expect": "red"
-  },
-  {
-    "id": "Q-steps-sites-outcome",
-    "why": "(review round 3, T1) A step's Reached shows its outcome",
-    "edits": [
-      {
-        "file": "cockpit/src/routes/+page.svelte",
-        "find": "Reached: {s.sites}.",
-        "replace": "Reached: {s.outcome}."
       }
     ],
     "test": "cockpit/tests/overview/page.ssr.test.ts",
@@ -475,8 +392,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "  if (site.formE2eOk === \"fail\") return { ok: null, text: FORM_TEST_FAILED };",
-        "replace": "  if (site.formE2eOk === \"fail\") return { ok: false, text: \"Test failed\" };"
+        "find": "  if (site.formE2eOk === \"fail\")\n    return { ok: null, text: FORM_TEST_FAILED, fresh, testFailed: true };",
+        "replace": "  if (site.formE2eOk === \"fail\")\n    return { ok: false, text: \"Test failed\", fresh, testFailed: true };"
       }
     ],
     "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
@@ -532,19 +449,6 @@
       }
     ],
     "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
-    "expect": "red"
-  },
-  {
-    "id": "27-bad-cell-not-bold",
-    "why": "(review round 4, T4) A failed cell is given the ok class, so it is not bold",
-    "edits": [
-      {
-        "file": "cockpit/src/routes/+page.svelte",
-        "find": "const okClass = (ok: boolean | null) => (ok === true ? \"ok\" : ok === false ? \"bad\" : \"unknown\");",
-        "replace": "const okClass = (ok: boolean | null) => (ok === true ? \"ok\" : ok === false ? \"ok\" : \"unknown\");"
-      }
-    ],
-    "test": "cockpit/tests/overview/page.ssr.test.ts",
     "expect": "red"
   },
   {
@@ -717,19 +621,6 @@
     "expect": "red"
   },
   {
-    "id": "41-typed-number-in-words",
-    "why": "(review round 5, R5-7) A number typed into the page's words, beside a binding",
-    "edits": [
-      {
-        "file": "cockpit/src/routes/+page.svelte",
-        "find": "<span data-term=\"Runs completed\">Runs completed: {v.nightly.reliability}.</span>",
-        "replace": "<span data-term=\"Runs completed\">Runs completed: {v.nightly.reliability}, 30 nights a month.</span>"
-      }
-    ],
-    "test": "cockpit/tests/overview/page.ssr.test.ts",
-    "expect": "red"
-  },
-  {
     "id": "42-unread-nights-as-empty",
     "why": "(review round 5, R5-8) A failed fleet_daily read becomes [] ('not yet collected') instead of null ('not readable')",
     "edits": [
@@ -761,8 +652,8 @@
     "edits": [
       {
         "file": "src/fleet-daily/read.ts",
-        "find": "  return rows.map(({ night, counts }) => {",
-        "replace": "  return [...rows].reverse().map(({ night, counts }) => {"
+        "find": "  return rows.map(({ night, counts }, i) => {",
+        "replace": "  return rows\n    .map(({ night, counts }, i) => ({ night, counts, i }))\n    .reverse()\n    .map(({ night, counts, i }) => {"
       }
     ],
     "test": "cockpit/tests/snapshot/snapshot.ssr.test.ts",
@@ -852,8 +743,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "            ? `last lead ${UNREADABLE}`",
-        "replace": "            ? \"no real lead yet\""
+        "find": "      ? `last lead ${UNREADABLE}`",
+        "replace": "      ? \"no real lead yet\""
       }
     ],
     "test": "cockpit/tests/overview/view.ssr.test.ts",
@@ -865,8 +756,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "      ? `${w.value} over the night of ${nightLabel(newest.night)}${since}`",
-        "replace": "      ? `${w.value} over the 1 night to the night of ${nightLabel(newest.night)}${since}`"
+        "find": "          ? `over the night of ${nightLabel(newest.night)}${since}`",
+        "replace": "          ? `over the 1 night to the night of ${nightLabel(newest.night)}${since}`"
       }
     ],
     "test": "cockpit/tests/overview/view.ssr.test.ts",

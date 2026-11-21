@@ -18,8 +18,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "\"Contact form\": form,",
-        "replace": "\"Contact form\": (s) => (form(s) === \"notChecked\" ? true : form(s)),"
+        "find": "\"Contact form\": form(s),",
+        "replace": "\"Contact form\": form(s) === \"notChecked\" ? true : form(s),"
       }
     ],
     "test": ["cockpit/tests/overview/view.ssr.test.ts", "cockpit/tests/overview/page.ssr.test.ts"],
@@ -382,8 +382,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": ">{#if allOk}<span class=\"ov-tier-inside\"",
-        "replace": ">{#if false}<span class=\"ov-tier-inside\""
+        "find": "{#if allOk}<span class=\"ov-tier-inside\">",
+        "replace": "{#if false}<span class=\"ov-tier-inside\">"
       }
     ],
     "test": ["cockpit/tests/overview/page.ssr.test.ts"],
@@ -460,8 +460,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/overview.css",
-        "find": "  grid-template-columns: subgrid;\n",
-        "replace": "  grid-template-columns: 8.5rem minmax(0, 1fr) auto;\n"
+        "find": ".ov-check {\n  grid-column: 1 / -1;\n  display: grid;\n  grid-template-columns: subgrid;\n",
+        "replace": ".ov-check {\n  grid-column: 1 / -1;\n  display: grid;\n  grid-template-columns: 8.5rem minmax(0, 1fr) auto;\n"
       }
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
@@ -1423,13 +1423,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "<span\n                >{#each parts",
-        "replace": "{#each parts"
-      },
-      {
-        "file": "cockpit/src/routes/+page.svelte",
-        "find": "{/each}</span\n              >",
-        "replace": "{/each}"
+        "find": "<span>\n                  {#each parts as part, i (i)}{#if i > 0},<wbr />{/if}{part}{/each}\n                </span>",
+        "replace": "{#each parts as part, i (i)}{#if i > 0},<wbr />{/if}{part}{/each}"
       }
     ],
     "test": [
