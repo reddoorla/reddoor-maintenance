@@ -212,9 +212,9 @@
     "why": "The shared recent read keeps site_deployed, so /fleet's Recently lane repeats a deploy after its merge and the deploys fill the read's cap (C1)",
     "edits": [
       {
-        "file": "src/dashboard/snapshot.ts",
-        "find": "const RECENT_EXCLUDED_TYPES: readonly FleetEventType[] = [\"site_deployed\"];",
-        "replace": "const RECENT_EXCLUDED_TYPES: readonly FleetEventType[] = [];"
+        "file": "src/dashboard/snapshot-views.ts",
+        "find": "export const RECENT_EXCLUDED_TYPES: readonly FleetEventType[] = [\"site_deployed\"];",
+        "replace": "export const RECENT_EXCLUDED_TYPES: readonly FleetEventType[] = [];"
       }
     ],
     "test": ["tests/dashboard/snapshot-feed-events.test.ts"],
@@ -265,8 +265,8 @@
     "edits": [
       {
         "file": "src/dashboard/snapshot.ts",
-        "find": "        deploysToShow(\n          await listFleetEvents(db, {",
-        "replace": "        ((rows) => rows.filter((e) => e.type === \"site_deployed\").slice(0, RECENT_EVENTS_LIMIT))(\n          await listFleetEvents(db, {"
+        "find": "        return deploysToShow(\n          await listFleetEvents(db, {",
+        "replace": "        return ((rows) => rows.filter((e) => e.type === \"site_deployed\").slice(0, RECENT_EVENTS_LIMIT))(\n          await listFleetEvents(db, {"
       }
     ],
     "test": ["tests/dashboard/snapshot-feed-events.test.ts"],
@@ -348,6 +348,45 @@
       }
     ],
     "test": ["cockpit/tests/fleet/sites.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
+    "id": "M2202a-recently-deploys-exclusive",
+    "why": "#2202: a deploy exactly 7 days old drops from the Recently lane while the event stays",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/view.ts",
+        "find": "    .filter((e) => Date.parse(e.ts) >= since)\n    .map((e) => ({",
+        "replace": "    .filter((e) => Date.parse(e.ts) > since)\n    .map((e) => ({"
+      }
+    ],
+    "test": "cockpit/tests/fleet/sites.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M2202b-recently-deploys-1ms-wide",
+    "why": "#2202: the deploy window reaches 1 ms further back than the events'",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/cockpit/view.ts",
+        "find": "    .filter((e) => Date.parse(e.ts) >= since)\n    .map((e) => ({",
+        "replace": "    .filter((e) => Date.parse(e.ts) >= since - 1)\n    .map((e) => ({"
+      }
+    ],
+    "test": "cockpit/tests/fleet/sites.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "M2203-fleet-drops-clock-offset",
+    "why": "#2203: /fleet windows the deploys at the machine's clock, not the page's now",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.ts",
+        "find": "sites: buildSitesView(cockpit, now, snapshot.feedDeploys),",
+        "replace": "sites: buildSitesView(cockpit, new Date(Date.now()), snapshot.feedDeploys),"
+      }
+    ],
+    "test": "cockpit/tests/fleet/sites.ssr.test.ts",
     "expect": "red"
   }
 ]
