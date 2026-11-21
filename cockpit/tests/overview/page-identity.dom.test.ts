@@ -63,16 +63,55 @@ describe("the overview across a data refresh (P1-87 minors)", () => {
     await mountWith(feed("old"));
     expect(marked(), "the first render marks nothing").toEqual([]);
     show(feed("x", "old"));
-    expect(marked()).toHaveLength(1);
+    const [x] = marked();
+    expect(x, "one line marked").toBeDefined();
+    expect(marked()).toEqual([x]);
     await vi.advanceTimersByTimeAsync(100);
     show(feed("y", "x", "old"));
-    expect(marked(), "both new lines slide: the second refresh adds to the first").toHaveLength(2);
+    const both = marked();
+    expect(both, "both new lines slide: the second refresh adds to the first").toHaveLength(2);
+    expect(both).toContain(x);
+    const y = both.find((t) => t !== x)!;
     await vi.advanceTimersByTimeAsync(FEED_MS - 100);
     flushSync();
-    expect(marked(), "the first line's slide is over; the second's is not").toHaveLength(1);
+    expect(marked(), "the first line's slide is over; the second's is not").toEqual([y]);
     await vi.advanceTimersByTimeAsync(100);
     flushSync();
     expect(marked(), "each mark ends with its own slide").toEqual([]);
+  });
+
+  // Review round 1 (correctness and accessibility lenses): a line that leaves the feed and comes
+  // back within FEED_MS slides again for the whole of FEED_MS; the first timer does not cut it.
+  it("a line that comes back within FEED_MS slides for its whole time again (#2166, review round 1)", async () => {
+    vi.useFakeTimers({ now: NOW.getTime() });
+    const feed = (...ids: string[]) =>
+      overviewFromSnapshot(
+        snapshot({
+          feedEvents: ids.map((id) =>
+            event({
+              id,
+              ts: new Date(NOW.getTime() - (id === "x" ? 1 : 3) * 3_600_000).toISOString(),
+              type: id === "x" ? "vuln_cleared" : "pr_automerged",
+            }),
+          ),
+        }),
+        NOW,
+      );
+    await mountWith(feed("old"));
+    show(feed("x", "old"));
+    const [x] = marked();
+    expect(x).toBeDefined();
+    await vi.advanceTimersByTimeAsync(100);
+    show(feed("old"));
+    await vi.advanceTimersByTimeAsync(100);
+    show(feed("x", "old"));
+    expect(marked(), "back, and new again").toEqual([x]);
+    await vi.advanceTimersByTimeAsync(FEED_MS - 200);
+    flushSync();
+    expect(marked(), "the first add's time is up; the second's is not").toEqual([x]);
+    await vi.advanceTimersByTimeAsync(200);
+    flushSync();
+    expect(marked()).toEqual([]);
   });
 
   /** The first trend chart's slider. */
@@ -118,5 +157,27 @@ describe("the overview across a data refresh (P1-87 minors)", () => {
       slider().getAttribute("aria-valuenow"),
       "the chosen night left the window: no night is chosen, so the slider reports the newest",
     ).toBe(slider().getAttribute("aria-valuemax"));
+  });
+
+  // Review round 1 (correctness and accessibility lenses): a hover is where the pointer rests, so
+  // after the window moves on the preview is the night now under the pointer, not the old date.
+  it("after a refresh moves the window on, a resting mouse previews the night under it (#2174, review round 1)", async () => {
+    vi.useFakeTimers({ now: NOW.getTime() });
+    await mountWith(viewAt(NOW));
+    const fig = () => target.querySelector("figure.ov-trend")!;
+    const rect = (k: number) => fig().querySelectorAll<SVGRectElement>("rect.ov-hit")[k]!;
+    const readout = () => fig().querySelector("p.ov-trend-readout")!.textContent!.trim();
+    const k = 5;
+    const enter = new Event("pointerenter");
+    Object.defineProperty(enter, "pointerType", { value: "mouse" });
+    rect(k).dispatchEvent(enter);
+    flushSync();
+    expect(readout()).toBe(rect(k).getAttribute("data-title"));
+    const before = readout();
+    const later = new Date(NOW.getTime() + DAY);
+    vi.setSystemTime(later);
+    show(viewAt(later));
+    expect(readout(), "the night now under the pointer").toBe(rect(k).getAttribute("data-title"));
+    expect(readout(), "which is another night than before").not.toBe(before);
   });
 });

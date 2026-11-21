@@ -61,11 +61,12 @@
   // the one announcement. `hoverSel` is a pointer's preview of another night: the readout and the
   // cursor show it while the pointer rests on a night, and it never moves the slider (R1). A key
   // step or a click ends it (setKeyNight), so after a key step the readout follows the key night.
-  // Each is kept as the night's label ("Oct 26", unique in a window), not its place, so a refresh
-  // that moves the window on keeps a chart on the same night, and a night that left the window is
-  // no selection (P1-87 minors, #2174).
+  // `keySel` is kept as the night's label ("Oct 26", unique in a window), not its place, so a
+  // refresh that moves the window on keeps a chart on the same night, and a night that left the
+  // window is no selection (P1-87 minors, #2174). `hoverSel` stays a place: it is where the pointer
+  // rests, so after a refresh it previews the night now under the pointer (#2174 review round 1).
   let keySel = $state<Record<number, string | null>>({});
-  let hoverSel = $state<Record<number, string | null>>({});
+  let hoverSel = $state<Record<number, number | null>>({});
   /** The place of night `label` in chart `nights`, or null when it is none or not in the window. */
   const placeOf = (nights: readonly string[], label: string | null | undefined): number | null => {
     const i = label == null ? -1 : nights.indexOf(label);
@@ -253,10 +254,10 @@
   // P1-87 PR 8a, item 7: a line the last render did not have is new, and slides in for FEED_MS. The
   // first render marks nothing; `known` (plain, not state) holds the keys the page last rendered.
   let known: Set<string> | null = null;
-  // A refresh adds its new lines to `fresh`, and each refresh's timer clears its own lines only, so a
-  // second refresh within FEED_MS never cuts the first one's slide short (P1-87 minors, #2166).
+  // A refresh adds its new lines to `fresh`, and each line has its own timer, restarted when the line
+  // is new again, so a second refresh within FEED_MS never cuts a slide short (P1-87 minors, #2166).
   let fresh = $state<Set<string>>(new Set());
-  const freshTimers = new Set<ReturnType<typeof setTimeout>>();
+  const freshTimers = new Map<string, ReturnType<typeof setTimeout>>();
   $effect.pre(() => {
     const keys = v.lately.lines.map((l) => l.key);
     const prev = known;
@@ -265,13 +266,18 @@
     const added = keys.filter((k) => !prev.has(k));
     if (added.length === 0) return;
     fresh = new Set([...untrack(() => fresh), ...added]);
-    const timer = setTimeout(() => {
-      freshTimers.delete(timer);
-      const left = new Set(fresh);
-      for (const k of added) left.delete(k);
-      fresh = left;
-    }, FEED_MS);
-    freshTimers.add(timer);
+    for (const k of added) {
+      clearTimeout(freshTimers.get(k));
+      freshTimers.set(
+        k,
+        setTimeout(() => {
+          freshTimers.delete(k);
+          const left = new Set(fresh);
+          left.delete(k);
+          fresh = left;
+        }, FEED_MS),
+      );
+    }
   });
   // P1-87 PR 5a: the nightly bar's clock. Until the page mounts, the view's own instant
   // is the clock, so the server render says what the view says; then the clock moves the
@@ -313,7 +319,7 @@
     return () => {
       cycle.stop();
       clearTimeout(introTimer);
-      for (const t of freshTimers) clearTimeout(t);
+      for (const t of freshTimers.values()) clearTimeout(t);
     };
   });
 </script>
@@ -775,7 +781,7 @@
         {@const sel = placeOf(c.nights, keySel[ci])}
         {@const titles = g.slots.map((t) => t.title)}
         {@const shown = sel ?? titles.length - 1}
-        {@const show = placeOf(c.nights, hoverSel[ci]) ?? sel}
+        {@const show = hoverSel[ci] ?? sel}
         <figure class="ov-trend">
           <figcaption id="ov-trend-{ci}">{c.title}</figcaption>
           {#if c.series.length > 1}
@@ -898,7 +904,7 @@
                 height={g.baseline - g.top}
                 data-title={t.title}
                 onpointerenter={(e) => {
-                  if (e.pointerType === "mouse") hoverSel[ci] = c.nights[ti]!;
+                  if (e.pointerType === "mouse") hoverSel[ci] = ti;
                 }}
                 onclick={() => setKeyNight(ci, c.nights[ti]!)}
               />
