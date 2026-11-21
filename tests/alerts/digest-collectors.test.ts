@@ -685,6 +685,40 @@ describe("collectPreflightBlocked", () => {
     );
   });
 
+  it("names the send day for an approved report held to its due date (P1-117, #2153)", () => {
+    // Sat 11-21 in Pacific; the report is due a week later. `heldUntilDue` reads
+    // only `dueOn`, so the fixture's report type does not matter here.
+    const now = new Date("2026-11-21T20:00:00Z");
+    const sitesById = new Map([["recS1", site({ name: "29 Navy", pointOfContact: null })]]);
+    const [held] = collectPreflightBlocked(
+      [draft({ approvedToSend: true, dueOn: "2026-11-28" })],
+      sitesById,
+      "https://d",
+      now,
+    );
+    expect(held!.ask).toBe(
+      "set Report recipients (To) on /s/29-navy, then it sends Sat 11-28, 8:07am PT",
+    );
+    // Due today: the next run is the send, so the old wording is still right.
+    const [dueToday] = collectPreflightBlocked(
+      [draft({ approvedToSend: true, dueOn: "2026-11-21" })],
+      sitesById,
+      "https://d",
+      now,
+    );
+    expect(dueToday!.ask).toBe(
+      "set Report recipients (To) on /s/29-navy, then it sends on the next run",
+    );
+    // A pending draft still asks for approval, held or not.
+    const [pending] = collectPreflightBlocked(
+      [draft({ dueOn: "2026-11-28" })],
+      sitesById,
+      "https://d",
+      now,
+    );
+    expect(pending!.ask).toBe("set Report recipients (To) on /s/29-navy, then approve");
+  });
+
   it("names every health-gate field in one ask, beside the other fixes", () => {
     const sitesById = new Map([["recS1", site({ name: "29 Navy", headerImage: null })]]);
     const [it0] = collectPreflightBlocked(

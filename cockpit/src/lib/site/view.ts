@@ -15,7 +15,9 @@ import {
   isHealthGateClear,
 } from "../../../../src/reports/checklist.js";
 import { rendersCommentary } from "../../../../src/reports/template-for.js";
-import { heldUntilDue } from "../../../../src/reports/due.js";
+import { heldUntilDue, sendDayLabel } from "../../../../src/reports/due.js";
+
+export { sendDayLabel };
 import { approveBlockers, type PreflightFinding } from "../../../../src/reports/preflight.js";
 import { parseAddresses, withGlobalCc } from "../../../../src/reports/send/addresses.js";
 import { isVisibleInStrip } from "../../../../src/dashboard/submission-rules.js";
@@ -213,23 +215,6 @@ function preflight(findings: PreflightFinding[]): PendingView["preflight"] {
     title: "recipients, header image and report scores all present",
     text: "preflight: clear",
   };
-}
-
-/** A due date as the send that delivers it: "Sat 11-21, 8:07am PT". The send
- *  clock runs at 16:07 UTC, which is 8:07am in PST and 9:07am in PDT. */
-export function sendDayLabel(dueOn: string): string {
-  const run = new Date(`${dueOn}T16:07:00Z`);
-  if (Number.isNaN(run.getTime())) return dueOn;
-  const weekday = run.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
-  const time = run
-    .toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-      timeZone: "America/Los_Angeles",
-    })
-    .replace(/\s/u, "")
-    .toLowerCase();
-  return `${weekday} ${dueOn.slice(5)}, ${time} PT`;
 }
 
 /** The next 16:07 UTC send run strictly after `now`. */

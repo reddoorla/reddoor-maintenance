@@ -10,6 +10,7 @@ import {
 } from "../fleet/site-row.js";
 import type { ReportRow } from "../reports/report-fields.js";
 import { approveBlockers, type PreflightFinding } from "../reports/preflight.js";
+import { heldUntilDue, sendDayLabel } from "../reports/due.js";
 import type { NotifyBounceCounts } from "../db/submissions.js";
 import { TRIAGE_PATH } from "../dashboard/home-path.js";
 
@@ -155,8 +156,10 @@ export function collectLighthouseAlerts(sites: WebsiteRow[], baseUrl: string): A
 /**
  * One attention item per unsent draft whose send is ALREADY known to fail
  * (approveBlockers: recipients / header image / report scores). An APPROVED one
- * is critical — the next 16:07 UTC send run will go red on it; a pending one is a
- * warning — approving it just schedules that failure. Keyed `preflight:<reportId>`.
+ * is critical — the send run that takes it (the next 16:07 UTC run, or for a
+ * report held to its due date, that day's run) will go red on it; a pending one is
+ * a warning — approving it just schedules that failure. Keyed `preflight:<reportId>`.
+ * `now` places the Pacific day for the held check (injected, defaults to wall-clock).
  * PURE; same predicate the approve gate and the dashboard chip use.
  */
 function healthAsk(message: string): string {
@@ -223,6 +226,7 @@ export function collectPreflightBlocked(
   reports: ReportRow[],
   sitesById: Map<string, WebsiteRow>,
   baseUrl: string,
+  now: Date = new Date(),
 ): AttentionItem[] {
   const items: AttentionItem[] = [];
   for (const r of reports) {
@@ -255,7 +259,12 @@ export function collectPreflightBlocked(
     const more = fails.length > 1 ? ` (+${fails.length - 1} more)` : "";
     const slug = siteSlug(site.name);
     const where = slug ? ` on /s/${slug}` : "";
-    const then = r.approvedToSend ? "then it sends on the next run" : "then approve";
+    // P1-117: an approved report due later is held to its due date's send (#2153).
+    const then = !r.approvedToSend
+      ? "then approve"
+      : heldUntilDue(r, now)
+        ? `then it sends ${sendDayLabel(r.dueOn!)}`
+        : "then it sends on the next run";
     items.push({
       key: `preflight:${r.id}:${state}`,
       kind: "preflight",

@@ -744,6 +744,64 @@ describe("draftDueReports — P1-117 early drafts", () => {
     expect(w.patches).toEqual([]);
   });
 
+  it("a rejected due-date patch skips the row's completion that night and fails the run (#2154)", async () => {
+    rosterRows = [siteRow({ maintenanceDay: "2026-05-02" })];
+    const reportMirror = makeFakeReportWriter();
+    reportMirror.patch = async () => {
+      throw new Error("libsql: database is locked");
+    };
+    const reports: RawRow[] = [
+      {
+        id: "rec_halfmade",
+        fields: { Site: ["rec_site_acme"], "Report type": "Maintenance", Period: "2026-06" },
+      },
+    ];
+    const res = await draftDueReports(TODAY, dueDeps(reports, { reportMirror }));
+    // Completing it would store a body dated differently from its send hold.
+    expect(draftReportForSite).not.toHaveBeenCalled();
+    expect(res.output).toContain(
+      "✗ due date not updated: Acme Co Maintenance — libsql: database is locked",
+    );
+    expect(res.code).toBe(1);
+  });
+
+  it("stamps a superseded row's stale due date and still skips it (#2158)", async () => {
+    // The cycle says 06-02; the Maintenance row a pending Testing un-queued was
+    // made for 06-01. It takes the new date now, so its body and send hold agree
+    // when the blocker clears and it is completed.
+    rosterRows = [siteRow({ maintenanceDay: "2026-05-02" })];
+    const reportMirror = makeFakeReportWriter();
+    const reports: RawRow[] = [
+      {
+        id: "rec_blocked_maint",
+        fields: {
+          Site: ["rec_site_acme"],
+          "Report type": "Maintenance",
+          Period: "2026-06",
+          "Due on": "2026-06-01",
+        },
+      },
+      {
+        id: "rec_pending_test",
+        fields: {
+          Site: ["rec_site_acme"],
+          "Report type": "Testing",
+          Period: "2026-06",
+          "Draft ready": true,
+        },
+      },
+    ];
+    const res = await draftDueReports(TODAY, dueDeps(reports, { reportMirror }));
+    expect(reportMirror.patches).toContainEqual({
+      id: "rec_blocked_maint",
+      patch: { due_on: "2026-06-02" },
+    });
+    expect(res.output).toContain("• due date 2026-06-01 → 2026-06-02: Acme Co Maintenance");
+    expect(draftReportForSite).not.toHaveBeenCalled();
+    expect(res.output).toMatch(/superseded — a higher-or-equal-tier report is pending/i);
+    expect(res.code).toBe(0);
+  });
+
   it("does not draft a report due in 8 days", async () => {
     rosterRows = [siteRow({ maintenanceDay: "2026-05-03" })];
     const res = await draftDueReports(TODAY, dueDeps());
