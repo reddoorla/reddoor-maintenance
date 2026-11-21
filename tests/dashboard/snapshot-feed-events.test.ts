@@ -127,15 +127,21 @@ describe("loadCockpitSnapshot — a merge just before the week still hides the d
       ...ev("kept-deploy", iso(30 * 60_000), "site_deployed"),
       siteId: "recOTHER",
     });
+    // Round 3: a control at exactly the start with no merge, so edge-deploy's absence can
+    // only come from its merge, never from the window's own edge.
+    await recordFleetEvent(db, {
+      ...ev("start-deploy", iso(0), "site_deployed"),
+      siteId: "recTHIRD",
+    });
   });
   afterEach(async () => {
     await db.destroy();
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("feedDeploys holds only the other site's deploy inside the week", async () => {
+  it("feedDeploys holds only the other sites' deploys inside the week", async () => {
     const snap = await loadCockpitSnapshot(db, NOW, "https://dash");
-    expect(snap.feedDeploys.map((e) => e.id)).toEqual(["kept-deploy"]);
+    expect(snap.feedDeploys.map((e) => e.id)).toEqual(["kept-deploy", "start-deploy"]);
     expect(snap.gaps).toEqual([]);
   });
 });
