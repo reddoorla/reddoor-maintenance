@@ -32,7 +32,7 @@ describe("the overview across a data refresh (P1-87 minors)", () => {
   async function mountWith(view: ReturnType<typeof overviewFromSnapshot>) {
     props.data = { view };
     const { default: Page } = await import("../../src/routes/+page.svelte");
-    app = mount(Page, { target, props });
+    app = mount(Page, { target, props: props as never });
     flushSync();
   }
   const show = (view: ReturnType<typeof overviewFromSnapshot>) => {
