@@ -213,8 +213,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/motion.ts",
-        "find": "      to = p.to;\n      // A refresh to a value that is not a figure (a word) ends the count at once: no frame may\n      // write it, and the figure shows its own words (P1-87 PR 8a, review round 1, F1).\n      if (!countable(to)) finish();",
-        "replace": "      to = p.to;"
+        "find": "      to = p.to;\n      // A refresh to a value that is not a figure (a word) ends the count at once: no frame may\n      // write it, and the figure shows its own words (P1-87 PR 8a, review round 1, F1).\n      if (!countable(to)) finish();\n      // The intro ended while the count ran (a page first shown with its view due a re-read ends\n      // its intro at once, #2164): the count ends with it, as the sparklines do.\n      else if (!p.enabled && node.hasAttribute(\"data-counting\")) finish();",
+        "replace": "      to = p.to;\n      if (!p.enabled && node.hasAttribute(\"data-counting\")) finish();"
       }
     ],
     "test": ["cockpit/tests/overview/motion.ssr.test.ts"],
