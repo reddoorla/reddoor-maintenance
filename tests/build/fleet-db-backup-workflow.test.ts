@@ -199,6 +199,19 @@ describe("fleet-db-backup — the backup event is recorded at the end of the job
     );
   });
 
+  // #2191: a Turso hang must not fail a backup that finished. The CLI's own
+  // `timeout`, KILL included, ends inside the step's timeout-minutes, so the
+  // step's timeout (which would fail the job and file the issue) never fires.
+  it("bounds the CLI with timeout -k K D, and K + D ends inside the step's timeout", () => {
+    const step = workflowSteps(workflowText).find((st) => st.label === RECORD_STEP)!;
+    const m = /\btimeout -k (\d+) (\d+) node dist\/cli\/bin\.js db record-backup-event\b/.exec(
+      stepRunScript(workflowText, RECORD_STEP),
+    );
+    expect(m).not.toBeNull();
+    expect(step.timeoutMinutes).toBeGreaterThan(0);
+    expect(Number(m![1]) + Number(m![2])).toBeLessThan(step.timeoutMinutes! * 60);
+  });
+
   it("leaves the existing gate lines unchanged", () => {
     expect(gate).toContain(
       `grep -qE '^DUMP_VERIFY loaded=true .* mismatches=0$' "$out/verify.out"`,
@@ -208,6 +221,86 @@ describe("fleet-db-backup — the backup event is recorded at the end of the job
     );
     expect(encrypt).toContain(
       `grep -qE '^DUMP_VERIFY loaded=true .* mismatches=0$' "$out/verify.enc.out"`,
+    );
+  });
+});
+
+// #2191 and #2192, executed. The record step's shell runs against a stub `node`
+// in each shape the CLI can end in. It exits 0 in every one (the event is never
+// the backup's verdict), and a night that did not record says so as a ::warning::.
+describe("fleet-db-backup — recording the event never fails the backup, and a miss warns", () => {
+  async function runRecord(
+    node: string,
+    script?: string,
+  ): Promise<{ code: number; out: string; args: string }> {
+    const dir = await mkdtemp(join(tmpdir(), "db-backup-record-"));
+    const bin = join(dir, "bin");
+    await mkdir(bin, { recursive: true });
+    await writeFile(
+      join(bin, "node"),
+      `#!/bin/sh\nprintf '%s' "$*" > "${join(dir, "args.txt")}"\n${node}\n`,
+      "utf-8",
+    );
+    await chmod(join(bin, "node"), 0o755);
+    const run = script ?? stepRunScript(workflowText, RECORD_STEP);
+    let code = 0;
+    let out = "";
+    try {
+      const r = await execFileAsync("bash", ["-e", "-c", run], {
+        cwd: dir,
+        env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}`, RUNNER_TEMP: dir },
+        timeout: 20_000,
+      });
+      out = r.stdout + r.stderr;
+    } catch (e) {
+      const err = e as { code?: number; stdout?: string; stderr?: string };
+      code = typeof err.code === "number" ? err.code : 1;
+      out = (err.stdout ?? "") + (err.stderr ?? "");
+    }
+    const args = await readFile(join(dir, "args.txt"), "utf-8").catch(() => "");
+    return { code, out, args };
+  }
+
+  it("a recorded night exits 0 with no warning, and passes the verify output", async () => {
+    const r = await runRecord(
+      "echo 'record-backup-event: recorded backup_verified:2026-06-25'; exit 0",
+    );
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("record-backup-event: recorded backup_verified:2026-06-25");
+    expect(r.out).not.toContain("::warning::");
+    expect(r.args).toContain("db record-backup-event --file");
+  });
+
+  it("a night the CLI did not record exits 0 and warns, quoting the CLI's line", async () => {
+    const line =
+      "record-backup-event: not recorded — backup_verified:2026-06-25 was not written (see the error above)";
+    const r = await runRecord(`echo '${line}'; exit 0`);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain(
+      `::warning::The backup finished, but its feed event was not recorded (exit 0): ${line}`,
+    );
+  });
+
+  it("a CLI that crashes with no output exits 0 and warns with its exit code", async () => {
+    const r = await runRecord("exit 3");
+    expect(r.code).toBe(0);
+    expect(r.out).toContain(
+      "::warning::The backup finished, but its feed event was not recorded (exit 3): no output",
+    );
+  });
+
+  it("a CLI that hangs is stopped by its timeout, then exits 0 and warns", async () => {
+    // The step's 4-minute bound, shortened to 1 s for the test; `exec` so the
+    // stub's sleep is the process `timeout` kills, as node is in the workflow.
+    const real = stepRunScript(workflowText, RECORD_STEP);
+    const short = real.replace("timeout -k 30 240 ", "timeout -k 1 1 ");
+    expect(short).not.toBe(real);
+    const started = Date.now();
+    const r = await runRecord("exec sleep 30", short);
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain(
+      "::warning::The backup finished, but its feed event was not recorded (exit 124): no output",
     );
   });
 });

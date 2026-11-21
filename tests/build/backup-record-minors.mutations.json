@@ -1,0 +1,106 @@
+[
+  {
+    "id": "A1-node-failure-fails-the-step",
+    "why": "#2191: a CLI that exits non-zero ends the step red under bash -e, failing a finished backup",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-db-backup.yml",
+        "find": "--file \"${RUNNER_TEMP:-/tmp}/verify.out\") || code=$?",
+        "replace": "--file \"${RUNNER_TEMP:-/tmp}/verify.out\")"
+      }
+    ],
+    "test": "tests/build/fleet-db-backup-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "A2-no-timeout",
+    "why": "#2191: without `timeout`, a Turso hang runs to the step's 5 minutes and fails the job",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-db-backup.yml",
+        "find": "out=$(timeout -k 30 240 node dist",
+        "replace": "out=$(node dist"
+      }
+    ],
+    "test": "tests/build/fleet-db-backup-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "A3-timeout-outlasts-the-step",
+    "why": "#2191: a bound of 30 + 300 s ends after the step's 5-minute timeout, so the step's timeout fires first",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-db-backup.yml",
+        "find": "timeout -k 30 240 node",
+        "replace": "timeout -k 30 300 node"
+      }
+    ],
+    "test": "tests/build/fleet-db-backup-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "A4-step-exit-follows-cli",
+    "why": "#2191: the step exits with the CLI's code, so a crash or a hang stopped by timeout fails the backup",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-db-backup.yml",
+        "find": "          esac\n          exit 0\n",
+        "replace": "          esac\n          exit \"$code\"\n"
+      }
+    ],
+    "test": "tests/build/fleet-db-backup-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "B1-no-warning",
+    "why": "#2192: a night that did not record is silent on the run again",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-db-backup.yml",
+        "find": "            *) echo \"::warning::The backup finished",
+        "replace": "            *) echo \"The backup finished"
+      }
+    ],
+    "test": "tests/build/fleet-db-backup-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "B2-not-recorded-reads-as-recorded",
+    "why": "#2192: a looser match takes \"not recorded\" for \"recorded\" and stays silent",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-db-backup.yml",
+        "find": "            \"record-backup-event: recorded \"*) ;;",
+        "replace": "            *recorded*) ;;"
+      }
+    ],
+    "test": "tests/build/fleet-db-backup-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "C1-unreadable-file-exits-1",
+    "why": "#2196: an unreadable --file exits 1",
+    "edits": [
+      {
+        "file": "src/cli/commands/db.ts",
+        "find": "output: `record-backup-event: not recorded — cannot read ${file} (${String(e)})`,\n        code: 0,",
+        "replace": "output: `record-backup-event: not recorded — cannot read ${file} (${String(e)})`,\n        code: 1,"
+      }
+    ],
+    "test": "tests/cli/db-record-backup-event.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "D1-reads-the-last-line",
+    "why": "#2198: with two machine lines, the parser reads the last one instead of refusing",
+    "edits": [
+      {
+        "file": "src/audits/fleet-event-detectors.ts",
+        "find": "  if (lines.length !== 1) return null;\n  const fields = new Map<string, string>();\n  for (const token of lines[0]!.slice(",
+        "replace": "  if (lines.length === 0) return null;\n  const fields = new Map<string, string>();\n  for (const token of lines[lines.length - 1]!.slice("
+      }
+    ],
+    "test": "tests/audits/fleet-event-detectors.test.ts",
+    "expect": "red"
+  }
+]
