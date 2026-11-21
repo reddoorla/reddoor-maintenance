@@ -28,7 +28,9 @@ export type CheckFilter =
 
 /** The line above the table: "Failing Certificate: 2 sites". The count is the fleet's; when the
  *  status form or the search narrows the table to fewer rows, it adds how many are shown
- *  ("Failing Certificate: 1 site, 0 shown"), so the line is true of the rows under it (#2185). */
+ *  ("Failing Certificate: 1 site, 0 shown"), so the line is true of the rows the status and
+ *  search leave (#2185). The signal chips filter in the browser and are counted on the meta line
+ *  above, not here. */
 export function failingLine(c: { name: HealthCheckName; failing: number }, shown?: number): string {
   const line = `Failing ${c.name}: ${c.failing} ${c.failing === 1 ? "site" : "sites"}`;
   return shown === undefined || shown === c.failing ? line : `${line}, ${shown} shown`;
