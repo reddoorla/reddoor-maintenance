@@ -125,6 +125,21 @@ export function nextDueDate(
   if (site.status !== null && !ELIGIBLE_STATUSES.has(site.status)) return null;
   const freq = type === "Maintenance" ? site.maintenanceFreq : site.testingFreq;
   if (freq === "None") return null;
+  const baseIso = cycleBase(site, reports, type);
+  if (!baseIso) return startOfDay(today);
+  const base = new Date(baseIso);
+  const due = addMonths(base, MONTHS[freq]);
+  if (type !== "Maintenance") return due;
+  return pushPastTesting(reports, site.id, base, due, MONTHS[freq], today);
+}
+
+/**
+ * What a (site, type)'s cycle counts from: the later of its last send and its
+ * last withdrawn draft's day, else the site's anchor (`maintenance day` /
+ * `testing day`), else null. With no base, {@link nextDueDate} says "due today",
+ * a date that moves every day; #2157's re-date asks this so it never chases it.
+ */
+export function cycleBase(site: WebsiteRow, reports: ReportRow[], type: ReportType): string | null {
   const lastSent = lastSentForType(reports, site.id, type);
   const withdrawnDraft = lastWithdrawnDraftForType(reports, site.id, type);
   const latest =
@@ -134,12 +149,7 @@ export function nextDueDate(
         : withdrawnDraft
       : (lastSent ?? withdrawnDraft);
   const fallback = type === "Maintenance" ? site.maintenanceDay : site.testingDay;
-  const baseIso = latest ?? fallback;
-  if (!baseIso) return startOfDay(today);
-  const base = new Date(baseIso);
-  const due = addMonths(base, MONTHS[freq]);
-  if (type !== "Maintenance") return due;
-  return pushPastTesting(reports, site.id, base, due, MONTHS[freq], today);
+  return latest ?? fallback ?? null;
 }
 
 /** An approved Testing report not yet sent counts as "sent" for this long after

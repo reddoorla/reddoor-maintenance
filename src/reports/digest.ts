@@ -1,5 +1,5 @@
 // src/reports/digest.ts
-import { isPendingApproval, redatedFrom, type ReportRow } from "./report-row.js";
+import { isPendingApproval, redatedMove, type ReportRow } from "./report-row.js";
 import type { NotifyBounceCounts } from "../db/submissions.js";
 import { isDashboardVisible, siteSlug, type WebsiteRow } from "../fleet/site-row.js";
 import { defaultResendClient, type ResendClient } from "./send/resend.js";
@@ -859,13 +859,15 @@ export async function runDigest(
       // somewhere usable instead of a 404.
       const slug = siteSlug(site.name);
       readyKeys.push(`ready:${r.id}`);
-      const movedFrom = redatedFrom(r);
+      // #2157: named only while the row is still on the date the nightly moved
+      // it to; a later move or a failed one leaves the note out.
+      const move = redatedMove(r);
       readyForYourYes.push({
         siteName: site.name,
         reportType: r.reportType,
         period: r.period ?? "—",
         dashboardUrl: slug ? `${baseUrl}/s/${slug}` : `${baseUrl}${TRIAGE_PATH}`,
-        ...(movedFrom && r.dueOn ? { dueMoved: { from: movedFrom, to: r.dueOn } } : {}),
+        ...(move && move.to === r.dueOn ? { dueMoved: move } : {}),
       });
     }
 

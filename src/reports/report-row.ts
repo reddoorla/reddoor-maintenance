@@ -76,7 +76,7 @@ export type ReportRow = {
    *  unsent row is mid-send, and an unapprove refuses it. */
   sendStartedAt: string | null;
   /** #1262: who last took back this row's approval (the operator, or the nightly
-   *  when an anchor edit moved its due date: {@link redatedFrom}). */
+   *  when an anchor edit moved its due date: {@link redatedMove}). */
   unapprovedBy: string | null;
   /** P1-117: the due date (`YYYY-MM-DD`) the nightly drafted this report for. It
    *  can be drafted and approved up to a week before; the send holds it until the
@@ -127,6 +127,28 @@ export function parseAutoEvidence(raw: unknown): Record<string, EvidenceRecord> 
   return Object.keys(out).length > 0 ? out : null;
 }
 
+const REDATED_BY = "nightly: due date moved";
+
+/**
+ * #2157 (the operator, 2026-11-21: "Re-draft on new date"). When the nightly
+ * moves an approved early draft to its cycle's new due date, it takes the
+ * approval back with this as its `unapproved_by`, so the digest can say why the
+ * report is waiting on him again.
+ */
+export function redatedBy(from: string, to: string): string {
+  return `${REDATED_BY} ${from} → ${to}`;
+}
+
+/** The move {@link redatedBy} recorded, or null for any other unapprove. */
+export function redatedMove(
+  r: Pick<ReportRow, "unapprovedBy">,
+): { from: string; to: string } | null {
+  const m = r.unapprovedBy?.match(
+    /^nightly: due date moved (\d{4}-\d{2}-\d{2}) → (\d{4}-\d{2}-\d{2})$/u,
+  );
+  return m ? { from: m[1]!, to: m[2]! } : null;
+}
+
 /**
  * P1-117 (the operator, 2026-11-19: "Due date"): the date at the top of a report
  * email and in its default subject's month. A report the nightly drafted for a due
@@ -135,24 +157,6 @@ export function parseAutoEvidence(raw: unknown): Record<string, EvidenceRecord> 
  * Announcement) by the day it was drafted. The draft's first render and every
  * render from the row (send, re-render, test send) read it, so they agree.
  */
-/**
- * #2157 (the operator, 2026-11-21: "Re-draft on new date"). When an anchor edit
- * moves an approved early draft's due date, the nightly takes the approval back
- * with this as its `unapproved_by`, so the digest can say why the report is
- * waiting on him again. `redatedFrom` reads the old due date back, or null for
- * any other unapprove.
- */
-export function redatedBy(from: string, to: string): string {
-  return `${REDATED_BY} ${from} → ${to}`;
-}
-
-export function redatedFrom(r: Pick<ReportRow, "unapprovedBy">): string | null {
-  const m = r.unapprovedBy?.match(/^nightly: due date moved (\d{4}-\d{2}-\d{2}) → /u);
-  return m ? m[1]! : null;
-}
-
-const REDATED_BY = "nightly: due date moved";
-
 export function emailDate(report: Pick<ReportRow, "dueOn" | "completedOn">): Date {
   const iso = report.dueOn ?? report.completedOn;
   return iso ? new Date(iso) : new Date();

@@ -1,7 +1,14 @@
 import { nextDueDatesFields, siteSlug, type WebsiteRow } from "../../fleet/site-fields.js";
 import type { ReportRow } from "../../reports/report-fields.js";
 import { redatedBy } from "../../reports/report-row.js";
-import { findDueReports, nextDueDates, reportPeriodKey } from "../../reports/due.js";
+import {
+  cycleBase,
+  findDueReports,
+  heldUntilDue,
+  nextDueDate,
+  nextDueDates,
+  reportPeriodKey,
+} from "../../reports/due.js";
 import { analyticsEnrolled, draftReportForSite } from "../../reports/draft.js";
 import { reportTier } from "../../reports/queue.js";
 import { readGaConfig } from "../../reports/ga/config.js";
@@ -377,7 +384,7 @@ async function runDueDraft(): Promise<{ output: string; code: number }> {
   const { makeSiteMirror } = await import("../../db/site-mirror.js");
   // #646 step 4: the roster and every report come from Turso, over ONE connection
   // opened on the first read and closed when the run ends.
-  const { listSites, listAllReports, unapproveReportIfUnsent } =
+  const { listSites, listAllReports, unapproveReportIfUnsent, redateReportIfUnapproved } =
     await import("../../db/fleet-state.js");
   const { rerenderReport } = await import("../../reports/send/rerender.js");
   const fleetDb = lazyFleetDb();
@@ -390,6 +397,7 @@ async function runDueDraft(): Promise<{ output: string; code: number }> {
       siteMirror: await makeSiteMirror(),
       redate: {
         unapprove: async (id, at, by) => unapproveReportIfUnsent(await fleetDb.get(), id, at, by),
+        setDueOn: async (id, dueOn) => redateReportIfUnapproved(await fleetDb.get(), id, dueOn),
         rerender: async (id) => rerenderReport(await bindRerender(await fleetDb.get()), id),
       },
     });
@@ -547,6 +555,10 @@ export type RedateDeps = {
    *  unwithdrawn and unclaimed (`unapproveReportIfUnsent`); false when the
    *  write matched nothing, because a send or a withdraw won. */
   unapprove: (reportId: string, at: Date, by: string) => Promise<boolean>;
+  /** Set the row's due date, conditioned on it being unapproved, unsent,
+   *  unwithdrawn and unclaimed (`redateReportIfUnapproved`); false when the
+   *  write matched nothing. */
+  setDueOn: (reportId: string, dueOn: string) => Promise<boolean>;
   /** Re-render the row's stored body on the send's own path (`rerenderReport`),
    *  which refreshes an unapproved row's scores, visits and evidence first. */
   rerender: (reportId: string) => Promise<{ status: string }>;
@@ -564,6 +576,10 @@ export async function draftDueReports(
   const websites = await deps.roster();
   const reports = await deps.allReports();
 
+  // #2157: before anything reads the cycle, move every held early draft whose
+  // cycle moved, so the next-due write-back and the drafting below see it.
+  const redateLines = await redateHeldReadyRows(websites, reports, today, deps);
+
   // Refresh every site's code-owned next-due dates first, so they stay current even on
   // a run where nothing is due (the early return below).
   await writeNextDueDates(websites, reports, today, scheduleMirror);
@@ -580,13 +596,13 @@ export async function draftDueReports(
 
   if (due.length === 0) {
     return {
-      output: "No reports due.",
-      code: 0,
+      output: [...redateLines, "No reports due."].join("\n"),
+      code: redateLines.some((l) => l.startsWith("✗")) ? 1 : 0,
       health: { softFailedSites: 0, configuredSites: 0 },
     };
   }
 
-  const lines: string[] = [];
+  const lines: string[] = [...redateLines];
   let softFailedSites = 0;
   let searchDefaultMisses = 0;
   let searchPropertiesMissing = 0;
@@ -615,27 +631,9 @@ export async function draftDueReports(
       }
       // P1-117: a row that is not draft-ready (half-made, or superseded and
       // waiting) takes the cycle's current due date before it is completed, so its
-      // body and its send hold carry the same date.
-      //
-      // #2157 (the operator, 2026-11-21: "Re-draft on new date"): a READY row
-      // whose cycle moved inside the period (an anchor edit after its early
-      // draft, or a manual same-type send mid-cycle) takes the new date too.
-      // Its stored body is the preview the operator approves, so the approval
-      // comes back first, then the date, then the body is re-rendered on the
-      // send's path with fresh data. Kept on its drafted date instead, it would
-      // send then, and that send would outrank the new anchor for every later
-      // cycle. A ready row drafted before P1-117 has no due date and is left as
-      // it is.
+      // body and its send hold carry the same date. A READY row's moves are
+      // `redateHeldReadyRows`' (#2157), which ran before this loop.
       const dueOn = ymd(item.dueDate);
-      if (
-        existing.sentAt === null &&
-        existing.draftReady &&
-        existing.dueOn !== null &&
-        existing.dueOn !== dueOn
-      ) {
-        lines.push(await redateReadyRow(existing, existing.dueOn, dueOn, item, today, deps));
-        continue;
-      }
       if (existing.sentAt === null && !existing.draftReady && existing.dueOn !== dueOn) {
         try {
           await deps.reportMirror.patch(existing.id, { due_on: dueOn });
@@ -781,41 +779,96 @@ export async function draftDueReports(
   };
 }
 
-/** #2157: move a ready, unsent row to its cycle's new due date. Returns the
- *  run-output line. Each step that fails leaves a row the next nightly can
- *  finish: an approval taken back with the old date is re-dated again, and a
- *  re-dated row whose render failed is un-queued, so the half-made path
- *  completes it on the new date. */
+/**
+ * #2157 (the operator, 2026-11-21: "Re-draft on new date"). An early draft is
+ * held until its due date; if its cycle moves while it waits (an anchor edit
+ * after the draft exists, or a manual same-type send mid-cycle), it takes the
+ * new date. Kept on its drafted date instead, it would send then, and that send
+ * would outrank the new anchor for every later cycle.
+ *
+ * A row is re-dated only when all of these hold:
+ *  - it is draft-ready, unsent and unwithdrawn, with a due date (a row drafted
+ *    before P1-117 has none and is left as it is);
+ *  - it is still held: its due date is after today's Pacific date. Once the day
+ *    arrives it sends on this cycle, and moving it would only delay it;
+ *  - its cycle has a base (a send, a withdrawn draft or an anchor). With none
+ *    the cycle says "due today", which moves every day;
+ *  - the new date is in the row's period. A move into another period is not
+ *    covered here.
+ *
+ * Checked against the cycle directly, not the 7-day draft window, so a move to a
+ * date weeks out is caught too. Returns the run-output lines.
+ */
+async function redateHeldReadyRows(
+  websites: WebsiteRow[],
+  reports: ReportRow[],
+  today: Date,
+  deps: DraftDueDeps,
+): Promise<string[]> {
+  const lines: string[] = [];
+  const sites = new Map(websites.map((w) => [w.id, w]));
+  for (const row of reports) {
+    if (!row.draftReady || row.sentAt !== null || row.withdrawnAt !== null) continue;
+    if (row.dueOn === null || row.period === null) continue;
+    if (row.reportType !== "Maintenance" && row.reportType !== "Testing") continue;
+    if (!heldUntilDue(row, today)) continue;
+    const site = sites.get(row.siteId);
+    if (!site || cycleBase(site, reports, row.reportType) === null) continue;
+    const next = nextDueDate(site, reports, row.reportType, today);
+    if (next === null || reportPeriodKey(next) !== row.period) continue;
+    const to = ymd(next);
+    if (to === row.dueOn) continue;
+    lines.push(await redateReadyRow(row, row.dueOn, to, site, today, deps));
+  }
+  return lines;
+}
+
+/** One row of {@link redateHeldReadyRows}. The approval comes back first, then
+ *  the date (conditioned on the row still being unapproved, so an approval that
+ *  lands meanwhile keeps its date), then the preview is re-rendered on the send's
+ *  path, which refreshes the row's data first. A failed render puts the old date
+ *  back, so the next nightly tries the move again. */
 async function redateReadyRow(
   row: ReportRow,
   from: string,
   to: string,
-  item: { site: WebsiteRow; reportType: ReportType },
+  site: WebsiteRow,
   today: Date,
   deps: DraftDueDeps,
 ): Promise<string> {
-  const what = `${item.site.name} ${item.reportType}`;
-  const moved = `due date moved ${from} → ${to}: ${what}`;
+  const moved = `due date ${from} → ${to}: ${site.name} ${row.reportType}`;
   const wasApproved = row.approvedToSend;
-  try {
-    if (wasApproved) {
-      const took = await deps.redate.unapprove(row.id, today, redatedBy(from, to));
-      if (!took) {
-        return `⚠ ${moved} — not re-dated: it is being sent, or was sent, withdrawn or unapproved since this run read it`;
-      }
-      row.approvedToSend = false;
-      row.approvedAt = null;
-      row.approvedBy = null;
+  const took = wasApproved
+    ? row.sendOverride
+      ? "approval and send-anyway override taken back"
+      : "approval taken back"
+    : null;
+  if (wasApproved) {
+    let ok: boolean;
+    try {
+      ok = await deps.redate.unapprove(row.id, today, redatedBy(from, to));
+    } catch (e) {
+      return `✗ ${moved} — approval not taken back: ${(e as Error).message}`;
     }
-  } catch (e) {
-    return `✗ ${moved} — approval not taken back: ${(e as Error).message}`;
+    if (!ok) {
+      return `⚠ ${moved} — not re-dated: its approval could not be taken back (it is sent, being sent, withdrawn or no longer approved)`;
+    }
+    row.approvedToSend = false;
+    row.approvedAt = null;
+    row.approvedBy = null;
+    row.sendOverride = false;
   }
+  const after = took ? `${took}, but ` : "";
+  let set: boolean;
   try {
-    await deps.reportMirror.patch(row.id, { due_on: to });
-    row.dueOn = to;
+    set = await deps.redate.setDueOn(row.id, to);
   } catch (e) {
-    return `✗ due date not updated: ${what} — ${(e as Error).message}`;
+    return `✗ ${moved} — ${after}the due date was not updated: ${(e as Error).message}`;
   }
+  if (!set) {
+    return `⚠ ${moved} — ${after}not re-dated: it was approved, sent or withdrawn while this run worked`;
+  }
+  row.dueOn = to;
   let status: string;
   try {
     status = (await deps.redate.rerender(row.id)).status;
@@ -823,17 +876,19 @@ async function redateReadyRow(
     status = (e as Error).message;
   }
   if (status === "rendered") {
-    return wasApproved
-      ? `• ${moved} — approval taken back, preview re-rendered; approve again`
+    return took
+      ? `• ${moved} — ${took}, preview re-rendered; approve again`
       : `• ${moved} — preview re-rendered`;
   }
   try {
-    await deps.reportMirror.patch(row.id, { draft_ready: 0 });
-    row.draftReady = false;
-  } catch (e) {
-    return `✗ preview not re-rendered (${status}): ${what} — and not un-queued (${(e as Error).message}); its preview still shows ${from}`;
+    if (await deps.redate.setDueOn(row.id, from)) {
+      row.dueOn = from;
+      return `✗ ${moved} — ${after}preview not re-rendered (${status}); kept on ${from}, and the next nightly tries again`;
+    }
+  } catch {
+    // Named below: the row says `to` while its preview still shows `from`.
   }
-  return `✗ preview not re-rendered (${status}): ${what} — un-queued; the next nightly completes it on ${to}`;
+  return `✗ ${moved} — ${after}preview not re-rendered (${status}), and the row now says ${to} while its preview shows ${from}: run \`report --rerender ${row.id}\``;
 }
 
 async function runSingleSiteDraft(

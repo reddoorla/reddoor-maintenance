@@ -42,6 +42,7 @@ vi.mock("../../src/db/fleet-state.js", () => ({
   listAllReports: async () => [],
   // #2157: bound into the re-date deps; this suite has no ready row to re-date.
   unapproveReportIfUnsent: async () => false,
+  redateReportIfUnapproved: async () => false,
 }));
 vi.mock("../../src/fleet/site-fields.js", () => ({
   siteSlug: (n: string) => n,
@@ -60,6 +61,10 @@ vi.mock("../../src/reports/due.js", () => ({
     },
   ],
   reportPeriodKey: () => "2026-06",
+  // #2157's re-date pass: this suite has no ready row, so nothing is held.
+  cycleBase: () => null,
+  heldUntilDue: () => false,
+  nextDueDate: () => null,
 }));
 vi.mock("../../src/reports/draft.js", () => ({ draftReportForSite: vi.fn() }));
 

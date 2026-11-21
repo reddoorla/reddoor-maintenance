@@ -925,6 +925,28 @@ export async function unapproveReportIfUnsent(
   return res.numUpdatedRows > 0n;
 }
 
+/** #2157: move an early draft to its cycle's new due date, conditioned on the
+ *  row being unapproved, unsent, unwithdrawn and unclaimed. An approval that
+ *  lands while the nightly works is kept on the date it was given for: the
+ *  write matches nothing, and the nightly leaves the row as it is. Returns
+ *  whether a row matched. */
+export async function redateReportIfUnapproved(
+  db: Db,
+  reportId: string,
+  dueOn: string,
+): Promise<boolean> {
+  const res = await db
+    .updateTable("reports")
+    .set({ due_on: dueOn })
+    .where("id", "=", reportId)
+    .where("approved_to_send", "=", 0)
+    .where("sent_at", "is", null)
+    .where("withdrawn_at", "is", null)
+    .where("send_started_at", "is", null)
+    .executeTakeFirst();
+  return res.numUpdatedRows > 0n;
+}
+
 /** #1262 (Operator decisions 100): the send batch's claim on one report, taken
  *  right before Resend is called. Conditioned on the row still being sendable
  *  under the approval the queue read: every approve writes a new `approved_at`
