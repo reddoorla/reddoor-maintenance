@@ -31,6 +31,24 @@
     "expect": "red"
   },
   {
+    "id": "J4-unrecognized-keyed-by-slug",
+    "why": "#2178 round 1: an unrecognized-status row is grouped by slug, so it joins its namesake's card row",
+    "edits": [
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "    const a = get(u.siteId, u.name);",
+        "replace": "    const a = get(`slug:${u.slug}`, u.name);"
+      },
+      {
+        "file": "src/dashboard/fleet-cockpit.ts",
+        "find": "      const a = get(card.site.id, card.site.name);\n      const worstFirst",
+        "replace": "      const a = get(`slug:${siteSlug(card.site.name)}`, card.site.name);\n      const worstFirst"
+      }
+    ],
+    "test": "tests/dashboard/fleet-cockpit.test.ts",
+    "expect": "red"
+  },
+  {
     "id": "J3-ladder-matches-by-name",
     "why": "#2178: the ladder matches cards to rows by site name, which survived before because no fixture had namesakes",
     "edits": [
@@ -109,6 +127,19 @@
         "find": "        if (lit.every(Boolean)) observer?.disconnect();\n",
         "replace": ""
       },
+      {
+        "file": "cockpit/src/routes/how/+page.svelte",
+        "find": "      if (lit.every(Boolean)) observer.disconnect();\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "N3-no-disconnect-at-mount",
+    "why": "#2183 round 1: the observer is not disconnected when every step is lit at mount",
+    "edits": [
       {
         "file": "cockpit/src/routes/how/+page.svelte",
         "find": "      if (lit.every(Boolean)) observer.disconnect();\n",

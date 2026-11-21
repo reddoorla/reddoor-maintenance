@@ -1644,4 +1644,24 @@ describe("buildNeedsYouFeed — two sites whose names slug alike are two rows (#
       "Maintenance 2026-10 ready",
     );
   });
+
+  it("keeps an unrecognized-status site and its namesake's card on two rows", () => {
+    const m = buildCockpitModel(
+      [
+        site({ id: "recTYPO", name: "Acme Co", status: "maintenence" as WebsiteRow["status"] }),
+        site({ id: "recDASH", name: "Acme-Co", ...CERT_10 }),
+      ],
+      [],
+      {},
+      BASE,
+      NOW,
+    );
+    const feed = buildNeedsYouFeed(m);
+    const typo = feed.filter((r) => r.siteId === "recTYPO");
+    const dash = feed.filter((r) => r.siteId === "recDASH");
+    expect(typo).toHaveLength(1);
+    expect(dash).toHaveLength(1);
+    expect(typo[0]!.reasons.join(" ")).toContain("is not a recognized value");
+    expect(dash[0]!.reasons.join(" ")).not.toContain("is not a recognized value");
+  });
 });
