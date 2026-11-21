@@ -101,6 +101,17 @@ describe("db record-backup-event", () => {
     expect(r.output).toMatch(/not recorded/);
   });
 
+  // #2196: a --file that cannot be read is a night that did not record, not a
+  // failed backup: exit 0, and say so.
+  it("exits 0 for a --file that cannot be read, and says it did not record", async () => {
+    const missing = join(dir, "no-such-verify.out");
+    const r = await runDbCommand("record-backup-event", { file: missing, url }, { now: NOW });
+    expect(r.code).toBe(0);
+    expect(r.output).toMatch(/not recorded — cannot read/);
+    expect(r.output).toContain(missing);
+    expect(await rows()).toEqual([]);
+  });
+
   it("refuses without --file, as the other file-reading actions do", async () => {
     const r = await runDbCommand("record-backup-event", { url }, { now: NOW });
     expect(r.code).toBe(1);

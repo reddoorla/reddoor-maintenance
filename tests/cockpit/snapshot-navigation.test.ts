@@ -21,6 +21,7 @@ import { expectedNight, HEALTH_CHECK_NAMES } from "../../cockpit/src/lib/overvie
 import {
   BAR_MS,
   BAR_STAGGER_MS,
+  FEED_MS,
   INTRO_MS,
   MAX_MOTION_MS,
   SPARK_MS,
@@ -4888,6 +4889,32 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     page.locator("figure.ov-trend").nth(ci).locator("rect.ov-hit");
   const cursorOf = (page: Page, ci = 0) =>
     page.locator("figure.ov-trend").nth(ci).locator("line.ov-trend-cursor");
+  /** Night k's cursor x, computed from the chart's own plot edges (its first grid line) and its
+   *  night count, and rounded to the 0.1 every chart coordinate is (#2188). The hit rect's
+   *  `x + width / 2` is no expectation: its left and right are rounded apart, so it can sit 0.05
+   *  off the rounded centre. With 18 nights, night 5 reads 117.45 against the cursor's 117.5, and
+   *  the night count moves with the hour, so a 0.05 tolerance failed only at some hours. */
+  const expectCursorAt = async (page: Page, k: number, ci = 0) => {
+    const fig = page.locator("figure.ov-trend").nth(ci);
+    const { left, right, n, rectLeft, rectRight } = await fig.evaluate((f, k) => {
+      const grid = f.querySelector("svg.ov-chart line.ov-grid")!;
+      const r = f.querySelectorAll("rect.ov-hit")[k]!;
+      const rl = Number(r.getAttribute("x"));
+      return {
+        left: Number(grid.getAttribute("x1")),
+        right: Number(grid.getAttribute("x2")),
+        n: f.querySelectorAll("rect.ov-hit").length,
+        rectLeft: rl,
+        rectRight: rl + Number(r.getAttribute("width")),
+      };
+    }, k);
+    const x = Number(await cursorOf(page, ci).getAttribute("x1"));
+    expect(x, `the cursor is at night ${k}'s centre`).toBe(
+      Math.round((left + ((k + 0.5) * (right - left)) / n) * 10) / 10,
+    );
+    expect(x, `the cursor is inside night ${k}'s column`).toBeGreaterThan(rectLeft);
+    expect(x).toBeLessThan(rectRight);
+  };
   /** The chart's nights' words, in order, from the hover targets' data. */
   const titlesOf = (page: Page, ci = 0) =>
     nightRects(page, ci).evaluateAll((rs) => rs.map((r) => r.getAttribute("data-title")!));
@@ -4913,14 +4940,9 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     expect(titles.length, "the seeded chart has a night per slot").toBeGreaterThan(5);
     const k = 5;
     await nightRects(page).nth(k).hover();
-    const geo = await nightRects(page)
-      .nth(k)
-      .evaluate((r) => ({
-        centre: Number(r.getAttribute("x")) + Number(r.getAttribute("width")) / 2,
-      }));
     const cursor = page.locator("figure.ov-trend").nth(0).locator("line.ov-trend-cursor");
     expect(await cursor.count()).toBe(1);
-    expect(Number(await cursor.getAttribute("x1"))).toBeCloseTo(geo.centre, 1);
+    await expectCursorAt(page, k);
     expect(await readoutText(page)).toBe(titles[k]);
   });
 
@@ -5004,10 +5026,7 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     for (const k of [3, 6]) {
       await nightRects(page).nth(k).hover();
       expect(await readoutText(page), `hover ${k} shows its night`).toBe(titles[k]);
-      const centre = await nightRects(page)
-        .nth(k)
-        .evaluate((r) => Number(r.getAttribute("x")) + Number(r.getAttribute("width")) / 2);
-      expect(Number(await cursorOf(page).getAttribute("x1"))).toBeCloseTo(centre, 1);
+      await expectCursorAt(page, k);
       expect(
         await chart(page).getAttribute("aria-valuenow"),
         `hover ${k} keeps the key night`,
@@ -5045,40 +5064,32 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     await motionReady(page);
     const titles = await titlesOf(page);
     const n = titles.length;
-    const centreOf = (k: number) =>
-      nightRects(page)
-        .nth(k)
-        .evaluate((r) => Number(r.getAttribute("x")) + Number(r.getAttribute("width")) / 2);
     await nightRects(page).nth(4).hover();
     await nightRects(page).nth(4).click();
     expect(await readoutText(page)).toBe(titles[4]);
     await page.keyboard.press("ArrowRight");
     expect(await readoutText(page), "a key step after a click shows the key night").toBe(titles[5]);
-    expect(Number(await cursorOf(page).getAttribute("x1"))).toBeCloseTo(await centreOf(5), 1);
+    await expectCursorAt(page, 5);
     expect(await chart(page).getAttribute("aria-valuenow")).toBe("6");
     await page.keyboard.press("End");
     expect(await readoutText(page)).toBe(titles[n - 1]);
-    expect(Number(await cursorOf(page).getAttribute("x1"))).toBeCloseTo(await centreOf(n - 1), 1);
+    await expectCursorAt(page, n - 1);
     expect(await chart(page).getAttribute("aria-valuenow")).toBe(String(n));
     await nightRects(page).nth(2).hover();
     expect(await readoutText(page), "a new hover previews again").toBe(titles[2]);
-    expect(Number(await cursorOf(page).getAttribute("x1"))).toBeCloseTo(await centreOf(2), 1);
+    await expectCursorAt(page, 2);
     expect(await chart(page).getAttribute("aria-valuenow"), "a hover is not a key choice").toBe(
       String(n),
     );
     // Round 4 (M2): the key step ends the preview on every chart, not only the first. The same
     // click, step, readout and cursor on chart 1, whose preview is its own (hoverSel[1]).
     const titles1 = await titlesOf(page, 1);
-    const centreOn1 = (k: number) =>
-      nightRects(page, 1)
-        .nth(k)
-        .evaluate((r) => Number(r.getAttribute("x")) + Number(r.getAttribute("width")) / 2);
     await nightRects(page, 1).nth(4).hover();
     await nightRects(page, 1).nth(4).click();
     expect(await readoutText(page, 1), "chart 1: the click shows its key night").toBe(titles1[4]);
     await page.keyboard.press("ArrowRight");
     expect(await readoutText(page, 1), "chart 1: a key step ends its preview").toBe(titles1[5]);
-    expect(Number(await cursorOf(page, 1).getAttribute("x1"))).toBeCloseTo(await centreOn1(5), 1);
+    await expectCursorAt(page, 5, 1);
     expect(await chart(page, 1).getAttribute("aria-valuenow")).toBe("6");
   });
 
@@ -5174,6 +5185,56 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     expect(words).toBe(titles[gap]);
     expect(words).toMatch(/no count that night$/);
     expect(words).not.toMatch(/: 0/);
+  });
+
+  // P1-87 minors, #2170: the slider speaks a gap night as the model words it when a key lands on it.
+  it("a key step onto a night with no reading speaks the model's words, never 0 (#2170)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    const gap = titles.findIndex((t) => t.endsWith("no count that night"));
+    expect(gap, "the seed has a gap night on the first chart, not its first").toBeGreaterThan(0);
+    await chart(page).focus();
+    await page.keyboard.press("Home");
+    for (let i = 0; i < gap; i++) await page.keyboard.press("ArrowRight");
+    expect(await chart(page).getAttribute("aria-valuenow")).toBe(String(gap + 1));
+    const spoken = await chart(page).getAttribute("aria-valuetext");
+    expect(spoken).toBe(titles[gap]);
+    expect(spoken).toMatch(/no count that night$/);
+    expect(spoken).not.toMatch(/: 0/);
+    expect(await readoutText(page), "the visible readout says the same").toBe(titles[gap]);
+  });
+
+  // P1-87 minors, #2175: a pen's tap chooses its night even while a mouse rests on another; the
+  // click ends the mouse's preview, so the readout and the cursor are the tapped night's. A pen, not
+  // a touch: after a touch tap Chromium fires a mouse-typed pointerenter on the tapped night, which
+  // moves the preview there anyway, so a touch cannot tell the click's own clearing from it (mutant
+  // M1 survived a touch tap, PR 2's mutation run). A pen's pointer events are pen-typed, so only the
+  // click can end the resting mouse's preview. (A real pen's later pointerleave would end it too;
+  // this pins the click's own clearing, before that.)
+  it("a pen's tap on one night while a mouse rests on another shows the tapped night (#2175)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    const [rest, tapped] = [2, 6];
+    await nightRects(page).nth(rest).hover();
+    expect(await readoutText(page), "the mouse previews its night").toBe(titles[rest]);
+    await nightRects(page)
+      .nth(tapped)
+      .evaluate((r) => {
+        const pen = { bubbles: false, pointerType: "pen", isPrimary: true, pointerId: 2 };
+        r.dispatchEvent(new PointerEvent("pointerenter", pen));
+        r.dispatchEvent(new PointerEvent("pointerdown", { ...pen, bubbles: true }));
+        r.dispatchEvent(new PointerEvent("pointerup", { ...pen, bubbles: true }));
+        r.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+    expect(await readoutText(page), "the readout is the tapped night").toBe(titles[tapped]);
+    await expectCursorAt(page, tapped);
+    expect(await chart(page).getAttribute("aria-valuenow")).toBe(String(tapped + 1));
   });
 
   it("the focus ring is at least 2px wide and 3:1 against the page, in light and dark, at 1280px and 390px", async () => {
@@ -5335,6 +5396,10 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`${origin}/`);
     await motionReady(page);
+    // P1-87 minors (PR 2 review round 1): the installed clock runs with real time until paused, so
+    // the feed's FEED_MS timer could fire before the checks below read the mark. Paused, the page's
+    // timers fire only when the test moves the clock on.
+    await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 5_000);
     // The first load marks no line new.
     expect(await newMarks(page)).toEqual([]);
     // Each row names its place, so a row can be followed across the refresh.
@@ -5374,6 +5439,21 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
       expect(oneLine(await page.locator('.ov-lately li[data-probe="0"]').textContent())).toBe(
         oldFirst,
       );
+      // P1-87 minors, #2165: the mark lasts the slide and no longer. The page's clock is paused, so
+      // FEED_MS of it passes here and nowhere else.
+      await page.clock.runFor(FEED_MS - 1);
+      expect(
+        await page.locator(".ov-lately li[data-new]").count(),
+        "the mark lasts the whole slide",
+      ).toBe(1);
+      await page.clock.runFor(1);
+      await expect
+        .poll(() => page.locator(".ov-lately li[data-new]").count(), { timeout: 2_000 })
+        .toBe(0);
+      expect(
+        await page.locator(".ov-lately li", { hasText: "Vulnerability cleared" }).count(),
+        "the line stays; only its mark goes",
+      ).toBe(1);
     } finally {
       await removeFeedEvent(id);
     }
@@ -6255,5 +6335,28 @@ describe("a health bar opens /fleet filtered, in a browser (P1-87 PR 8b)", () =>
     expect(ring.width).toBeGreaterThanOrEqual(2);
     expect(ring.style).toBe("solid");
     expect(ring.ring).toBe(ring.focus);
+  });
+
+  // #2189: the style guide's link rule. No underline at rest, an underline on hover and on
+  // keyboard focus. The premise: at rest it is not underlined, so the two reads can tell.
+  it("a linked check row is underlined on hover and on keyboard focus, and not at rest", async () => {
+    const page = await nextRun();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    const bar = page.locator('a[href="/fleet?check=certificate"]');
+    await expect.poll(() => bar.count()).toBe(1);
+    await figuresSettled(page);
+    const line = () => bar.evaluate((el) => getComputedStyle(el).textDecorationLine);
+    await page.mouse.move(0, 0);
+    expect(await line(), "at rest").toBe("none");
+    await bar.hover();
+    expect(await line(), "on hover").toBe("underline");
+    await page.mouse.move(0, 0);
+    expect(await line(), "after the pointer leaves").toBe("none");
+    await bar.focus();
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Tab");
+    expect(await bar.evaluate((el) => el.matches(":focus-visible"))).toBe(true);
+    expect(await line(), "on keyboard focus").toBe("underline");
   });
 });
