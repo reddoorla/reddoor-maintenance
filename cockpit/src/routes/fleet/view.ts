@@ -26,9 +26,18 @@ export const CHECK_COLUMN: Partial<Record<HealthCheckName, (typeof FACT_COLUMNS)
 export type CheckFilter =
   { slug: string; name: HealthCheckName; failing: number; unread: number } | { unknown: string };
 
-/** The line above the table: "Failing Certificate: 2 sites". */
-export function failingLine(c: { name: HealthCheckName; failing: number }): string {
-  return `Failing ${c.name}: ${c.failing} ${c.failing === 1 ? "site" : "sites"}`;
+/** The line above the table: "Failing Certificate: 2 sites". The count is the fleet's; when the
+ *  status form or the search narrows the table to fewer rows, it adds how many are shown
+ *  ("Failing Certificate: 1 site, 0 shown"), so the line is true of the rows under it (#2185). */
+export function failingLine(c: { name: HealthCheckName; failing: number }, shown?: number): string {
+  const line = `Failing ${c.name}: ${c.failing} ${c.failing === 1 ? "site" : "sites"}`;
+  return shown === undefined || shown === c.failing ? line : `${line}, ${shown} shown`;
+}
+
+/** The page title. With a known check in force it names it first, so the route announcer says
+ *  "Failing Certificate · Sites" on arriving from a health bar, not the unfiltered title (#2186). */
+export function sitesTitle(c: { name: HealthCheckName } | null): string {
+  return `${c === null ? "" : `Failing ${c.name} · `}Sites — Reddoor maintenance`;
 }
 
 /** A cell's verdict as the overview styled it. */
