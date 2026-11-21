@@ -324,7 +324,10 @@ describe.skipIf(!hasTimeout)(
       const short = real.replace("timeout -k 30 240 ", "timeout -k 1 1 ");
       expect(short).not.toBe(real);
       const started = Date.now();
-      const r = await runRecord("trap '' TERM\nsleep 30 &\nwait $!\nwait $!", short);
+      // `exec`, so the TERM-ignoring sleep is the very process `timeout` watches: its KILL
+      // reaches it directly, without leaning on a group kill (a backgrounded child hung
+      // CI's runner to the 20 s limit, while it passed here in 2 s).
+      const r = await runRecord("trap '' TERM\nexec sleep 30", short);
       expect(Date.now() - started).toBeLessThan(10_000);
       expect(r.code).toBe(0);
       expect(r.out).toContain("timed out after 4 minutes (exit 137)");
