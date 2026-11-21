@@ -468,6 +468,8 @@ export type SiteCard = {
 
 export type PendingEntry = {
   reportId: string;
+  /** The site's id: the Needs-you feed groups by it, since two names can share a slug (#2178). */
+  siteId: string;
   siteName: string;
   slug: string;
   reportType: ReportType;
@@ -532,6 +534,8 @@ export type RecentEntry = {
  *  disagree with the cell the operator is looking at. Everything else about
  *  these rows — which lane they land in — is decided canonically. */
 export type OffFleetSiteEntry = { name: string; slug: string; status: string };
+/** An unrecognized-status row: off the fleet, but in the Needs-you feed, which groups by id (#2178). */
+export type UnrecognizedSiteEntry = OffFleetSiteEntry & { siteId: string };
 
 export type CockpitModel = {
   summary: CockpitSummary;
@@ -555,7 +559,7 @@ export type CockpitModel = {
   /** Rows whose Status cell is outside the code's union (typo / renamed option) —
    *  invisible to every fleet op, so the Needs-you feed surfaces them as amber watch
    *  rows (optional for back-compat). */
-  unrecognizedStatus?: OffFleetSiteEntry[];
+  unrecognizedStatus?: UnrecognizedSiteEntry[];
   /** #786. Attention items that belong to NO site card. The grid is built from
    *  the visible sites and items are grouped onto it by `siteName`, so an item
    *  naming a site the fleet does not have matched nothing and was dropped —
@@ -576,6 +580,9 @@ export type NeedsYouGroup = "broken" | "attention" | "watch" | "approval";
 export type NeedsYouItem = {
   /** The site's worst category present — drives the dot, the group sub-label, and order. */
   group: NeedsYouGroup;
+  /** The site's id. Rows are one per site id, not per slug: "Acme Co" and "Acme-Co" share the
+   *  slug `acme-co` and are still two rows (#2178). */
+  siteId: string;
   /** Any of the site's broken items is `severity: "critical"` (within-broken ordering). */
   hasCritical: boolean;
   slug: string;
@@ -608,6 +615,7 @@ const NEEDS_YOU_GROUP_RANK: Record<NeedsYouGroup, number> = {
  */
 export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
   type Acc = {
+    siteId: string;
     slug: string;
     siteName: string;
     reasons: string[];
@@ -616,13 +624,14 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
     approval: boolean;
     since: { broken?: string; attention?: string };
   };
-  const bySlug = new Map<string, Acc>();
-  const get = (siteName: string): Acc => {
-    const slug = siteSlug(siteName);
-    let a = bySlug.get(slug);
+  // Keyed by site id, never by slug: two names that slug alike are two sites (#2178).
+  const byId = new Map<string, Acc>();
+  const get = (siteId: string, siteName: string): Acc => {
+    let a = byId.get(siteId);
     if (!a) {
       a = {
-        slug,
+        siteId,
+        slug: siteSlug(siteName),
         siteName,
         reasons: [],
         hasCritical: false,
@@ -630,7 +639,7 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
         approval: false,
         since: {},
       };
-      bySlug.set(slug, a);
+      byId.set(siteId, a);
     }
     return a;
   };
@@ -642,7 +651,7 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
     // A "pre-launch" card is pre-live prep and never surfaces here. (A launching site
     // with a PIERCING alarm arrives with that alarm's level — assignTier re-tiers it.)
     if (card.tier === "broken" || card.tier === "attention") {
-      const a = get(card.site.name);
+      const a = get(card.site.id, card.site.name);
       const worstFirst = [...card.items].sort(
         (x, y) => LEVEL_RANK[itemLevel(x)] - LEVEL_RANK[itemLevel(y)],
       );
@@ -666,7 +675,7 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
         ...card.watchReasons,
       ];
       if (named.length > 0) {
-        const a = get(card.site.name);
+        const a = get(card.site.id, card.site.name);
         for (const r of named) a.reasons.push(r);
         raise(a, "watch");
       }
@@ -674,7 +683,7 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
   }
 
   for (const p of model.pending) {
-    const a = get(p.siteName);
+    const a = get(p.siteId, p.siteName);
     a.reasons.push(`${p.reportType} ${p.period} ready`);
     a.approval = true;
   }
@@ -682,7 +691,7 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
   // A Websites row whose Status is outside the union is invisible to every fleet
   // op — surface it amber so a typo can never silently vanish a site.
   for (const u of model.unrecognizedStatus ?? []) {
-    const a = get(u.name);
+    const a = get(u.siteId, u.name);
     a.reasons.push(
       `Status "${u.status}" is not a recognized value — fix it in the site's details (site is invisible to fleet ops)`,
     );
@@ -690,11 +699,12 @@ export function buildNeedsYouFeed(model: CockpitModel): NeedsYouItem[] {
   }
 
   const items: NeedsYouItem[] = [];
-  for (const a of bySlug.values()) {
+  for (const a of byId.values()) {
     if (a.reasons.length === 0) continue;
     const group: NeedsYouGroup = a.group ?? "approval";
     items.push({
       group,
+      siteId: a.siteId,
       hasCritical: a.hasCritical,
       slug: a.slug,
       siteName: a.siteName,
@@ -950,9 +960,10 @@ export function buildCockpitModel(
       status: w.statusRaw ?? (w.status as string),
     }))
     .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
-  const unrecognizedStatus: OffFleetSiteEntry[] = websites
+  const unrecognizedStatus: UnrecognizedSiteEntry[] = websites
     .filter((w) => isUnrecognizedStatus(w.status))
     .map((w) => ({
+      siteId: w.id,
       name: w.name,
       slug: siteSlug(w.name),
       status: w.statusRaw ?? (w.status as string),
@@ -1056,6 +1067,7 @@ export function buildCockpitModel(
     if (!s) continue; // orphan → skip rather than render a broken link
     pending.push({
       reportId: r.id,
+      siteId: s.id,
       siteName: s.name,
       slug: siteSlug(s.name),
       reportType: r.reportType,

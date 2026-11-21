@@ -5579,6 +5579,40 @@ describe("PR 8c, How this works motion", () => {
     expect(order).toEqual([...order].sort((a, b) => a - b));
   });
 
+  // #2183: once every step is lit the step observer has nothing left to do, and is disconnected.
+  // An init script marks the observers that watch a step and counts their disconnects.
+  it("disconnects the step observer once every step is lit", async () => {
+    const page = await signedIn();
+    await page.addInitScript(() => {
+      const w = window as unknown as { __stepDisconnects: number };
+      w.__stepDisconnects = 0;
+      const watching = new WeakSet<IntersectionObserver>();
+      const proto = IntersectionObserver.prototype;
+      const observe = proto.observe;
+      const disconnect = proto.disconnect;
+      proto.observe = function (this: IntersectionObserver, el: Element) {
+        if (el.closest("ol.how-steps") !== null) watching.add(this);
+        return observe.call(this, el);
+      };
+      proto.disconnect = function (this: IntersectionObserver) {
+        if (watching.has(this)) w.__stepDisconnects++;
+        return disconnect.call(this);
+      };
+    });
+    await page.setViewportSize({ width: 390, height: 700 });
+    await page.goto(`${origin}/how`);
+    await stepsScripted(page);
+    const disconnects = () =>
+      page.evaluate(() => (window as unknown as { __stepDisconnects: number }).__stepDisconnects);
+    expect(await disconnects(), "the premise: not disconnected while steps are unlit").toBe(0);
+    const n = await page.locator("ol.how-steps > li").count();
+    await scrollToStep(page, n - 1);
+    await expect
+      .poll(async () => (await litFlags(page)).every((f) => f === "true"), { timeout: 5_000 })
+      .toBe(true);
+    await expect.poll(disconnects, { timeout: 5_000 }).toBeGreaterThan(0);
+  });
+
   it("each step's light takes 300 ms, the transition's length", async () => {
     const page = await signedIn();
     await page.goto(`${origin}/how`);

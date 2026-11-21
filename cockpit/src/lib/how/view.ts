@@ -7,7 +7,6 @@ import {
   type CockpitModel,
   type Tier as CardTier,
 } from "../../../../src/dashboard/fleet-cockpit.js";
-import { siteSlug } from "../../../../src/fleet/site-row.js";
 import type { OverviewNight } from "../../../../src/fleet-daily/read.js";
 import {
   LADDER_LINES,
@@ -109,6 +108,8 @@ export function chapterInView(
   sectionPx: number,
   viewportPx: number,
 ): boolean {
+  // #2183: a section of no height is never in view (0 >= 0.6 × 0 would say it is).
+  if (sectionPx <= 0) return false;
   return ratio >= 0.6 || visiblePx >= 0.6 * Math.min(sectionPx, viewportPx);
 }
 
@@ -159,7 +160,8 @@ export function todayAtLevels(s: CockpitSnapshot, now: Date): Record<Tier, Level
 
 /** The per-level sites of a built model (see todayAtLevels). */
 export function todayFromModel(model: CockpitModel): Record<Tier, LevelSite[]> {
-  const feed = new Map(buildNeedsYouFeed(model).map((r) => [r.slug, r]));
+  // By site id: two names that slug alike are two sites, each with its own row (#2178).
+  const feed = new Map(buildNeedsYouFeed(model).map((r) => [r.siteId, r]));
   const out: Record<Tier, LevelSite[]> = { ok: [], watch: [], attention: [], broken: [] };
   const levelOf: Partial<Record<CardTier, Tier>> = {
     healthy: "ok",
@@ -178,7 +180,7 @@ export function todayFromModel(model: CockpitModel): Record<Tier, LevelSite[]> {
     }
     // The row's approval reasons come after its item reasons, and a row at another level
     // is not this site's level: only a row at this level names one.
-    const row = feed.get(siteSlug(name));
+    const row = feed.get(c.site.id);
     const reason = row !== undefined && row.group === tier ? (row.reasons[0] ?? null) : null;
     out[tier].push({ name, reason });
   }
@@ -207,7 +209,8 @@ function tierCount(c: OverviewNight["counts"], tier: Tier): number | null {
   const key = NIGHT_TIER_KEY[tier];
   if (!(key in t)) return 0;
   const v = t[key];
-  return typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null;
+  // #2179: a count of sites is a whole number; 1.5 is unreadable, as a negative is.
+  return typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : null;
 }
 
 const dayBefore = (night: string, days: number): string =>

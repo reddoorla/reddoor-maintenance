@@ -741,7 +741,7 @@ describe("buildCockpitModel", () => {
     );
     expect(m.cards.map((c) => c.site.name)).toEqual(["Maintained"]);
     expect(m.unrecognizedStatus).toEqual([
-      { name: "Typo Site", slug: "typo-site", status: "maintenence " },
+      { siteId: "t", name: "Typo Site", slug: "typo-site", status: "maintenence " },
     ]);
     expect(m.archived).toEqual([]);
     const feed = buildNeedsYouFeed(m);
@@ -1156,6 +1156,7 @@ describe("buildCockpitModel", () => {
     expect(m.pending).toEqual([
       {
         reportId: "r1",
+        siteId: "recSITE",
         siteName: "Acme Co",
         slug: "acme-co",
         reportType: "Maintenance",
@@ -1420,7 +1421,7 @@ function feedModel(over: Partial<CockpitModel>): CockpitModel {
 }
 function attnCard(name: string, items: AttentionItem[]): SiteCard {
   return {
-    site: makeWebsiteRow({ name }),
+    site: makeWebsiteRow({ id: "rec" + name, name }),
     tier: "broken",
     items,
     watchReasons: [],
@@ -1430,7 +1431,7 @@ function attnCard(name: string, items: AttentionItem[]): SiteCard {
 }
 function watchCard(name: string, reasons: string[]): SiteCard {
   return {
-    site: makeWebsiteRow({ name }),
+    site: makeWebsiteRow({ id: "rec" + name, name }),
     tier: "watch",
     items: [],
     watchReasons: reasons,
@@ -1475,6 +1476,7 @@ function delivery(name: string): AttentionItem {
 function pending(name: string, reportType = "Maintenance", period = "2026-Q2"): PendingEntry {
   return {
     reportId: "r-" + name,
+    siteId: "rec" + name,
     siteName: name,
     slug: siteSlug(name),
     reportType: reportType as PendingEntry["reportType"],
@@ -1574,5 +1576,72 @@ describe("buildNeedsYouFeed", () => {
     );
     expect(feed.map((f) => f.siteName)).toEqual(["Apex", "Delta", "Zeta", "Yara"]);
     expect(feed.map((f) => f.group)).toEqual(["broken", "broken", "watch", "approval"]);
+  });
+});
+
+// #2178: "Acme Co" and "Acme-Co" both slug to `acme-co`. Keyed by slug, they shared one
+// Needs-you row, so both read the certificate's reason. Keyed by site id they are two rows.
+describe("buildNeedsYouFeed — two sites whose names slug alike are two rows (#2178)", () => {
+  const CERT_10 = { certDaysRemaining: 10, domainCheckedAt: NOW.toISOString() };
+  const model = () =>
+    buildCockpitModel(
+      [
+        site({ id: "recCO", name: "Acme Co", ...CERT_10 }),
+        site({
+          id: "recDASH",
+          name: "Acme-Co",
+          a11yViolations: 4,
+          a11yRoutesTotal: 3,
+          a11yRoutesScanned: 3,
+          a11yCheckedAt: NOW.toISOString(),
+        }),
+        site({ id: "recCTRL", name: "Control", ...CERT_10 }),
+      ],
+      [],
+      {},
+      BASE,
+      NOW,
+    );
+
+  it("premise: both slug alike, and both are cards with items of their own", () => {
+    expect(siteSlug("Acme Co")).toBe(siteSlug("Acme-Co"));
+    const m = model();
+    const items = (id: string) => m.cards.find((c) => c.site.id === id)!.items.map((i) => i.title);
+    expect(items("recCO").join(" ")).toContain("TLS certificate");
+    expect(items("recDASH").join(" ")).not.toContain("TLS certificate");
+    expect(items("recDASH").length).toBeGreaterThan(0);
+  });
+
+  it("gives each its own row, with its own reasons, and the control site is unchanged", () => {
+    const feed = buildNeedsYouFeed(model());
+    const row = (id: string) => feed.filter((r) => r.siteId === id);
+    expect(row("recCO")).toHaveLength(1);
+    expect(row("recDASH")).toHaveLength(1);
+    expect(row("recCO")[0]!.siteName).toBe("Acme Co");
+    expect(row("recDASH")[0]!.siteName).toBe("Acme-Co");
+    expect(row("recCO")[0]!.reasons.join(" ")).toContain("TLS certificate");
+    expect(row("recDASH")[0]!.reasons.join(" ")).not.toContain("TLS certificate");
+    expect(row("recCTRL")[0]!.reasons).toEqual(row("recCO")[0]!.reasons);
+  });
+
+  it("puts a report waiting on a site on that site's row, not its namesake's", () => {
+    const m = model();
+    m.pending = [
+      {
+        reportId: "r1",
+        siteId: "recDASH",
+        siteName: "Acme-Co",
+        slug: "acme-co",
+        reportType: "Maintenance",
+        period: "2026-10",
+      },
+    ];
+    const feed = buildNeedsYouFeed(m);
+    expect(feed.find((r) => r.siteId === "recDASH")!.reasons).toContain(
+      "Maintenance 2026-10 ready",
+    );
+    expect(feed.find((r) => r.siteId === "recCO")!.reasons).not.toContain(
+      "Maintenance 2026-10 ready",
+    );
   });
 });
