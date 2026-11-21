@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, it, expect, vi } from "vitest";
 import {
   BAR_MS,
@@ -7,6 +8,7 @@ import {
   FEED_MS,
   MAX_MOTION_MS,
   INTRO_MS,
+  FAILSAFE_MS,
   introPlayed,
   markIntroPlayed,
   countable,
@@ -200,5 +202,61 @@ describe("the count-up action on a refresh (P1-87 PR 8a, review round 1, F1)", (
       vi.unstubAllGlobals();
       vi.restoreAllMocks();
     }
+  });
+});
+
+/** The body of the first rule in `css` whose prelude ends with `prelude` (whitespace collapsed),
+ *  braces matched, so a rule nested in a media query or a keyframe step is found too. */
+function ruleBody(css: string, prelude: string): string {
+  const flat = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const want = prelude.replace(/\s+/g, " ").trim();
+  for (let i = flat.indexOf("{"); i !== -1; i = flat.indexOf("{", i + 1)) {
+    const start = Math.max(flat.lastIndexOf("}", i), flat.lastIndexOf("{", i - 1)) + 1;
+    if (flat.slice(start, i).replace(/\s+/g, " ").trim() !== want) continue;
+    let depth = 1;
+    let j = i + 1;
+    for (; j < flat.length && depth > 0; j++)
+      depth += flat[j] === "{" ? 1 : flat[j] === "}" ? -1 : 0;
+    return flat.slice(i + 1, j - 1);
+  }
+  throw new Error(`no rule ${want} in overview.css`);
+}
+/** One declaration's value in a rule body, or null. */
+const decl = (body: string, prop: string): string | null =>
+  body.match(new RegExp(`(?:^|[;{\\s])${prop}\\s*:\\s*([^;]+);`))?.[1]?.trim() ?? null;
+
+/** P1-87 minors, #2162 and #2163: the stylesheet's motion numbers and properties that no browser
+ *  check reads. The stylesheet cannot import motion.ts, so these tie the two together. */
+describe("the overview stylesheet's motion rules (P1-87 minors)", () => {
+  const css = readFileSync(new URL("../../src/lib/overview/overview.css", import.meta.url), "utf8");
+
+  it("delays the CSS fail-safe by FAILSAFE_MS, the count-up's own skip threshold (#2162)", () => {
+    const body = ruleBody(
+      css,
+      "html.motion-intro .ov-tiles[data-intro] .ov-num[data-countable]:not([data-counted]):not([data-counting]) .ov-num-final",
+    );
+    const anim = decl(body, "animation");
+    expect(anim, "the fail-safe rule runs ov-failsafe").toMatch(/^ov-failsafe\b/);
+    // The shorthand's second time is the delay (the first is the 0s duration).
+    const times = [...anim!.matchAll(/(\d+(?:\.\d+)?)(ms|s)\b/g)].map(
+      ([, n, unit]) => Number(n) * (unit === "s" ? 1000 : 1),
+    );
+    expect(times, "a duration and a delay").toHaveLength(2);
+    expect(times[1], "the fail-safe's delay is FAILSAFE_MS").toBe(FAILSAFE_MS);
+  });
+
+  it("reveals a new feed line from a clip, top to bottom (#2163)", () => {
+    const keys = ruleBody(css, "@keyframes ov-feed-in");
+    expect(decl(ruleBody(keys, "from"), "clip-path"), "the line starts clipped away").toBe(
+      "inset(0 0 100% 0)",
+    );
+    expect(decl(ruleBody(keys, "to"), "clip-path"), "and ends whole").toBe("inset(0)");
+  });
+
+  it("grows the sparkline's dot from its own centre (#2163)", () => {
+    const body = ruleBody(css, ".ov-tiles[data-intro] .ov-spark circle");
+    expect(decl(body, "animation")).toMatch(/^ov-spark-dot\b/);
+    expect(decl(body, "transform-box"), "the dot's own box, not the svg's").toBe("fill-box");
+    expect(decl(body, "transform-origin")).toBe("center");
   });
 });

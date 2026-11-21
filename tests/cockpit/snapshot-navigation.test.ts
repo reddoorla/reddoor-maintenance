@@ -21,6 +21,7 @@ import { expectedNight, HEALTH_CHECK_NAMES } from "../../cockpit/src/lib/overvie
 import {
   BAR_MS,
   BAR_STAGGER_MS,
+  FEED_MS,
   INTRO_MS,
   MAX_MOTION_MS,
   SPARK_MS,
@@ -5186,6 +5187,43 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     expect(words).not.toMatch(/: 0/);
   });
 
+  // P1-87 minors, #2170: the slider speaks a gap night as the model words it when a key lands on it.
+  it("a key step onto a night with no reading speaks the model's words, never 0 (#2170)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    const gap = titles.findIndex((t) => t.endsWith("no count that night"));
+    expect(gap, "the seed has a gap night on the first chart, not its first").toBeGreaterThan(0);
+    await chart(page).focus();
+    await page.keyboard.press("Home");
+    for (let i = 0; i < gap; i++) await page.keyboard.press("ArrowRight");
+    expect(await chart(page).getAttribute("aria-valuenow")).toBe(String(gap + 1));
+    const spoken = await chart(page).getAttribute("aria-valuetext");
+    expect(spoken).toBe(titles[gap]);
+    expect(spoken).toMatch(/no count that night$/);
+    expect(spoken).not.toMatch(/: 0/);
+    expect(await readoutText(page), "the visible readout says the same").toBe(titles[gap]);
+  });
+
+  // P1-87 minors, #2175: a tap chooses its night even while a mouse rests on another; the click ends
+  // the mouse's preview, so the readout and the cursor are the tapped night's.
+  it("a tap on one night while a mouse rests on another shows the tapped night (#2175)", async () => {
+    const page = await signedIn("op", { hasTouch: true });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    const [rest, tapped] = [2, 6];
+    await nightRects(page).nth(rest).hover();
+    expect(await readoutText(page), "the mouse previews its night").toBe(titles[rest]);
+    await nightRects(page).nth(tapped).tap();
+    expect(await readoutText(page), "the readout is the tapped night").toBe(titles[tapped]);
+    await expectCursorAt(page, tapped);
+    expect(await chart(page).getAttribute("aria-valuenow")).toBe(String(tapped + 1));
+  });
+
   it("the focus ring is at least 2px wide and 3:1 against the page, in light and dark, at 1280px and 390px", async () => {
     for (const width of [1280, 390])
       for (const scheme of ["light", "dark"] as const) {
@@ -5384,6 +5422,16 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
       expect(oneLine(await page.locator('.ov-lately li[data-probe="0"]').textContent())).toBe(
         oldFirst,
       );
+      // P1-87 minors, #2165: the mark lasts the slide and no longer. The page's clock is installed,
+      // so FEED_MS of it passes here and nowhere else.
+      await page.clock.runFor(FEED_MS);
+      await expect
+        .poll(() => page.locator(".ov-lately li[data-new]").count(), { timeout: 2_000 })
+        .toBe(0);
+      expect(
+        await page.locator(".ov-lately li", { hasText: "Vulnerability cleared" }).count(),
+        "the line stays; only its mark goes",
+      ).toBe(1);
     } finally {
       await removeFeedEvent(id);
     }
