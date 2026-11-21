@@ -21,6 +21,7 @@ import { expectedNight, HEALTH_CHECK_NAMES } from "../../cockpit/src/lib/overvie
 import {
   BAR_MS,
   BAR_STAGGER_MS,
+  FEED_MS,
   INTRO_MS,
   MAX_MOTION_MS,
   SPARK_MS,
@@ -5186,6 +5187,56 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     expect(words).not.toMatch(/: 0/);
   });
 
+  // P1-87 minors, #2170: the slider speaks a gap night as the model words it when a key lands on it.
+  it("a key step onto a night with no reading speaks the model's words, never 0 (#2170)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    const gap = titles.findIndex((t) => t.endsWith("no count that night"));
+    expect(gap, "the seed has a gap night on the first chart, not its first").toBeGreaterThan(0);
+    await chart(page).focus();
+    await page.keyboard.press("Home");
+    for (let i = 0; i < gap; i++) await page.keyboard.press("ArrowRight");
+    expect(await chart(page).getAttribute("aria-valuenow")).toBe(String(gap + 1));
+    const spoken = await chart(page).getAttribute("aria-valuetext");
+    expect(spoken).toBe(titles[gap]);
+    expect(spoken).toMatch(/no count that night$/);
+    expect(spoken).not.toMatch(/: 0/);
+    expect(await readoutText(page), "the visible readout says the same").toBe(titles[gap]);
+  });
+
+  // P1-87 minors, #2175: a pen's tap chooses its night even while a mouse rests on another; the
+  // click ends the mouse's preview, so the readout and the cursor are the tapped night's. A pen, not
+  // a touch: after a touch tap Chromium fires a mouse-typed pointerenter on the tapped night, which
+  // moves the preview there anyway, so a touch cannot tell the click's own clearing from it (mutant
+  // M1 survived a touch tap, PR 2's mutation run). A pen's pointer events are pen-typed, so only the
+  // click can end the resting mouse's preview. (A real pen's later pointerleave would end it too;
+  // this pins the click's own clearing, before that.)
+  it("a pen's tap on one night while a mouse rests on another shows the tapped night (#2175)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    const [rest, tapped] = [2, 6];
+    await nightRects(page).nth(rest).hover();
+    expect(await readoutText(page), "the mouse previews its night").toBe(titles[rest]);
+    await nightRects(page)
+      .nth(tapped)
+      .evaluate((r) => {
+        const pen = { bubbles: false, pointerType: "pen", isPrimary: true, pointerId: 2 };
+        r.dispatchEvent(new PointerEvent("pointerenter", pen));
+        r.dispatchEvent(new PointerEvent("pointerdown", { ...pen, bubbles: true }));
+        r.dispatchEvent(new PointerEvent("pointerup", { ...pen, bubbles: true }));
+        r.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+    expect(await readoutText(page), "the readout is the tapped night").toBe(titles[tapped]);
+    await expectCursorAt(page, tapped);
+    expect(await chart(page).getAttribute("aria-valuenow")).toBe(String(tapped + 1));
+  });
+
   it("the focus ring is at least 2px wide and 3:1 against the page, in light and dark, at 1280px and 390px", async () => {
     for (const width of [1280, 390])
       for (const scheme of ["light", "dark"] as const) {
@@ -5345,6 +5396,10 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`${origin}/`);
     await motionReady(page);
+    // P1-87 minors (PR 2 review round 1): the installed clock runs with real time until paused, so
+    // the feed's FEED_MS timer could fire before the checks below read the mark. Paused, the page's
+    // timers fire only when the test moves the clock on.
+    await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 5_000);
     // The first load marks no line new.
     expect(await newMarks(page)).toEqual([]);
     // Each row names its place, so a row can be followed across the refresh.
@@ -5384,6 +5439,21 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
       expect(oneLine(await page.locator('.ov-lately li[data-probe="0"]').textContent())).toBe(
         oldFirst,
       );
+      // P1-87 minors, #2165: the mark lasts the slide and no longer. The page's clock is paused, so
+      // FEED_MS of it passes here and nowhere else.
+      await page.clock.runFor(FEED_MS - 1);
+      expect(
+        await page.locator(".ov-lately li[data-new]").count(),
+        "the mark lasts the whole slide",
+      ).toBe(1);
+      await page.clock.runFor(1);
+      await expect
+        .poll(() => page.locator(".ov-lately li[data-new]").count(), { timeout: 2_000 })
+        .toBe(0);
+      expect(
+        await page.locator(".ov-lately li", { hasText: "Vulnerability cleared" }).count(),
+        "the line stays; only its mark goes",
+      ).toBe(1);
     } finally {
       await removeFeedEvent(id);
     }
