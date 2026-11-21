@@ -72,8 +72,15 @@ export function countUp(
     node.setAttribute("data-counted", "");
   } else {
     node.setAttribute("data-counting", "");
-    const start = performance.now();
+    // P1-87 minors, #2164: a page mounted hidden (a background tab) runs no frame until it is shown,
+    // and its intro waits for the show; the count then starts at its first frame, so it runs with
+    // the sparklines it is paired with instead of ending at once. A visible mount counts from now.
+    let start =
+      typeof document === "undefined" || document.visibilityState === "visible"
+        ? performance.now()
+        : null;
     const step = (now: number) => {
+      start ??= now;
       const t = (now - start) / COUNT_MS;
       if (t >= 1) return finish();
       if (digits) digits.textContent = countFrame(to, t);
@@ -87,6 +94,9 @@ export function countUp(
       // A refresh to a value that is not a figure (a word) ends the count at once: no frame may
       // write it, and the figure shows its own words (P1-87 PR 8a, review round 1, F1).
       if (!countable(to)) finish();
+      // The intro ended while the count ran (a page first shown with its view due a re-read ends
+      // its intro at once, #2164): the count ends with it, as the sparklines do.
+      else if (!p.enabled && node.hasAttribute("data-counting")) finish();
     },
     destroy() {
       if (node.hasAttribute("data-counting")) finish();

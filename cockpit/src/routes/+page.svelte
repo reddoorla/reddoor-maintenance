@@ -12,7 +12,7 @@
   } from "../lib/overview/view.js";
   import { tickerSeconds } from "../lib/overview/ticker.js";
   import { markerAt, untilWords } from "../lib/overview/cycle.js";
-  import { startCycleClock } from "../lib/overview/cycle-clock.js";
+  import { refreshDue, startCycleClock } from "../lib/overview/cycle-clock.js";
   import {
     BAR_MS,
     BAR_STAGGER_MS,
@@ -303,15 +303,19 @@
     // P1-87 minors, #2164: the intro's timer starts once the page is visible. A page loaded in a
     // background tab holds its CSS animations until it is shown, so a timer started at mount would
     // cut the bars' fill short (shown 0.3 to 2 s later) or drop it (shown later still). The intro
-    // waits instead, and plays whole when the tab is first shown.
+    // waits instead, and plays whole when the tab is first shown. One exception keeps F2 (a refresh
+    // plays no intro on what it inserts): a page first shown when its view is due a re-read, which
+    // the cycle clock starts on that same show, ends the intro at once, as a late show did before.
     let introTimer: ReturnType<typeof setTimeout> | undefined;
-    const startIntro = () => {
+    const startIntro = (shownLate: boolean) => {
       if (document.visibilityState !== "visible") return;
-      document.removeEventListener("visibilitychange", startIntro);
-      introTimer = setTimeout(() => (intro = false), INTRO_MS);
+      document.removeEventListener("visibilitychange", onShown);
+      if (shownLate && refreshDue(v.cycle, Date.now() + offsetMs)) intro = false;
+      else introTimer = setTimeout(() => (intro = false), INTRO_MS);
     };
-    document.addEventListener("visibilitychange", startIntro);
-    startIntro();
+    const onShown = () => startIntro(true);
+    document.addEventListener("visibilitychange", onShown);
+    startIntro(false);
     offsetMs = Date.parse(v.cycle.nowIso) - Date.now();
     clock = Date.now() + offsetMs;
     const cycle = startCycleClock({
@@ -331,7 +335,7 @@
     });
     return () => {
       cycle.stop();
-      document.removeEventListener("visibilitychange", startIntro);
+      document.removeEventListener("visibilitychange", onShown);
       clearTimeout(introTimer);
       for (const t of freshTimers.values()) clearTimeout(t);
     };
@@ -911,7 +915,10 @@
             <!-- P1-87 minors: a mouse's or a pen's hover previews its night (#2169: a pen is a pointer, as a
                  mouse is; a touch has no hover, and its tap is the click). Leaving a night ends its own
                  preview, so a pointer moved off the columns onto the chart's empty area keeps none
-                 (#2171); a leave never ends another pointer's preview. A move over a night with no key
+                 (#2171). The preview is the chart's, not a pointer's: a leave ends it only while it is
+                 the night left, so a pen leaving another night keeps a resting mouse's, and a pen and
+                 a mouse on the same night share one preview, which either's leave ends until the
+                 other moves. A move over a night with no key
                  night (after Escape, a blur, or a Tab away and back) restores the preview the pointer
                  rests on (#2172); after a key step or a click the readout still follows the key night
                  until the pointer enters another night (round 3 I). -->

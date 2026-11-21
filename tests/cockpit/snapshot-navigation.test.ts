@@ -4418,7 +4418,9 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
   // its visibility emulated as hidden (the document's own `visibilityState`, which the page reads),
   // held past INTRO_MS, then shown: the intro is still on when it is shown, and it ends INTRO_MS
   // after that, not at mount. The control is the same page loaded visible, whose intro ends at its
-  // timer as before.
+  // timer as before. The stub replaces what the page reads, not what a hidden tab does: Chromium
+  // still renders this page and runs its frames, so this proves the timer waits, not that the bars
+  // are held (a real background tab holds them; that is the browser's, not the page's).
   it("a page loaded hidden starts its intro when it is shown, and keeps it INTRO_MS from then (#2164)", async () => {
     const load = async (hidden: boolean) => {
       const page = await signedIn();
@@ -4435,19 +4437,27 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
         });
         const w = window as unknown as Record<string, unknown>;
         w.__introEnd = null;
+        w.__ready = null;
         w.__show = () => {
           state = "visible";
           document.dispatchEvent(new Event("visibilitychange"));
           return performance.now();
         };
-        // The moment the intro ends: the bars' list loses its data-intro.
+        // The moment the page's script runs (onMount sets data-motion-ready), and the moment the
+        // intro ends (the bars' list loses its data-intro).
         new MutationObserver((_, obs) => {
+          if (w.__ready === null && document.querySelector('.ov-first[data-motion-ready="true"]'))
+            w.__ready = performance.now();
           const list = document.querySelector(".ov-checks-list");
           if (list && !list.hasAttribute("data-intro") && w.__introEnd === null) {
             w.__introEnd = performance.now();
             obs.disconnect();
           }
-        }).observe(document, { subtree: true, attributes: true, attributeFilter: ["data-intro"] });
+        }).observe(document, {
+          subtree: true,
+          attributes: true,
+          attributeFilter: ["data-intro", "data-motion-ready"],
+        });
       }, hidden);
       await page.goto(`${origin}/`);
       await motionReady(page);
@@ -4465,8 +4475,24 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
       bars: true,
       tiles: true,
     });
-    await shown.waitForTimeout(INTRO_MS + 500);
-    expect(await intro(shown), "a visible page's intro ends at its timer").toEqual({
+    // The instrument is proven here, on a page with a known answer: its intro ends INTRO_MS after
+    // the script runs (onMount starts the timer just before it sets data-motion-ready).
+    const timing = (p: Page) =>
+      p.evaluate(() => {
+        const w = window as unknown as { __ready: number | null; __introEnd: number | null };
+        return { ready: w.__ready, end: w.__introEnd };
+      });
+    await expect
+      .poll(async () => (await timing(shown)).end, { timeout: INTRO_MS + 3000 })
+      .not.toBeNull();
+    const control = await timing(shown);
+    expect(control.ready, "the observer saw the script run").not.toBeNull();
+    expect(
+      control.end! - control.ready!,
+      "a visible page's intro ends at its timer",
+    ).toBeGreaterThanOrEqual(INTRO_MS - 20);
+    expect(control.end! - control.ready!).toBeLessThan(INTRO_MS + 500);
+    expect(await intro(shown), "a visible page's intro has ended").toEqual({
       bars: false,
       tiles: false,
     });
@@ -4495,6 +4521,7 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     expect(end - at, "the intro runs INTRO_MS from the moment it is shown").toBeGreaterThanOrEqual(
       INTRO_MS - 20,
     );
+    expect(end - at, "and ends at its timer, not later").toBeLessThan(INTRO_MS + 500);
     expect(await intro(page)).toEqual({ bars: false, tiles: false });
   });
 
@@ -5408,6 +5435,58 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
       );
       await page.mouse.move(0, 0);
     }
+  });
+
+  // P1-87 minors, #2172 review round 1: the restore is for a chart with no key night. After a click
+  // and a key step, a move within the resting mouse's night keeps the readout on the key night, as
+  // round 3 I says; only entering another night previews again.
+  it("after a key step, a resting mouse's move keeps the readout on the key night (#2172, round 3 I)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    const k = 4;
+    await nightRects(page).nth(k).click();
+    await chart(page).focus();
+    await page.keyboard.press("ArrowRight");
+    expect(await readoutText(page), "the key step's night").toBe(titles[k + 1]);
+    const box = (await nightRects(page).nth(k).boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2 + 1, box.y + box.height / 2);
+    expect(
+      await page.evaluate(
+        ([px, py]) => document.elementFromPoint(px!, py!)?.getAttribute("data-title") ?? null,
+        [box.x + box.width / 2 + 1, box.y + box.height / 2],
+      ),
+      "the mouse is still on its night",
+    ).toBe(titles[k]);
+    expect(await readoutText(page), "the move keeps the key night").toBe(titles[k + 1]);
+    await expectCursorAt(page, k + 1);
+  });
+
+  // P1-87 minors, #2171 review round 1: a leave ends the preview only while it is the night left, so
+  // a pen leaving its night keeps the preview a mouse took since on another.
+  it("a pen leaving its night keeps the preview of a mouse resting on another (#2171)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    const [rest, penNight] = [2, 6];
+    await nightRects(page).nth(rest).hover();
+    const pen = { pointerType: "pen", isPrimary: true, pointerId: 2 };
+    await nightRects(page)
+      .nth(penNight)
+      .evaluate((r, pen) => r.dispatchEvent(new PointerEvent("pointerenter", pen)), pen);
+    expect(await readoutText(page), "the pen previews its night").toBe(titles[penNight]);
+    const box = (await nightRects(page).nth(rest).boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2 + 1, box.y + box.height / 2);
+    expect(await readoutText(page), "the moved mouse previews its night").toBe(titles[rest]);
+    await nightRects(page)
+      .nth(penNight)
+      .evaluate((r, pen) => r.dispatchEvent(new PointerEvent("pointerleave", pen)), pen);
+    expect(await readoutText(page), "the pen's leave keeps the mouse's preview").toBe(titles[rest]);
+    await expectCursorAt(page, rest);
   });
 
   // P1-87 minors, #2169: a pen's hover previews a night as a mouse's does, and is no key night. Playwright

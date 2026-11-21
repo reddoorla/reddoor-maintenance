@@ -19,6 +19,15 @@ const REREAD_MS = 120_000;
  *  tick re-read, so a jittered tick never skips one. */
 const REREAD_JITTER_MS = TICK_MS / 2;
 
+/** Whether a view is due a re-read at `nowMs`: inside its refresh window, or past its stale time.
+ *  The clock re-reads on this; the page's intro asks it too (P1-87 minors, #2164). */
+export function refreshDue(view: CycleView, nowMs: number): boolean {
+  const { refresh, staleAfterIso } = view;
+  const from = Date.parse(refresh.fromIso);
+  const until = Date.parse(refresh.untilIso);
+  return (from <= nowMs && nowMs < until) || nowMs >= Date.parse(staleAfterIso);
+}
+
 export type CycleClockDeps = {
   /** Read on every tick, so a re-read's new view applies at once. */
   getView: () => CycleView;
@@ -44,11 +53,7 @@ export function startCycleClock(deps: CycleClockDeps): { stop: () => void } {
   const tick = () => {
     const now = deps.nowMs();
     deps.onTick(now);
-    const { refresh, staleAfterIso } = deps.getView();
-    const from = Date.parse(refresh.fromIso);
-    const until = Date.parse(refresh.untilIso);
-    const due = (from <= now && now < until) || now >= Date.parse(staleAfterIso);
-    if (!due) return;
+    if (!refreshDue(deps.getView(), now)) return;
     if (!deps.isVisible()) return;
     if (lastStartedMs !== null && now - lastStartedMs < REREAD_MS - REREAD_JITTER_MS) return;
     lastStartedMs = now;
