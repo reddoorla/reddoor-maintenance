@@ -244,6 +244,17 @@ async function seed() {
     summary: "Deploy published",
     data: null,
   } as never);
+  // Round 1 (tests C4): a sweep inside the week, so any other type split between the
+  // snapshot's recent read and the loader's would show here too.
+  await recordFleetEvent(db, {
+    id: "sweep-in-week",
+    ts: new Date(NOW.getTime() - 30 * 60_000).toISOString(),
+    type: "fleet_swept",
+    siteId: null,
+    siteName: null,
+    summary: "Fleet swept",
+    data: null,
+  } as never);
   await createDeadLetter(db, {
     siteSlug: "acme",
     payload: { name: "Lost" },

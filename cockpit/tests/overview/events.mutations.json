@@ -209,7 +209,7 @@
   },
   {
     "id": "9-17-recent-read-keeps-deploys",
-    "why": "The shared recent read keeps site_deployed, so /fleet's Recently lane repeats a deploy after its merge and the deploys fill the read's cap (C1)",
+    "why": "The shared recent read (the snapshot's, and the loader's that shares the constant) keeps site_deployed, so /fleet's Recently lane repeats a deploy after its merge and the deploys fill the read's cap (C1)",
     "edits": [
       {
         "file": "src/dashboard/snapshot-views.ts",
