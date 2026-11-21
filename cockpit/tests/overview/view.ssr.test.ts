@@ -3910,7 +3910,13 @@ describe("the Lately feed's line keys (P1-87 PR 8a, item 7)", () => {
       lead("b1", "2026-10-26T18:00:00.000Z", "recB"),
       lead("a0", "2026-10-25T18:00:00.000Z"),
     ]).map((l) => l.key);
-    expect(new Set(apart).size).toBe(3);
+    // Exact keys: the list's `#n` dedupe would keep colliding keys distinct, so a count of distinct
+    // keys could not see two lines sharing one id (review round 1, tests lens).
+    expect([...apart].sort()).toEqual([
+      "2|leads|recA|2026-10-25",
+      "2|leads|recA|2026-10-26",
+      "2|leads|recB|2026-10-26",
+    ]);
 
     const run = (conclusion: string) =>
       overviewFromSnapshot(
