@@ -200,8 +200,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "      const base = `${x.rank}|${x.line.atIso}|${x.line.site ?? \"\"}|${x.line.text}`;",
-        "replace": "      const base = `${x.rank}|${x.line.atIso}|${x.line.text}`;"
+        "find": "          : `${x.rank}|${x.line.atIso}|${x.line.site ?? \"\"}|${x.line.text}`;",
+        "replace": "          : `${x.rank}|${x.line.atIso}|${x.line.text}`;"
       }
     ],
     "test": ["cockpit/tests/overview/view.ssr.test.ts"],
@@ -361,8 +361,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "onclick={() => setKeyNight(ci, ti)}",
-        "replace": "onclick={() => (keySel[ci] = ti)}"
+        "find": "onclick={() => setKeyNight(ci, c.nights[ti]!)}",
+        "replace": "onclick={() => (keySel[ci] = c.nights[ti]!)}"
       }
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
@@ -374,8 +374,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "    freshTimer = setTimeout(() => {\n      fresh = new Set();\n    }, FEED_MS);",
-        "replace": "    freshTimer = setTimeout(() => {}, FEED_MS);"
+        "find": "          left.delete(k);\n          fresh = left;\n",
+        "replace": ""
       }
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",
