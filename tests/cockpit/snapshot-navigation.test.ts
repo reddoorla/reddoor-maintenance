@@ -6336,4 +6336,27 @@ describe("a health bar opens /fleet filtered, in a browser (P1-87 PR 8b)", () =>
     expect(ring.style).toBe("solid");
     expect(ring.ring).toBe(ring.focus);
   });
+
+  // #2189: the style guide's link rule. No underline at rest, an underline on hover and on
+  // keyboard focus. The premise: at rest it is not underlined, so the two reads can tell.
+  it("a linked check row is underlined on hover and on keyboard focus, and not at rest", async () => {
+    const page = await nextRun();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    const bar = page.locator('a[href="/fleet?check=certificate"]');
+    await expect.poll(() => bar.count()).toBe(1);
+    await figuresSettled(page);
+    const line = () => bar.evaluate((el) => getComputedStyle(el).textDecorationLine);
+    await page.mouse.move(0, 0);
+    expect(await line(), "at rest").toBe("none");
+    await bar.hover();
+    expect(await line(), "on hover").toBe("underline");
+    await page.mouse.move(0, 0);
+    expect(await line(), "after the pointer leaves").toBe("none");
+    await bar.focus();
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Tab");
+    expect(await bar.evaluate((el) => el.matches(":focus-visible"))).toBe(true);
+    expect(await line(), "on keyboard focus").toBe("underline");
+  });
 });

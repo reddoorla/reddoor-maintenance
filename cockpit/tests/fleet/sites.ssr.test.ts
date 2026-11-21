@@ -224,6 +224,39 @@ describe("Sites filtered to one health check (P1-87, PR 8b)", () => {
       expect(more ? Number(more[1]) : 0, name).toBe(bar.unknown);
     }
   });
+  // #2185: the count is the fleet's; when the status form or the search leaves fewer rows, the
+  // line also says how many are shown, so it is true of the rows under it.
+  it.each([
+    ["/fleet?check=certificate&status=archived", "Failing Certificate: 2 sites, 0 shown"],
+    ["/fleet?check=certificate&q=zzz", "Failing Certificate: 2 sites, 0 shown"],
+    ["/fleet?check=certificate&q=bra", "Failing Certificate: 2 sites, 1 shown"],
+  ])("%s says how many of the failing sites are shown", async (href, line) => {
+    const doc = await page(href);
+    expect(text(checkLine(doc)!)).toContain(line);
+  });
+
+  it("says nothing of shown when every failing site is a row", async () => {
+    const doc = await page("/fleet?check=certificate");
+    expect(text(checkLine(doc)!)).not.toContain("shown");
+  });
+
+  // #2186: the title names the check, so the route announcer reads it on arrival.
+  async function title(href: string): Promise<string> {
+    const url = new URL(href, "https://dash.example");
+    const data = (await (load as unknown as (e: unknown) => Promise<Data>)({
+      url,
+      parent: async () => ({ snapshot: CHECK_SNAP, failure: null, clockOffsetMs: 0 }),
+    })) as Data;
+    return text(parse(render(Page, { props: { data } }).head).querySelector("title")!);
+  }
+
+  it("titles the page with the check in force, and leaves the plain title otherwise", async () => {
+    expect(await title("/fleet?check=certificate")).toBe(
+      "Failing Certificate · Sites — Reddoor maintenance",
+    );
+    expect(await title("/fleet")).toBe("Sites — Reddoor maintenance");
+    expect(await title("/fleet?check=nope")).toBe("Sites — Reddoor maintenance");
+  });
 });
 
 describe("the Sites links keep or drop the check (P1-87, PR 8b)", () => {
