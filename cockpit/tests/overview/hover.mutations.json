@@ -140,7 +140,7 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "        void invalidate(\"cockpit:snapshot\");\n",
+        "find": "        invalidate(\"cockpit:snapshot\").catch(() => undefined);\n",
         "replace": ""
       }
     ],

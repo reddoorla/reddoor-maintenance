@@ -313,7 +313,8 @@
       intro = false;
       if (rereadHeld) {
         rereadHeld = false;
-        void invalidate("cockpit:snapshot");
+        // As the clock does: a read's failure is not waited for and never thrown.
+        invalidate("cockpit:snapshot").catch(() => undefined);
       }
     };
     const startIntro = () => {
