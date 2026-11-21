@@ -18,8 +18,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "const events = (s.feedEvents ?? []).filter((e) => e.type !== \"fleet_swept\");",
-        "replace": "const events = s.feedEvents ?? [];"
+        "find": "const events = [...(s.feedEvents ?? []), ...(s.feedDeploys ?? [])].filter(\n    (e) => e.type !== \"fleet_swept\",\n  );",
+        "replace": "const events = [...(s.feedEvents ?? []), ...(s.feedDeploys ?? [])];"
       }
     ],
     "test": ["cockpit/tests/overview/view.ssr.test.ts"],
@@ -96,7 +96,7 @@
     "edits": [
       {
         "file": "cockpit/src/lib/overview/view.ts",
-        "find": "PLAIN_EVENT[e.type] ?? e.summary,",
+        "find": "(PLAIN_EVENT[e.type] ?? e.summary),",
         "replace": "(PLAIN_EVENT[e.type] ?? e.summary) + \" \" + String((e.data as { reason?: unknown } | null)?.reason ?? \"\"),"
       }
     ],
@@ -148,8 +148,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "    {/if}\n  </section>\n</div>\n\n<section aria-labelledby=\"ov-leads\">",
-        "replace": "    {/if}\n    <a href=\"/activity\">All activity</a>\n  </section>\n</div>\n\n<section aria-labelledby=\"ov-leads\">"
+        "find": "      </ol>\n    {/if}\n  </section>\n\n  <section class=\"ov-cycle\"",
+        "replace": "      </ol>\n    {/if}\n    <a href=\"/activity\">All activity</a>\n  </section>\n\n  <section class=\"ov-cycle\""
       }
     ],
     "test": ["cockpit/tests/overview/page.ssr.test.ts"],
@@ -648,8 +648,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "    {#if v.lately.lines.length > 0}\n      <ol data-term=\"Lately\">",
-        "replace": "    {#if v.lately.lines.length > 0 && v.lately.unreadable.length === 0}\n      <ol data-term=\"Lately\">"
+        "find": "    {#if v.lately.lines.length > 0}\n      <ol data-term=\"Lately\"",
+        "replace": "    {#if v.lately.lines.length > 0 && v.lately.unreadable.length === 0}\n      <ol data-term=\"Lately\""
       }
     ],
     "test": ["cockpit/tests/overview/page.ssr.test.ts"],
