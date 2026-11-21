@@ -5533,6 +5533,47 @@ describe("PR 8c, How this works motion", () => {
     await expect.poll(disconnects, { timeout: 5_000 }).toBeGreaterThan(0);
   });
 
+  // Round 1: at 1280x700 every step is in view on load, so the observer is disconnected at
+  // mount, by the other of the two disconnect calls.
+  it("disconnects the step observer at mount when every step is lit on load", async () => {
+    const page = await signedIn();
+    await page.addInitScript(() => {
+      const w = window as unknown as { __stepDisconnects: number };
+      w.__stepDisconnects = 0;
+      const watching = new WeakSet<IntersectionObserver>();
+      const proto = IntersectionObserver.prototype;
+      const observe = proto.observe;
+      const disconnect = proto.disconnect;
+      proto.observe = function (this: IntersectionObserver, el: Element) {
+        if (el.closest("ol.how-steps") !== null) watching.add(this);
+        return observe.call(this, el);
+      };
+      proto.disconnect = function (this: IntersectionObserver) {
+        if (watching.has(this)) w.__stepDisconnects++;
+        return disconnect.call(this);
+      };
+    });
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await stepsScripted(page);
+    const below = await page
+      .locator("ol.how-steps > li")
+      .evaluateAll((els) => els.some((el) => el.getBoundingClientRect().top >= window.innerHeight));
+    expect(below, "the premise: no step is below the fold").toBe(false);
+    await expect
+      .poll(async () => (await litFlags(page)).every((f) => f === "true"), { timeout: 5_000 })
+      .toBe(true);
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            () => (window as unknown as { __stepDisconnects: number }).__stepDisconnects,
+          ),
+        { timeout: 5_000 },
+      )
+      .toBeGreaterThan(0);
+  });
+
   it("each step's light takes 300 ms, the transition's length", async () => {
     const page = await signedIn();
     await page.goto(`${origin}/how`);
