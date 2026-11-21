@@ -143,6 +143,19 @@
     "expect": "red"
   },
   {
+    "id": "12-all-activity-link",
+    "why": "An 'All activity' link is rendered under the feed (his round-4 answer: not built)",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      </ol>\n    {/if}\n  </section>\n\n  <section class=\"ov-cycle\"",
+        "replace": "      </ol>\n    {/if}\n    <a href=\"/activity\">All activity</a>\n  </section>\n\n  <section class=\"ov-cycle\""
+      }
+    ],
+    "test": ["cockpit/tests/overview/page.ssr.test.ts"],
+    "expect": "red"
+  },
+  {
     "id": "13-failed-reports-read-unnamed",
     "why": "A failed reports read is not named as unreadable, so the panel reads as nothing from it",
     "edits": [

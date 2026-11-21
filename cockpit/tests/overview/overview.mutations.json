@@ -116,6 +116,11 @@
         "file": "cockpit/src/lib/overview/view.ts",
         "find": "  if (newest === undefined) return { value: NOT_YET, context: null };\n  const lag",
         "replace": "  if (newest === undefined) return { value: \"0\", context: \"over the last 0 nights\" };\n  const lag"
+      },
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      : newest === undefined\n        ? NOT_YET",
+        "replace": "      : newest === undefined\n        ? \"0 of 0 runs green\""
       }
     ],
     "test": "cockpit/tests/overview/view.ssr.test.ts",
