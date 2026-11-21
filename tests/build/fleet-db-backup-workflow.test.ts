@@ -257,7 +257,7 @@ describe.skipIf(!hasTimeout)(
       await chmod(join(bin, "node"), 0o755);
       const run = script ?? stepRunScript(workflowText, RECORD_STEP);
       let code = 0;
-      let out = "";
+      let out: string;
       try {
         const r = await execFileAsync("bash", ["-e", "-c", run], {
           cwd: dir,
