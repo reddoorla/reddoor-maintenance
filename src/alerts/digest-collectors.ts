@@ -153,15 +153,6 @@ export function collectLighthouseAlerts(sites: WebsiteRow[], baseUrl: string): A
  * the M3 ready-section does, so the digest never renders a broken link. The diff
  * key is the report RECORD id, so two failures on one site stay distinct.
  */
-/**
- * One attention item per unsent draft whose send is ALREADY known to fail
- * (approveBlockers: recipients / header image / report scores). An APPROVED one
- * is critical — the send run that takes it (the next 16:07 UTC run, or for a
- * report held to its due date, that day's run) will go red on it; a pending one is
- * a warning — approving it just schedules that failure. Keyed `preflight:<reportId>`.
- * `now` places the Pacific day for the held check (injected, defaults to wall-clock).
- * PURE; same predicate the approve gate and the dashboard chip use.
- */
 function healthAsk(message: string): string {
   const head = message.split(" — ")[0]!;
   const failing = head.match(/^(.*): failing$/);
@@ -222,6 +213,15 @@ export function preflightAsks(fails: readonly PreflightFinding[]): string[] {
     : fixes;
 }
 
+/**
+ * One attention item per unsent draft whose send is ALREADY known to fail
+ * (approveBlockers: recipients / header image / report scores). An APPROVED one
+ * is critical — the send run that takes it (the next 16:07 UTC run, or for a
+ * report held to its due date, that day's run) will go red on it; a pending one is
+ * a warning — approving it just schedules that failure. Keyed `preflight:<reportId>`.
+ * `now` places the Pacific day for the held check (injected, defaults to wall-clock).
+ * PURE; same predicate the approve gate and the dashboard chip use.
+ */
 export function collectPreflightBlocked(
   reports: ReportRow[],
   sitesById: Map<string, WebsiteRow>,

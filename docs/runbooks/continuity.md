@@ -172,7 +172,7 @@ learns its slug does not resolve, but **the lead now exists somewhere**
 (`src/forms/ingest.ts:209–238`). Probes (`testMode`) are never dead-lettered.
 
 **What a week-long break looks like now.** The queue grows and the alarm gets louder, not
-quieter. `collectDeadLetterAlerts` (`src/alerts/digest-collectors.ts:524–558`) raises one
+quieter. `collectDeadLetterAlerts` (`src/alerts/digest-collectors.ts:567–601`) raises one
 `deadletter` attention item per slug, counting unreplayed rows, and it reaches both the cockpit
 and the digest. Two shapes:
 
@@ -270,7 +270,7 @@ right direction but means a red quota job is sometimes the probe, not the plan.
 
 ### 3.4 A bounced or complained-on report
 
-`collectDeliveryFailures` (`src/alerts/digest-collectors.ts:275–295`) raises an attention item
+`collectDeliveryFailures` (`src/alerts/digest-collectors.ts:285–307`) raises an attention item
 for any report row whose `deliveryStatus` is `bounced` (warning) or `complained` (**critical**).
 A spam complaint from a client is worth a same-day human reply; do not let it sit a week.
 

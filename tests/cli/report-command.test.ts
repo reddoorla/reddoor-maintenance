@@ -757,7 +757,8 @@ describe("draftDueReports — P1-117 early drafts", () => {
       },
     ];
     const res = await draftDueReports(TODAY, dueDeps(reports, { reportMirror }));
-    // Completing it would store a body dated differently from its send hold.
+    // Completing it would send it on its stale date, here none, so on approval
+    // and up to 7 days early, instead of on the cycle's 06-02.
     expect(draftReportForSite).not.toHaveBeenCalled();
     expect(res.output).toContain(
       "✗ due date not updated: Acme Co Maintenance — libsql: database is locked",
@@ -767,8 +768,8 @@ describe("draftDueReports — P1-117 early drafts", () => {
 
   it("stamps a superseded row's stale due date and still skips it (#2158)", async () => {
     // The cycle says 06-02; the Maintenance row a pending Testing un-queued was
-    // made for 06-01. It takes the new date now, so its body and send hold agree
-    // when the blocker clears and it is completed.
+    // made for 06-01. It takes the cycle's date now, so when the blocker clears
+    // it is completed and held on 06-02, not 06-01.
     rosterRows = [siteRow({ maintenanceDay: "2026-05-02" })];
     const reportMirror = makeFakeReportWriter();
     const reports: RawRow[] = [

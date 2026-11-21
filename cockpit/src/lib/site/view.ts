@@ -16,8 +16,6 @@ import {
 } from "../../../../src/reports/checklist.js";
 import { rendersCommentary } from "../../../../src/reports/template-for.js";
 import { heldUntilDue, sendDayLabel } from "../../../../src/reports/due.js";
-
-export { sendDayLabel };
 import { approveBlockers, type PreflightFinding } from "../../../../src/reports/preflight.js";
 import { parseAddresses, withGlobalCc } from "../../../../src/reports/send/addresses.js";
 import { isVisibleInStrip } from "../../../../src/dashboard/submission-rules.js";
