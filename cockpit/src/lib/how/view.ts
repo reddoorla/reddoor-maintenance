@@ -151,7 +151,8 @@ export function howFromSnapshot(s: CockpitSnapshot, now: Date): HowView {
   };
 }
 
-/** PR 8c item 10: each maintained site, once, at its own level (its card's tier), with the
+/** PR 8c item 10: each maintained site, and each launching site whose card sits at a level
+ *  (#2182), once, at its own level (its card's tier), with the
  *  reason Triage gives: the feed row's first reason, when the row is at that level. A row
  *  at another level, or with no reason, names the site alone. Ordered by name. */
 export function todayAtLevels(s: CockpitSnapshot, now: Date): Record<Tier, LevelSite[]> {

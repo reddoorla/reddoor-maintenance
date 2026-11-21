@@ -176,13 +176,13 @@
     "expect": "red"
   },
   {
-    "id": "P2-any-status-listed",
-    "why": "#2182: an archived site at a level is listed",
+    "id": "P3-muted-launching-at-ok",
+    "why": "#2182: a launching card still muted (pre-launch) is listed, at OK",
     "edits": [
       {
         "file": "cockpit/src/lib/how/view.ts",
-        "find": "if (c.site.status !== \"maintained\" && c.site.status !== \"launching\") continue;",
-        "replace": "if (c.site.status === undefined) continue;"
+        "find": "    healthy: \"ok\",",
+        "replace": "    healthy: \"ok\",\n    \"pre-launch\": \"ok\","
       }
     ],
     "test": "cockpit/tests/how/view.ssr.test.ts",
