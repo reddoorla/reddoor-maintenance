@@ -205,8 +205,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/how/view.ts",
-        "find": "return typeof v === \"number\" && Number.isFinite(v) && v >= 0 ? v : null;",
-        "replace": "return typeof v === \"number\" && Number.isFinite(v) && v >= 0 ? v : 0;"
+        "find": "return typeof v === \"number\" && Number.isInteger(v) && v >= 0 ? v : null;",
+        "replace": "return typeof v === \"number\" && Number.isInteger(v) && v >= 0 ? v : 0;"
       }
     ],
     "test": "cockpit/tests/how/view.ssr.test.ts",
