@@ -3879,6 +3879,60 @@ describe("the Lately feed's line keys (P1-87 PR 8a, item 7)", () => {
     const b = overviewFromSnapshot(twin, NOW).lately.lines.map((l) => l.key);
     expect(b).toEqual(a);
   });
+
+  // P1-87 minors, #2167: a line whose words change while it is the same line keeps its key, so a
+  // refresh that changes its count or its steps does not slide it in again as new.
+  it("keeps a site's leads line on one key as its count rises, and a night's line on one key as its steps change (#2167)", () => {
+    const sites = [healthy({ id: "recA", name: "Acme" }), healthy({ id: "recB", name: "Bravo" })];
+    const lead = (id: string, at: string, siteId = "recA") =>
+      makeSubmissionRow({
+        id,
+        siteId,
+        formType: "contact",
+        status: "new",
+        notifyStatus: "sent",
+        submittedAt: at,
+      });
+    const leadsLine = (subs: ReturnType<typeof lead>[]) =>
+      overviewFromSnapshot(snapshot({ sites, submissions: subs }), NOW).lately.lines;
+    const one = leadsLine([lead("a1", "2026-10-26T18:00:00.000Z")]);
+    const two = leadsLine([
+      lead("a1", "2026-10-26T18:00:00.000Z"),
+      lead("a2", "2026-10-26T20:00:00.000Z"),
+    ]);
+    expect(one.map((l) => l.text)).toEqual(["Lead delivered"]);
+    expect(two.map((l) => l.text)).toEqual(["2 leads delivered"]);
+    expect(two[0]!.atIso, "the line's time moves to the newest lead").not.toBe(one[0]!.atIso);
+    expect(two[0]!.key, "the same site's leads that day: the same line").toBe(one[0]!.key);
+    // Another site's leads that day, and the same site's on another day, are other lines.
+    const apart = leadsLine([
+      lead("a1", "2026-10-26T18:00:00.000Z"),
+      lead("b1", "2026-10-26T18:00:00.000Z", "recB"),
+      lead("a0", "2026-10-25T18:00:00.000Z"),
+    ]).map((l) => l.key);
+    expect(new Set(apart).size).toBe(3);
+
+    const run = (conclusion: string) =>
+      overviewFromSnapshot(
+        snapshot({
+          nights: [
+            night("2026-10-26", {
+              steps: { "fleet-db-backup.yml": { outcome: "completed", runId: 2, conclusion } },
+            }),
+          ],
+        }),
+        NOW,
+      ).lately.lines;
+    const failed = run("failure");
+    const passed = run("success");
+    expect(failed.map((l) => l.text)).toEqual([
+      "Nightly run: 0 of 1 step ran to the end (Backup: failed)",
+    ]);
+    expect(passed.map((l) => l.text)).toEqual(["Nightly run: 1 of 1 step ran to the end"]);
+    expect(passed[0]!.key, "the same night's run: the same line").toBe(failed[0]!.key);
+    const other = overviewFromSnapshot(snapshot({ nights: [night("2026-10-25")] }), NOW).lately;
+    expect(other.lines[0]?.key, "another night is another line").not.toBe(passed[0]!.key);
+  });
 });
 
 // P1-87 PR 9 (d). The three new events. The backup line is formatted from its data, so

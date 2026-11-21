@@ -361,8 +361,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "onclick={() => setKeyNight(ci, ti)}",
-        "replace": "onclick={() => (keySel[ci] = ti)}"
+        "find": "onclick={() => setKeyNight(ci, c.nights[ti]!)}",
+        "replace": "onclick={() => (keySel[ci] = c.nights[ti]!)}"
       }
     ],
     "test": "tests/cockpit/snapshot-navigation.test.ts",

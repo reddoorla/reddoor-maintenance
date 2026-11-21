@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { invalidate } from "$app/navigation";
   import type { HealthCheck, OverviewView } from "../lib/overview/view.js";
   import {
@@ -61,13 +61,21 @@
   // the one announcement. `hoverSel` is a pointer's preview of another night: the readout and the
   // cursor show it while the pointer rests on a night, and it never moves the slider (R1). A key
   // step or a click ends it (setKeyNight), so after a key step the readout follows the key night.
-  let keySel = $state<Record<number, number | null>>({});
-  let hoverSel = $state<Record<number, number | null>>({});
+  // Each is kept as the night's label ("Oct 26", unique in a window), not its place, so a refresh
+  // that moves the window on keeps a chart on the same night, and a night that left the window is
+  // no selection (P1-87 minors, #2174).
+  let keySel = $state<Record<number, string | null>>({});
+  let hoverSel = $state<Record<number, string | null>>({});
+  /** The place of night `label` in chart `nights`, or null when it is none or not in the window. */
+  const placeOf = (nights: readonly string[], label: string | null | undefined): number | null => {
+    const i = label == null ? -1 : nights.indexOf(label);
+    return i === -1 ? null : i;
+  };
   const TREND_IDLE = "Point at a night, or focus the chart and use the arrow keys, to read it.";
   // A key night set by a key, a click, a blur or Escape ends the chart's preview: a key step is an
   // act, so the readout and the cursor follow the key night until the pointer moves to another night
   // (P1-87 PR 8a, round 3 I). A click clears it too, so a tap cannot leave a preview stuck.
-  const setKeyNight = (ci: number, k: number | null) => {
+  const setKeyNight = (ci: number, k: string | null) => {
     keySel[ci] = k;
     hoverSel[ci] = null;
   };
@@ -245,8 +253,10 @@
   // P1-87 PR 8a, item 7: a line the last render did not have is new, and slides in for FEED_MS. The
   // first render marks nothing; `known` (plain, not state) holds the keys the page last rendered.
   let known: Set<string> | null = null;
+  // A refresh adds its new lines to `fresh`, and each refresh's timer clears its own lines only, so a
+  // second refresh within FEED_MS never cuts the first one's slide short (P1-87 minors, #2166).
   let fresh = $state<Set<string>>(new Set());
-  let freshTimer: ReturnType<typeof setTimeout> | undefined;
+  const freshTimers = new Set<ReturnType<typeof setTimeout>>();
   $effect.pre(() => {
     const keys = v.lately.lines.map((l) => l.key);
     const prev = known;
@@ -254,11 +264,14 @@
     if (prev === null) return;
     const added = keys.filter((k) => !prev.has(k));
     if (added.length === 0) return;
-    fresh = new Set(added);
-    clearTimeout(freshTimer);
-    freshTimer = setTimeout(() => {
-      fresh = new Set();
+    fresh = new Set([...untrack(() => fresh), ...added]);
+    const timer = setTimeout(() => {
+      freshTimers.delete(timer);
+      const left = new Set(fresh);
+      for (const k of added) left.delete(k);
+      fresh = left;
     }, FEED_MS);
+    freshTimers.add(timer);
   });
   // P1-87 PR 5a: the nightly bar's clock. Until the page mounts, the view's own instant
   // is the clock, so the server render says what the view says; then the clock moves the
@@ -300,7 +313,7 @@
     return () => {
       cycle.stop();
       clearTimeout(introTimer);
-      clearTimeout(freshTimer);
+      for (const t of freshTimers) clearTimeout(t);
     };
   });
 </script>
@@ -759,10 +772,10 @@
     <div class="ov-trends">
       {#each v.trends.charts as c, ci (c.title)}
         {@const g = trendGeometry(c)}
-        {@const sel = keySel[ci] ?? null}
+        {@const sel = placeOf(c.nights, keySel[ci])}
         {@const titles = g.slots.map((t) => t.title)}
         {@const shown = sel ?? titles.length - 1}
-        {@const show = hoverSel[ci] ?? sel}
+        {@const show = placeOf(c.nights, hoverSel[ci]) ?? sel}
         <figure class="ov-trend">
           <figcaption id="ov-trend-{ci}">{c.title}</figcaption>
           {#if c.series.length > 1}
@@ -806,10 +819,10 @@
             aria-valuenow={shown + 1}
             aria-valuetext={trendReadout(titles, shown)}
             use:trendKeys={(e: KeyboardEvent) => {
-              const next = trendKey(e.key, keySel[ci] ?? null, g.slots.length);
+              const next = trendKey(e.key, placeOf(c.nights, keySel[ci]), g.slots.length);
               if (next === undefined) return;
               e.preventDefault();
-              setKeyNight(ci, next);
+              setKeyNight(ci, next === null ? null : c.nights[next]!);
             }}
             onblur={() => setKeyNight(ci, null)}
             onpointerleave={() => (hoverSel[ci] = null)}
@@ -885,9 +898,9 @@
                 height={g.baseline - g.top}
                 data-title={t.title}
                 onpointerenter={(e) => {
-                  if (e.pointerType === "mouse") hoverSel[ci] = ti;
+                  if (e.pointerType === "mouse") hoverSel[ci] = c.nights[ti]!;
                 }}
-                onclick={() => setKeyNight(ci, ti)}
+                onclick={() => setKeyNight(ci, c.nights[ti]!)}
               />
             {/each}
             {#if show !== null && g.slots[show]}
