@@ -205,7 +205,7 @@ describe("the count-up action on a refresh (P1-87 PR 8a, review round 1, F1)", (
   });
 });
 
-/** The body of the first rule in `css` whose prelude ends with `prelude` (whitespace collapsed),
+/** The body of the first rule in `css` whose prelude is `prelude` (whitespace collapsed),
  *  braces matched, so a rule nested in a media query or a keyframe step is found too. */
 function ruleBody(css: string, prelude: string): string {
   const flat = css.replace(/\/\*[\s\S]*?\*\//g, "");
