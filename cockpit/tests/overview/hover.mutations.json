@@ -1,0 +1,85 @@
+[
+  {
+    "id": "2171-a-only-the-svg-ends-the-preview",
+    "why": "#2171: the hit target's leave handler is removed, so only the svg's pointerleave clears the preview and a pointer below the columns keeps it",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "                onpointerleave={() => {\n                  if (hoverSel[ci] === ti) hoverSel[ci] = null;\n                }}\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2172-a-no-move-restore",
+    "why": "#2172: the hit target's pointermove restore is removed, so after Escape or a Tab round trip a resting mouse shows the idle prompt until it enters another night",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "                onpointermove={(e) => {\n                  if (e.pointerType !== \"touch\" && placeOf(c.nights, keySel[ci]) === null)\n                    hoverSel[ci] = ti;\n                }}\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2169-a-mouse-only-preview",
+    "why": "#2169: the preview is gated on pointerType === \"mouse\" again (on the enter and on the move), so a pen's hover previews nothing",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "if (e.pointerType !== \"touch\") hoverSel[ci] = ti;",
+        "replace": "if (e.pointerType === \"mouse\") hoverSel[ci] = ti;"
+      },
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "if (e.pointerType !== \"touch\" && placeOf(c.nights, keySel[ci]) === null)",
+        "replace": "if (e.pointerType === \"mouse\" && placeOf(c.nights, keySel[ci]) === null)"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2169-b-pen-click-keeps-preview",
+    "why": "#2169: a pen's click sets the key night without ending the preview, so a pen's tap leaves the preview standing over the tapped night",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "onclick={() => setKeyNight(ci, c.nights[ti]!)}",
+        "replace": "onclick={(e) => {\n                  keySel[ci] = c.nights[ti]!;\n                  if ((e as PointerEvent).pointerType !== \"pen\") hoverSel[ci] = null;\n                }}"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2164-a-timer-at-mount",
+    "why": "#2164: the intro timer starts at mount whatever the visibility (the old behaviour), so a page shown late has its intro cut at the timer",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "    document.addEventListener(\"visibilitychange\", startIntro);\n    startIntro();\n",
+        "replace": "    introTimer = setTimeout(() => (intro = false), INTRO_MS);\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2164-b-intro-dropped-when-hidden",
+    "why": "#2164: a page first shown late never starts its intro: it is dropped at mount, not deferred",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "    document.addEventListener(\"visibilitychange\", startIntro);\n    startIntro();\n",
+        "replace": "    if (document.visibilityState === \"visible\") startIntro();\n    else intro = false;\n"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  }
+]

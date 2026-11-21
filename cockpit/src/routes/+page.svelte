@@ -300,7 +300,18 @@
   onMount(() => {
     markIntroPlayed();
     motionReady = true;
-    const introTimer = setTimeout(() => (intro = false), INTRO_MS);
+    // P1-87 minors, #2164: the intro's timer starts once the page is visible. A page loaded in a
+    // background tab holds its CSS animations until it is shown, so a timer started at mount would
+    // cut the bars' fill short (shown 0.3 to 2 s later) or drop it (shown later still). The intro
+    // waits instead, and plays whole when the tab is first shown.
+    let introTimer: ReturnType<typeof setTimeout> | undefined;
+    const startIntro = () => {
+      if (document.visibilityState !== "visible") return;
+      document.removeEventListener("visibilitychange", startIntro);
+      introTimer = setTimeout(() => (intro = false), INTRO_MS);
+    };
+    document.addEventListener("visibilitychange", startIntro);
+    startIntro();
     offsetMs = Date.parse(v.cycle.nowIso) - Date.now();
     clock = Date.now() + offsetMs;
     const cycle = startCycleClock({
@@ -320,6 +331,7 @@
     });
     return () => {
       cycle.stop();
+      document.removeEventListener("visibilitychange", startIntro);
       clearTimeout(introTimer);
       for (const t of freshTimers.values()) clearTimeout(t);
     };
@@ -896,6 +908,13 @@
                 r="4"
               />
             {/each}
+            <!-- P1-87 minors: a mouse's or a pen's hover previews its night (#2169: a pen is a pointer, as a
+                 mouse is; a touch has no hover, and its tap is the click). Leaving a night ends its own
+                 preview, so a pointer moved off the columns onto the chart's empty area keeps none
+                 (#2171); a leave never ends another pointer's preview. A move over a night with no key
+                 night (after Escape, a blur, or a Tab away and back) restores the preview the pointer
+                 rests on (#2172); after a key step or a click the readout still follows the key night
+                 until the pointer enters another night (round 3 I). -->
             {#each g.slots as t, ti (ti)}
               <!-- svelte-ignore a11y_click_events_have_key_events -->
               <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -907,7 +926,14 @@
                 height={g.baseline - g.top}
                 data-title={t.title}
                 onpointerenter={(e) => {
-                  if (e.pointerType === "mouse") hoverSel[ci] = ti;
+                  if (e.pointerType !== "touch") hoverSel[ci] = ti;
+                }}
+                onpointermove={(e) => {
+                  if (e.pointerType !== "touch" && placeOf(c.nights, keySel[ci]) === null)
+                    hoverSel[ci] = ti;
+                }}
+                onpointerleave={() => {
+                  if (hoverSel[ci] === ti) hoverSel[ci] = null;
                 }}
                 onclick={() => setKeyNight(ci, c.nights[ti]!)}
               />

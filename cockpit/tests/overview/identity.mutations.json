@@ -119,8 +119,8 @@
       },
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "if (e.pointerType === \"mouse\") hoverSel[ci] = ti;",
-        "replace": "if (e.pointerType === \"mouse\") {\n                    hoverSel[ci] = ti;\n                    hoverLabel[ci] = c.nights[ti]!;\n                  }"
+        "find": "if (e.pointerType !== \"touch\") hoverSel[ci] = ti;",
+        "replace": "if (e.pointerType !== \"touch\") {\n                    hoverSel[ci] = ti;\n                    hoverLabel[ci] = c.nights[ti]!;\n                  }"
       },
       {
         "file": "cockpit/src/routes/+page.svelte",

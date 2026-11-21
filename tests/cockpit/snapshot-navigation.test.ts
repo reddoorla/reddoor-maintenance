@@ -4414,6 +4414,90 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     expect(await barAnimations(page)).toBe(0);
   });
 
+  // P1-87 minors, #2164: the intro's timer waits for the page to be visible. The page is loaded with
+  // its visibility emulated as hidden (the document's own `visibilityState`, which the page reads),
+  // held past INTRO_MS, then shown: the intro is still on when it is shown, and it ends INTRO_MS
+  // after that, not at mount. The control is the same page loaded visible, whose intro ends at its
+  // timer as before.
+  it("a page loaded hidden starts its intro when it is shown, and keeps it INTRO_MS from then (#2164)", async () => {
+    const load = async (hidden: boolean) => {
+      const page = await signedIn();
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.addInitScript((hidden) => {
+        let state: DocumentVisibilityState = hidden ? "hidden" : "visible";
+        Object.defineProperty(Document.prototype, "visibilityState", {
+          configurable: true,
+          get: () => state,
+        });
+        Object.defineProperty(Document.prototype, "hidden", {
+          configurable: true,
+          get: () => state === "hidden",
+        });
+        const w = window as unknown as Record<string, unknown>;
+        w.__introEnd = null;
+        w.__show = () => {
+          state = "visible";
+          document.dispatchEvent(new Event("visibilitychange"));
+          return performance.now();
+        };
+        // The moment the intro ends: the bars' list loses its data-intro.
+        new MutationObserver((_, obs) => {
+          const list = document.querySelector(".ov-checks-list");
+          if (list && !list.hasAttribute("data-intro") && w.__introEnd === null) {
+            w.__introEnd = performance.now();
+            obs.disconnect();
+          }
+        }).observe(document, { subtree: true, attributes: true, attributeFilter: ["data-intro"] });
+      }, hidden);
+      await page.goto(`${origin}/`);
+      await motionReady(page);
+      return page;
+    };
+    const intro = (page: Page) =>
+      page.evaluate(() => ({
+        bars: document.querySelector(".ov-checks-list")!.hasAttribute("data-intro"),
+        tiles: document.querySelector(".ov-tiles")!.hasAttribute("data-intro"),
+      }));
+
+    // The control: a page loaded visible ends its intro at its timer.
+    const shown = await load(false);
+    expect(await intro(shown), "a visible page starts with the intro on").toEqual({
+      bars: true,
+      tiles: true,
+    });
+    await shown.waitForTimeout(INTRO_MS + 500);
+    expect(await intro(shown), "a visible page's intro ends at its timer").toEqual({
+      bars: false,
+      tiles: false,
+    });
+
+    const page = await load(true);
+    await page.waitForTimeout(INTRO_MS + 500);
+    expect(await intro(page), "a hidden page keeps its intro past INTRO_MS").toEqual({
+      bars: true,
+      tiles: true,
+    });
+    const at = await page.evaluate(() => (window as unknown as { __show: () => number }).__show());
+    expect(await intro(page), "the intro is on when the page is shown").toEqual({
+      bars: true,
+      tiles: true,
+    });
+    await expect
+      .poll(
+        () => page.evaluate(() => (window as unknown as { __introEnd: number | null }).__introEnd),
+        {
+          timeout: INTRO_MS + 3000,
+          message: "the intro ends after the page is shown",
+        },
+      )
+      .not.toBeNull();
+    const end = await page.evaluate(() => (window as unknown as { __introEnd: number }).__introEnd);
+    expect(end - at, "the intro runs INTRO_MS from the moment it is shown").toBeGreaterThanOrEqual(
+      INTRO_MS - 20,
+    );
+    expect(await intro(page)).toEqual({ bars: false, tiles: false });
+  });
+
   // P1-87 PR 8a, review round 1 (F2): a refresh that inserts a fill does not replay the intro on it.
   // The refresh is the page's own: the Contact form's second site passes in the DB, and the page's
   // clock moves on so its cycle clock re-reads (as the feed test does). The site is put back after.
@@ -5223,18 +5307,137 @@ describe("the overview's motion, in a browser (P1-87 PR 8a)", () => {
     const [rest, tapped] = [2, 6];
     await nightRects(page).nth(rest).hover();
     expect(await readoutText(page), "the mouse previews its night").toBe(titles[rest]);
+    // #2169: a pen's hover previews its night as a mouse's does, so the pen's arrival would move the
+    // preview to the tapped night by itself. The resting mouse is nudged after it (#2172: a move
+    // with no key night restores the mouse's own preview), so the preview is the mouse's night again
+    // when the pen taps, and only the click can end it (M1 and 2169-b).
+    const pen = { pointerType: "pen", isPrimary: true, pointerId: 2 };
     await nightRects(page)
       .nth(tapped)
-      .evaluate((r) => {
-        const pen = { bubbles: false, pointerType: "pen", isPrimary: true, pointerId: 2 };
-        r.dispatchEvent(new PointerEvent("pointerenter", pen));
+      .evaluate((r, pen) => r.dispatchEvent(new PointerEvent("pointerenter", pen)), pen);
+    expect(await readoutText(page), "the pen previews its night").toBe(titles[tapped]);
+    const box = (await nightRects(page).nth(rest).boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2 + 1, box.y + box.height / 2);
+    expect(await readoutText(page), "the nudged mouse previews its night again").toBe(titles[rest]);
+    await nightRects(page)
+      .nth(tapped)
+      .evaluate((r, pen) => {
         r.dispatchEvent(new PointerEvent("pointerdown", { ...pen, bubbles: true }));
         r.dispatchEvent(new PointerEvent("pointerup", { ...pen, bubbles: true }));
-        r.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      });
+        r.dispatchEvent(new PointerEvent("click", { ...pen, bubbles: true }));
+      }, pen);
     expect(await readoutText(page), "the readout is the tapped night").toBe(titles[tapped]);
     await expectCursorAt(page, tapped);
     expect(await chart(page).getAttribute("aria-valuenow")).toBe(String(tapped + 1));
+  });
+
+  // P1-87 minors, #2171: leaving a night ends its preview, not only leaving the chart. Below the
+  // columns is the chart's own area (its date ticks), so the svg's pointerleave never fires there.
+  it("a pointer moved off a night onto the chart's empty area below the columns ends the preview (#2171)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    const k = 5;
+    await nightRects(page).nth(k).hover();
+    expect(await readoutText(page)).toBe(titles[k]);
+    const night = (await nightRects(page).nth(k).boundingBox())!;
+    const svg = (await chart(page).boundingBox())!;
+    const below = night.y + night.height + (svg.y + svg.height - (night.y + night.height)) / 2;
+    expect(
+      svg.y + svg.height - (night.y + night.height),
+      "the chart has room below its columns",
+    ).toBeGreaterThan(4);
+    await page.mouse.move(night.x + night.width / 2, below);
+    const under = await page.evaluate(
+      ([x, y]) => {
+        const el = document.elementFromPoint(x!, y!);
+        return { inChart: !!el?.closest("svg.ov-chart"), onNight: !!el?.closest("rect.ov-hit") };
+      },
+      [night.x + night.width / 2, below],
+    );
+    expect(under, "the pointer is inside the chart, on no night").toEqual({
+      inChart: true,
+      onNight: false,
+    });
+    expect(await readoutText(page), "the idle prompt is back").toBe(IDLE);
+    expect(await cursors(page, 0), "no cursor below the columns").toBe(0);
+  });
+
+  // P1-87 minors, #2172: Escape, or a Tab away and back, ends the preview; the mouse still resting on
+  // the night gets it back when it moves, without leaving the night first.
+  it("after Escape, or a Tab away and back, a resting mouse's move restores its night's preview (#2172)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    const k = 4;
+    // hover() scrolls the chart into view, so the box below is in the viewport's coordinates.
+    await nightRects(page).nth(k).hover();
+    const box = (await nightRects(page).nth(k).boundingBox())!;
+    const [x, y] = [box.x + box.width / 2, box.y + box.height / 2];
+    for (const away of ["Escape", "Tab"] as const) {
+      await page.mouse.move(x, y);
+      expect(await readoutText(page), `${away}: the mouse previews its night`).toBe(titles[k]);
+      await chart(page).focus();
+      if (away === "Escape") await page.keyboard.press("Escape");
+      else {
+        await page.keyboard.press("Tab");
+        await page.keyboard.press("Shift+Tab");
+        expect(
+          await chart(page).evaluate((el) => el === document.activeElement),
+          "the chart has the focus back",
+        ).toBe(true);
+      }
+      expect(await readoutText(page), `${away}: the preview has ended`).toBe(IDLE);
+      expect(await cursors(page, 0)).toBe(0);
+      await page.mouse.move(x + 1, y);
+      expect(
+        await page.evaluate(
+          ([px, py]) => !!document.elementFromPoint(px!, py!)?.matches("rect.ov-hit"),
+          [x + 1, y],
+        ),
+        `${away}: the mouse is still on the night`,
+      ).toBe(true);
+      expect(await readoutText(page), `${away}: the move restores the preview`).toBe(titles[k]);
+      await expectCursorAt(page, k);
+      expect(await chart(page).getAttribute("aria-valuenow"), "the preview is no key night").toBe(
+        String(titles.length),
+      );
+      await page.mouse.move(0, 0);
+    }
+  });
+
+  // P1-87 minors, #2169: a pen's hover previews a night as a mouse's does, and is no key night. Playwright
+  // sends no pen, so the pen's events are dispatched (as the #2175 test does).
+  it("a pen's hover previews a night like a mouse's, without choosing it (#2169)", async () => {
+    const page = await signedIn();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    await motionReady(page);
+    const titles = await titlesOf(page);
+    const k = 3;
+    await nightRects(page)
+      .nth(k)
+      .evaluate((r) => {
+        const pen = { pointerType: "pen", isPrimary: true, pointerId: 2 };
+        r.dispatchEvent(new PointerEvent("pointerover", { ...pen, bubbles: true }));
+        r.dispatchEvent(new PointerEvent("pointerenter", pen));
+        r.dispatchEvent(new PointerEvent("pointermove", { ...pen, bubbles: true }));
+      });
+    expect(await readoutText(page), "the pen previews its night").toBe(titles[k]);
+    await expectCursorAt(page, k);
+    expect(await chart(page).getAttribute("aria-valuenow"), "a hover is not a key choice").toBe(
+      String(titles.length),
+    );
+    await nightRects(page)
+      .nth(k)
+      .evaluate((r) =>
+        r.dispatchEvent(new PointerEvent("pointerleave", { pointerType: "pen", pointerId: 2 })),
+      );
+    expect(await readoutText(page), "the pen's leave ends its preview").toBe(IDLE);
   });
 
   it("the focus ring is at least 2px wide and 3:1 against the page, in light and dark, at 1280px and 390px", async () => {
