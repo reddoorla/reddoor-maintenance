@@ -124,8 +124,8 @@
       },
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "        {@const show = hoverSel[ci] ?? sel}",
-        "replace": "        {@const show = (hoverSel[ci] == null ? null : placeOf(c.nights, hoverLabel[ci])) ?? sel}"
+        "find": "        {@const hover = hoverSel[ci] ?? null}",
+        "replace": "        {@const hover = hoverSel[ci] == null ? null : placeOf(c.nights, hoverLabel[ci])}"
       }
     ],
     "test": "cockpit/tests/overview/page-identity.dom.test.ts",
