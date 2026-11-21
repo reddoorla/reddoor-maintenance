@@ -196,5 +196,31 @@
     ],
     "test": "tests/audits/fleet-event-detectors.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "E12d-guard-reads-hashed",
+    "why": "#2200 round 5: the guard reads hashed instead of tables",
+    "edits": [
+      {
+        "file": "src/audits/fleet-event-detectors.ts",
+        "find": "  if (t === 0) return null;\n",
+        "replace": "  if (fields.get(\"hashed\") === \"0\") return null;\n"
+      }
+    ],
+    "test": "tests/audits/fleet-event-detectors.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "E12e-two-tables-needed",
+    "why": "#2200 round 5: one table is refused (tables at least 2)",
+    "edits": [
+      {
+        "file": "src/audits/fleet-event-detectors.ts",
+        "find": "  if (t === 0) return null;\n",
+        "replace": "  if (t <= 1) return null;\n"
+      }
+    ],
+    "test": "tests/audits/fleet-event-detectors.test.ts",
+    "expect": "red"
   }
 ]
