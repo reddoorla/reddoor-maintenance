@@ -41,7 +41,39 @@ function dueDeps(reports: RawRow[] = [], over: Record<string, unknown> = {}) {
     roster: async () => rosterRows,
     allReports: async () => reportRowsFrom(reports),
     reportMirror: makeFakeReportWriter(),
+    redate: fakeRedate(),
     ...over,
+  };
+}
+
+/** #2157's re-date IO, recorded. `unapprove` answers `took` (false = a send or a
+ *  withdraw won the race); `rerender` answers `status`. Every call lands in
+ *  `calls`, in order, beside the report writer's patches when `writer` is given. */
+function fakeRedate(
+  opts: { took?: boolean; status?: string; writer?: ReturnType<typeof makeFakeReportWriter> } = {},
+) {
+  const calls: string[] = [];
+  const unapproves: Array<{ id: string; by: string }> = [];
+  if (opts.writer) {
+    const w = opts.writer;
+    const patch = w.patch;
+    w.patch = async (id, p) => {
+      calls.push(`patch ${id} ${JSON.stringify(p)}`);
+      return patch(id, p);
+    };
+  }
+  return {
+    calls,
+    unapproves,
+    unapprove: async (id: string, _at: Date, by: string) => {
+      calls.push(`unapprove ${id}`);
+      unapproves.push({ id, by });
+      return opts.took ?? true;
+    },
+    rerender: async (id: string) => {
+      calls.push(`rerender ${id}`);
+      return { status: opts.status ?? "rendered" };
+    },
   };
 }
 
@@ -700,32 +732,94 @@ describe("draftDueReports — P1-117 early drafts", () => {
     expect(res.output).toContain("• due date (none) → 2026-06-02: Acme Co Maintenance");
   });
 
-  it("keeps a ready row's drafted due date: its stored body shows it, so the send must too", async () => {
+  // #2157 (the operator, 2026-11-21: "Re-draft on new date"). An anchor edit
+  // after the early draft exists moves the cycle inside the period; the ready row
+  // takes the new date, loses its approval, and is re-rendered on the send's path.
+  const readyRow = (over: Record<string, unknown> = {}): RawRow => ({
+    id: "rec_drafted",
+    fields: {
+      Site: ["rec_site_acme"],
+      "Report type": "Maintenance",
+      Period: "2026-06",
+      "Draft ready": true,
+      "Approved to send": true,
+      "Approved at": "2026-05-25T18:00:00Z",
+      "Due on": "2026-06-01",
+      ...over,
+    },
+  });
+
+  it("re-drafts an approved ready row on the cycle's new date: approval back, date stamped, then re-rendered (#2157)", async () => {
     // The cycle now says 06-02; the ready, approved row was drafted for 06-01.
     rosterRows = [siteRow({ maintenanceDay: "2026-05-02" })];
     const w = makeFakeReportWriter();
+    const redate = fakeRedate({ writer: w });
+    const res = await draftDueReports(TODAY, dueDeps([readyRow()], { reportMirror: w, redate }));
+    expect(redate.calls).toEqual([
+      "unapprove rec_drafted",
+      'patch rec_drafted {"due_on":"2026-06-02"}',
+      "rerender rec_drafted",
+    ]);
+    expect(redate.unapproves).toEqual([
+      { id: "rec_drafted", by: "nightly: due date moved 2026-06-01 → 2026-06-02" },
+    ]);
+    // Re-rendered from the row, not completed as a new draft.
+    expect(draftReportForSite).not.toHaveBeenCalled();
+    expect(res.output).toContain(
+      "• due date moved 2026-06-01 → 2026-06-02: Acme Co Maintenance — approval taken back, preview re-rendered; approve again",
+    );
+    expect(res.output).not.toContain("skipped (already drafted");
+    expect(res.code).toBe(0);
+  });
+
+  it("re-dates a ready row that was never approved without an unapprove (#2157)", async () => {
+    rosterRows = [siteRow({ maintenanceDay: "2026-05-02" })];
+    const w = makeFakeReportWriter();
+    const redate = fakeRedate({ writer: w });
     const res = await draftDueReports(
       TODAY,
-      dueDeps(
-        [
-          {
-            id: "rec_drafted",
-            fields: {
-              Site: ["rec_site_acme"],
-              "Report type": "Maintenance",
-              Period: "2026-06",
-              "Draft ready": true,
-              "Approved to send": true,
-              "Due on": "2026-06-01",
-            },
-          },
-        ],
-        { reportMirror: w },
-      ),
+      dueDeps([readyRow({ "Approved to send": false, "Approved at": undefined })], {
+        reportMirror: w,
+        redate,
+      }),
     );
-    expect(w.patches).toEqual([]);
-    expect(draftReportForSite).not.toHaveBeenCalled();
-    expect(res.output).toContain("skipped (already drafted 2026-06)");
+    expect(redate.calls).toEqual([
+      'patch rec_drafted {"due_on":"2026-06-02"}',
+      "rerender rec_drafted",
+    ]);
+    expect(res.output).toContain(
+      "• due date moved 2026-06-01 → 2026-06-02: Acme Co Maintenance — preview re-rendered",
+    );
+    expect(res.code).toBe(0);
+  });
+
+  it("leaves the row alone when a send or a withdraw wins the unapprove race (#2157)", async () => {
+    rosterRows = [siteRow({ maintenanceDay: "2026-05-02" })];
+    const w = makeFakeReportWriter();
+    const redate = fakeRedate({ writer: w, took: false });
+    const res = await draftDueReports(TODAY, dueDeps([readyRow()], { reportMirror: w, redate }));
+    expect(redate.calls).toEqual(["unapprove rec_drafted"]);
+    expect(res.output).toContain(
+      "⚠ due date moved 2026-06-01 → 2026-06-02: Acme Co Maintenance — not re-dated: it is being sent, or was sent, withdrawn or unapproved since this run read it",
+    );
+    expect(res.code).toBe(0);
+  });
+
+  it("un-queues a re-dated row whose re-render failed, so the next nightly completes it (#2157)", async () => {
+    rosterRows = [siteRow({ maintenanceDay: "2026-05-02" })];
+    const w = makeFakeReportWriter();
+    const redate = fakeRedate({ writer: w, status: "no-header" });
+    const res = await draftDueReports(TODAY, dueDeps([readyRow()], { reportMirror: w, redate }));
+    expect(redate.calls).toEqual([
+      "unapprove rec_drafted",
+      'patch rec_drafted {"due_on":"2026-06-02"}',
+      "rerender rec_drafted",
+      'patch rec_drafted {"draft_ready":0}',
+    ]);
+    expect(res.output).toContain(
+      "✗ preview not re-rendered (no-header): Acme Co Maintenance — un-queued; the next nightly completes it on 2026-06-02",
+    );
+    expect(res.code).toBe(1);
   });
 
   it("leaves a ready row drafted before P1-117 (no due date) as it is", async () => {

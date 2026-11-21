@@ -21,6 +21,9 @@ export type ReadyItem = {
   /** Absolute URL to /s/<slug> on the dashboard. */
   dashboardUrl: string;
   ageDays?: number;
+  /** #2157: the nightly moved this report's due date and took its approval
+   *  back. Both `YYYY-MM-DD`. */
+  dueMoved?: { from: string; to: string };
 };
 
 /** Severity of a "Needs attention" entry. `critical` sorts above `warning`. */

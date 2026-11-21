@@ -660,6 +660,7 @@ function reportRowFromDb(
     withdrawnAt: r.withdrawn_at,
     withdrawnBy: r.withdrawn_by,
     sendStartedAt: r.send_started_at,
+    unapprovedBy: r.unapproved_by,
     dueOn: r.due_on,
   };
 }

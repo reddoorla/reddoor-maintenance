@@ -291,6 +291,28 @@ describe("runDigest", () => {
     expect(result.output).toContain("skipped");
   });
 
+  it("says why a report the nightly re-dated is waiting again: its due date moved and its approval was taken back (#2157)", async () => {
+    const send = async (unapprovedBy: string) => {
+      const tables = {
+        Reports: [readyReport({ "Due on": "2026-06-02", "Unapproved by": unapprovedBy })],
+        Websites: [siteRow()],
+      };
+      const { client, captured } = captureClient();
+      await runDigest({
+        digestState: memoryDigestState(),
+        ...io(tables),
+        resend: client,
+        baseUrl: "https://reddoor-maintenance.netlify.app",
+      });
+      return captured[0]!.html;
+    };
+    expect(await send("nightly: due date moved 2026-06-01 → 2026-06-02")).toContain(
+      "(due date moved 06-01 → 06-02, so its approval was taken back)",
+    );
+    // The operator's own unapprove says nothing extra.
+    expect(await send("Reddoor")).not.toContain("due date moved");
+  });
+
   it("sends a digest (Needs attention) when an APPROVED report has send blockers", async () => {
     const tables = {
       Reports: [approvedReport()],

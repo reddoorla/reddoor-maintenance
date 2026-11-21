@@ -1,5 +1,5 @@
 // src/reports/digest.ts
-import { isPendingApproval, type ReportRow } from "./report-row.js";
+import { isPendingApproval, redatedFrom, type ReportRow } from "./report-row.js";
 import type { NotifyBounceCounts } from "../db/submissions.js";
 import { isDashboardVisible, siteSlug, type WebsiteRow } from "../fleet/site-row.js";
 import { defaultResendClient, type ResendClient } from "./send/resend.js";
@@ -97,11 +97,14 @@ function readySection(items: ReadyItem[]): string {
         : `review &amp; approve`;
       const age = ageLabel(it.ageDays);
       const ageHtml = age ? ` <span style="color:${GREY}">(waiting ${esc(age)})</span>` : "";
+      const movedHtml = it.dueMoved
+        ? ` <span style="color:${GREY}">(due date moved ${esc(it.dueMoved.from.slice(5))} → ${esc(it.dueMoved.to.slice(5))}, so its approval was taken back)</span>`
+        : "";
       return `
       <tr>
         <td style="color:${GREY};font-family:helvetica,sans-serif;font-size:16px;line-height:24px;padding-bottom:8px">
           <strong style="color:#222">${esc(it.siteName)}</strong> — ${esc(it.reportType)} (${esc(it.period)})
-          — ${link}${ageHtml}
+          — ${link}${ageHtml}${movedHtml}
         </td>
       </tr>`;
     })
@@ -856,11 +859,13 @@ export async function runDigest(
       // somewhere usable instead of a 404.
       const slug = siteSlug(site.name);
       readyKeys.push(`ready:${r.id}`);
+      const movedFrom = redatedFrom(r);
       readyForYourYes.push({
         siteName: site.name,
         reportType: r.reportType,
         period: r.period ?? "—",
         dashboardUrl: slug ? `${baseUrl}/s/${slug}` : `${baseUrl}${TRIAGE_PATH}`,
+        ...(movedFrom && r.dueOn ? { dueMoved: { from: movedFrom, to: r.dueOn } } : {}),
       });
     }
 

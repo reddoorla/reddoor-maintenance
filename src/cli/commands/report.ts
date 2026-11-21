@@ -1,5 +1,6 @@
 import { nextDueDatesFields, siteSlug, type WebsiteRow } from "../../fleet/site-fields.js";
 import type { ReportRow } from "../../reports/report-fields.js";
+import { redatedBy } from "../../reports/report-row.js";
 import { findDueReports, nextDueDates, reportPeriodKey } from "../../reports/due.js";
 import { analyticsEnrolled, draftReportForSite } from "../../reports/draft.js";
 import { reportTier } from "../../reports/queue.js";
@@ -190,38 +191,9 @@ export async function runReportCommand(
   // function because rendering needs sharp — see rerender.ts.
   if (opts.rerender) {
     const { rerenderReport, formatRerenderResult } = await import("../../reports/send/rerender.js");
-    const { renderReportFromRow } = await import("../../reports/send/render-from-row.js");
     const { openDb, readDbConfig } = await import("../../db/client.js");
-    const {
-      getReportById,
-      getSiteById,
-      storeRenderedHtml,
-      storeChecklistEvidence,
-      storeLighthouseScores,
-      storeGaVisits,
-      mirrorHealthFields,
-    } = await import("../../db/fleet-state.js");
-    const { loadHeaderImage } = await import("../../db/header-images.js");
-    const { fetchSearch, fetchGaVisits } = await import("../../reports/draft.js");
     const db = await openDb(readDbConfig());
-    const result = await rerenderReport(
-      {
-        getReport: (id) => getReportById(db, id),
-        getSite: (id) => getSiteById(db, id),
-        loadHeaderPlate: async (id) => (await loadHeaderImage(db, id))?.bytes ?? null,
-        render: (site, report, plate) => renderReportFromRow(site, report, plate),
-        store: (id, html) => storeRenderedHtml(db, id, html),
-        storeEvidence: (id, checklist, autoEvidence, search) =>
-          storeChecklistEvidence(db, id, checklist, autoEvidence, search),
-        storeScores: (id, scores) => storeLighthouseScores(db, id, scores),
-        measureSearch: (site, start, end) => fetchSearch(site, start, end),
-        storeLookup: (siteId, fields) => mirrorHealthFields(db, siteId, fields),
-        measureVisits: (site, now) => fetchGaVisits(site, now),
-        storeVisits: (id, visits) => storeGaVisits(db, id, visits),
-        now: () => new Date(),
-      },
-      opts.rerender,
-    );
+    const result = await rerenderReport(await bindRerender(db), opts.rerender);
     // Exit 1 on anything but a render, so a dispatched run that refused is RED
     // rather than a green run that silently changed nothing.
     return { output: formatRerenderResult(result), code: result.status === "rendered" ? 0 : 1 };
@@ -358,6 +330,41 @@ async function runTestCommand(
   }
 }
 
+/** The Turso, GA and Search IO `rerenderReport` runs on: shared by
+ *  `--rerender` and the nightly's re-date (#2157), so both render as the send
+ *  does. Rendering needs sharp, which is why neither runs in a function. */
+async function bindRerender(
+  db: Awaited<ReturnType<typeof import("../../db/client.js").openDb>>,
+): Promise<import("../../reports/send/rerender.js").RerenderDeps> {
+  const { renderReportFromRow } = await import("../../reports/send/render-from-row.js");
+  const {
+    getReportById,
+    getSiteById,
+    storeRenderedHtml,
+    storeChecklistEvidence,
+    storeLighthouseScores,
+    storeGaVisits,
+    mirrorHealthFields,
+  } = await import("../../db/fleet-state.js");
+  const { loadHeaderImage } = await import("../../db/header-images.js");
+  const { fetchSearch, fetchGaVisits } = await import("../../reports/draft.js");
+  return {
+    getReport: (id) => getReportById(db, id),
+    getSite: (id) => getSiteById(db, id),
+    loadHeaderPlate: async (id) => (await loadHeaderImage(db, id))?.bytes ?? null,
+    render: (site, report, plate) => renderReportFromRow(site, report, plate),
+    store: (id, html) => storeRenderedHtml(db, id, html),
+    storeEvidence: (id, checklist, autoEvidence, search) =>
+      storeChecklistEvidence(db, id, checklist, autoEvidence, search),
+    storeScores: (id, scores) => storeLighthouseScores(db, id, scores),
+    measureSearch: (site, start, end) => fetchSearch(site, start, end),
+    storeLookup: (siteId, fields) => mirrorHealthFields(db, siteId, fields),
+    measureVisits: (site, now) => fetchGaVisits(site, now),
+    storeVisits: (id, visits) => storeGaVisits(db, id, visits),
+    now: () => new Date(),
+  };
+}
+
 async function runDueDraft(): Promise<{ output: string; code: number }> {
   // Phase 3 (#539): next-due writes land in site_schedule. Null when libSQL
   // creds are absent, reported as `mirror=absent` on the NEXT_DUE_WRITE line.
@@ -370,7 +377,9 @@ async function runDueDraft(): Promise<{ output: string; code: number }> {
   const { makeSiteMirror } = await import("../../db/site-mirror.js");
   // #646 step 4: the roster and every report come from Turso, over ONE connection
   // opened on the first read and closed when the run ends.
-  const { listSites, listAllReports } = await import("../../db/fleet-state.js");
+  const { listSites, listAllReports, unapproveReportIfUnsent } =
+    await import("../../db/fleet-state.js");
+  const { rerenderReport } = await import("../../reports/send/rerender.js");
   const fleetDb = lazyFleetDb();
   try {
     const result = await draftDueReports(new Date(), {
@@ -379,6 +388,10 @@ async function runDueDraft(): Promise<{ output: string; code: number }> {
       scheduleMirror: await makeScheduleMirror(),
       reportMirror: await makeReportMirror(),
       siteMirror: await makeSiteMirror(),
+      redate: {
+        unapprove: async (id, at, by) => unapproveReportIfUnsent(await fleetDb.get(), id, at, by),
+        rerender: async (id) => rerenderReport(await bindRerender(await fleetDb.get()), id),
+      },
     });
     await alertOnFleetAnalyticsFailure(result.health);
     return { output: result.output, code: result.code };
@@ -522,6 +535,21 @@ export type DraftDueDeps = {
   /** #539 Phase 5: the Websites-row twin — drafting stamps `Analytics soft-fail
    *  at` on the SITE row, a different Turso table from the report. */
   siteMirror?: SiteMirror;
+  /** #2157: the IO that re-dates a ready row whose cycle moved (an anchor edit
+   *  after its early draft). Required, like the reads: a default would bind a
+   *  real store under a unit suite. */
+  redate: RedateDeps;
+};
+
+/** #2157 (the operator, 2026-11-21: "Re-draft on new date"). */
+export type RedateDeps = {
+  /** Take back the row's approval, conditioned on it being approved, unsent,
+   *  unwithdrawn and unclaimed (`unapproveReportIfUnsent`); false when the
+   *  write matched nothing, because a send or a withdraw won. */
+  unapprove: (reportId: string, at: Date, by: string) => Promise<boolean>;
+  /** Re-render the row's stored body on the send's own path (`rerenderReport`),
+   *  which refreshes an unapproved row's scores, visits and evidence first. */
+  rerender: (reportId: string) => Promise<{ status: string }>;
 };
 
 export async function draftDueReports(
@@ -587,14 +615,27 @@ export async function draftDueReports(
       }
       // P1-117: a row that is not draft-ready (half-made, or superseded and
       // waiting) takes the cycle's current due date before it is completed, so its
-      // body and its send hold carry the same date. A READY row keeps the date it
-      // was drafted with: its stored body (the preview the operator approves) shows
-      // that date, and moving it here would make the send disagree with the
-      // preview. Its cycle can move inside one period only on an anchor edit
-      // before the first send or a manual same-type send mid-cycle (a Testing push
-      // always lands in a later period); it then sends on its drafted date, and
-      // the next cycle counts from that send. Rows drafted before P1-117 included.
+      // body and its send hold carry the same date.
+      //
+      // #2157 (the operator, 2026-11-21: "Re-draft on new date"): a READY row
+      // whose cycle moved inside the period (an anchor edit after its early
+      // draft, or a manual same-type send mid-cycle) takes the new date too.
+      // Its stored body is the preview the operator approves, so the approval
+      // comes back first, then the date, then the body is re-rendered on the
+      // send's path with fresh data. Kept on its drafted date instead, it would
+      // send then, and that send would outrank the new anchor for every later
+      // cycle. A ready row drafted before P1-117 has no due date and is left as
+      // it is.
       const dueOn = ymd(item.dueDate);
+      if (
+        existing.sentAt === null &&
+        existing.draftReady &&
+        existing.dueOn !== null &&
+        existing.dueOn !== dueOn
+      ) {
+        lines.push(await redateReadyRow(existing, existing.dueOn, dueOn, item, today, deps));
+        continue;
+      }
       if (existing.sentAt === null && !existing.draftReady && existing.dueOn !== dueOn) {
         try {
           await deps.reportMirror.patch(existing.id, { due_on: dueOn });
@@ -738,6 +779,61 @@ export async function draftDueReports(
     code: lines.some((l) => l.startsWith("✗")) ? 1 : 0,
     health: { softFailedSites, configuredSites: gaConfiguredSites },
   };
+}
+
+/** #2157: move a ready, unsent row to its cycle's new due date. Returns the
+ *  run-output line. Each step that fails leaves a row the next nightly can
+ *  finish: an approval taken back with the old date is re-dated again, and a
+ *  re-dated row whose render failed is un-queued, so the half-made path
+ *  completes it on the new date. */
+async function redateReadyRow(
+  row: ReportRow,
+  from: string,
+  to: string,
+  item: { site: WebsiteRow; reportType: ReportType },
+  today: Date,
+  deps: DraftDueDeps,
+): Promise<string> {
+  const what = `${item.site.name} ${item.reportType}`;
+  const moved = `due date moved ${from} → ${to}: ${what}`;
+  const wasApproved = row.approvedToSend;
+  try {
+    if (wasApproved) {
+      const took = await deps.redate.unapprove(row.id, today, redatedBy(from, to));
+      if (!took) {
+        return `⚠ ${moved} — not re-dated: it is being sent, or was sent, withdrawn or unapproved since this run read it`;
+      }
+      row.approvedToSend = false;
+      row.approvedAt = null;
+      row.approvedBy = null;
+    }
+  } catch (e) {
+    return `✗ ${moved} — approval not taken back: ${(e as Error).message}`;
+  }
+  try {
+    await deps.reportMirror.patch(row.id, { due_on: to });
+    row.dueOn = to;
+  } catch (e) {
+    return `✗ due date not updated: ${what} — ${(e as Error).message}`;
+  }
+  let status: string;
+  try {
+    status = (await deps.redate.rerender(row.id)).status;
+  } catch (e) {
+    status = (e as Error).message;
+  }
+  if (status === "rendered") {
+    return wasApproved
+      ? `• ${moved} — approval taken back, preview re-rendered; approve again`
+      : `• ${moved} — preview re-rendered`;
+  }
+  try {
+    await deps.reportMirror.patch(row.id, { draft_ready: 0 });
+    row.draftReady = false;
+  } catch (e) {
+    return `✗ preview not re-rendered (${status}): ${what} — and not un-queued (${(e as Error).message}); its preview still shows ${from}`;
+  }
+  return `✗ preview not re-rendered (${status}): ${what} — un-queued; the next nightly completes it on ${to}`;
 }
 
 async function runSingleSiteDraft(
