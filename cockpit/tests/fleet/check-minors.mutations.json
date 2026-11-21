@@ -1,0 +1,93 @@
+[
+  {
+    "id": "G1-count-ignores-rows",
+    "why": "#2185: the line keeps the fleet-wide count with no word of the rows shown",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "{failingLine(known, m.rows.length)}",
+        "replace": "{failingLine(known)}"
+      }
+    ],
+    "test": "cockpit/tests/fleet/sites.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "G2-shown-always-said",
+    "why": "#2185: the line says how many are shown even when every failing site is a row",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/view.ts",
+        "find": "return shown === undefined || shown === c.failing ? line : `${line}, ${shown} shown`;",
+        "replace": "return shown === undefined ? line : `${line}, ${shown} shown`;"
+      }
+    ],
+    "test": "cockpit/tests/fleet/sites.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "G3-shown-counts-the-fleet",
+    "why": "#2185: the shown count is the fleet's failing count again",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/view.ts",
+        "find": ": `${line}, ${shown} shown`;",
+        "replace": ": `${line}, ${c.failing} shown`;"
+      }
+    ],
+    "test": "cockpit/tests/fleet/sites.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "H1-title-plain",
+    "why": "#2186: arriving from a bar announces the unfiltered title",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "<title>{sitesTitle(known)}</title>",
+        "replace": "<title>{sitesTitle(null)}</title>"
+      }
+    ],
+    "test": "cockpit/tests/fleet/sites.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "H2-title-for-unknown",
+    "why": "#2186: an unknown ?check= is titled as if a check were in force",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/fleet/+page.svelte",
+        "find": "<title>{sitesTitle(known)}</title>",
+        "replace": "<title>{sitesTitle(unknownSlug === null ? known : { name: \"Live\" })}</title>"
+      }
+    ],
+    "test": "cockpit/tests/fleet/sites.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "I1-no-hover-underline",
+    "why": "#2189: a hovered failing-check link is not underlined",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "a.ov-check-link:hover {\n  text-decoration: underline;\n}\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "I2-no-focus-underline",
+    "why": "#2189: a keyboard-focused failing-check link is not underlined",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/overview.css",
+        "find": "a.ov-check-link:focus-visible {\n  text-decoration: underline;\n}\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  }
+]

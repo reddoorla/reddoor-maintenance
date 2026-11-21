@@ -11,6 +11,7 @@
     COLUMNS,
     FACT_COLUMNS,
     failingLine,
+    sitesTitle,
     okClass,
     showHiddenHref,
     sortHref,
@@ -69,7 +70,7 @@
 </script>
 
 <svelte:head>
-  <title>Sites — Reddoor maintenance</title>
+  <title>{sitesTitle(known)}</title>
 </svelte:head>
 <PageStyles sheets={[healthCss, fleetTableCss]} />
 
@@ -89,7 +90,7 @@
 </div>
 {#if known !== null}
   <p class="check-filter">
-    {failingLine(known)}{#if known.unread > 0}
+    {failingLine(known, m.rows.length)}{#if known.unread > 0}
       {" "}· {known.unread} more {known.unread === 1
         ? "neither passes nor fails"
         : "neither pass nor fail"}{/if}
