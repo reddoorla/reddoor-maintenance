@@ -394,3 +394,12 @@ body {
     border: 0.375rem solid;
   }
 }
+
+/* #2180: forced colours drop the lit step's fill, so a lit and an unlit marker looked alike.
+   The lit one fills its 0.6rem box with a border in the text colour; the unlit one keeps its
+   1px outline. */
+@media (forced-colors: active) {
+  .how-steps li[data-lit="true"]::before {
+    border: 0.3rem solid;
+  }
+}

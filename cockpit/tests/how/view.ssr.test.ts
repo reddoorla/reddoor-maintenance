@@ -86,6 +86,8 @@ describe("PR 8c item 9, round 1 E: the chapter counts as in view on a short scre
   it("at 0.6 of the viewport when the chapter is taller than it (844x390: 662px tall)", () => {
     expect(chapterInView(234 / 662, 234, 662, 390)).toBe(true);
     expect(chapterInView(233 / 662, 233, 662, 390)).toBe(false);
+    // #2183: a section of no height is never in view.
+    expect(chapterInView(0, 0, 0, 844)).toBe(false);
   });
 
   it("a tall chapter at 390x700 (716px) needs 420px showing, not the whole screen", () => {
@@ -194,6 +196,18 @@ describe("PR 8c item 10: the nights line", () => {
 
   it("no counted night yet says so", () => {
     expect(line([])).toBe("No nights counted yet in the last 21.");
+  });
+
+  // #2179: a count of sites must be a whole number; a night counting 1.5 is left out.
+  it("a non-integer count is left out, as an unreadable one is", () => {
+    const nights = window21([0, 2, 1, 0, 3, ...ZEROS]);
+    const second = nights[1]!.counts.sites as unknown as {
+      value: { tiers: Record<string, number> };
+    };
+    second.value.tiers.broken = 1.5;
+    expect(line(nights)).toBe(
+      "At least one site sat here on 2 of the 20 nights counted in the last 21; the most on one night was 3.",
+    );
   });
 
   it("unreadable nights say the counts could not be read", () => {
@@ -373,5 +387,28 @@ describe("PR 8c item 10: the level's sites, by their own status and count", () =
     expect(line(bad)).toBe(
       "At least one site sat here on 2 of the 20 nights counted in the last 21; the most on one night was 3.",
     );
+  });
+});
+
+// #2178: "Acme Co" and "Acme-Co" slug alike. The ladder matched each card to its Triage row by
+// slug, so both read the certificate's reason. It matches by site id now.
+describe("today's sites: two names that slug alike keep their own reasons (#2178)", () => {
+  const SNAP = snapshot({
+    sites: [
+      healthy({ id: "recCO", name: "Acme Co", certDaysRemaining: 10 }),
+      healthy({ id: "recDASH", name: "Acme-Co", pScore: 78, lastLighthouseAuditAt: FRESH }),
+    ],
+  });
+  const today = todayAtLevels(SNAP, NOW);
+
+  it("premise: they slug alike, and sit at two levels", () => {
+    expect(siteSlug("Acme Co")).toBe(siteSlug("Acme-Co"));
+    expect(today.attention.map((s) => s.name)).toEqual(["Acme Co"]);
+    expect(today.watch.map((s) => s.name)).toEqual(["Acme-Co"]);
+  });
+
+  it("each names its own reason", () => {
+    expect(today.attention[0]!.reason).toBe("TLS certificate expires in 10 days");
+    expect(today.watch[0]!.reason).toBe("Performance 78");
   });
 });
