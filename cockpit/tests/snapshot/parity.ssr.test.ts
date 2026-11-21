@@ -232,6 +232,18 @@ async function seed() {
       data: null,
     } as never);
   }
+  // #2201: a deploy inside the week, on a site with no merge before it. The snapshot's
+  // recent read leaves deploys out, so the loader's reference must too, or the pages
+  // differ as soon as a deploy exists.
+  await recordFleetEvent(db, {
+    id: "deploy-recB",
+    ts: new Date(NOW.getTime() - 90 * 60_000).toISOString(),
+    type: "site_deployed",
+    siteId: "recB",
+    siteName: "Beta Builders",
+    summary: "Deploy published",
+    data: null,
+  } as never);
   await createDeadLetter(db, {
     siteSlug: "acme",
     payload: { name: "Lost" },

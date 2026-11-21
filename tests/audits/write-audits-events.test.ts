@@ -24,6 +24,21 @@ const securityClean: AuditResult = {
   details: { counts: { critical: 0, high: 0, moderate: 0, low: 0 } },
 } as AuditResult;
 
+// #2197: a new ready production deploy reaches the detector through writeBackOneSite,
+// so dropping the netlifyDeploy line there turns every site_deployed event off.
+const deployReady: AuditResult = {
+  site: "caltex",
+  audit: "netlify-deploy",
+  status: "pass",
+  summary: "deploy ready",
+  details: {
+    state: "ready",
+    deployedAt: "2026-06-17T12:00:00.000Z",
+    logUrl: "https://caltex.netlify.app",
+    checkedAt: "2026-06-18T00:00:00.000Z",
+  },
+} as AuditResult;
+
 describe("writeBackOneSite attaches detected events", () => {
   it("emits vuln_cleared when prior critical+high cleared to 0", async () => {
     const summary = await writeBackOneSite({
@@ -43,5 +58,16 @@ describe("writeBackOneSite attaches detected events", () => {
       results: [securityClean],
     });
     expect(summary.events ?? []).toHaveLength(0);
+  });
+
+  it("emits site_deployed for a new ready deploy, stamped with its publish time", async () => {
+    const summary = await writeBackOneSite({
+      mirrorHealth,
+      websites: [siteRow({ lastDeployAt: "2026-06-10T09:00:00.000Z" })],
+      slug: "caltex",
+      results: [deployReady],
+    });
+    const deployed = (summary.events ?? []).filter((e) => e.type === "site_deployed");
+    expect(deployed.map((e) => e.ts)).toEqual(["2026-06-17T12:00:00.000Z"]);
   });
 });

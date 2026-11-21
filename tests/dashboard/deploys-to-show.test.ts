@@ -45,6 +45,17 @@ describe("deploysToShow — a deploy after a merge on the same site is left out"
     expect(deploysToShow(rows).map((e) => e.id)).toEqual([]);
   });
 
+  // #2195: the window's upper end is inclusive too.
+  it("hides the deploy when the merge has exactly the deploy's time (inclusive)", () => {
+    const rows = [ev("deploy", DEPLOY), ev("merge", DEPLOY, "pr_automerged")];
+    expect(deploysToShow(rows).map((e) => e.id)).toEqual([]);
+  });
+
+  it("keeps the deploy when the merge is 1 ms after it", () => {
+    const rows = [ev("deploy", DEPLOY), ev("merge", at(1), "pr_automerged")];
+    expect(deploysToShow(rows).map((e) => e.id)).toEqual(["deploy"]);
+  });
+
   it("keeps the deploy when the merge is after it", () => {
     const rows = [ev("deploy", DEPLOY), ev("merge", at(5 * 60_000), "pr_automerged")];
     expect(deploysToShow(rows).map((e) => e.id)).toEqual(["deploy"]);
@@ -78,5 +89,29 @@ describe("deploysToShow — a deploy after a merge on the same site is left out"
     expect(out).toHaveLength(RECENT_EVENTS_LIMIT);
     expect(out[0]!.id).toBe(`d${RECENT_EVENTS_LIMIT + 4}`);
     expect(out.map((e) => e.ts)).toEqual([...out.map((e) => e.ts)].sort().reverse());
+  });
+});
+
+// #2193: the snapshot reads merges from an hour before the week, and lists only the
+// week's deploys. A merge before `sinceIso` still hides the deploy after it.
+describe("deploysToShow — sinceIso lists the window's deploys, and earlier merges still hide", () => {
+  const SINCE = DEPLOY;
+
+  it("hides a deploy just inside the window when its merge is just before it", () => {
+    const rows = [ev("deploy", at(10 * 60_000)), ev("merge", at(-20 * 60_000), "pr_automerged")];
+    expect(deploysToShow(rows, SINCE).map((e) => e.id)).toEqual([]);
+  });
+
+  it("lists a deploy exactly at sinceIso, and none 1 ms before it", () => {
+    const rows = [
+      ev("at", SINCE, "site_deployed", "recA"),
+      ev("before", at(-1), "site_deployed", "recB"),
+    ];
+    expect(deploysToShow(rows, SINCE).map((e) => e.id)).toEqual(["at"]);
+  });
+
+  it("without sinceIso, lists every deploy given, as before", () => {
+    const rows = [ev("old", at(-10 * 86_400_000)), ev("new", DEPLOY, "site_deployed", "recB")];
+    expect(deploysToShow(rows).map((e) => e.id)).toEqual(["new", "old"]);
   });
 });
