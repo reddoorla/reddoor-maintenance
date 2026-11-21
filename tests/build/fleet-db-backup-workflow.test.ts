@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, writeFile, chmod, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
@@ -228,79 +228,106 @@ describe("fleet-db-backup — the backup event is recorded at the end of the job
 // #2191 and #2192, executed. The record step's shell runs against a stub `node`
 // in each shape the CLI can end in. It exits 0 in every one (the event is never
 // the backup's verdict), and a night that did not record says so as a ::warning::.
-describe("fleet-db-backup — recording the event never fails the backup, and a miss warns", () => {
-  async function runRecord(
-    node: string,
-    script?: string,
-  ): Promise<{ code: number; out: string; args: string }> {
-    const dir = await mkdtemp(join(tmpdir(), "db-backup-record-"));
-    const bin = join(dir, "bin");
-    await mkdir(bin, { recursive: true });
-    await writeFile(
-      join(bin, "node"),
-      `#!/bin/sh\nprintf '%s' "$*" > "${join(dir, "args.txt")}"\n${node}\n`,
-      "utf-8",
-    );
-    await chmod(join(bin, "node"), 0o755);
-    const run = script ?? stepRunScript(workflowText, RECORD_STEP);
-    let code = 0;
-    let out = "";
-    try {
-      const r = await execFileAsync("bash", ["-e", "-c", run], {
-        cwd: dir,
-        env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}`, RUNNER_TEMP: dir },
-        timeout: 20_000,
-      });
-      out = r.stdout + r.stderr;
-    } catch (e) {
-      const err = e as { code?: number; stdout?: string; stderr?: string };
-      code = typeof err.code === "number" ? err.code : 1;
-      out = (err.stdout ?? "") + (err.stderr ?? "");
-    }
-    const args = await readFile(join(dir, "args.txt"), "utf-8").catch(() => "");
-    return { code, out, args };
+// These run the step's shell, which needs GNU `timeout`: on the runner and in CI it is
+// there; a laptop without coreutils skips them rather than failing on exit 127.
+const hasTimeout = (() => {
+  try {
+    execFileSync("timeout", ["--version"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
   }
+})();
 
-  it("a recorded night exits 0 with no warning, and passes the verify output", async () => {
-    const r = await runRecord(
-      "echo 'record-backup-event: recorded backup_verified:2026-06-25'; exit 0",
-    );
-    expect(r.code).toBe(0);
-    expect(r.out).toContain("record-backup-event: recorded backup_verified:2026-06-25");
-    expect(r.out).not.toContain("::warning::");
-    expect(r.args).toContain("db record-backup-event --file");
-  });
+describe.skipIf(!hasTimeout)(
+  "fleet-db-backup — recording the event never fails the backup, and a miss warns",
+  () => {
+    async function runRecord(
+      node: string,
+      script?: string,
+    ): Promise<{ code: number; out: string; args: string }> {
+      const dir = await mkdtemp(join(tmpdir(), "db-backup-record-"));
+      const bin = join(dir, "bin");
+      await mkdir(bin, { recursive: true });
+      await writeFile(
+        join(bin, "node"),
+        `#!/bin/sh\nprintf '%s' "$*" > "${join(dir, "args.txt")}"\n${node}\n`,
+        "utf-8",
+      );
+      await chmod(join(bin, "node"), 0o755);
+      const run = script ?? stepRunScript(workflowText, RECORD_STEP);
+      let code = 0;
+      let out = "";
+      try {
+        const r = await execFileAsync("bash", ["-e", "-c", run], {
+          cwd: dir,
+          env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}`, RUNNER_TEMP: dir },
+          timeout: 20_000,
+        });
+        out = r.stdout + r.stderr;
+      } catch (e) {
+        const err = e as { code?: number; stdout?: string; stderr?: string };
+        code = typeof err.code === "number" ? err.code : 1;
+        out = (err.stdout ?? "") + (err.stderr ?? "");
+      }
+      const args = await readFile(join(dir, "args.txt"), "utf-8").catch(() => "");
+      return { code, out, args };
+    }
 
-  it("a night the CLI did not record exits 0 and warns, quoting the CLI's line", async () => {
-    const line =
-      "record-backup-event: not recorded — backup_verified:2026-06-25 was not written (see the error above)";
-    const r = await runRecord(`echo '${line}'; exit 0`);
-    expect(r.code).toBe(0);
-    expect(r.out).toContain(
-      `::warning::The backup finished, but its feed event was not recorded (exit 0): ${line}`,
-    );
-  });
+    it("a recorded night exits 0 with no warning, and passes the verify output", async () => {
+      // A stderr line first (a Node warning, the writer's own errors): only stdout is
+      // matched, so it must not turn a recorded night into a warning.
+      const r = await runRecord(
+        "echo 'ExperimentalWarning: something' >&2; echo 'record-backup-event: recorded backup_verified:2026-06-25'; exit 0",
+      );
+      expect(r.code).toBe(0);
+      expect(r.out).toContain("record-backup-event: recorded backup_verified:2026-06-25");
+      expect(r.out).not.toContain("::warning::");
+      expect(r.args).toContain("db record-backup-event --file");
+    });
 
-  it("a CLI that crashes with no output exits 0 and warns with its exit code", async () => {
-    const r = await runRecord("exit 3");
-    expect(r.code).toBe(0);
-    expect(r.out).toContain(
-      "::warning::The backup finished, but its feed event was not recorded (exit 3): no output",
-    );
-  });
+    it("a night the CLI did not record exits 0 and warns, quoting the CLI's line", async () => {
+      const line =
+        "record-backup-event: not recorded — backup_verified:2026-06-25 was not written (see the error above)";
+      const r = await runRecord(`echo '${line}'; exit 0`);
+      expect(r.code).toBe(0);
+      expect(r.out).toContain(
+        `::warning::The backup finished, but its feed event was not recorded (exit 0): ${line}`,
+      );
+    });
 
-  it("a CLI that hangs is stopped by its timeout, then exits 0 and warns", async () => {
-    // The step's 4-minute bound, shortened to 1 s for the test; `exec` so the
-    // stub's sleep is the process `timeout` kills, as node is in the workflow.
-    const real = stepRunScript(workflowText, RECORD_STEP);
-    const short = real.replace("timeout -k 30 240 ", "timeout -k 1 1 ");
-    expect(short).not.toBe(real);
-    const started = Date.now();
-    const r = await runRecord("exec sleep 30", short);
-    expect(Date.now() - started).toBeLessThan(10_000);
-    expect(r.code).toBe(0);
-    expect(r.out).toContain(
-      "::warning::The backup finished, but its feed event was not recorded (exit 124): no output",
-    );
-  });
-});
+    it("a CLI that crashes with no output exits 0 and warns with its exit code", async () => {
+      const r = await runRecord("exit 3");
+      expect(r.code).toBe(0);
+      expect(r.out).toContain(
+        "::warning::The backup finished, but its feed event was not recorded (exit 3): no output",
+      );
+    });
+
+    it("a CLI that hangs is stopped by its timeout, then exits 0 and warns", async () => {
+      // The step's 4-minute bound, shortened to 1 s for the test; `exec` so the
+      // stub's sleep is the process `timeout` kills, as node is in the workflow.
+      const real = stepRunScript(workflowText, RECORD_STEP);
+      const short = real.replace("timeout -k 30 240 ", "timeout -k 1 1 ");
+      expect(short).not.toBe(real);
+      const started = Date.now();
+      const r = await runRecord("exec sleep 30", short);
+      expect(Date.now() - started).toBeLessThan(10_000);
+      expect(r.code).toBe(0);
+      expect(r.out).toContain(
+        "::warning::The backup finished, but recording its feed event timed out after 4 minutes (exit 124), so it may not have been recorded: no output",
+      );
+    });
+
+    it("a CLI that ignores TERM is KILLed after the grace, then exits 0 and warns", async () => {
+      const real = stepRunScript(workflowText, RECORD_STEP);
+      const short = real.replace("timeout -k 30 240 ", "timeout -k 1 1 ");
+      expect(short).not.toBe(real);
+      const started = Date.now();
+      const r = await runRecord("trap '' TERM\nsleep 30 &\nwait $!\nwait $!", short);
+      expect(Date.now() - started).toBeLessThan(10_000);
+      expect(r.code).toBe(0);
+      expect(r.out).toContain("timed out after 4 minutes (exit 137)");
+    });
+  },
+);

@@ -57,8 +57,8 @@
     "edits": [
       {
         "file": ".github/workflows/fleet-db-backup.yml",
-        "find": "            *) echo \"::warning::The backup finished",
-        "replace": "            *) echo \"The backup finished"
+        "find": "                echo \"::warning::The backup finished, but its feed event was not recorded",
+        "replace": "                echo \"The backup finished, but its feed event was not recorded"
       }
     ],
     "test": "tests/build/fleet-db-backup-workflow.test.ts",
@@ -72,6 +72,58 @@
         "file": ".github/workflows/fleet-db-backup.yml",
         "find": "            \"record-backup-event: recorded \"*) ;;",
         "replace": "            *recorded*) ;;"
+      }
+    ],
+    "test": "tests/build/fleet-db-backup-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "B3-stderr-joins-the-match",
+    "why": "round 1 (tests lens X6): stderr in $out puts a Node warning ahead of the recorded line, so every recorded night warns",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-db-backup.yml",
+        "find": "--file \"${RUNNER_TEMP:-/tmp}/verify.out\") || code=$?",
+        "replace": "--file \"${RUNNER_TEMP:-/tmp}/verify.out\" 2>&1) || code=$?"
+      }
+    ],
+    "test": "tests/build/fleet-db-backup-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "B4-timeout-reads-as-not-recorded",
+    "why": "round 1 (correctness/operations): a timed-out night says flatly 'not recorded', though the row may be in",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-db-backup.yml",
+        "find": "if [ \"$code\" = 124 ] || [ \"$code\" = 137 ]; then",
+        "replace": "if false; then"
+      }
+    ],
+    "test": "tests/build/fleet-db-backup-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "B5-kill-exit-not-a-timeout",
+    "why": "round 1 (tests lens): the KILL path (exit 137) is worded as a plain miss",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-db-backup.yml",
+        "find": " || [ \"$code\" = 137 ]; then",
+        "replace": "; then"
+      }
+    ],
+    "test": "tests/build/fleet-db-backup-workflow.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "A5-no-kill-grace",
+    "why": "round 1 (tests lens): without -k, a CLI that ignores TERM runs on to the step's timeout",
+    "edits": [
+      {
+        "file": ".github/workflows/fleet-db-backup.yml",
+        "find": "timeout -k 30 240 node",
+        "replace": "timeout 270 node"
       }
     ],
     "test": "tests/build/fleet-db-backup-workflow.test.ts",
