@@ -696,7 +696,9 @@ export async function collectAttention(deps: CollectAttentionDeps): Promise<Atte
   return [
     ...runCollector("vuln", () => collectVulnAlerts(websites, deps.baseUrl)),
     ...runCollector("delivery", () => collectDeliveryFailures(reports, sitesById, deps.baseUrl)),
-    ...runCollector("preflight", () => collectPreflightBlocked(reports, sitesById, deps.baseUrl)),
+    ...runCollector("preflight", () =>
+      collectPreflightBlocked(reports, sitesById, deps.baseUrl, now),
+    ),
     ...runCollector("lighthouse", () => collectLighthouseAlerts(websites, deps.baseUrl)),
     ...runCollector("renovate", () => collectRenovateAlerts(websites, deps.baseUrl, now)),
     ...runCollector("ci", () => collectCiAlerts(websites, deps.baseUrl, now)),

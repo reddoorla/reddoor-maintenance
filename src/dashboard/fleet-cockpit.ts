@@ -764,7 +764,7 @@ function collectFleetAttentionItems(
     ...collectVulnAlerts(sites, baseUrl),
     ...collectLighthouseAlerts(sites, baseUrl),
     ...collectDeliveryFailures(reports, sitesById, baseUrl),
-    ...collectPreflightBlocked(reports, sitesById, baseUrl),
+    ...collectPreflightBlocked(reports, sitesById, baseUrl, now),
     ...collectRenovateAlerts(sites, baseUrl, now),
     ...collectCiAlerts(sites, baseUrl, now),
     ...collectAnalyticsFailures(sites, baseUrl, now),
