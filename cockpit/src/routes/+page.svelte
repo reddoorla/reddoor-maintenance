@@ -65,6 +65,8 @@
   // refresh that moves the window on keeps a chart on the same night, and a night that left the
   // window is no selection (P1-87 minors, #2174). `hoverSel` stays a place: it is where the pointer
   // rests, so after a refresh it previews the night now under the pointer (#2174 review round 1).
+  // A hover past a chart's last night (a window that shrank under a resting pointer) is no preview,
+  // so the readout falls back to the key night (review round 2, nit).
   let keySel = $state<Record<number, string | null>>({});
   let hoverSel = $state<Record<number, number | null>>({});
   /** The place of night `label` in chart `nights`, or null when it is none or not in the window. */
@@ -781,7 +783,8 @@
         {@const sel = placeOf(c.nights, keySel[ci])}
         {@const titles = g.slots.map((t) => t.title)}
         {@const shown = sel ?? titles.length - 1}
-        {@const show = hoverSel[ci] ?? sel}
+        {@const hover = hoverSel[ci] ?? null}
+        {@const show = hover !== null && hover < g.slots.length ? hover : sel}
         <figure class="ov-trend">
           <figcaption id="ov-trend-{ci}">{c.title}</figcaption>
           {#if c.series.length > 1}
