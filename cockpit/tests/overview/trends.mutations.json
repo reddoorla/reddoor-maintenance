@@ -44,8 +44,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "{q.value === null\n                          ? q.note",
-        "replace": "{q.value === null\n                          ? 0"
+        "find": "{q.value === null ? q.note : q.note ?",
+        "replace": "{q.value === null ? 0 : q.note ?"
       }
     ],
     "test": "cockpit/tests/overview/page.ssr.test.ts",
@@ -822,6 +822,32 @@
       }
     ],
     "test": "cockpit/tests/overview/trends.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2188-a-cursor-at-column-left",
+    "why": "#2188: the hover line is drawn at its night's left edge, not its centre",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "                x1={g.slots[show]!.x}\n                x2={g.slots[show]!.x}",
+        "replace": "                x1={g.slots[show]!.left}\n                x2={g.slots[show]!.left}"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2188-b-cursor-a-tenth-off-centre",
+    "why": "#2188: the hover line is one 0.1 step right of its night's centre; the old 0.05 check against the rect's own rounded centre saw this only at some night counts",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "                x1={g.slots[show]!.x}\n                x2={g.slots[show]!.x}",
+        "replace": "                x1={Math.round((g.slots[show]!.x + 0.1) * 10) / 10}\n                x2={Math.round((g.slots[show]!.x + 0.1) * 10) / 10}"
+      }
+    ],
+    "test": "tests/cockpit/snapshot-navigation.test.ts",
     "expect": "red"
   }
 ]

@@ -356,8 +356,8 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "    return () => cycle.stop();",
-        "replace": "    return () => undefined;"
+        "find": "    return () => {\n      cycle.stop();\n",
+        "replace": "    return () => {\n"
       }
     ],
     "test": ["cockpit/tests/overview/page-clock.dom.test.ts"],

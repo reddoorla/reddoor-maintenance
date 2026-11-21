@@ -1,0 +1,134 @@
+[
+  {
+    "id": "2166-a-refresh-replaces-fresh",
+    "why": "#2166: a refresh replaces the fresh set (the old behaviour), so a second refresh within FEED_MS unmarks the first one's line mid-slide",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "fresh = new Set([...untrack(() => fresh), ...added]);",
+        "replace": "fresh = new Set(added);"
+      }
+    ],
+    "test": "cockpit/tests/overview/page-identity.dom.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2166-b-timer-clears-every-line",
+    "why": "#2166: each refresh's timer clears every marked line, not only its own",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "          left.delete(k);\n",
+        "replace": "          left.clear();\n"
+      }
+    ],
+    "test": "cockpit/tests/overview/page-identity.dom.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2167-a-leads-keyed-by-words",
+    "why": "#2167: a site's leads line is keyed by its words, so a rising count makes a new key",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      2,\n      `leads|${g.key}`,\n",
+        "replace": "      2,\n"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2167-b-nightly-keyed-by-words",
+    "why": "#2167: a night's run line is keyed by its words, so a step finishing makes a new key",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "        3,\n        `nightly|${night.night}`,\n",
+        "replace": "        3,\n"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2174-a-selection-by-place",
+    "why": "#2174: the key night is kept by its place in the window (the old behaviour), so a refresh that moves the window on moves the chart to the next night",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "const i = label == null ? -1 : nights.indexOf(label);",
+        "replace": "const i = label == null ? -1 : Number(label);"
+      },
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "setKeyNight(ci, next === null ? null : c.nights[next]!);",
+        "replace": "setKeyNight(ci, next === null ? null : String(next));"
+      }
+    ],
+    "test": "cockpit/tests/overview/page-identity.dom.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2174-b-gone-night-reads-oldest",
+    "why": "#2174: a chosen night that left the window reads as the oldest night instead of none",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "return i === -1 ? null : i;",
+        "replace": "return i === -1 ? (label == null ? null : 0) : i;"
+      }
+    ],
+    "test": "cockpit/tests/overview/page-identity.dom.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2167-c-leads-key-drops-the-day",
+    "why": "#2167 (review round 1): a site's leads lines on two days share one id, so the dedupe's #2 moves between them and the wrong line slides",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "      `leads|${g.key}`,\n",
+        "replace": "      `leads|${g.siteId}`,\n"
+      }
+    ],
+    "test": "cockpit/tests/overview/view.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2166-c-first-timer-not-restarted",
+    "why": "#2166 (review round 1): a line new again within FEED_MS keeps its first timer, so its second slide is cut short",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "      clearTimeout(freshTimers.get(k));\n",
+        "replace": "      if (freshTimers.has(k)) continue;\n"
+      }
+    ],
+    "test": "cockpit/tests/overview/page-identity.dom.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2174-c-hover-kept-by-label",
+    "why": "#2174 (review round 1): the hover is kept by date, so after the window moves on the preview is one column off the pointer",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "  let hoverSel = $state<Record<number, number | null>>({});",
+        "replace": "  let hoverSel = $state<Record<number, number | null>>({});\n  let hoverLabel = $state<Record<number, string | null>>({});"
+      },
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "if (e.pointerType === \"mouse\") hoverSel[ci] = ti;",
+        "replace": "if (e.pointerType === \"mouse\") {\n                    hoverSel[ci] = ti;\n                    hoverLabel[ci] = c.nights[ti]!;\n                  }"
+      },
+      {
+        "file": "cockpit/src/routes/+page.svelte",
+        "find": "        {@const hover = hoverSel[ci] ?? null}",
+        "replace": "        {@const hover = hoverSel[ci] == null ? null : placeOf(c.nights, hoverLabel[ci])}"
+      }
+    ],
+    "test": "cockpit/tests/overview/page-identity.dom.test.ts",
+    "expect": "red"
+  }
+]
