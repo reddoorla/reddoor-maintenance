@@ -21,6 +21,9 @@ import type { ReportType } from "../../reports/types.js";
 import type { ScheduleMirror } from "../../audits/health-mirror.js";
 import type { ReportMirror } from "../../reports/report-mirror.js";
 import type { SiteMirror } from "../../db/site-mirror.js";
+import type { Db } from "../../db/client.js";
+import type { RedatedMarker } from "../../db/fleet-state.js";
+import type { RerenderDeps } from "../../reports/send/rerender.js";
 import { operatorEmail } from "../../util/operator.js";
 import { lazyFleetDb } from "../../db/lazy-fleet-db.js";
 import { ymd } from "../../util/date.js";
@@ -340,9 +343,7 @@ async function runTestCommand(
 /** The Turso, GA and Search IO `rerenderReport` runs on: shared by
  *  `--rerender` and the nightly's re-date (#2157), so both render as the send
  *  does. Rendering needs sharp, which is why neither runs in a function. */
-async function bindRerender(
-  db: Awaited<ReturnType<typeof import("../../db/client.js").openDb>>,
-): Promise<import("../../reports/send/rerender.js").RerenderDeps> {
+async function bindRerender(db: Db): Promise<RerenderDeps> {
   const { renderReportFromRow } = await import("../../reports/send/render-from-row.js");
   const {
     getReportById,
@@ -372,6 +373,29 @@ async function bindRerender(
   };
 }
 
+/** #2157: the nightly's re-date IO over Turso: the take-back is
+ *  `unapproveReportIfUnsent` with the move's marker, and the re-render runs on
+ *  `bindBase` (the send's own path, {@link bindRerender}) and stores through
+ *  `storeRedatedBody`. Exported for its test, which binds a fake renderer. */
+export async function bindRedateDeps(
+  getDb: () => Promise<Db>,
+  bindBase: (db: Db) => Promise<RerenderDeps> = bindRerender,
+): Promise<RedateDeps> {
+  const { unapproveReportIfUnsent, storeRedatedBody } = await import("../../db/fleet-state.js");
+  const { rerenderReport, redatedRerenderDeps } = await import("../../reports/send/rerender.js");
+  return {
+    unapprove: async (id, at, by) => unapproveReportIfUnsent(await getDb(), id, at, by),
+    rerender: async (id, dueOn, marker) => {
+      const db = await getDb();
+      const bound = redatedRerenderDeps(await bindBase(db), dueOn, (rid, d, html) =>
+        storeRedatedBody(db, rid, d, html, marker),
+      );
+      const result = await rerenderReport(bound.deps, id);
+      return { status: result.status, stored: bound.stored() };
+    },
+  };
+}
+
 async function runDueDraft(): Promise<{ output: string; code: number }> {
   // Phase 3 (#539): next-due writes land in site_schedule. Null when libSQL
   // creds are absent, reported as `mirror=absent` on the NEXT_DUE_WRITE line.
@@ -384,9 +408,7 @@ async function runDueDraft(): Promise<{ output: string; code: number }> {
   const { makeSiteMirror } = await import("../../db/site-mirror.js");
   // #646 step 4: the roster and every report come from Turso, over ONE connection
   // opened on the first read and closed when the run ends.
-  const { listSites, listAllReports, unapproveReportIfUnsent, storeRedatedBody } =
-    await import("../../db/fleet-state.js");
-  const { rerenderReport, redatedRerenderDeps } = await import("../../reports/send/rerender.js");
+  const { listSites, listAllReports } = await import("../../db/fleet-state.js");
   const fleetDb = lazyFleetDb();
   try {
     const result = await draftDueReports(new Date(), {
@@ -395,17 +417,7 @@ async function runDueDraft(): Promise<{ output: string; code: number }> {
       scheduleMirror: await makeScheduleMirror(),
       reportMirror: await makeReportMirror(),
       siteMirror: await makeSiteMirror(),
-      redate: {
-        unapprove: async (id, at, by) => unapproveReportIfUnsent(await fleetDb.get(), id, at, by),
-        rerender: async (id, dueOn, marker) => {
-          const db = await fleetDb.get();
-          const bound = redatedRerenderDeps(await bindRerender(db), dueOn, (rid, d, html) =>
-            storeRedatedBody(db, rid, d, html, marker),
-          );
-          const result = await rerenderReport(bound.deps, id);
-          return { status: result.status, stored: bound.stored() };
-        },
-      },
+      redate: await bindRedateDeps(() => fleetDb.get()),
     });
     await alertOnFleetAnalyticsFailure(result.health);
     return { output: result.output, code: result.code };
@@ -550,8 +562,8 @@ export type DraftDueDeps = {
    *  at` on the SITE row, a different Turso table from the report. */
   siteMirror?: SiteMirror;
   /** #2157: the IO that re-dates a ready row whose cycle moved (an anchor edit
-   *  after its early draft, or a same-type send mid-cycle). Required, like the reads: a default would bind a
-   *  real store under a unit suite. */
+   *  after its early draft, or a same-type send mid-cycle). Required, like the
+   *  reads: a default would bind a real store under a unit suite. */
   redate: RedateDeps;
 };
 
@@ -567,12 +579,13 @@ export type RedateDeps = {
    *  conditioned on the row being draft-ready, unapproved, unsent, unwithdrawn
    *  and unclaimed (`storeRedatedBody`). With `marker`, the same write rewrites
    *  the nightly's take-back marker from `was` to `now`, conditioned on it still
-   *  reading `was`. `status` is the render's; `stored` is false when the write
-   *  matched nothing. */
+   *  reading `was`; with `{ nightlyOnly }`, it rewrites the marker only where it
+   *  is the nightly's. `status` is the render's; `stored` is false when the
+   *  write matched nothing. */
   rerender: (
     reportId: string,
     dueOn: string,
-    marker: { was: string; now: string } | null,
+    marker: RedatedMarker | null,
   ) => Promise<{ status: string; stored: boolean }>;
 };
 
@@ -590,7 +603,7 @@ export async function draftDueReports(
 
   // #2157: every held early draft whose cycle moved, planned from the rows as
   // read, before this run changes any of them. Applied after the drafting.
-  const redates = planRedates(websites, reports, today);
+  const { plan: redates, failed: unplanned } = planRedates(websites, reports, today);
 
   // Refresh every site's code-owned next-due dates first, so they stay current even on
   // a run where nothing is due (the early return below).
@@ -607,7 +620,7 @@ export async function draftDueReports(
   const isAnalyticsConfigured = (s: WebsiteRow): boolean => gaConfigured && analyticsEnrolled(s);
 
   if (due.length === 0) {
-    const redateLines = await applyRedates(redates, today, deps);
+    const redateLines = [...unplanned, ...(await applyRedates(redates, today, deps))];
     return {
       output: [...redateLines, "No reports due."].join("\n"),
       code: redateLines.some((l) => l.startsWith("✗")) ? 1 : 0,
@@ -767,7 +780,7 @@ export async function draftDueReports(
       lines.push(`✗ failed: ${item.site.name} ${item.reportType} — ${(e as Error).message}`);
     }
   }
-  lines.push(...(await applyRedates(redates, today, deps)));
+  lines.push(...unplanned, ...(await applyRedates(redates, today, deps)));
   if (skipped > 0) {
     lines.push(`• ${skipped} already drafted or pending this period`);
   }
@@ -821,23 +834,37 @@ export async function draftDueReports(
  */
 type PlannedRedate = { row: ReportRow; from: string; to: string; site: WebsiteRow };
 
-function planRedates(websites: WebsiteRow[], reports: ReportRow[], today: Date): PlannedRedate[] {
+function planRedates(
+  websites: WebsiteRow[],
+  reports: ReportRow[],
+  today: Date,
+): { plan: PlannedRedate[]; failed: string[] } {
   const sites = new Map(websites.map((w) => [w.id, w]));
   const plan: PlannedRedate[] = [];
+  const failed: string[] = [];
   for (const row of reports) {
     if (!row.draftReady || row.sentAt !== null || row.withdrawnAt !== null) continue;
     if (row.dueOn === null || row.period === null) continue;
     if (row.reportType !== "Maintenance" && row.reportType !== "Testing") continue;
     if (!heldUntilDue(row, today)) continue;
     const site = sites.get(row.siteId);
-    if (!site || cycleBase(site, reports, row.reportType) === null) continue;
-    const next = nextDueDate(site, reports, row.reportType, today);
-    if (next === null || reportPeriodKey(next) !== row.period) continue;
-    const to = ymd(next);
-    if (to === row.dueOn) continue;
-    plan.push({ row, from: row.dueOn, to, site });
+    if (!site) continue;
+    // One row's bad data (a base date that does not parse) costs that row
+    // alone, as it does in `writeNextDueDates`: the rest of the fleet drafts.
+    try {
+      if (cycleBase(site, reports, row.reportType) === null) continue;
+      const next = nextDueDate(site, reports, row.reportType, today);
+      if (next === null || reportPeriodKey(next) !== row.period) continue;
+      const to = ymd(next);
+      if (to === row.dueOn) continue;
+      plan.push({ row, from: row.dueOn, to, site });
+    } catch (e) {
+      failed.push(
+        `✗ ${site.name} ${row.reportType} (due ${row.dueOn}): its cycle could not be read, so a due-date move was not checked (${String(e)})`,
+      );
+    }
   }
-  return plan;
+  return { plan, failed };
 }
 
 /** Apply {@link planRedates}' moves, one line each. */
@@ -877,7 +904,7 @@ async function redateReadyRow(
       : "approval taken back"
     : null;
   const by = redatedBy(from, to);
-  let marker: { was: string; now: string } | null = null;
+  let marker: RedatedMarker | null = null;
   let took = offered;
   if (took) {
     let ok: boolean;
@@ -886,8 +913,14 @@ async function redateReadyRow(
     } catch (e) {
       return `✗ ${moved} — approval not taken back: ${String(e)}`;
     }
+    // A miss: a send, a claim or a withdraw won (the store refuses those), the
+    // operator unapproved it himself, or another run took it back for another
+    // move. The store rewrites the marker only in the last case.
     if (ok) marker = { was: by, now: by };
-    else took = null;
+    else {
+      took = null;
+      marker = { nightlyOnly: true, now: by };
+    }
   } else if (row.unapprovedBy !== null && redatedMove(row) !== null) {
     marker = { was: row.unapprovedBy, now: by };
   }
@@ -906,7 +939,7 @@ async function redateReadyRow(
     return `✗ ${moved} — ${after}preview not re-rendered (${result.status}); ${kept}`;
   }
   if (!result.stored) {
-    return `⚠ ${moved} — ${after}not re-dated: it was approved, sent, withdrawn or superseded while this run worked`;
+    return `⚠ ${moved} — ${after}not re-dated: it was approved, claimed for a send, sent, withdrawn or superseded while this run worked, or approved and unapproved again`;
   }
   return took
     ? `• ${moved} — ${took}, preview re-rendered; approve again`

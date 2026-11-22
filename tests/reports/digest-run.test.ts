@@ -1270,6 +1270,28 @@ describe("runDigest — sends only on change, with ages and exact asks (P1-20)",
     expect(html).toMatch(/NEW<\/strong> <a [^>]*>A sent report bounced<\/a>(?! <span)/);
   });
 
+  it("mails a report the nightly took back, or moved again, though its row was already mailed (#2157)", async () => {
+    const w = world();
+    const row = (dueOn: string, mark?: string) => ({
+      Reports: [readyReport({ "Due on": dueOn, ...(mark ? { "Unapproved by": mark } : {}) })],
+      Websites: navy.Websites,
+    });
+    // Pending and mailed; he approves it; that night the nightly takes it back.
+    await run(w, row("2026-06-01"), day(0));
+    const taken = await run(
+      w,
+      row("2026-06-02", "nightly: due date moved 2026-06-01 → 2026-06-02"),
+      day(1),
+    );
+    expect(taken.output).toContain("Digest sent (added)");
+    // It moves again before he approves it.
+    const again = row("2026-06-03", "nightly: due date moved 2026-06-02 → 2026-06-03");
+    expect((await run(w, again, day(2))).output).toContain("Digest sent (added)");
+    // The same move the next night is not news.
+    expect((await run(w, again, day(3))).output).toContain("Digest skipped (unchanged");
+    expect(w.captured).toHaveLength(3);
+  });
+
   it("a resolution alone sends nothing; it rides the next send", async () => {
     const w = world();
     await run(w, navy, day(0));

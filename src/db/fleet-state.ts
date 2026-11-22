@@ -36,6 +36,7 @@ import type { CellValue } from "../fleet/site-fields.js";
 import {
   toReportType,
   parseAutoEvidence,
+  REDATED_BY_LIKE,
   type ReportRow,
   type DeliveryStatus,
 } from "../reports/report-row.js";
@@ -926,6 +927,9 @@ export async function unapproveReportIfUnsent(
   return res.numUpdatedRows > 0n;
 }
 
+/** #2157: how {@link storeRedatedBody} treats the nightly's take-back marker. */
+export type RedatedMarker = { was: string; now: string } | { nightlyOnly: true; now: string };
+
 /** #2157: the nightly's re-date, in one write: the re-rendered body and the
  *  cycle's new due date land together, conditioned on the row being
  *  draft-ready, unapproved, unsent, unwithdrawn and unclaimed. An approval
@@ -937,24 +941,37 @@ export async function unapproveReportIfUnsent(
  *  (`unapproved_by`, `redatedBy` in src/reports/report-row.ts) to name this move, and the write is
  *  then also conditioned on the marker still reading `was`: an approve and
  *  unapprove by the operator meanwhile replaces it, and the row is left alone.
+ *
+ *  `{ nightlyOnly: true, now }` is for a run whose own unapprove matched
+ *  nothing, so it cannot know the marker: the write rewrites the marker to
+ *  `now` only when it is the nightly's (another run took the approval back for
+ *  another move), and keeps any other (the operator's own) as it is.
  *  Returns whether a row matched. */
 export async function storeRedatedBody(
   db: Db,
   reportId: string,
   dueOn: string,
   html: string,
-  marker: { was: string; now: string } | null = null,
+  marker: RedatedMarker | null = null,
 ): Promise<boolean> {
+  const mark =
+    marker === null
+      ? {}
+      : "was" in marker
+        ? { unapproved_by: marker.now }
+        : {
+            unapproved_by: sql<string>`CASE WHEN unapproved_by LIKE ${REDATED_BY_LIKE} THEN ${marker.now} ELSE unapproved_by END`,
+          };
   let q = db
     .updateTable("reports")
-    .set({ rendered_html: html, due_on: dueOn, ...(marker ? { unapproved_by: marker.now } : {}) })
+    .set({ rendered_html: html, due_on: dueOn, ...mark })
     .where("id", "=", reportId)
     .where("draft_ready", "=", 1)
     .where("approved_to_send", "=", 0)
     .where("sent_at", "is", null)
     .where("withdrawn_at", "is", null)
     .where("send_started_at", "is", null);
-  if (marker) q = q.where("unapproved_by", "=", marker.was);
+  if (marker && "was" in marker) q = q.where("unapproved_by", "=", marker.was);
   const res = await q.executeTakeFirst();
   return res.numUpdatedRows > 0n;
 }

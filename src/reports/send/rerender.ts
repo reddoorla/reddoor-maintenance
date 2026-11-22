@@ -221,8 +221,10 @@ export async function rerenderReport(
  * cycle's new due date in memory, so the body shows the date it will send on,
  * and the body is stored by `storeBody`, the one conditional write that sets the
  * body and the due date together (`storeRedatedBody`). `stored()` says whether
- * that write matched: false when an approval, a send or a withdraw landed while
- * the body rendered, and the row then keeps its date and body.
+ * that write matched: false when an approval, a send claim, a send, a withdraw
+ * or a superseding draft landed while the body rendered, or the nightly's mark
+ * changed (he approved and unapproved it), and the row then keeps its date and
+ * body.
  */
 export function redatedRerenderDeps(
   base: RerenderDeps,

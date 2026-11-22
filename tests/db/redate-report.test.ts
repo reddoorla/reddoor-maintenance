@@ -17,6 +17,8 @@ import {
   unapproveReportIfUnsent,
 } from "../../src/db/fleet-state.js";
 import { redatedBy, redatedMove } from "../../src/reports/report-row.js";
+import { bindRedateDeps } from "../../src/cli/commands/report.js";
+import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 const SITE = "recREDATESITE";
 const REPORT = "recREDATEREPORT";
@@ -122,6 +124,124 @@ describe("storeRedatedBody's take-back mark", () => {
     await seed({ unapproved_by: "Reddoor" });
     expect(await storeRedatedBody(db, REPORT, "2026-06-02", "<p>06-02</p>")).toBe(true);
     expect(await mark()).toBe("Reddoor");
+  });
+});
+
+describe("storeRedatedBody after a take-back that missed (another run's, or his own)", () => {
+  const A = "nightly: due date moved 2026-06-01 → 2026-06-02";
+  const B = "nightly: due date moved 2026-06-01 → 2026-06-03";
+  const mark = async () =>
+    (
+      await db
+        .selectFrom("reports")
+        .select("unapproved_by")
+        .where("id", "=", REPORT)
+        .executeTakeFirstOrThrow()
+    ).unapproved_by;
+
+  it("rewrites another run's nightly mark to name this move", async () => {
+    await seed({ unapproved_by: A });
+    expect(
+      await storeRedatedBody(db, REPORT, "2026-06-03", "<p>06-03</p>", {
+        nightlyOnly: true,
+        now: B,
+      }),
+    ).toBe(true);
+    expect(await mark()).toBe(B);
+    expect(await stored()).toEqual({ dueOn: "2026-06-03", html: "<p>06-03</p>" });
+  });
+
+  it("keeps the operator's own mark, and still stores", async () => {
+    await seed({ unapproved_by: "dashboard" });
+    expect(
+      await storeRedatedBody(db, REPORT, "2026-06-03", "<p>06-03</p>", {
+        nightlyOnly: true,
+        now: B,
+      }),
+    ).toBe(true);
+    expect(await mark()).toBe("dashboard");
+    expect(await stored()).toEqual({ dueOn: "2026-06-03", html: "<p>06-03</p>" });
+  });
+
+  it("two overlapping runs leave the row on the later run's date with its mark", async () => {
+    await seed({ approved_to_send: 1, approved_at: "2026-05-25T18:00:00.000Z" });
+    const at = new Date("2026-05-26T13:00:00.000Z");
+    // Run 1's take-back lands; run 2's misses, and run 2 stores last.
+    expect(await unapproveReportIfUnsent(db, REPORT, at, A)).toBe(true);
+    expect(await unapproveReportIfUnsent(db, REPORT, at, B)).toBe(false);
+    await storeRedatedBody(db, REPORT, "2026-06-02", "<p>06-02</p>", { was: A, now: A });
+    await storeRedatedBody(db, REPORT, "2026-06-03", "<p>06-03</p>", { nightlyOnly: true, now: B });
+    const row = await getReportById(db, REPORT);
+    expect(row?.dueOn).toBe("2026-06-03");
+    expect(row && redatedMove(row)).toEqual({ from: "2026-06-01", to: "2026-06-03" });
+  });
+});
+
+describe("bindRedateDeps: the nightly's re-date wiring over Turso", () => {
+  const site = makeWebsiteRow({ id: SITE, name: "Redate Co" });
+  const AT = new Date("2026-05-26T13:00:00.000Z");
+  const by = redatedBy("2026-06-01", "2026-06-02");
+  let approveMidRender = false;
+  const bind = () =>
+    bindRedateDeps(
+      async () => db,
+      async (d) => ({
+        getReport: (id) => getReportById(d, id),
+        getSite: async () => site,
+        loadHeaderPlate: async () => new Uint8Array([1]),
+        render: async (_s, r) => {
+          if (approveMidRender) {
+            await d
+              .updateTable("reports")
+              .set({ approved_to_send: 1 })
+              .where("id", "=", REPORT)
+              .execute();
+          }
+          return { html: `<p>${r.dueOn}</p>` };
+        },
+        store: async () => {
+          throw new Error("the re-date must store through storeRedatedBody");
+        },
+        storeEvidence: async () => true,
+        storeScores: async () => true,
+        now: () => AT,
+      }),
+    );
+
+  beforeEach(() => {
+    approveMidRender = false;
+  });
+
+  it("takes the approval back with the move's mark, then stores the body and date", async () => {
+    await seed({ approved_to_send: 1, approved_at: "2026-05-25T18:00:00.000Z" });
+    const redate = await bind();
+    expect(await redate.unapprove(REPORT, AT, by)).toBe(true);
+    const row = await getReportById(db, REPORT);
+    expect(row?.unapprovedBy).toBe(by);
+    expect(await redate.rerender(REPORT, "2026-06-02", { was: by, now: by })).toEqual({
+      status: "rendered",
+      stored: true,
+    });
+    expect(await stored()).toEqual({ dueOn: "2026-06-02", html: "<p>2026-06-02</p>" });
+  });
+
+  it("passes the marker through: a second move rewrites the first's mark", async () => {
+    await seed({ unapproved_by: by, due_on: "2026-06-02", rendered_html: "<p>06-02</p>" });
+    const next = redatedBy("2026-06-02", "2026-06-03");
+    const redate = await bind();
+    expect((await redate.rerender(REPORT, "2026-06-03", { was: by, now: next })).stored).toBe(true);
+    expect((await getReportById(db, REPORT))?.unapprovedBy).toBe(next);
+  });
+
+  it("says stored: false when an approval lands while the body renders", async () => {
+    await seed();
+    approveMidRender = true;
+    const redate = await bind();
+    expect(await redate.rerender(REPORT, "2026-06-02", null)).toEqual({
+      status: "rendered",
+      stored: false,
+    });
+    expect(await stored()).toEqual({ dueOn: "2026-06-01", html: "<p>06-01</p>" });
   });
 });
 

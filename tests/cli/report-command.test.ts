@@ -30,6 +30,7 @@ import { draftDueReports, findExistingForPeriod } from "../../src/cli/commands/r
 import { makeFakeReportWriter } from "../reports/_helpers/fake-report-writer.js";
 import { reportRowsFrom, type RawRow } from "../_helpers/raw-rows.js";
 import type { WebsiteRow } from "../../src/fleet/site-row.js";
+import type { RedatedMarker } from "../../src/db/fleet-state.js";
 
 /** The fleet, as the batch reads it from Turso (#646 step 4). Set per case. */
 let rosterRows: WebsiteRow[] = [];
@@ -61,7 +62,7 @@ function fakeRedate(
 ) {
   const calls: string[] = [];
   const unapproves: Array<{ id: string; by: string }> = [];
-  const markers: Array<{ was: string; now: string } | null> = [];
+  const markers: Array<RedatedMarker | null> = [];
   return {
     calls,
     unapproves,
@@ -72,7 +73,7 @@ function fakeRedate(
       if (opts.unapproveThrows !== undefined) throw opts.unapproveThrows;
       return opts.took ?? true;
     },
-    rerender: async (id: string, dueOn: string, marker: { was: string; now: string } | null) => {
+    rerender: async (id: string, dueOn: string, marker: RedatedMarker | null) => {
       calls.push(`rerender ${id} ${dueOn}`);
       markers.push(marker);
       if (opts.rerenderThrows !== undefined) throw opts.rerenderThrows;
@@ -856,6 +857,27 @@ describe("draftDueReports — P1-117 early drafts", () => {
     expect(calls).toEqual([]);
   });
 
+  it("leaves a held row alone when its cycle has not moved", async () => {
+    // 05-01 monthly is 06-01, the date the row was drafted for.
+    const { res, calls } = await redateRun({ maintenanceDay: "2026-05-01" }, [readyRow()]);
+    expect(calls).toEqual([]);
+    expect(res.output).not.toContain("due date 2026-06-01 →");
+    expect(res.code).toBe(0);
+  });
+
+  it("one site whose cycle base does not parse costs that row alone: the fleet still drafts", async () => {
+    rosterRows = [
+      siteRow({ maintenanceDay: "garbage" }),
+      siteRow({ id: "rec_site_bee", name: "Bee Co", maintenanceDay: "2026-04-26" }),
+    ];
+    const res = await draftDueReports(TODAY, dueDeps([readyRow()]));
+    expect(res.output).toContain(
+      "✗ Acme Co Maintenance (due 2026-06-01): its cycle could not be read, so a due-date move was not checked",
+    );
+    expect(vi.mocked(draftReportForSite).mock.calls.map((c) => c[0].name)).toEqual(["Bee Co"]);
+    expect(res.code).toBe(1);
+  });
+
   it("leaves a superseded (not draft-ready) held row alone", async () => {
     const { calls } = await redateRun({ maintenanceDay: "2026-05-02" }, [
       readyRow({ "Draft ready": false }),
@@ -864,9 +886,10 @@ describe("draftDueReports — P1-117 early drafts", () => {
   });
 
   it("leaves withdrawn, sent and period-less rows alone (guards the cycle arithmetic also enforces)", async () => {
-    // A withdrawn or sent row is its own cycle's base, so its next date lands in
-    // a later period, and a null period never matches one: these guards are
-    // defensive, and no mutant of one alone can turn this red.
+    // A withdrawn row is its own cycle's base, so its next date lands in a later
+    // period, and a null period never matches one: those two guards are
+    // defensive. The sent guard is not: this sent row's next date (06-25) is
+    // still in its period.
     for (const over of [
       { "Withdrawn at": "2026-05-25T20:00:00Z" },
       { "Sent at": "2026-05-25T20:00:00Z" },
@@ -939,22 +962,25 @@ describe("draftDueReports — P1-117 early drafts", () => {
   });
 
   it("an unapprove that matches nothing still re-renders, and the conditioned write decides", async () => {
-    // He unapproved it himself meanwhile (or it was sent, claimed or withdrawn,
-    // which the store refuses). No approval was taken back by the nightly, so
-    // no mark is written.
+    // He unapproved it himself meanwhile, another run took it back for another
+    // move, or it was sent, claimed or withdrawn (which the store refuses). This
+    // run cannot know the mark, so the store rewrites it to this move only where
+    // it is the nightly's, and keeps his own.
     const { res, calls, markers } = await redateRun(
       { maintenanceDay: "2026-05-02" },
       [readyRow()],
       fakeRedate({ took: false }),
     );
     expect(calls).toEqual(["unapprove rec_drafted", "rerender rec_drafted 2026-06-02"]);
-    expect(markers).toEqual([null]);
+    expect(markers).toEqual([
+      { nightlyOnly: true, now: "nightly: due date moved 2026-06-01 → 2026-06-02" },
+    ]);
     expect(res.output).toContain(`• ${MOVED} — preview re-rendered`);
     expect(res.output).not.toContain("approval taken back");
     expect(res.code).toBe(0);
   });
 
-  it("keeps an approval given while the body rendered on the date and body it was given for", async () => {
+  it("says a row approved while the body rendered was not re-dated", async () => {
     // The approval came back, the operator approved again mid-render, and the
     // conditioned write matched nothing.
     const { res, calls } = await redateRun(
@@ -964,7 +990,7 @@ describe("draftDueReports — P1-117 early drafts", () => {
     );
     expect(calls).toEqual(["unapprove rec_drafted", "rerender rec_drafted 2026-06-02"]);
     expect(res.output).toContain(
-      `⚠ ${MOVED} — approval taken back, but not re-dated: it was approved, sent, withdrawn or superseded while this run worked`,
+      `⚠ ${MOVED} — approval taken back, but not re-dated: it was approved, claimed for a send, sent, withdrawn or superseded while this run worked, or approved and unapproved again`,
     );
     expect(res.output).not.toContain("approve again");
     expect(res.code).toBe(0);

@@ -75,8 +75,9 @@ export type ReportRow = {
   /** #1262: when the send batch claimed the row, right before Resend. A claimed,
    *  unsent row is mid-send, and an unapprove refuses it. */
   sendStartedAt: string | null;
-  /** #2157: who last took back this row's approval (the operator, or the nightly
-   *  when an anchor edit moved its due date: {@link redatedMove}). */
+  /** #2157: who last took back this row's approval: the operator, or the nightly
+   *  when the row's cycle moved its due date (an anchor edit, or a same-type send
+   *  mid-cycle: {@link redatedMove}). */
   unapprovedBy: string | null;
   /** #2157: when that approval was taken back (ISO). The nightly's take-back
    *  keeps a Testing row's cover of Maintenance dated from it. */
@@ -131,6 +132,11 @@ export function parseAutoEvidence(raw: unknown): Record<string, EvidenceRecord> 
 }
 
 const REDATED_BY = "nightly: due date moved";
+
+/** #2157: whether a stored `unapproved_by` is the nightly's take-back marker
+ *  ({@link redatedBy}), as a SQL `LIKE` pattern, for a write that rewrites the
+ *  nightly's marker and keeps any other. */
+export const REDATED_BY_LIKE = `${REDATED_BY} %`;
 
 /**
  * #2157 (the operator, 2026-11-21: "Re-draft on new date"). When the nightly

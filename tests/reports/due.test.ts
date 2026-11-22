@@ -588,7 +588,7 @@ describe("a Testing report sent within a month of Maintenance pushes Maintenance
 
   // #2157: the nightly took a held Testing row's approval back to move its due
   // date. Until the operator approves it again, it still covers Maintenance,
-  // dated by the date it was moved to.
+  // dated like an approval: by the later of the take-back and its due date.
   const retaken = (from: string, to: string, over: Partial<ReportRow> = {}) =>
     testing(to, {
       sentAt: null,
@@ -632,6 +632,35 @@ describe("a Testing report sent within a month of Maintenance pushes Maintenance
     expect(ymd(nextDueDate(monthly, moved("2026-09-21"), "Maintenance", on("2026-09-26")))).toBe(
       "2026-10-01",
     );
+  });
+
+  it("taken back today and due later, it is dated by its due date, not the take-back (#2157)", () => {
+    const reports = [
+      maint("2026-09-01"),
+      retaken("2026-10-01", "2026-10-03", { unapprovedAt: "2026-09-26T06:10:00.000Z" }),
+    ];
+    expect(ymd(nextDueDate(monthly, reports, "Maintenance", on("2026-09-26")))).toBe("2026-11-03");
+  });
+
+  it("its grace ends where an approval's does: taken back exactly 3 days ago still covers (#2157)", () => {
+    const reports = [
+      maint("2026-09-01"),
+      retaken("2026-10-02", "2026-09-20", { unapprovedAt: "2026-09-23T06:10:00.000Z" }),
+    ];
+    expect(ymd(nextDueDate(monthly, reports, "Maintenance", on("2026-09-26")))).toBe("2026-11-01");
+  });
+
+  it("once re-approved, the row is dated by his approval, not the nightly's take-back (#2157)", () => {
+    // The nightly's mark stays after he approves again; the approval dates it.
+    const reports = [
+      maint("2026-09-01"),
+      retaken("2026-10-02", "2026-09-20", {
+        approvedToSend: true,
+        approvedAt: "2026-09-25T18:00:00.000Z",
+        unapprovedAt: "2026-09-21T06:10:00.000Z",
+      }),
+    ];
+    expect(ymd(nextDueDate(monthly, reports, "Maintenance", on("2026-09-26")))).toBe("2026-11-01");
   });
 
   it("negative controls for that cover: a row on neither end of its move, the operator's own take-back, a superseded row (#2157)", () => {

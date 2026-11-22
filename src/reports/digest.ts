@@ -854,6 +854,9 @@ export async function runDigest(
 
     const readyForYourYes: ReadyItem[] = [];
     const readyKeys: string[] = [];
+    // #2157: a ready row's move, as an ask on its line, so a take-back or a
+    // later move is news to the send decision though the row's key is not.
+    const readyAsks: Array<string[] | undefined> = [];
     const baseUrl = options.baseUrl.replace(/\/$/, "");
     for (const r of pending) {
       const site = sites.get(r.siteId);
@@ -882,6 +885,7 @@ export async function runDigest(
         dashboardUrl: slug ? `${baseUrl}/s/${slug}` : `${baseUrl}${TRIAGE_PATH}`,
         ...(move && moveEnd !== null ? { dueMoved: { ...move, finished: moveEnd } } : {}),
       });
+      readyAsks.push(move && moveEnd !== null ? [`moved:${move.from}→${move.to}`] : undefined);
     }
 
     // M5: collect the free signals (isolated), diff against yesterday's snapshot.
@@ -929,7 +933,11 @@ export async function runDigest(
       if (since) it.ageDays = daysBetween(since, dayKey);
     });
     const digestLines: DigestLine[] = [
-      ...readyKeys.map((key) => ({ key, metric: 1 })),
+      ...readyKeys.map((key, i) => ({
+        key,
+        metric: 1,
+        ...(readyAsks[i] ? { asks: readyAsks[i] } : {}),
+      })),
       ...needsAttention.map((it) => ({
         key: it.key,
         metric: it.metric,
