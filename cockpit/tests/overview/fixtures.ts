@@ -73,6 +73,7 @@ export function report(over: Partial<ReportRow> = {}): ReportRow {
     withdrawnBy: null,
     sendStartedAt: null,
     unapprovedBy: null,
+    unapprovedAt: null,
     dueOn: null,
     ...over,
   };

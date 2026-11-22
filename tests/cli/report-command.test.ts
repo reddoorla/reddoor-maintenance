@@ -61,17 +61,20 @@ function fakeRedate(
 ) {
   const calls: string[] = [];
   const unapproves: Array<{ id: string; by: string }> = [];
+  const markers: Array<{ was: string; now: string } | null> = [];
   return {
     calls,
     unapproves,
+    markers,
     unapprove: async (id: string, _at: Date, by: string) => {
       calls.push(`unapprove ${id}`);
       unapproves.push({ id, by });
       if (opts.unapproveThrows !== undefined) throw opts.unapproveThrows;
       return opts.took ?? true;
     },
-    rerender: async (id: string, dueOn: string) => {
+    rerender: async (id: string, dueOn: string, marker: { was: string; now: string } | null) => {
       calls.push(`rerender ${id} ${dueOn}`);
+      markers.push(marker);
       if (opts.rerenderThrows !== undefined) throw opts.rerenderThrows;
       return { status: opts.status ?? "rendered", stored: opts.stored ?? true };
     },
@@ -760,7 +763,13 @@ describe("draftDueReports — P1-117 early drafts", () => {
     rosterRows = [siteRow(site)];
     const w = makeFakeReportWriter();
     const res = await draftDueReports(TODAY, dueDeps(rows, { reportMirror: w, redate }));
-    return { res, calls: redate.calls, unapproves: redate.unapproves, patches: w.patches };
+    return {
+      res,
+      calls: redate.calls,
+      unapproves: redate.unapproves,
+      markers: redate.markers,
+      patches: w.patches,
+    };
   };
   const MOVED = "due date 2026-06-01 → 2026-06-02: Acme Co Maintenance";
 
@@ -847,23 +856,101 @@ describe("draftDueReports — P1-117 early drafts", () => {
     expect(calls).toEqual([]);
   });
 
-  it("leaves a withdrawn ready row, and one with no period, alone", async () => {
-    for (const over of [{ "Withdrawn at": "2026-05-25T20:00:00Z" }, { Period: undefined }]) {
+  it("leaves a superseded (not draft-ready) held row alone", async () => {
+    const { calls } = await redateRun({ maintenanceDay: "2026-05-02" }, [
+      readyRow({ "Draft ready": false }),
+    ]);
+    expect(calls).toEqual([]);
+  });
+
+  it("leaves withdrawn, sent and period-less rows alone (guards the cycle arithmetic also enforces)", async () => {
+    // A withdrawn or sent row is its own cycle's base, so its next date lands in
+    // a later period, and a null period never matches one: these guards are
+    // defensive, and no mutant of one alone can turn this red.
+    for (const over of [
+      { "Withdrawn at": "2026-05-25T20:00:00Z" },
+      { "Sent at": "2026-05-25T20:00:00Z" },
+      { Period: undefined },
+    ]) {
       const { calls } = await redateRun({ maintenanceDay: "2026-05-02" }, [readyRow(over)]);
       expect(calls).toEqual([]);
     }
   });
 
-  it("leaves the row alone when a send or a withdraw wins the unapprove race", async () => {
-    const { res, calls } = await redateRun(
+  it("re-dates a held row when a same-type send mid-cycle moves its cycle", async () => {
+    // Anchor 04-01 → due 06-01; a Maintenance report sent by hand on 05-05 now
+    // makes the cycle 06-05, still in 2026-06.
+    const { calls } = await redateRun({ maintenanceDay: "2026-04-01" }, [
+      readyRow(),
+      {
+        id: "rec_sent",
+        fields: {
+          Site: ["rec_site_acme"],
+          "Report type": "Maintenance",
+          Period: "2026-05",
+          "Draft ready": true,
+          "Sent at": "2026-05-05T17:00:00Z",
+        },
+      },
+    ]);
+    expect(calls).toEqual(["unapprove rec_drafted", "rerender rec_drafted 2026-06-05"]);
+  });
+
+  it("fails the run when a re-date fails on a night with nothing due", async () => {
+    // Anchor 05-20 → due 06-20: nothing is due tonight, so the early return.
+    const { res } = await redateRun(
+      { maintenanceDay: "2026-05-20" },
+      [readyRow()],
+      fakeRedate({ status: "no-header" }),
+    );
+    expect(res.output).toContain("No reports due.");
+    expect(res.output).toContain("✗ due date 2026-06-01 → 2026-06-20");
+    expect(res.code).toBe(1);
+  });
+
+  it("marks the take-back with this move, and checks the mark it wrote", async () => {
+    const { markers } = await redateRun({ maintenanceDay: "2026-05-02" }, [readyRow()]);
+    const by = "nightly: due date moved 2026-06-01 → 2026-06-02";
+    expect(markers).toEqual([{ was: by, now: by }]);
+  });
+
+  it("rewrites an earlier nightly take-back's mark when the row moves again before he approves it", async () => {
+    // Moved 05-30 → 06-01 and taken back on an earlier night; the cycle now says 06-02.
+    const { calls, markers } = await redateRun({ maintenanceDay: "2026-05-02" }, [
+      readyRow({
+        ...unapproved,
+        "Unapproved by": "nightly: due date moved 2026-05-30 → 2026-06-01",
+      }),
+    ]);
+    expect(calls).toEqual(["rerender rec_drafted 2026-06-02"]);
+    expect(markers).toEqual([
+      {
+        was: "nightly: due date moved 2026-05-30 → 2026-06-01",
+        now: "nightly: due date moved 2026-06-01 → 2026-06-02",
+      },
+    ]);
+  });
+
+  it("leaves the operator's own take-back mark alone", async () => {
+    const { markers } = await redateRun({ maintenanceDay: "2026-05-02" }, [
+      readyRow({ ...unapproved, "Unapproved by": "Reddoor" }),
+    ]);
+    expect(markers).toEqual([null]);
+  });
+
+  it("an unapprove that matches nothing still re-renders, and the conditioned write decides", async () => {
+    // He unapproved it himself meanwhile (or it was sent, claimed or withdrawn,
+    // which the store refuses). No approval was taken back by the nightly, so
+    // no mark is written.
+    const { res, calls, markers } = await redateRun(
       { maintenanceDay: "2026-05-02" },
       [readyRow()],
       fakeRedate({ took: false }),
     );
-    expect(calls).toEqual(["unapprove rec_drafted"]);
-    expect(res.output).toContain(
-      `⚠ ${MOVED} — not re-dated: its approval could not be taken back (it is sent, being sent, withdrawn or no longer approved)`,
-    );
+    expect(calls).toEqual(["unapprove rec_drafted", "rerender rec_drafted 2026-06-02"]);
+    expect(markers).toEqual([null]);
+    expect(res.output).toContain(`• ${MOVED} — preview re-rendered`);
+    expect(res.output).not.toContain("approval taken back");
     expect(res.code).toBe(0);
   });
 

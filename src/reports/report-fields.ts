@@ -61,6 +61,7 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): Re
     withdrawnBy: (f["Withdrawn by"] as string | undefined) ?? null,
     sendStartedAt: (f["Send started at"] as string | undefined) ?? null,
     unapprovedBy: (f["Unapproved by"] as string | undefined) ?? null,
+    unapprovedAt: (f["Unapproved at"] as string | undefined) ?? null,
     dueOn: (f["Due on"] as string | undefined) ?? null,
   };
 }

@@ -1,6 +1,6 @@
 import { nextDueDatesFields, siteSlug, type WebsiteRow } from "../../fleet/site-fields.js";
 import type { ReportRow } from "../../reports/report-fields.js";
-import { redatedBy } from "../../reports/report-row.js";
+import { redatedBy, redatedMove } from "../../reports/report-row.js";
 import {
   cycleBase,
   findDueReports,
@@ -397,10 +397,10 @@ async function runDueDraft(): Promise<{ output: string; code: number }> {
       siteMirror: await makeSiteMirror(),
       redate: {
         unapprove: async (id, at, by) => unapproveReportIfUnsent(await fleetDb.get(), id, at, by),
-        rerender: async (id, dueOn) => {
+        rerender: async (id, dueOn, marker) => {
           const db = await fleetDb.get();
           const bound = redatedRerenderDeps(await bindRerender(db), dueOn, (rid, d, html) =>
-            storeRedatedBody(db, rid, d, html),
+            storeRedatedBody(db, rid, d, html, marker),
           );
           const result = await rerenderReport(bound.deps, id);
           return { status: result.status, stored: bound.stored() };
@@ -550,7 +550,7 @@ export type DraftDueDeps = {
    *  at` on the SITE row, a different Turso table from the report. */
   siteMirror?: SiteMirror;
   /** #2157: the IO that re-dates a ready row whose cycle moved (an anchor edit
-   *  after its early draft). Required, like the reads: a default would bind a
+   *  after its early draft, or a same-type send mid-cycle). Required, like the reads: a default would bind a
    *  real store under a unit suite. */
   redate: RedateDeps;
 };
@@ -565,9 +565,15 @@ export type RedateDeps = {
    *  refreshes an unapproved row's scores, visits and evidence first), with
    *  `dueOn` in memory, then store the body and `dueOn` in one write
    *  conditioned on the row being draft-ready, unapproved, unsent, unwithdrawn
-   *  and unclaimed (`storeRedatedBody`). `status` is the render's; `stored` is
-   *  false when that write matched nothing. */
-  rerender: (reportId: string, dueOn: string) => Promise<{ status: string; stored: boolean }>;
+   *  and unclaimed (`storeRedatedBody`). With `marker`, the same write rewrites
+   *  the nightly's take-back marker from `was` to `now`, conditioned on it still
+   *  reading `was`. `status` is the render's; `stored` is false when the write
+   *  matched nothing. */
+  rerender: (
+    reportId: string,
+    dueOn: string,
+    marker: { was: string; now: string } | null,
+  ) => Promise<{ status: string; stored: boolean }>;
 };
 
 export async function draftDueReports(
@@ -798,7 +804,7 @@ export async function draftDueReports(
  *  - it is draft-ready, unsent and unwithdrawn, with a due date and a period (a
  *    row drafted before P1-117 has no due date and is left as it is);
  *  - it is still held: its due date is after today's Pacific date. Once the day
- *    arrives it sends on this cycle, and moving it would only delay it;
+ *    arrives it is sending on this cycle, and is left to;
  *  - its cycle has a base (a send, a withdrawn draft or an anchor). With none
  *    the cycle says "due today", which moves every day;
  *  - the new date is in the row's period. A move into another period is not
@@ -849,35 +855,47 @@ async function applyRedates(
  *  preview is re-rendered with the new date, on the send's path (which
  *  refreshes the row's data first), and the body and the date are stored in one
  *  write conditioned on the row still being unapproved, so an approval given
- *  meanwhile keeps the date and body it was given for. A failed render leaves
- *  the date and body as they were. */
+ *  meanwhile keeps its date and body (the data refreshed before the render is
+ *  not held back: `rerenderReport` writes it first, as `report --rerender`
+ *  does). A failed render leaves the date and body as they were.
+ *
+ *  The take-back marker always names the latest move: a row the nightly took
+ *  back on an earlier night, and that moves again before the operator approves
+ *  it, has its marker rewritten in the same write. An unapprove that matches
+ *  nothing (the operator unapproved it himself meanwhile, or it was sent,
+ *  claimed or withdrawn) still goes on to the re-render, whose write refuses
+ *  every one of those but the first. */
 async function redateReadyRow(
   { row, from, to, site }: PlannedRedate,
   today: Date,
   deps: DraftDueDeps,
 ): Promise<string> {
   const moved = `due date ${from} → ${to}: ${site.name} ${row.reportType}`;
-  const took = row.approvedToSend
+  const offered = row.approvedToSend
     ? row.sendOverride
       ? "approval and send-anyway override taken back"
       : "approval taken back"
     : null;
+  const by = redatedBy(from, to);
+  let marker: { was: string; now: string } | null = null;
+  let took = offered;
   if (took) {
     let ok: boolean;
     try {
-      ok = await deps.redate.unapprove(row.id, today, redatedBy(from, to));
+      ok = await deps.redate.unapprove(row.id, today, by);
     } catch (e) {
       return `✗ ${moved} — approval not taken back: ${String(e)}`;
     }
-    if (!ok) {
-      return `⚠ ${moved} — not re-dated: its approval could not be taken back (it is sent, being sent, withdrawn or no longer approved)`;
-    }
+    if (ok) marker = { was: by, now: by };
+    else took = null;
+  } else if (row.unapprovedBy !== null && redatedMove(row) !== null) {
+    marker = { was: row.unapprovedBy, now: by };
   }
   const after = took ? `${took}, but ` : "";
   const kept = `its date and preview are unchanged; the next nightly tries again only while it is still held (before ${from})`;
   let result: { status: string; stored: boolean };
   try {
-    result = await deps.redate.rerender(row.id, to);
+    result = await deps.redate.rerender(row.id, to, marker);
   } catch (e) {
     return `✗ ${moved} — ${after}preview not re-rendered (${String(e)}); ${kept}`;
   }

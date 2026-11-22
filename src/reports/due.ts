@@ -161,10 +161,12 @@ const APPROVED_UNSENT_GRACE_DAYS = 3;
 /** #2157: a ready, unapproved Testing row the nightly took the approval back
  *  from to move its due date, and that sits on either end of that move: on the
  *  new date when the move finished, on the old one when its re-render failed
- *  (the next nightly retries it while the row is held). It still covers
- *  Maintenance, dated by its due date: the take-back was the nightly's, not the
- *  operator's, and without this a nightly would draft a Maintenance report that
- *  his re-approval of the Testing one then orphans. */
+ *  (the next nightly retries it while the row is held). The nightly rewrites
+ *  the marker on every later move, so it always names the latest. It still
+ *  covers Maintenance, dated by the later of the take-back and its due date,
+ *  under the grace an approved row has: the take-back was the nightly's, not
+ *  the operator's, and without this a nightly would draft a Maintenance report
+ *  that his re-approval of the Testing one then orphans. */
 function nightlyRedated(r: ReportRow): boolean {
   if (!r.draftReady || r.approvedToSend || r.dueOn === null) return false;
   const move = redatedMove(r);
@@ -192,7 +194,8 @@ function nightlyRedated(r: ReportRow): boolean {
  * will go out.
  *
  * #2157: so is a held Testing row whose approval the nightly took back to move
- * its due date ({@link nightlyRedated}), dated by its due date.
+ * its due date ({@link nightlyRedated}), dated by the later of the take-back
+ * and its due date.
  */
 function pushPastTesting(
   reports: ReportRow[],
@@ -208,7 +211,12 @@ function pushPastTesting(
     .map((r) => {
       if (r.sentAt !== null) return startOfDay(new Date(r.sentAt)).getTime();
       if (nightlyRedated(r)) {
-        const t = startOfDay(new Date(r.dueOn!)).getTime();
+        // Dated like an approved row: by the later of the take-back (the
+        // approval it stands in for) and its due date, under the same grace.
+        const due = startOfDay(new Date(r.dueOn!)).getTime();
+        const back =
+          r.unapprovedAt === null ? Number.NaN : startOfDay(new Date(r.unapprovedAt)).getTime();
+        const t = Number.isNaN(back) ? due : Math.max(back, due);
         return t >= graceFrom ? t : null;
       }
       if (!r.approvedToSend || r.approvedAt === null) return null;

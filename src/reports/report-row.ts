@@ -78,6 +78,9 @@ export type ReportRow = {
   /** #2157: who last took back this row's approval (the operator, or the nightly
    *  when an anchor edit moved its due date: {@link redatedMove}). */
   unapprovedBy: string | null;
+  /** #2157: when that approval was taken back (ISO). The nightly's take-back
+   *  keeps a Testing row's cover of Maintenance dated from it. */
+  unapprovedAt: string | null;
   /** P1-117: the due date (`YYYY-MM-DD`) the nightly drafted this report for. It
    *  can be drafted and approved up to a week before; the send holds it until the
    *  Pacific date reaches this. Null on rows without a schedule (legacy, Launch,

@@ -88,6 +88,43 @@ describe("storeRedatedBody", () => {
   });
 });
 
+describe("storeRedatedBody's take-back mark", () => {
+  const A = "nightly: due date moved 2026-05-30 → 2026-06-01";
+  const B = "nightly: due date moved 2026-06-01 → 2026-06-02";
+  const mark = async () =>
+    (
+      await db
+        .selectFrom("reports")
+        .select("unapproved_by")
+        .where("id", "=", REPORT)
+        .executeTakeFirstOrThrow()
+    ).unapproved_by;
+
+  it("rewrites the mark in the same write when it still reads as expected", async () => {
+    await seed({ unapproved_by: A });
+    expect(
+      await storeRedatedBody(db, REPORT, "2026-06-02", "<p>06-02</p>", { was: A, now: B }),
+    ).toBe(true);
+    expect(await mark()).toBe(B);
+    expect(await stored()).toEqual({ dueOn: "2026-06-02", html: "<p>06-02</p>" });
+  });
+
+  it("leaves the row alone when the mark changed meanwhile (he approved and unapproved it)", async () => {
+    await seed({ unapproved_by: "Reddoor" });
+    expect(
+      await storeRedatedBody(db, REPORT, "2026-06-02", "<p>06-02</p>", { was: A, now: B }),
+    ).toBe(false);
+    expect(await mark()).toBe("Reddoor");
+    expect(await stored()).toEqual({ dueOn: "2026-06-01", html: "<p>06-01</p>" });
+  });
+
+  it("leaves the mark as it is without one", async () => {
+    await seed({ unapproved_by: "Reddoor" });
+    expect(await storeRedatedBody(db, REPORT, "2026-06-02", "<p>06-02</p>")).toBe(true);
+    expect(await mark()).toBe("Reddoor");
+  });
+});
+
 describe("the nightly's take-back, read back from Turso", () => {
   it("records the move in unapproved_by, and the read gives it back", async () => {
     await seed({ approved_to_send: 1, approved_at: "2026-05-25T18:00:00.000Z" });
@@ -102,5 +139,6 @@ describe("the nightly's take-back, read back from Turso", () => {
     const row = await getReportById(db, REPORT);
     expect(row?.approvedToSend).toBe(false);
     expect(row && redatedMove(row)).toEqual({ from: "2026-06-01", to: "2026-06-02" });
+    expect(row?.unapprovedAt).toBe("2026-05-26T13:00:00.000Z");
   });
 });
