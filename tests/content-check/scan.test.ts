@@ -541,6 +541,27 @@ describe("a string a method matches against is not content (found after round 1)
   });
 });
 
+describe("a constant read only for styling is not content (found after round 1)", () => {
+  it("is not reported under a content name", () => {
+    expect(
+      svelte(
+        `<script>const lines = $derived(on ? STEPS.map(() => "translate-y-0 opacity-100") : []);</script><p class="t-h4 {active ? lines[0] : out}">{doc.text}</p>`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("is reported once anything else reads it", () => {
+    expect(
+      svelte(
+        `<script>const lines = ["Rooted in the valley", "Built to last"];</script><p class={lines[0]}>{lines[1]}</p>`,
+      ),
+    ).toEqual([
+      ["copy", "Rooted in the valley"],
+      ["copy", "Built to last"],
+    ]);
+  });
+});
+
 describe("video URLs need a video in them (found after round 1)", () => {
   it("a bare player origin is not a video", () => {
     expect(ts(`export const ORIGIN = { video: "https://player.vimeo.com" };`)).toEqual([]);

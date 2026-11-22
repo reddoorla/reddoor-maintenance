@@ -615,5 +615,22 @@
     ],
     "expect": "red",
     "why": "found after round 1: startsWith(\"tel:\") is a phone row again"
+  },
+  {
+    "id": "styling-reads-are-content",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "    return r !== undefined && r.style > 0 && r.other === 0;",
+        "replace": "    return r !== undefined && false;"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "found after round 1: Tailwind classes under a `lines` constant read only in class= are copy again"
   }
 ]

@@ -189,6 +189,12 @@ const calleeName = (node: Node): string | undefined => {
   return undefined;
 };
 
+/** A `class`/`style` attribute or a `class:`/`style:` directive. */
+const isStyling = (n: Node): boolean =>
+  n.type === "ClassDirective" ||
+  n.type === "StyleDirective" ||
+  (n.type === "Attribute" && /^(?:class|style)$/i.test(String(n.name)));
+
 /** Methods whose string argument is matched against, never shown. */
 const STRING_TEST =
   /^(?:startsWith|endsWith|includes|indexOf|lastIndexOf|split|match|matchAll|search|replace|replaceAll|test|has|get|getAll|getAttribute|hasAttribute|querySelector|querySelectorAll|closest|matches|addEventListener|removeEventListener)$/;
@@ -459,6 +465,14 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
   // nothing, reported only if the template shows it. Name → the kind of the
   // template text it is shown as.
   const shownAs = new Map<string, Kind>();
+  // How often each name is read inside a `class` or `style` attribute, and
+  // anywhere else: a constant read only for styling (`const lines = […
+  // "translate-y-0 opacity-100"]` behind `class="{lines[0]}"`) is not content.
+  const styleReads = new Map<string, { style: number; other: number }>();
+  const onlyStyling = (name: string): boolean => {
+    const r = styleReads.get(name);
+    return r !== undefined && r.style > 0 && r.other === 0;
+  };
   const unnamed: Array<{ binding: string; pos: number; text: string }> = [];
 
   /** The constant a literal is part of: `const NAME = { … "x" … }`. */
@@ -966,6 +980,10 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
     if (fallback) use.fallback++;
     else use.bare++;
     uses.set(name, use);
+    const sr = styleReads.get(name) ?? { style: 0, other: 0 };
+    if (chain.some(({ node: n }) => isStyling(n))) sr.style++;
+    else sr.other++;
+    styleReads.set(name, sr);
     if (!fallback && parent.type === "ExpressionTag" && chain.at(-3)?.node.type !== "Attribute") {
       const kind = textKind(chain.slice(0, -2));
       if (kind) shownAs.set(name, kind);
@@ -1036,7 +1054,7 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
     for (const [name, a] of assets) if (!onlyFallbacks(name)) report(a.pos, a.kind, a.text);
     for (const u of unnamed) {
       const kind = shownAs.get(u.binding);
-      if (!kind || isIdentifierLike(u.text)) continue;
+      if (!kind || isIdentifierLike(u.text) || onlyStyling(u.binding)) continue;
       report(u.pos, refineProse(kind, u.text), u.text);
     }
     const deferred: Deferred[] = [];
@@ -1046,7 +1064,7 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
         report(p.pos, p.kind, p.text);
         // `report` applies the filters; what survives waits for the site.
         if (findings.length > before) deferred.push({ ...findings.pop()!, binding: p.binding });
-      } else if (!onlyFallbacks(p.binding)) {
+      } else if (!onlyFallbacks(p.binding) && !onlyStyling(p.binding)) {
         report(p.pos, p.kind, p.text);
       }
     }
