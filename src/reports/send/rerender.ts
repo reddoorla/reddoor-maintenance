@@ -216,6 +216,35 @@ export async function rerenderReport(
   };
 }
 
+/**
+ * #2157: the deps a nightly re-date renders with. The row is read with the
+ * cycle's new due date in memory, so the body shows the date it will send on,
+ * and the body is stored by `storeBody`, the one conditional write that sets the
+ * body and the due date together (`storeRedatedBody`). `stored()` says whether
+ * that write matched: false when an approval, a send or a withdraw landed while
+ * the body rendered, and the row then keeps its date and body.
+ */
+export function redatedRerenderDeps(
+  base: RerenderDeps,
+  dueOn: string,
+  storeBody: (reportId: string, dueOn: string, html: string) => Promise<boolean>,
+): { deps: RerenderDeps; stored: () => boolean } {
+  let stored = false;
+  return {
+    deps: {
+      ...base,
+      getReport: async (id) => {
+        const row = await base.getReport(id);
+        return row && { ...row, dueOn };
+      },
+      store: async (id, html) => {
+        stored = await storeBody(id, dueOn, html);
+      },
+    },
+    stored: () => stored,
+  };
+}
+
 const SCORE_LABELS: Array<[keyof LighthouseScores, string]> = [
   ["performance", "p"],
   ["accessibility", "a"],

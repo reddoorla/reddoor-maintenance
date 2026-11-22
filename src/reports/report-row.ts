@@ -75,7 +75,7 @@ export type ReportRow = {
   /** #1262: when the send batch claimed the row, right before Resend. A claimed,
    *  unsent row is mid-send, and an unapprove refuses it. */
   sendStartedAt: string | null;
-  /** #1262: who last took back this row's approval (the operator, or the nightly
+  /** #2157: who last took back this row's approval (the operator, or the nightly
    *  when an anchor edit moved its due date: {@link redatedMove}). */
   unapprovedBy: string | null;
   /** P1-117: the due date (`YYYY-MM-DD`) the nightly drafted this report for. It

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { findDueReports, nextDueDate, reportPeriodKey } from "../../src/reports/due.js";
 import { mapRow, type WebsiteRow } from "../../src/fleet/site-fields.js";
 import type { ReportRow } from "../../src/reports/report-fields.js";
+import { redatedBy } from "../../src/reports/report-row.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 function site(over: Partial<WebsiteRow> = {}): WebsiteRow {
@@ -579,6 +580,43 @@ describe("a Testing report sent within a month of Maintenance pushes Maintenance
       testing("2026-10-01", { siteId: "rec_other" }),
     ]) {
       expect(ymd(nextDueDate(monthly, [...base, other], "Maintenance", on("2026-09-02")))).toBe(
+        "2026-10-01",
+      );
+    }
+  });
+
+  // #2157: the nightly took a held Testing row's approval back to move its due
+  // date. Until the operator approves it again, it still covers Maintenance,
+  // dated by the date it was moved to.
+  const retaken = (from: string, to: string, over: Partial<ReportRow> = {}) =>
+    testing(to, {
+      sentAt: null,
+      deliveryStatus: "pending",
+      approvedToSend: false,
+      approvedAt: null,
+      dueOn: to,
+      unapprovedBy: redatedBy(from, to),
+      ...over,
+    });
+
+  it("a held Testing row the nightly took back to move it still covers Maintenance, dated by its new date (#2157)", () => {
+    // Maintenance due 10-01; Testing moved 10-01 → 10-03 and taken back.
+    const reports = [maint("2026-09-01"), retaken("2026-10-01", "2026-10-03")];
+    expect(ymd(nextDueDate(monthly, reports, "Maintenance", on("2026-09-26")))).toBe("2026-11-03");
+    expect(
+      findDueReports([monthly], reports, on("2026-09-26")).map((d) => d.reportType),
+    ).not.toContain("Maintenance");
+  });
+
+  it("negative controls for that cover: a move that did not finish, the operator's own take-back, a superseded row (#2157)", () => {
+    const base = [maint("2026-09-01")];
+    for (const other of [
+      // still on the move's "from" date
+      retaken("2026-10-01", "2026-10-03", { dueOn: "2026-10-01" }),
+      retaken("2026-10-01", "2026-10-03", { unapprovedBy: "Reddoor" }),
+      retaken("2026-10-01", "2026-10-03", { draftReady: false }),
+    ]) {
+      expect(ymd(nextDueDate(monthly, [...base, other], "Maintenance", on("2026-09-26")))).toBe(
         "2026-10-01",
       );
     }

@@ -97,9 +97,13 @@ function readySection(items: ReadyItem[]): string {
         : `review &amp; approve`;
       const age = ageLabel(it.ageDays);
       const ageHtml = age ? ` <span style="color:${GREY}">(waiting ${esc(age)})</span>` : "";
-      const movedHtml = it.dueMoved
-        ? ` <span style="color:${GREY}">(due date moved ${esc(it.dueMoved.from.slice(5))} → ${esc(it.dueMoved.to.slice(5))}, so its approval was taken back)</span>`
-        : "";
+      const m = it.dueMoved;
+      const moveText = m
+        ? m.finished
+          ? `due date moved ${m.from.slice(5)} → ${m.to.slice(5)}, so its approval was taken back`
+          : `its approval was taken back for a due-date move ${m.from.slice(5)} → ${m.to.slice(5)} that did not finish`
+        : null;
+      const movedHtml = moveText ? ` <span style="color:${GREY}">(${esc(moveText)})</span>` : "";
       return `
       <tr>
         <td style="color:${GREY};font-family:helvetica,sans-serif;font-size:16px;line-height:24px;padding-bottom:8px">
@@ -859,15 +863,24 @@ export async function runDigest(
       // somewhere usable instead of a 404.
       const slug = siteSlug(site.name);
       readyKeys.push(`ready:${r.id}`);
-      // #2157: named only while the row is still on the date the nightly moved
-      // it to; a later move or a failed one leaves the note out.
+      // #2157: named while the row is on either end of the move the nightly
+      // took its approval back for: on "to", the move finished; on "from", it
+      // did not (the next nightly retries it while the row is still held). A
+      // later move leaves the note out.
       const move = redatedMove(r);
+      const moveEnd = move
+        ? move.to === r.dueOn
+          ? true
+          : move.from === r.dueOn
+            ? false
+            : null
+        : null;
       readyForYourYes.push({
         siteName: site.name,
         reportType: r.reportType,
         period: r.period ?? "—",
         dashboardUrl: slug ? `${baseUrl}/s/${slug}` : `${baseUrl}${TRIAGE_PATH}`,
-        ...(move && move.to === r.dueOn ? { dueMoved: move } : {}),
+        ...(move && moveEnd !== null ? { dueMoved: { ...move, finished: moveEnd } } : {}),
       });
     }
 

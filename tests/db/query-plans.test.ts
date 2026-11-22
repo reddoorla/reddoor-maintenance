@@ -793,10 +793,11 @@ function scenarios(state: { createdId: string; reservedId: string }): Scenario[]
         ),
     },
     {
-      // #2157: the nightly's conditioned re-date rides on the PK lookup too.
-      name: "redateReportIfUnapproved (the nightly's conditioned re-date)",
-      covers: ["redateReportIfUnapproved"],
-      run: (db) => fleetState.redateReportIfUnapproved(db, "recA", "2026-10-25"),
+      // #2157: the nightly's conditioned re-date (body and due date in one
+      // write) rides on the PK lookup too.
+      name: "storeRedatedBody (the nightly's conditioned re-date)",
+      covers: ["storeRedatedBody"],
+      run: (db) => fleetState.storeRedatedBody(db, "recA", "2026-10-25", "<html>"),
     },
     {
       // #1262: the send batch's claim, conditioned on the row still sendable.

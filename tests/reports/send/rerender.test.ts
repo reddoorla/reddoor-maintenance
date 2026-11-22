@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   rerenderReport,
   formatRerenderResult,
+  redatedRerenderDeps,
   type RerenderDeps,
 } from "../../../src/reports/send/rerender.js";
 import { makeWebsiteRow } from "../../_helpers/website-row.js";
@@ -1053,5 +1054,51 @@ describe("rerenderReport — P1-117 an approved report is frozen", () => {
       scores: "locked",
       ga: "locked",
     });
+  });
+});
+
+describe("redatedRerenderDeps (#2157)", () => {
+  it("renders the row with the new due date and stores body and date through the conditional write", async () => {
+    const rendered: Array<string | null> = [];
+    const plainStores: string[] = [];
+    const writes: Array<{ id: string; dueOn: string; html: string }> = [];
+    const bound = redatedRerenderDeps(
+      deps({
+        getReport: async () => report({ dueOn: "2026-06-01" }),
+        render: async (_site, r) => {
+          rendered.push(r.dueOn);
+          return { html: `<p>${r.dueOn}</p>` };
+        },
+        store: async (id) => void plainStores.push(id),
+      }),
+      "2026-06-02",
+      async (id, dueOn, html) => {
+        writes.push({ id, dueOn, html });
+        return true;
+      },
+    );
+    expect(bound.stored()).toBe(false);
+    const r = await rerenderReport(bound.deps, "recREP");
+    expect(r.status).toBe("rendered");
+    expect(rendered).toEqual(["2026-06-02"]);
+    expect(plainStores).toEqual([]);
+    expect(writes).toEqual([{ id: "recREP", dueOn: "2026-06-02", html: "<p>2026-06-02</p>" }]);
+    expect(bound.stored()).toBe(true);
+  });
+
+  it("says when the conditional write matched nothing", async () => {
+    const bound = redatedRerenderDeps(deps(), "2026-06-02", async () => false);
+    expect((await rerenderReport(bound.deps, "recREP")).status).toBe("rendered");
+    expect(bound.stored()).toBe(false);
+  });
+
+  it("keeps a missing row missing", async () => {
+    const bound = redatedRerenderDeps(
+      deps({ getReport: async () => null }),
+      "2026-06-02",
+      async () => true,
+    );
+    expect((await rerenderReport(bound.deps, "recREP")).status).toBe("not-found");
+    expect(bound.stored()).toBe(false);
   });
 });

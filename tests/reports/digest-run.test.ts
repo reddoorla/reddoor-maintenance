@@ -311,10 +311,16 @@ describe("runDigest", () => {
     );
     // The operator's own unapprove says nothing extra.
     expect(await send("Reddoor")).not.toContain("due date moved");
-    // A marker from a move the row is no longer on (a later move, or one put back).
-    expect(await send("nightly: due date moved 2026-05-30 → 2026-06-01")).not.toContain(
-      "due date moved",
+    // A move that did not finish: the row is still on the move's "from" date.
+    const unfinished = await send("nightly: due date moved 2026-06-02 → 2026-06-03");
+    expect(unfinished).toContain(
+      "(its approval was taken back for a due-date move 06-02 → 06-03 that did not finish)",
     );
+    expect(unfinished).not.toContain("due date moved");
+    // A marker from a move the row is on neither end of (a later move).
+    const stale = await send("nightly: due date moved 2026-05-30 → 2026-06-01");
+    expect(stale).not.toContain("due date moved");
+    expect(stale).not.toContain("due-date move");
   });
 
   it("sends a digest (Needs attention) when an APPROVED report has send blockers", async () => {

@@ -925,20 +925,24 @@ export async function unapproveReportIfUnsent(
   return res.numUpdatedRows > 0n;
 }
 
-/** #2157: move an early draft to its cycle's new due date, conditioned on the
- *  row being unapproved, unsent, unwithdrawn and unclaimed. An approval that
- *  lands while the nightly works is kept on the date it was given for: the
- *  write matches nothing, and the nightly leaves the row as it is. Returns
- *  whether a row matched. */
-export async function redateReportIfUnapproved(
+/** #2157: the nightly's re-date, in one write: the re-rendered body and the
+ *  cycle's new due date land together, conditioned on the row being
+ *  draft-ready, unapproved, unsent, unwithdrawn and unclaimed. An approval
+ *  given while the body rendered keeps the date and body it was given for (the
+ *  write matches nothing), and a run killed before this write leaves the row
+ *  exactly as it was, so the next nightly sees the move again. Returns whether
+ *  a row matched. */
+export async function storeRedatedBody(
   db: Db,
   reportId: string,
   dueOn: string,
+  html: string,
 ): Promise<boolean> {
   const res = await db
     .updateTable("reports")
-    .set({ due_on: dueOn })
+    .set({ rendered_html: html, due_on: dueOn })
     .where("id", "=", reportId)
+    .where("draft_ready", "=", 1)
     .where("approved_to_send", "=", 0)
     .where("sent_at", "is", null)
     .where("withdrawn_at", "is", null)

@@ -42,7 +42,7 @@ vi.mock("../../src/db/fleet-state.js", () => ({
   listAllReports: async () => [],
   // #2157: bound into the re-date deps; this suite has no ready row to re-date.
   unapproveReportIfUnsent: async () => false,
-  redateReportIfUnapproved: async () => false,
+  storeRedatedBody: async () => false,
 }));
 vi.mock("../../src/fleet/site-fields.js", () => ({
   siteSlug: (n: string) => n,

@@ -2,6 +2,7 @@ import type { WebsiteRow, Frequency, Status } from "../fleet/site-row.js";
 import type { ReportRow } from "./report-fields.js";
 import type { ReportType } from "./types.js";
 import { pacificYmd } from "../util/date.js";
+import { redatedMove } from "./report-row.js";
 
 /** Statuses where recurring Maintenance/Testing reports are appropriate. Only
  * LIVE sites: "maintained" and "hosted-only". Pre-launch
@@ -157,6 +158,15 @@ export function cycleBase(site: WebsiteRow, reports: ReportRow[], type: ReportTy
  *  enough that a report stuck behind a failing gate stops covering Maintenance. */
 const APPROVED_UNSENT_GRACE_DAYS = 3;
 
+/** #2157: a ready, unapproved Testing row the nightly took the approval back
+ *  from to move it, and that now sits on the date it was moved to. It still
+ *  covers Maintenance, dated by that date: the take-back was the nightly's, not
+ *  the operator's, and without this the next nightly would draft a Maintenance
+ *  report that his re-approval of the Testing one then orphans. */
+function nightlyRedated(r: ReportRow): boolean {
+  return r.draftReady && !r.approvedToSend && r.dueOn !== null && redatedMove(r)?.to === r.dueOn;
+}
+
 /**
  * The operator's rule (2026-10-01): a Testing report sent within a month either
  * side of a Maintenance due date pushes that Maintenance report back one
@@ -176,6 +186,9 @@ const APPROVED_UNSENT_GRACE_DAYS = 3;
  * 2026-10-01). P1-117: a report approved before its due date is held until
  * then, so it is dated by the later of its approval and its `dueOn`, the day it
  * will go out.
+ *
+ * #2157: so is a held Testing row whose approval the nightly took back when it
+ * moved the row's due date ({@link nightlyRedated}), dated by that date.
  */
 function pushPastTesting(
   reports: ReportRow[],
@@ -190,6 +203,10 @@ function pushPastTesting(
     .filter((r) => r.siteId === siteId && r.reportType === "Testing" && r.withdrawnAt === null)
     .map((r) => {
       if (r.sentAt !== null) return startOfDay(new Date(r.sentAt)).getTime();
+      if (nightlyRedated(r)) {
+        const t = startOfDay(new Date(r.dueOn!)).getTime();
+        return t >= graceFrom ? t : null;
+      }
       if (!r.approvedToSend || r.approvedAt === null) return null;
       const approved = startOfDay(new Date(r.approvedAt)).getTime();
       const due = r.dueOn === null ? Number.NaN : startOfDay(new Date(r.dueOn)).getTime();
