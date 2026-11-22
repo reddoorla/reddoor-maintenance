@@ -576,5 +576,44 @@
     ],
     "expect": "red",
     "why": "round 1 minor: \"counts\": [] reads as an empty baseline"
+  },
+  {
+    "id": "expand-branch-aliases",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "sharePath(reads(block.test as Node), pathsUnder(block.consequent as Node))",
+        "replace": "sharePath(reads(block.test as Node), reads(block.consequent as Node))"
+      },
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "sharePath(reads(test.argument as Node), pathsUnder(block.alternate))",
+        "replace": "sharePath(reads(test.argument as Node), reads(block.alternate))"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "found after round 1: an else branch's alias is followed back to the test; the layout-switch case must go red"
+  },
+  {
+    "id": "string-method-args-are-content",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "        STRING_TEST.test(calleeName(parent) ?? \"\")\n",
+        "replace": "        false\n"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "found after round 1: startsWith(\"tel:\") is a phone row again"
   }
 ]
