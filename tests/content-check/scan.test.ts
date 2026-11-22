@@ -919,3 +919,96 @@ describe("round 3's mutation sweep", () => {
     ]);
   });
 });
+
+describe("a test of the file's own data is a choice, not a fallback (round 4, major 1)", () => {
+  it("reports the else of a test on $state", () => {
+    expect(
+      svelte(
+        `<script>let error = $state(null);</script>{#if error}<p>{error}</p>{:else}<p>Sign up for our newsletter today</p>{/if}`,
+      ),
+    ).toEqual([["copy", "Sign up for our newsletter today"]]);
+  });
+
+  it("reports the else of a test on a local with no initialiser (Svelte 4 state)", () => {
+    expect(
+      svelte(
+        `<script>let error;</script>{#if error}<p>{error}</p>{:else}<p>Sign up for our newsletter today</p>{/if}`,
+      ),
+    ).toEqual([["copy", "Sign up for our newsletter today"]]);
+  });
+
+  it("keeps an exported let a prop: its else is still a fallback", () => {
+    expect(
+      svelte(
+        `<script>export let title;</script>{#if title}<h1>{title}</h1>{:else}<h1>Welcome to Acme</h1>{/if}`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("reports a negated if on a list the file computes (reddoor-website SiteHealth)", () => {
+    expect(
+      svelte(
+        `<script>let { view } = $props(); const rows = $derived(healthRows(view));</script>{#if rows.length === 0}<p>Every check came back clean.</p>{:else}{#each rows as r}<p>{r.label}</p>{/each}{/if}`,
+      ),
+    ).toEqual([["copy", "Every check came back clean."]]);
+  });
+
+  it("reports a template ternary on $state", () => {
+    expect(
+      svelte(
+        `<script>let user = $state(null);</script><span>{user ? user.name : "Sign in to your account"}</span>`,
+      ),
+    ).toEqual([["copy", "Sign in to your account"]]);
+  });
+
+  it("still hides a fallback whose test is a prop, an alias of one, or an emptiness test", () => {
+    expect(
+      svelte(
+        `<script>let { slice } = $props(); const title = $derived(slice.primary.title); const pair = isFilled.image(slice.primary.logo) && title;</script>{#if title}<h1>{title}</h1>{:else}<h1>Welcome to Acme</h1>{/if}{#if pair}<p>{pair}</p>{:else}<p>Our partner since 1990</p>{/if}`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("counts a test that reads one field beside a computed local as a field test (MSOT partners)", () => {
+    expect(
+      ts(
+        `const d = doc?.data; const quoted = named(d?.name, d?.logo); const pair = isFilled.image(d?.logo) && quoted ? d.logo : null; export const copy = { name: pair ? quoted : "Revogen" };`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("keeps the script idiom: a computed list or its default (reddoor-website booked.ts)", () => {
+    expect(
+      ts(
+        `export function resolve(data) { const steps = (data?.steps ?? []).map((s) => s.text); return { steps: steps.length ? steps : ["Pick a time that suits you"] }; }`,
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("words around holes are a literal in a ternary (round 4, major 1)", () => {
+  it("reports both branches of a choice between a template and a literal", () => {
+    expect(
+      svelte(
+        '<script>let { count } = $props();</script><p>{count ? `${count} homes built` : "Building our first home soon"}</p>',
+      ),
+    ).toEqual([
+      ["copy", "${…} homes built"],
+      ["copy", "Building our first home soon"],
+    ]);
+  });
+
+  it("reports both of two templates (MSOT team.ts:36)", () => {
+    expect(
+      ts(
+        "export const teamAlt = (name, title) => title ? `${name}, ${title}, Medical Solutions of Texas.` : `${name}, Medical Solutions of Texas.`;",
+      ).map(([, t]) => t),
+    ).toEqual(["${…}, ${…}, Medical Solutions of Texas.", "${…}, Medical Solutions of Texas."]);
+  });
+
+  it("still hides a literal beside a hole-only template (`${a}${b}`)", () => {
+    expect(
+      svelte('<script>let { a } = $props();</script><p>{a ? `${a}` : "Welcome to Acme"}</p>'),
+    ).toEqual([]);
+  });
+});

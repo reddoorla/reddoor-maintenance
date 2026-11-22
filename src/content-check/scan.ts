@@ -113,6 +113,13 @@ const isPureLiteral = (node: Node): boolean =>
   node.type === "Literal" ||
   (node.type === "TemplateLiteral" && (node.expressions as unknown[]).length === 0);
 
+/** A literal, or words written around holes (`${count} homes built`): a
+ *  ternary between one and a literal chooses between two things the code
+ *  says, so neither branch is a fallback (review round 4 on #2231). */
+const isWordLiteral = (node: Node): boolean =>
+  isPureLiteral(node) ||
+  (node.type === "TemplateLiteral" && /[a-z]{2}/i.test(literalText(node)!.replace(/\$\{…\}/g, "")));
+
 /** `a.b.c` / `a?.b` / `a["b"]` as a dotted path, else undefined. */
 function memberPath(node: Node): string | undefined {
   if (node.type === "Identifier") return node.name as string;
@@ -474,9 +481,25 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
   // local stands for itself (`isMobile = $derived(w < 768)` is a switch).
   const inits = new Map<string, Node>();
   const snippets = new Map<string, Node>();
+  // Locals declared with no initialiser (`let error;`): Svelte 4 local state,
+  // never a field, unless exported (a prop).
+  const bareLets = new Set<string>();
   (function collect(n: Node): void {
     if (n.type === "VariableDeclarator" && isNode(n.init) && (n.id as Node).type === "Identifier") {
       inits.set((n.id as Node).name as string, n.init);
+    }
+    if (n.type === "VariableDeclaration" && n.kind === "let") {
+      for (const d of n.declarations as Node[]) {
+        if (!d.init && (d.id as Node).type === "Identifier")
+          bareLets.add((d.id as Node).name as string);
+      }
+    }
+    if (n.type === "ExportNamedDeclaration" && isNode(n.declaration)) {
+      for (const [, c] of children(n)) collect(c);
+      for (const d of (n.declaration.declarations as Node[] | undefined) ?? []) {
+        if ((d.id as Node).type === "Identifier") bareLets.delete((d.id as Node).name as string);
+      }
+      return;
     }
     if (n.type === "SnippetBlock" && (n.expression as Node).type === "Identifier") {
       snippets.set((n.expression as Node).name as string, n);
@@ -503,11 +526,55 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
     if (u.type !== "MemberExpression" || u.computed) return undefined;
     return (u.property as Node).name === "length" ? (u.object as Node) : undefined;
   };
+  /**
+   * Is a local computed here rather than read from a field? `$state(…)` is
+   * the component's own state, `let error;` too, and a `$derived` or `const`
+   * of a call, a list or a sum is data the file works out (reddoor-website's
+   * report: `rows = $derived(healthRows(view))`). An emptiness test on one is
+   * a choice about that data, so its branches are the site's own words
+   * (review round 4 on #2231). An alias of a path (`$derived(doc.data)`), an
+   * emptiness test (`isFilled.image(d?.logo) && quoted`) or `a ?? b` of a
+   * path still stands for the field.
+   */
+  const computing = new Set<string>();
+  function isComputedLocal(name: string, depth = 0): boolean {
+    if (bareLets.has(name)) return true;
+    const init = inits.get(name);
+    if (!init || computing.has(name)) return false;
+    computing.add(name);
+    try {
+      return computedInit(name, init, depth);
+    } finally {
+      computing.delete(name);
+    }
+  }
+  function computedInit(name: string, init: Node, depth: number): boolean {
+    const bare = TRANSPARENT.has(init.type) ? unwrap(init) : init;
+    if (bare.type === "CallExpression" && /^\$state(?:\.raw)?$/.test(calleePath(bare) ?? "")) {
+      return true;
+    }
+    const u = unwrap(init);
+    if (emptiness(u, 2) !== undefined) return false;
+    switch (u.type) {
+      case "Identifier":
+      case "MemberExpression": {
+        const root = memberPath(u)?.split(".")[0];
+        return root !== undefined && root !== name && depth < 2 && isComputedLocal(root, depth + 1);
+      }
+      case "LogicalExpression":
+      case "ConditionalExpression":
+      case "AwaitExpression":
+        return false;
+      default:
+        return true;
+    }
+  }
   function emptiness(test: Node, depth = 0): Set<string> | undefined {
     const n = unwrap(test);
     if (n.type === "Identifier" || n.type === "MemberExpression") {
       const p = memberPath(n);
       if (!p) return undefined;
+
       const out = new Set([p]);
       const init = n.type === "Identifier" && depth < 2 ? inits.get(p) : undefined;
       const via = init ? emptiness(init, depth + 1) : undefined;
@@ -614,6 +681,11 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
   }
   const shares = (a: Set<string> | undefined, b: Set<string>): boolean =>
     a !== undefined && sharePath(a, b);
+  /** Does a test read at least one value that is not worked out in this file?
+   *  `{#if rows.length === 0}` with `rows = $derived(healthRows(view))` does
+   *  not: its branches are the file's own words about its own data. */
+  const aboutField = (test: Node): boolean =>
+    [...valuePaths(test)].some((p) => !isComputedLocal(p.split(".")[0]!));
   /** Every `&&` conjunct of `test` asks whether something `shown` holds is
    *  empty: `{#if video && playing}{video}…` also waits on `playing`, which
    *  the branch does not show, so its else is a choice, not a fallback. */
@@ -764,9 +836,14 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
               : key === "alternate"
                 ? (parent.consequent as Node)
                 : undefined;
+          // In the template, a test of the file's own data is a choice too
+          // (`{user ? user.name : "Sign in"}` with `user = $state(null)`); in
+          // script, `steps.length ? steps : DEFAULTS.steps` is the fallback
+          // idiom even when `steps` is worked out from the field.
           if (
             other &&
-            !isPureLiteral(other) &&
+            !isWordLiteral(other) &&
+            (chain[1]?.key !== "fragment" || aboutField(parent.test as Node)) &&
             (key === "alternate"
               ? coveredBy(parent.test as Node, valuePaths(other))
               : shares(negatedEmptiness(parent.test as Node), valuePaths(other)))
@@ -915,10 +992,12 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
    *  block, judged by its own test: the arm it sits in is never a leaf. */
   const elseIsFallback = (block: Node): boolean =>
     isLeafSubstitute(block.alternate as Node) &&
+    aboutField(block.test as Node) &&
     coveredBy(block.test as Node, rendered(block.consequent as Node));
 
   const negatedIsFallback = (block: Node): boolean =>
     isNode(block.alternate) &&
+    aboutField(block.test as Node) &&
     isLeafSubstitute(block.consequent as Node) &&
     shares(negatedEmptiness(block.test as Node), rendered(block.alternate));
 
