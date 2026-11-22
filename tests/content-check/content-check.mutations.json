@@ -371,7 +371,7 @@
       "tests/content-check/command.test.ts"
     ],
     "expect": "red",
-    "why": "round 1 #8: {upper(\"…\")} is unreported again"
+    "why": "round 1 #8: {upper(\"\u2026\")} is unreported again"
   },
   {
     "id": "drop-local-shown-in-template",
@@ -388,7 +388,7 @@
       "tests/content-check/command.test.ts"
     ],
     "expect": "red",
-    "why": "round 1 #8: const greeting = \"…\"; {greeting} is unreported again"
+    "why": "round 1 #8: const greeting = \"\u2026\"; {greeting} is unreported again"
   },
   {
     "id": "drop-faq-keys",
@@ -830,7 +830,7 @@
       "tests/content-check/command.test.ts"
     ],
     "expect": "red",
-    "why": "round 2 fold: MSOT's `pair = … ? d.logo : null` is no emptiness test; its partners copy is reported again"
+    "why": "round 2 fold: MSOT's `pair = \u2026 ? d.logo : null` is no emptiness test; its partners copy is reported again"
   },
   {
     "id": "else-needs-no-leaf",
@@ -1052,5 +1052,328 @@
     ],
     "expect": "red",
     "why": "round 3 major: #title = \"words\" is named like title"
+  },
+  {
+    "id": "computed-local-is-a-field",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "    if (bareLets.has(name)) return true;\n",
+        "replace": "    return false;\n"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 4 major 1: a test of $state or a computed list is a choice; its else is reported"
+  },
+  {
+    "id": "template-ternary-ignores-computed",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "            (chain[1]?.key !== \"fragment\" || aboutField(parent.test as Node)) &&\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 4 major 1: {user ? user.name : \"Sign in\"} with user = $state(null) reports \"Sign in\""
+  },
+  {
+    "id": "else-ignores-computed",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "    isLeafSubstitute(block.alternate as Node) &&\n    aboutField(block.test as Node) &&\n",
+        "replace": "    isLeafSubstitute(block.alternate as Node) &&\n"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 4 major 1: the else of {#if error} with error = $state(null) is reported"
+  },
+  {
+    "id": "hole-template-is-not-a-literal",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "const isWordLiteral = (node: Node): boolean =>\n  isPureLiteral(node) ||\n",
+        "replace": "const isWordLiteral = (node: Node): boolean =>\n  isPureLiteral(node) || false &&\n"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 4 major 1: both branches of title ? `${n}, ${t}, MSOT.` : `${n}, MSOT.` are reported"
+  },
+  {
+    "id": "prop-or-is-always-fallback",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "            if (!read) return true;\n",
+        "replace": "            return true;\n"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 4 major 2: {sub || \"Serving Austin\"} is reported when a caller leaves sub out"
+  },
+  {
+    "id": "spread-passes-everything",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "        if (keys) names.push(...keys);\n        else spread = true;\n",
+        "replace": "        spread = true;\n"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 4 major 4: {...p} with const p = {} passes nothing"
+  },
+  {
+    "id": "defaults-always-fallbacks",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "  function defaultIsFallback(chain: Ancestor[], at: number): boolean {\n",
+        "replace": "  function defaultIsFallback(chain: Ancestor[], at: number): boolean {\n    return true;\n"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 4 major 3: seo({ title = \"Acme\" } = {}) reports its default"
+  },
+  {
+    "id": "reach-not-followed",
+    "edits": [
+      {
+        "file": "src/content-check/check.ts",
+        "find": "  for (let changed = true; changed; ) {\n",
+        "replace": "  for (let changed = false; changed; ) {\n"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 4 major 7: seed data only a /dev route imports is exempt"
+  },
+  {
+    "id": "route-files-reach-exempt",
+    "edits": [
+      {
+        "file": "src/content-check/check.ts",
+        "find": "      if (exemptions.has(file) || ROUTE_FILE.test(file)) continue;\n",
+        "replace": "      if (exemptions.has(file)) continue;\n"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 4 fold's fleet diff: a route page a /dev page imports is still scanned"
+  },
+  {
+    "id": "exempt-readers-count-as-none",
+    "edits": [
+      {
+        "file": "src/content-check/check.ts",
+        "find": "      if (!scan.uses.has(d.binding) && onlyExemptRead(file, d.binding)) continue;\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 4 fold's fleet diff: a constant only exempt files read is not reported (MSOT PRIVACY_VALUES)"
+  },
+  {
+    "id": "json-not-scanned",
+    "edits": [
+      {
+        "file": "src/content-check/check.ts",
+        "find": "const SOURCE_GLOBS = [\"src/routes/**/*.{svelte,ts,js,json}\", \"src/lib/**/*.{svelte,ts,js,json}\"];",
+        "replace": "const SOURCE_GLOBS = [\"src/routes/**/*.{svelte,ts,js}\", \"src/lib/**/*.{svelte,ts,js}\"];"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 4 major 5: an imported site-config.json is scanned"
+  },
+  {
+    "id": "unimported-json-scanned",
+    "edits": [
+      {
+        "file": "src/content-check/check.ts",
+        "find": "    if (file.endsWith(\".json\") && !importers.has(file)) continue;\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 4 major 5: a model.json nothing imports is not scanned"
+  },
+  {
+    "id": "json-default-not-followed",
+    "edits": [
+      {
+        "file": "src/content-check/check.ts",
+        "find": "            const name = o.name === \"default\" && file.endsWith(\".json\") ? JSON_BINDING : o.name;\n",
+        "replace": "            const name = o.name;\n"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 4 major 5: a .json value read only as a fallback is hidden, like an exported constant"
+  },
+  {
+    "id": "each-not-followed",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "      const kind = shownAs.get(u.binding) ?? eachShown(u.binding);\n",
+        "replace": "      const kind = shownAs.get(u.binding);\n"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 4 major 6: {#each services as s}{s} shows services"
+  },
+  {
+    "id": "local-to-prop-not-shown",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "      if (kind && isProseKind(kind)) shownAs.set(name, kind);\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 4 major 6: <Hero subtitle={msg} /> shows msg"
+  },
+  {
+    "id": "drop-round-4-keys",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": "addKeys(\"copy\", [\"desc\", \"author\", \"aria\", \"info\"]);",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 4 major 6: desc, author, aria and info are content keys"
+  },
+  {
+    "id": "note-is-content",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": "addKeys(\"copy\", [\"desc\", \"author\", \"aria\", \"info\"]);",
+        "replace": "addKeys(\"copy\", [\"desc\", \"author\", \"aria\", \"info\", \"note\", \"status\"]);"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 4 fold: note (a CRM note on reddoor-website) and status (a code value) stay out"
+  },
+  {
+    "id": "or-left-literal-is-fallback",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "            !isPureLiteral(parent.left as Node) &&\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 4 minor 9: a literal on the left of || is not a field"
+  },
+  {
+    "id": "or-suffix-not-a-helper",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": "  /(?:Or|OrDefault|Fallback|WithDefault)$|",
+        "replace": "  /(?:OrDefault|Fallback|WithDefault)$|"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 4 minor 9: a helper named \u2026Or is a fallback helper"
   }
 ]

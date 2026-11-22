@@ -1097,3 +1097,18 @@ describe("words reached through a list, a prop or a key (round 4, major 6)", () 
     ).toEqual(["We build custom homes", "Jane Doe", "Go to Revogen project", "Open on weekends"]);
   });
 });
+
+describe("rules round 4 found unpinned (minor 9)", () => {
+  it("a literal on the left of || is not a field: the right is reported", () => {
+    expect(svelte(`<p>{"" || "Welcome to Acme Plumbing"}</p>`)).toEqual([
+      ["copy", "Welcome to Acme Plumbing"],
+    ]);
+  });
+
+  it("a helper whose name ends in Or is a fallback helper", () => {
+    expect(svelte(`<h1>{titleOr(doc.data.title, "Welcome to Acme Plumbing")}</h1>`)).toEqual([]);
+    expect(svelte(`<h1>{titled(doc.data.title, "Welcome to Acme Plumbing")}</h1>`)).toEqual([
+      ["heading", "Welcome to Acme Plumbing"],
+    ]);
+  });
+});
