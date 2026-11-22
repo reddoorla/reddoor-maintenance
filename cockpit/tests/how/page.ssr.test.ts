@@ -754,6 +754,15 @@ describe("How we count's Lately entry (P1-87 PR 4, review round 3 D)", () => {
     expect(text(entry)).toContain("naming up to two steps that did not run to the end");
     expect(text(entry)).toContain("from six Pacific calendar days back carries its date");
   });
+
+  // #2194: the rule deploysToShow applies, said where the feed's rules are.
+  it("says a deploy is listed only when no dependency update merged on its site in the hour before it", () => {
+    const terms = DOC.querySelectorAll("details dl dt").map(text);
+    const entry = DOC.querySelectorAll("details dl dd")[terms.indexOf("Lately")]!;
+    expect(text(entry)).toContain(
+      "a deploy is listed only when no dependency update merged on its site in the hour before it",
+    );
+  });
 });
 
 describe("PR 8c item 8: the night fills in as you scroll (server render)", () => {

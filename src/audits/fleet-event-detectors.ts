@@ -25,8 +25,8 @@ export function cleanRenovateTitle(title: string): string {
 /** backup_verified: the night's restore rehearsal passed, read from the one
  *  `DUMP_VERIFY` machine line `db verify-dump` prints. PURE. Null unless the text
  *  holds exactly one such line, it says `loaded=true` and `mismatches=0`, and its
- *  `tables` and `rows` are integers: a failed, partial or ambiguous rehearsal
- *  records nothing. */
+ *  `tables` and `rows` are integers, `tables` at least 1: a failed, partial, empty or
+ *  ambiguous rehearsal records nothing. */
 export function backupEventFromVerify(text: string, at: string): FleetEvent | null {
   const lines = text.split("\n").filter((l) => l.startsWith("DUMP_VERIFY "));
   if (lines.length !== 1) return null;
@@ -42,6 +42,10 @@ export function backupEventFromVerify(text: string, at: string): FleetEvent | nu
   if (!/^\d+$/.test(tables) || !/^\d+$/.test(rows)) return null;
   const t = Number(tables);
   const r = Number(rows);
+  // #2200 (the operator's answer (a), 2026-11-21): a rehearsal that restored no table is not a
+  // verified backup. verify-dump and the gate make it unreachable today; this keeps the feed's
+  // "verified" from resting on those two other files alone.
+  if (t === 0) return null;
   return {
     id: `backup_verified:${ymd(at)}`,
     ts: at,
