@@ -239,6 +239,70 @@ const TRANSPARENT = new Set([
   "ChainExpression",
 ]);
 
+/** Elements a visitor acts on, or that hold a whole region: a branch holding
+ *  one is an alternate template, never a stand-in for one field. */
+const INTERACTIVE = new Set([
+  "a",
+  "button",
+  "form",
+  "input",
+  "select",
+  "textarea",
+  "label",
+  "details",
+  "dialog",
+  "nav",
+  "header",
+  "footer",
+  "section",
+  "ul",
+  "ol",
+]);
+/** Inline formatting that keeps a run of text one text. */
+const INLINE = new Set(["em", "strong", "b", "i", "span", "br", "small", "sup", "sub", "mark"]);
+/** Media whose own children are its sources. */
+const MEDIA = new Set(["picture", "video", "audio"]);
+
+const contentNodes = (fragment: Node | undefined): Node[] =>
+  ((fragment?.nodes as Node[] | undefined) ?? []).filter(
+    (n) => n.type !== "Comment" && !(n.type === "Text" && String(n.data).trim() === ""),
+  );
+
+/** A run of text: text, `{expr}` and inline formatting around text. */
+const isInlineText = (n: Node): boolean =>
+  n.type === "Text" ||
+  n.type === "ExpressionTag" ||
+  (n.type === "RegularElement" &&
+    INLINE.has(String(n.name).toLowerCase()) &&
+    contentNodes(n.fragment as Node).every(isInlineText));
+
+/**
+ * Is a branch a leaf substitute for one field: one run of text, or one
+ * element holding one (a heading, a paragraph, an image, a `<picture>` with
+ * its sources), perhaps inside plain wrappers? A link, a button, a form, a
+ * nested block, a component or a second element makes it an alternate
+ * template, whose words are the site's own (review round 3 on #2231: the
+ * starter `Nav`'s `{:else}` is the whole site-config menu).
+ */
+function isLeafSubstitute(fragment: Node | undefined): boolean {
+  const nodes = contentNodes(fragment);
+  if (nodes.every(isInlineText)) return true;
+  if (nodes.length !== 1) return false;
+  const [el] = nodes as [Node];
+  if (el.type !== "RegularElement") return false;
+  const name = String(el.name).toLowerCase();
+  if (INTERACTIVE.has(name)) return false;
+  if (MEDIA.has(name)) {
+    return contentNodes(el.fragment as Node).every(
+      (c) =>
+        c.type === "RegularElement" &&
+        /^(?:source|track|img)$/i.test(String(c.name)) &&
+        contentNodes(c.fragment as Node).length === 0,
+    );
+  }
+  return isLeafSubstitute(el.fragment as Node);
+}
+
 // --- the scanner --------------------------------------------------------------
 
 type Ancestor = { node: Node; key: string };
@@ -409,9 +473,13 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
   // and only when its initialiser is itself an emptiness test; otherwise the
   // local stands for itself (`isMobile = $derived(w < 768)` is a switch).
   const inits = new Map<string, Node>();
+  const snippets = new Map<string, Node>();
   (function collect(n: Node): void {
     if (n.type === "VariableDeclarator" && isNode(n.init) && (n.id as Node).type === "Identifier") {
       inits.set((n.id as Node).name as string, n.init);
+    }
+    if (n.type === "SnippetBlock" && (n.expression as Node).type === "Identifier") {
+      snippets.set((n.expression as Node).name as string, n);
     }
     for (const [, c] of children(n)) collect(c);
   })(ast);
@@ -457,9 +525,10 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
     if (n.type === "LogicalExpression" && (n.operator === "&&" || n.operator === "||")) {
       const l = emptiness(n.left as Node, depth);
       const r = emptiness(n.right as Node, depth);
-      if (n.operator === "||" && (!l || !r)) return undefined;
-      if (!l && !r) return undefined;
-      return new Set([...(l ?? []), ...(r ?? [])]);
+      // Both sides must be emptiness tests: `variation === "video" && f` or
+      // `video && playing === true` also asks something else (round 3).
+      if (!l || !r) return undefined;
+      return new Set([...l, ...r]);
     }
     if (n.type === "CallExpression") {
       const callee = calleePath(n) ?? "";
@@ -545,6 +614,11 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
   }
   const shares = (a: Set<string> | undefined, b: Set<string>): boolean =>
     a !== undefined && sharePath(a, b);
+  /** Every `&&` conjunct of `test` asks whether something `shown` holds is
+   *  empty: `{#if video && playing}{video}…` also waits on `playing`, which
+   *  the branch does not show, so its else is a choice, not a fallback. */
+  const coveredBy = (test: Node, shown: Set<string>): boolean =>
+    conjuncts(unwrap(test)).every((c) => shares(emptiness(c), shown));
 
   // SvelteKit's `dev` is true only under `vite dev`: a branch it guards never
   // reaches a visitor, so nothing in it is reported and no read in it counts.
@@ -625,10 +699,16 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
   // How often each name is read inside a `class` or `style` attribute, and
   // anywhere else: a constant read only for styling (`const lines = […
   // "translate-y-0 opacity-100"]` behind `class="{lines[0]}"`) is not content.
-  const styleReads = new Map<string, { style: number; other: number }>();
+  const styleReads = new Map<string, { style: number; other: number; cls: number }>();
   const onlyStyling = (name: string): boolean => {
     const r = styleReads.get(name);
     return r !== undefined && r.style > 0 && r.other === 0;
+  };
+  // An image read only inside `class` (`{src === placeholder ? 'lg:w-1/2' : ''}`)
+  // is compared against, never shown; one in a `style` value is a background.
+  const onlyInClass = (name: string): boolean => {
+    const r = styleReads.get(name);
+    return r !== undefined && r.cls > 0 && r.cls === r.style && r.other === 0;
   };
   const unnamed: Array<{ binding: string; pos: number; text: string }> = [];
 
@@ -688,7 +768,7 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
             other &&
             !isPureLiteral(other) &&
             (key === "alternate"
-              ? shares(emptiness(parent.test as Node), valuePaths(other))
+              ? coveredBy(parent.test as Node, valuePaths(other))
               : shares(negatedEmptiness(parent.test as Node), valuePaths(other)))
           ) {
             return true;
@@ -829,14 +909,65 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
       (a) => a.type === "Attribute" && a.name === "field" && a.value !== true,
     );
 
-  /** `{#if X}…{:else}literal{/if}` is a fallback when the true branch shows a
-   *  field the test is about: the test and the branch share a member path. */
+  /** `{#if X}…{:else}literal{/if}` is a fallback when the test asks only
+   *  whether fields the true branch shows are empty, and the else is a leaf
+   *  substitute (one text or one image). An `{:else if}` arm is its own
+   *  block, judged by its own test: the arm it sits in is never a leaf. */
   const elseIsFallback = (block: Node): boolean =>
-    shares(emptiness(block.test as Node), rendered(block.consequent as Node));
+    isLeafSubstitute(block.alternate as Node) &&
+    coveredBy(block.test as Node, rendered(block.consequent as Node));
 
   const negatedIsFallback = (block: Node): boolean =>
     isNode(block.alternate) &&
+    isLeafSubstitute(block.consequent as Node) &&
     shares(negatedEmptiness(block.test as Node), rendered(block.alternate));
+
+  /** `{@render heading("mt-16 px-8")}`: does the snippet, when it is in this
+   *  file, show the parameter the literal is passed as, or only style with
+   *  it? A snippet passed in from elsewhere cannot be seen, so it shows. */
+  function snippetShows(chain: Ancestor[], at: number): boolean {
+    const call = unwrap(chain[at]!.node);
+    if (call.type !== "CallExpression") return true;
+    const snippet = snippets.get(calleePath(call) ?? "");
+    if (!snippet) return true;
+    const arg = chain.slice(at + 1).find((a) => a.key === "arguments")?.node;
+    const param = (snippet.parameters as Node[])[(call.arguments as Node[]).indexOf(arg!)];
+    const name = param ? paramName(param) : "";
+    return name === "" || shares(new Set([name]), rendered(snippet.body as Node));
+  }
+
+  /** The name of the function a node at `chain[at]` returns from: its own
+   *  name, or the key, variable or field it is assigned to. */
+  function functionName(chain: Ancestor[], at: number): string | undefined {
+    for (let j = at; j >= 0; j--) {
+      const fn = chain[j]!.node;
+      if (!/^(?:FunctionDeclaration|FunctionExpression|ArrowFunctionExpression)$/.test(fn.type)) {
+        continue;
+      }
+      const id = fn.id as Node | null | undefined;
+      if (id?.type === "Identifier") return id.name as string;
+      const holder = chain[j - 1]?.node;
+      const key = chain[j]!.key;
+      if (!holder) return undefined;
+      if (
+        (holder.type === "Property" ||
+          holder.type === "MethodDefinition" ||
+          holder.type === "PropertyDefinition") &&
+        key === "value"
+      ) {
+        const k = holder.key as Node;
+        return k.type === "Identifier" || k.type === "PrivateIdentifier"
+          ? (k.name as string)
+          : literalText(k);
+      }
+      if (holder.type === "VariableDeclarator" && key === "init") {
+        const v = holder.id as Node;
+        return v.type === "Identifier" ? (v.name as string) : undefined;
+      }
+      return undefined;
+    }
+    return undefined;
+  }
 
   /** The name a literal's value sits under, climbing through arrays, wrappers,
    *  concatenation and non-fallback branches: `{ title: "x" }` → title,
@@ -918,15 +1049,36 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
       }
       if (parent.type === "PropertyDefinition" && key === "value") {
         const k = parent.key as Node;
-        return { name: k.type === "Identifier" ? (k.name as string) : undefined };
+        // `#title = "x"` is named like `title = "x"`.
+        return {
+          name:
+            k.type === "Identifier" || k.type === "PrivateIdentifier"
+              ? (k.name as string)
+              : undefined,
+        };
       }
-      if (parent.type === "ExpressionTag" || parent.type === "HtmlTag") {
+      // `get title() { return "x" }`, `const heading = () => "x"`: a returned
+      // literal sits under the function's name.
+      if (
+        (parent.type === "ReturnStatement" && key === "argument") ||
+        (parent.type === "ArrowFunctionExpression" && key === "body")
+      ) {
+        if (viaCall) return {};
+        return { name: functionName(chain, i - 1) };
+      }
+      if (
+        parent.type === "ExpressionTag" ||
+        parent.type === "HtmlTag" ||
+        // `{@render card("Our story")}`: the snippet shows its arguments.
+        parent.type === "RenderTag"
+      ) {
         const grand = chain[i - 2];
         if (grand?.node.type === "Attribute") {
           return { attr: grand.node, templateText: chain.slice(0, i - 2) };
         }
         // `style:font-family={"Open Sans"}`: a style value, never words.
         if (grand && DIRECTIVES.has(grand.node.type)) return {};
+        if (parent.type === "RenderTag" && !snippetShows(chain, i)) return {};
         return { templateText: chain.slice(0, i) };
       }
       return {};
@@ -1216,9 +1368,13 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
     if (fallback) use.fallback++;
     else use.bare++;
     uses.set(name, use);
-    const sr = styleReads.get(name) ?? { style: 0, other: 0 };
-    if (chain.some(({ node: n }) => isStyling(n))) sr.style++;
-    else sr.other++;
+    const sr = styleReads.get(name) ?? { style: 0, other: 0, cls: 0 };
+    if (chain.some(({ node: n }) => isStyling(n))) {
+      sr.style++;
+      const isClass = ({ node: n }: Ancestor): boolean =>
+        n.type === "ClassDirective" || (n.type === "Attribute" && /^class$/i.test(String(n.name)));
+      if (chain.some(isClass)) sr.cls++;
+    } else sr.other++;
     styleReads.set(name, sr);
     if (!fallback && parent.type === "ExpressionTag" && chain.at(-3)?.node.type !== "Attribute") {
       const kind = textKind(chain.slice(0, -2));
@@ -1294,7 +1450,9 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
   return finalize();
 
   function finalize(): FileScan {
-    for (const [name, a] of assets) if (!onlyFallbacks(name)) report(a.pos, a.kind, a.text);
+    for (const [name, a] of assets) {
+      if (!onlyFallbacks(name) && !onlyInClass(name)) report(a.pos, a.kind, a.text);
+    }
     for (const u of unnamed) {
       const kind = shownAs.get(u.binding);
       if (!kind || isIdentifierLike(u.text) || onlyStyling(u.binding)) continue;

@@ -270,6 +270,42 @@ export const homeCopy = (d) => ({ heading: text(d?.heading, HOME_COPY.heading) }
     expect((await scan(never)).findings.map((f) => f.text)).toEqual(["Welcome home"]);
   });
 
+  it("a component also rendered by reference counts as a call site that passes nothing (round 3)", async () => {
+    const hero = `<script>let { title = "Homes built to last" } = $props();</script><h1>{title}</h1>`;
+    const page = `<script>import Hero from "$lib/Hero.svelte";</script><Hero title={doc.title} />`;
+    for (const other of [
+      `<script>import Hero from "$lib/Hero.svelte";</script><svelte:component this={Hero} />`,
+      `<script>import Hero from "$lib/Hero.svelte"; const C = Hero;</script><C />`,
+    ]) {
+      const dir = site({
+        "src/lib/Hero.svelte": hero,
+        "src/routes/a/+page.svelte": page,
+        "src/routes/b/+page.svelte": other,
+      });
+      expect(
+        (await scan(dir)).findings.map((f) => f.text),
+        other,
+      ).toEqual(["Homes built to last"]);
+    }
+  });
+
+  it("an export const is a constant even when every call site passes that name (round 3 hand-off)", async () => {
+    const dir = site({
+      "src/lib/Old.svelte": `<script>export const heading = "Welcome home";</script><h1>{heading}</h1>`,
+      "src/routes/+page.svelte": `<script>import Old from "$lib/Old.svelte";</script><Old heading={doc.h} />`,
+    });
+    expect((await scan(dir)).findings.map((f) => f.text)).toEqual(["Welcome home"]);
+  });
+
+  it("a namespace read outweighs fallback-only named reads (round 3)", async () => {
+    const dir = site({
+      "src/lib/copy.ts": `export const COPY = { heading: "Homes built to last" };`,
+      "src/routes/a/+page.svelte": `<script>import { COPY } from "$lib/copy";</script><h1>{doc.h || COPY.heading}</h1>`,
+      "src/routes/b/+page.svelte": `<script>import * as copy from "$lib/copy";</script><h1>{copy.COPY.heading}</h1>`,
+    });
+    expect((await scan(dir)).findings.map((f) => f.text)).toEqual(["Homes built to last"]);
+  });
+
   it("resolves ./, ../ and $lib/ specifiers, with or without an extension", () => {
     const known = new Set(["src/lib/a.ts", "src/lib/b/index.ts", "src/lib/C.svelte"]);
     expect(resolveImport("src/routes/x.ts", "$lib/a", known)).toBe("src/lib/a.ts");
@@ -358,6 +394,17 @@ describe("settings", () => {
         ContentCheckConfigError,
       );
     }
+  });
+});
+
+describe("a byte-order mark (round 3)", () => {
+  it("is read past in the settings and the baseline, as an editor on Windows writes them", () => {
+    const dir = site({
+      "content-check.json": `\uFEFF{"mode": "warn", "ignore": ["Acme"]}`,
+      "content-check.baseline.json": `\uFEFF{"version": 1, "counts": {"a": {"copy\\tx": 1}}}`,
+    });
+    expect(readConfig(dir).ignore).toEqual(["Acme"]);
+    expect(readBaseline(dir).counts).toEqual({ a: { "copy\tx": 1 } });
   });
 });
 

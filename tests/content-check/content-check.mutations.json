@@ -371,7 +371,7 @@
       "tests/content-check/command.test.ts"
     ],
     "expect": "red",
-    "why": "round 1 #8: {upper(\"\u2026\")} is unreported again"
+    "why": "round 1 #8: {upper(\"…\")} is unreported again"
   },
   {
     "id": "drop-local-shown-in-template",
@@ -388,7 +388,7 @@
       "tests/content-check/command.test.ts"
     ],
     "expect": "red",
-    "why": "round 1 #8: const greeting = \"\u2026\"; {greeting} is unreported again"
+    "why": "round 1 #8: const greeting = \"…\"; {greeting} is unreported again"
   },
   {
     "id": "drop-faq-keys",
@@ -625,8 +625,8 @@
       "tests/content-check/site.test.ts",
       "tests/content-check/command.test.ts"
     ],
-    "expect": "red",
-    "why": "round 2 blocker: class:done={submitted} shows submitted; the form hides its copy again"
+    "expect": "survives",
+    "why": "equivalent (round 3 hand-off): rendered() collects paths only from ExpressionTag/HtmlTag/RenderTag and #each, and the only directive whose value holds an ExpressionTag is style:, which isStyling also drops; class:done={submitted} is caught by isStyling. The DIRECTIVES guard stays as defence for a future directive shape."
   },
   {
     "id": "prop-defaults-always-fallbacks",
@@ -830,6 +830,227 @@
       "tests/content-check/command.test.ts"
     ],
     "expect": "red",
-    "why": "round 2 fold: MSOT's `pair = \u2026 ? d.logo : null` is no emptiness test; its partners copy is reported again"
+    "why": "round 2 fold: MSOT's `pair = … ? d.logo : null` is no emptiness test; its partners copy is reported again"
+  },
+  {
+    "id": "else-needs-no-leaf",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "    isLeafSubstitute(block.alternate as Node) &&\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 3 blocker: a whole alternate template (the starter Nav) behind an emptiness test must be reported"
+  },
+  {
+    "id": "negated-needs-no-leaf",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "    isLeafSubstitute(block.consequent as Node) &&\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 3 blocker: the negated-{#if} consequent must be a leaf substitute too"
+  },
+  {
+    "id": "leaf-allows-many-elements",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "  if (nodes.length !== 1) return false;\n",
+        "replace": "  if (nodes.length === 0) return false;\n"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 3 blocker: two elements in an else make it an alternate"
+  },
+  {
+    "id": "leaf-allows-interactive",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "  if (INTERACTIVE.has(name)) return false;\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 3 blocker: a button or a link in the else makes it an alternate"
+  },
+  {
+    "id": "and-needs-one-side",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "      if (!l || !r) return undefined;\n",
+        "replace": "      if (!l && !r) return undefined;\n"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 3 critical: `variation === \"default\" && field` is not an emptiness test"
+  },
+  {
+    "id": "conjuncts-need-not-be-shown",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "    conjuncts(unwrap(test)).every((c) => shares(emptiness(c), shown));",
+        "replace": "    shares(emptiness(test), shown);"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 3 critical: `video && playing` with only video shown is a choice, not a fallback"
+  },
+  {
+    "id": "render-args-not-shown",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "        parent.type === \"RenderTag\"\n",
+        "replace": "        parent.type === \"__RenderTag\"\n"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 3 major: {@render card(\"words\")} arguments are shown"
+  },
+  {
+    "id": "render-args-all-shown",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "        if (parent.type === \"RenderTag\" && !snippetShows(chain, i)) return {};\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 3 fleet diff: a snippet argument only styled with (williamson-homes PageHero) is not words"
+  },
+  {
+    "id": "returns-have-no-name",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "        return { name: functionName(chain, i - 1) };\n",
+        "replace": "        return {};\n"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 3 major: a returned literal sits under its function's name"
+  },
+  {
+    "id": "dynamic-render-not-a-call",
+    "edits": [
+      {
+        "file": "src/content-check/check.ts",
+        "find": "        if (otherScan.uses.has(local)) calls.push({ name: local, attrs: [], spread: false });\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 3 major: <svelte:component this={Hero}/> renders the default"
+  },
+  {
+    "id": "class-only-import-shown",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": " && !onlyInClass(name)",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 3 fleet diff: an image import only compared inside class (Vineyard ScreenWidthMedia) is not shown"
+  },
+  {
+    "id": "bom-not-stripped",
+    "edits": [
+      {
+        "file": "src/content-check/check.ts",
+        "find": "    raw = JSON.parse(readFileSync(path, \"utf8\").replace(/^\\uFEFF/, \"\"));\n  } catch (err) {\n    throw new ContentCheckConfigError(`${CONFIG_FILE}",
+        "replace": "    raw = JSON.parse(readFileSync(path, \"utf8\"));\n  } catch (err) {\n    throw new ContentCheckConfigError(`${CONFIG_FILE}"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 3 nit: a BOM in content-check.json is read past"
+  },
+  {
+    "id": "private-field-has-no-name",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "        // `#title = \"x\"` is named like `title = \"x\"`.\n        return {\n          name:\n            k.type === \"Identifier\" || k.type === \"PrivateIdentifier\"",
+        "replace": "        // `#title = \"x\"` is named like `title = \"x\"`.\n        return {\n          name:\n            k.type === \"Identifier\""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 3 major: #title = \"words\" is named like title"
   }
 ]

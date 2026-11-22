@@ -1,6 +1,14 @@
 // P1-120 phase 2: the CLI face. Warn mode never fails a site's CI; fail mode
 // is the per-site switch; `--init` writes what a site needs.
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -45,6 +53,17 @@ describe("warn mode (every site, for now)", () => {
       `warning ${PAGE}:35 phone "tel:+15550100777"`,
       `warning ${PAGE}:35 copy "Call the office"`,
     ]);
+  });
+
+  it("names a file it could not parse, and still exits 0 (round 3)", async () => {
+    const dir = copyOf("clean");
+    mkdirSync(join(dir, "src/routes/broken"));
+    writeFileSync(join(dir, "src/routes/broken/+page.svelte"), "<h1>{</h1>");
+    const r = await run(dir);
+    expect(r.code).toBe(0);
+    expect(r.output).toMatch(
+      /^note: not scanned, could not parse src\/routes\/broken\/\+page\.svelte/m,
+    );
   });
 
   it("emits GitHub annotations only inside Actions", async () => {

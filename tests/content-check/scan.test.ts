@@ -640,7 +640,7 @@ describe("a branch is a fallback only behind an emptiness test it renders (round
 
   it("emptiness tests that do make a fallback", () => {
     const cases = [
-      `{#if doc.links.length > 0}{#each doc.links as l}{l.text}{/each}{:else}<a href="/contact">Contact us</a>{/if}`,
+      `{#if doc.links.length > 0}{#each doc.links as l}{l.text}{/each}{:else}<p>Links coming soon</p>{/if}`,
       `{#if doc.title != null}{doc.title}{:else}<h1>Welcome home</h1>{/if}`,
       `{#if doc.items.length === 0}<p>No listings right now</p>{:else}{#each doc.items as i}{i.name}{/each}{/if}`,
       `{#if doc.title == null}<h1>Welcome home</h1>{:else}{doc.title}{/if}`,
@@ -706,5 +706,197 @@ describe("built-in fallback helpers (round 2)", () => {
         `<p>{textOr(doc.a, "Built to last")}</p><p>{withFallback(doc.b, "Since 1901")}</p><p>{orDefault(doc.c, "Call us today")}</p>`,
       ),
     ).toEqual([]);
+  });
+});
+
+describe("an else is a fallback only when it is a leaf substitute (round 3, blocker)", () => {
+  it("a whole alternate template behind an emptiness test is reported (the starter Nav)", () => {
+    expect(
+      svelte(
+        `<script>let { navLinks = [] } = $props(); const useNavLinks = $derived(navLinks.length > 0);</script>
+{#if useNavLinks}{#each navLinks as l}<a href={l.href}>{l.text}</a>{/each}{:else}<nav><a href="/">Home</a><a href="/services">Services</a><a href="tel:+12105550100">(210) 555-0100</a><button>Request Appointment</button></nav>{/if}`,
+      ),
+    ).toEqual([
+      ["link", "/"],
+      ["copy", "Home"],
+      ["link", "/services"],
+      ["copy", "Services"],
+      ["phone", "tel:+12105550100"],
+      ["phone", "(210) 555-0100"],
+      ["button", "Request Appointment"],
+    ]);
+  });
+
+  it("a link, a button or a component in the else makes it an alternate", () => {
+    expect(
+      svelte(
+        `{#if href}<a {href}>{label}</a>{:else}<button><img src="/arrow.svg" alt="link arrow" /></button>{/if}`,
+      ),
+    ).toEqual([
+      ["image", "/arrow.svg"],
+      ["alt", "link arrow"],
+    ]);
+    expect(
+      svelte(`{#if doc.title}<h1>{doc.title}</h1>{:else}<Hero heading="Welcome home" />{/if}`),
+    ).toEqual([["heading", "Welcome home"]]);
+    expect(
+      svelte(
+        `{#if !doc.title}<p>Call <a href="/contact">our office</a></p>{:else}<h1>{doc.title}</h1>{/if}`,
+      ),
+    ).toEqual([
+      ["copy", "Call"],
+      ["link", "/contact"],
+      ["copy", "our office"],
+    ]);
+  });
+
+  it("two elements in the else make it an alternate", () => {
+    expect(
+      svelte(
+        `{#if doc.title}<h1>{doc.title}</h1>{:else}<h1>Welcome home</h1><p>Since 1998</p>{/if}`,
+      ),
+    ).toEqual([
+      ["heading", "Welcome home"],
+      ["copy", "Since 1998"],
+    ]);
+  });
+
+  it("one text, one heading, one image or one picture is still a fallback", () => {
+    const cases = [
+      `{#if doc.title}{doc.title}{:else}Welcome home{/if}`,
+      `{#if doc.title}<h1>{doc.title}</h1>{:else}<h1>Welcome <em>home</em></h1>{/if}`,
+      `{#if doc.image.url}<img src={doc.image.url} alt="" />{:else}<div class="ph"><img src="/hero.jpg" alt="Our team" /></div>{/if}`,
+      `{#if doc.image.url}<img src={doc.image.url} alt="" />{:else}<picture><source srcset="/hero.webp" /><img src="/hero.jpg" alt="Our team" /></picture>{/if}`,
+      `{#if !doc.title}<h1>Welcome home</h1>{:else}<h1>{doc.title}</h1>{/if}`,
+    ];
+    for (const src of cases) expect(svelte(src), src).toEqual([]);
+  });
+});
+
+describe("&& is an emptiness test only when every conjunct is one (round 3, critical)", () => {
+  it("a comparison beside a field makes the else a choice", () => {
+    expect(
+      svelte(
+        `{#if slice.variation === "default" && slice.primary.vimeo_id}<iframe src={slice.primary.vimeo_id} title=""></iframe>{:else}<h2>Our latest project</h2>{/if}`,
+      ),
+    ).toEqual([["heading", "Our latest project"]]);
+  });
+
+  it("a toggle the branch does not show makes the else a choice", () => {
+    expect(
+      svelte(
+        `<script>let playing = $state(false);</script>{#if video && playing}<iframe src={video} title=""></iframe>{:else}<p>Watch the film</p>{/if}`,
+      ),
+    ).toEqual([["copy", "Watch the film"]]);
+  });
+
+  it("the same holds for a ternary", () => {
+    expect(
+      svelte(
+        `<script>const t = theme === "dark" && doc.title ? doc.title : "Welcome to Vineyard Homes";</script><h1>{t}</h1>`,
+      ),
+    ).toEqual([["heading", "Welcome to Vineyard Homes"]]);
+    expect(
+      svelte(
+        `<script>let open = $state(false);</script><h1>{doc.title && open ? doc.title : "Welcome home"}</h1>`,
+      ),
+    ).toEqual([["heading", "Welcome home"]]);
+  });
+
+  it("two fields the branch shows still make a fallback", () => {
+    expect(
+      svelte(
+        `{#if doc.title && doc.subtitle}<h1>{doc.title}</h1><p>{doc.subtitle}</p>{:else}<h1>Welcome home</h1>{/if}`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("an {:else if} arm is judged by its own test", () => {
+    expect(
+      svelte(
+        `{#if slice.primary.image.url}<img src={slice.primary.image.url} alt="" />{:else if slice.variation === "video"}<iframe src="https://player.vimeo.com/video/123456789" title=""></iframe>{:else}<p>Call us today for a free estimate</p>{/if}`,
+      ),
+    ).toEqual([
+      ["video", "https://player.vimeo.com/video/123456789"],
+      ["copy", "Call us today for a free estimate"],
+    ]);
+    expect(
+      svelte(
+        `{#if doc.image.url}<img src={doc.image.url} alt="" />{:else if doc.title}<h1>{doc.title}</h1>{:else}<h1>Welcome home</h1>{/if}`,
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("words reached another way (round 3, majors)", () => {
+  it("a {@render} argument is shown", () => {
+    expect(
+      svelte(`{#snippet card(t)}<h3>{t}</h3>{/snippet}{@render card("Rendered arg words")}`),
+    ).toEqual([["copy", "Rendered arg words"]]);
+  });
+
+  it("a returned literal sits under its function's name", () => {
+    expect(
+      ts(
+        `class Report { get title() { return "Getter title text"; } }\nfunction heading() { return "Plain function heading"; }\nconst subtitle = () => "Arrow subtitle words";\nexport { Report, heading, subtitle };`,
+      ),
+    ).toEqual([
+      ["heading", "Getter title text"],
+      ["heading", "Plain function heading"],
+      ["heading", "Arrow subtitle words"],
+    ]);
+  });
+
+  it("a private field is named like a public one", () => {
+    expect(ts(`export class Standing { #title = "Private words here"; }`)).toEqual([
+      ["heading", "Private words here"],
+    ]);
+  });
+
+  it("a returned call or an unnamed callback is still behaviour", () => {
+    expect(
+      ts(
+        `export function title(d) { return d.toLocaleDateString("en-US", { month: "long" }); }\nexport const list = (xs) => xs.map((x) => "translate-y-0 opacity-100");`,
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("round 3's fleet diff", () => {
+  it("a {@render} argument the snippet only styles with is not words", () => {
+    expect(
+      svelte(
+        `{#snippet heading(cls)}<h1 class={cls}>{doc.title}</h1>{/snippet}{@render heading("mt-16 max-w-[450px] px-8")}`,
+      ),
+    ).toEqual([]);
+    expect(
+      svelte(
+        `{#snippet card(cls, t)}<h3 class={cls}>{t}</h3>{/snippet}{@render card("mt-16 px-8", "Shown words here")}`,
+      ),
+    ).toEqual([["copy", "Shown words here"]]);
+  });
+
+  it("an image import read only in a class is compared against, not shown", () => {
+    expect(
+      svelte(
+        `<script>import placeholder from "$lib/assets/ph.svg";</script><img {src} alt="" class="w-full {src === placeholder ? 'lg:w-1/2' : ''}" />`,
+      ),
+    ).toEqual([]);
+    expect(
+      svelte(
+        `<script>import hero from "$lib/assets/hero.jpg";</script><div class="{hero ? 'a' : 'b'}" style="background-image: url({hero})"></div>`,
+      ),
+    ).toEqual([["image", "hero.jpg"]]);
+  });
+});
+
+describe("a renamed prop default sits under the prop's name (round 3 hand-off)", () => {
+  it("names it by the key, not the local", () => {
+    expect(
+      svelte(
+        `<script>let { heading: h = "Welcome home" } = $props();</script><h1>{h}</h1>`,
+        "src/lib/Hero.svelte",
+      ),
+    ).toEqual([["heading", "Welcome home"]]);
   });
 });

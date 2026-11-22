@@ -72,7 +72,7 @@ export function readConfig(cwd: string): ContentCheckConfig {
   if (!existsSync(path)) return config;
   let raw: unknown;
   try {
-    raw = JSON.parse(readFileSync(path, "utf8"));
+    raw = JSON.parse(readFileSync(path, "utf8").replace(/^\uFEFF/, ""));
   } catch (err) {
     throw new ContentCheckConfigError(`${CONFIG_FILE}: not JSON (${(err as Error).message})`);
   }
@@ -116,7 +116,7 @@ export function readBaseline(cwd: string): Baseline {
   if (!existsSync(path)) return { version: 1, counts: {} };
   let raw: unknown;
   try {
-    raw = JSON.parse(readFileSync(path, "utf8"));
+    raw = JSON.parse(readFileSync(path, "utf8").replace(/^\uFEFF/, ""));
   } catch (err) {
     throw new ContentCheckConfigError(`${BASELINE_FILE}: not JSON (${(err as Error).message})`);
   }
@@ -335,13 +335,18 @@ export async function scanSite(cwd: string, config: ContentCheckConfig): Promise
   for (const [file, scan] of scans) {
     if (scan.props.length === 0) continue;
     const calls: Usage[] = [];
-    for (const [other] of scans) {
+    for (const [other, otherScan] of scans) {
       const p = parsed.get(other)!;
       for (const [local, imp] of p.imports) {
         const here = importOrigins(other, imp, parsed, known).some(
           (o) => o.file === file && o.name === "default",
         );
-        if (here) calls.push(...p.usages.filter((u) => u.name === local));
+        if (!here) continue;
+        calls.push(...p.usages.filter((u) => u.name === local));
+        // `<svelte:component this={Hero} />`, `const C = Hero`: a read of the
+        // name anywhere but as a tag renders it with props this pass cannot
+        // see, so it counts as a call site that passes nothing.
+        if (otherScan.uses.has(local)) calls.push({ name: local, attrs: [], spread: false });
       }
     }
     for (const { prop, ...finding } of scan.props) {
