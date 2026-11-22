@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { annotation, runContentCheckCommand } from "../../src/cli/commands/content-check.js";
-import { contentCheckWorkflow } from "../../src/content-check/workflow.js";
+import { FIRST_VERSION, contentCheckWorkflow } from "../../src/content-check/workflow.js";
 
 const FIXTURES = resolve(import.meta.dirname, "../fixtures/content-check");
 const temps: string[] = [];
@@ -145,6 +145,21 @@ describe("--init", () => {
     const dir = copyOf("clean");
     await expect(run(dir, { init: true, version: "unknown" })).rejects.toThrow(/cannot pin/);
     expect(existsSync(join(dir, ".github/workflows/content-check.yml"))).toBe(false);
+  });
+});
+
+describe("FIRST_VERSION is the release that ships the command (round 2)", () => {
+  it("is the next minor while the changeset is pending, and released once it is not", () => {
+    const root = resolve(import.meta.dirname, "../..");
+    const version = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version as string;
+    const [major, minor] = version.split(".").map(Number);
+    if (existsSync(join(root, ".changeset/p1-120-content-check.md"))) {
+      // If another minor ships first, this goes red: move FIRST_VERSION on.
+      expect(FIRST_VERSION).toBe(`${major}.${minor! + 1}.0`);
+    } else {
+      const [fMajor, fMinor] = FIRST_VERSION.split(".").map(Number);
+      expect(fMajor! * 1000 + fMinor!).toBeLessThanOrEqual(major! * 1000 + minor!);
+    }
   });
 });
 

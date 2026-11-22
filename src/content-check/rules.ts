@@ -337,6 +337,18 @@ const LEGAL = new Set(
   ].map(norm),
 );
 
+const LEGAL_COMPONENT = new Set(
+  [
+    "privacy-policy",
+    "terms-of-service",
+    "terms-of-use",
+    "terms-and-conditions",
+    "terms-conditions",
+    "cookie-policy",
+    "accessibility-statement",
+  ].map(norm),
+);
+
 /**
  * Is this repo-relative file exempt by the operator's rule: a legal page, a
  * `/dev/*` route, or a component named for a legal page?
@@ -352,9 +364,14 @@ export function builtInExemption(file: string): string | undefined {
       .slice(2, -1)
       .filter((s) => !(s.startsWith("(") && s.endsWith(")")) && !s.startsWith("["));
     if (segs[0] === "dev") return "dev route";
-    if (segs.some((s) => LEGAL.has(norm(s)))) return "legal page";
+    // Only the route's first segment: `/privacy` and `/legal/terms` are legal
+    // pages; `/services/accessibility` and `/recipes/cookies` are the client's
+    // own (review round 2).
+    if (segs[0] !== undefined && LEGAL.has(norm(segs[0]))) return "legal page";
   }
+  // A component only when its name can mean nothing else: `PrivacyPolicy`,
+  // not `Disclaimer` or `Cookies`.
   const base = (parts.at(-1) ?? "").replace(/\.(?:svelte|ts|js)$/, "");
-  if (LEGAL.has(norm(base))) return "legal page";
+  if (LEGAL_COMPONENT.has(norm(base))) return "legal page";
   return undefined;
 }

@@ -25,6 +25,7 @@
 
 <Hero
   field={doc.hero_image}
+  heading={doc.hero_heading}
   src={heroFallback}
   vimeoId={vimeoIdOr(doc.hero_vimeo_id, "1092190178")}
 />

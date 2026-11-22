@@ -25,6 +25,7 @@ import {
   type FileScan,
   type Finding,
   type Parsed,
+  type Usage,
 } from "./scan.js";
 
 export const CONFIG_FILE = "content-check.json";
@@ -53,6 +54,12 @@ const NEVER = [
   "**/*.stories.{svelte,ts,js}",
   "**/+server.{ts,js}",
   "**/__tests__/**",
+  // Test and dev fixtures: data a test or a /dev page feeds a component,
+  // never shown on the site (review round 2: reddoor-website's
+  // report/fixtures, roalson's and MSOT's *-fixture.ts).
+  "**/fixtures/**",
+  "**/*{-,.}fixture.{ts,js}",
+  "**/*{-,.}fixtures.{ts,js}",
   "**/node_modules/**",
 ];
 
@@ -112,6 +119,9 @@ export function readBaseline(cwd: string): Baseline {
     raw = JSON.parse(readFileSync(path, "utf8"));
   } catch (err) {
     throw new ContentCheckConfigError(`${BASELINE_FILE}: not JSON (${(err as Error).message})`);
+  }
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw new ContentCheckConfigError(`${BASELINE_FILE}: must be a JSON object`);
   }
   const b = raw as Partial<Baseline>;
   const isMap = (v: unknown): boolean => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -317,6 +327,26 @@ export async function scanSite(cwd: string, config: ContentCheckConfig): Promise
         const { binding: _b, ...finding } = d;
         result.findings.push(finding);
       }
+    }
+  }
+  // Pass 4: a component's prop default is a fallback only when every place a
+  // scanned file renders the component passes that prop (or spreads props).
+  // With no call site, or one that leaves it out, the default is what shows.
+  for (const [file, scan] of scans) {
+    if (scan.props.length === 0) continue;
+    const calls: Usage[] = [];
+    for (const [other] of scans) {
+      const p = parsed.get(other)!;
+      for (const [local, imp] of p.imports) {
+        const here = importOrigins(other, imp, parsed, known).some(
+          (o) => o.file === file && o.name === "default",
+        );
+        if (here) calls.push(...p.usages.filter((u) => u.name === local));
+      }
+    }
+    for (const { prop, ...finding } of scan.props) {
+      const always = calls.length > 0 && calls.every((u) => u.spread || u.attrs.includes(prop));
+      if (!always) result.findings.push(finding);
     }
   }
   result.findings.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);

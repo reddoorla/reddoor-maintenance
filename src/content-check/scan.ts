@@ -43,7 +43,19 @@ export type Deferred = Finding & { binding: string };
 
 export type Uses = Map<string, { bare: number; fallback: number }>;
 
-export type FileScan = { findings: Finding[]; deferred: Deferred[]; uses: Uses };
+/** A component's prop default: shown whenever a caller leaves the prop out,
+ *  so the site-level scan decides by the component's call sites. */
+export type PropDefault = Finding & { prop: string };
+
+export type FileScan = {
+  findings: Finding[];
+  deferred: Deferred[];
+  uses: Uses;
+  props: PropDefault[];
+};
+
+/** One `<Component …>` in a template: the props it passes. */
+export type Usage = { name: string; attrs: string[]; spread: boolean };
 
 /** What other files need to know about this one: what it imports from where,
  *  and the parameter names of the functions it defines. */
@@ -59,6 +71,8 @@ export type Parsed = {
   /** `export { a as b } from "./x"` (imported "a", exported "b") and
    *  `export * from "./x"` (both "*"): what a barrel passes on. */
   reexports: Array<{ source: string; imported: string; exported: string }>;
+  /** every component this file renders, and the props each passes */
+  usages: Usage[];
 };
 
 type Node = { type: string; start?: number; end?: number; [key: string]: unknown };
@@ -117,27 +131,6 @@ function memberPath(node: Node): string | undefined {
   return undefined;
 }
 
-/** Every value path a node reads: `content.title`, `title`. A member chain
- *  counts once, as its longest path. */
-function pathsUnder(node: Node, out = new Set<string>()): Set<string> {
-  if (node.type === "MemberExpression" || node.type === "Identifier") {
-    const p = memberPath(node);
-    if (p) {
-      out.add(p);
-      if (node.type === "MemberExpression" && node.computed) pathsUnder(node.property as Node, out);
-      return out;
-    }
-  }
-  for (const [key, c] of children(node)) {
-    // A property's name is not a read: `{ title: x }` reads x, not title.
-    if ((node.type === "Property" && key === "key" && !node.computed) || key === "typeAnnotation") {
-      continue;
-    }
-    pathsUnder(c, out);
-  }
-  return out;
-}
-
 /** The values an expression reads, without the functions it calls: in
  *  `isFilled.image(d?.logo) && quoted` that is `d.logo` and `quoted`, not
  *  `isFilled.image`. A callee's object is still read: `doc.title.trim()`
@@ -188,6 +181,33 @@ const calleeName = (node: Node): string | undefined => {
   }
   return undefined;
 };
+
+/** HTML attributes whose value a visitor reads or sees. */
+const SHOWN_ATTRS = new Set([
+  "alt",
+  "title",
+  "aria-label",
+  "placeholder",
+  "src",
+  "srcset",
+  "href",
+  "content",
+  "value",
+  "label",
+  "poster",
+]);
+
+/** Template directives whose values are behaviour or styling, never shown. */
+const DIRECTIVES = new Set([
+  "OnDirective",
+  "BindDirective",
+  "UseDirective",
+  "TransitionDirective",
+  "AnimateDirective",
+  "LetDirective",
+  "ClassDirective",
+  "StyleDirective",
+]);
 
 /** A `class`/`style` attribute or a `class:`/`style:` directive. */
 const isStyling = (n: Node): boolean =>
@@ -314,19 +334,37 @@ export function parseFile(file: string, source: string): Parsed {
       }
     }
   }
-  return { file, ast, isSvelte, lineOf, imports, functions, reexports };
+  const usages: Usage[] = [];
+  (function walk(n: Node): void {
+    if (n.type === "Component" || n.type === "SvelteComponent") {
+      const attrs = (n.attributes as Node[]) ?? [];
+      usages.push({
+        name: String(n.name),
+        attrs: attrs
+          .filter((a) => a.type === "Attribute" || a.type === "BindDirective")
+          .map((a) => String(a.name)),
+        spread: attrs.some((a) => a.type === "SpreadAttribute"),
+      });
+    }
+    for (const [, c] of children(n)) walk(c);
+  })(ast);
+  return { file, ast, isSvelte, lineOf, imports, functions, reexports, usages };
 }
 
 /** One file on its own: an exported constant's literals are reported unless
  *  this file's own reads of it are all fallbacks. `scanSite` sees further. */
 export function scanSource(file: string, source: string, opts: ScanOptions = {}): Finding[] {
   const parsed = parseFile(file, source);
-  const { findings, deferred, uses } = scanParsed(parsed, {
+  const { findings, deferred, uses, props } = scanParsed(parsed, {
     ...opts,
     paramsOf: opts.paramsOf ?? ((name) => parsed.functions.get(name)),
   });
   const kept = deferred.filter((d) => !onlyFallbackUses(uses.get(d.binding)));
-  return [...findings, ...kept.map(({ binding: _b, ...f }) => f)].sort((x, y) => x.line - y.line);
+  return [
+    ...findings,
+    ...kept.map(({ binding: _b, ...f }) => f),
+    ...props.map(({ prop: _p, ...f }) => f),
+  ].sort((x, y) => x.line - y.line);
 }
 
 /** Every read is a fallback, and there is at least one. */
@@ -359,36 +397,145 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
   const { file, ast, isSvelte, lineOf } = parsed;
   const helpers = new Set(opts.fallbackHelpers ?? []);
 
-  // What each local constant is computed from, so a test can be "about" a
-  // value through one: `const pair = isFilled.image(d?.logo) && quoted;`
-  // makes `pair ? quoted : "x"` a fallback for `quoted`. Only the VALUES an
-  // initialiser reads count: never the name of the function it calls (every
-  // `$state(…)` would share `$state`), and never a function's body (a submit
-  // handler is not the field it sets). Review round 1 on #2231.
-  const inits = new Map<string, Set<string>[]>();
+  // When is a test "about" a field, so that a branch of it can fall back for
+  // that field? Only when it asks whether a value is EMPTY: `doc.title`,
+  // `isFilled.image(doc.hero)`, `items.length > 0`, `x != null`, and `&&` / `||`
+  // of those. A comparison with a literal (`theme === "dark"`,
+  // `status === 404`) chooses between two things and is never a fallback test
+  // (review round 2 on #2231).
+  //
+  // A local is followed into what it was computed from when the test reads it
+  // whole (`{#if pair}` with `const pair = isFilled.image(d?.logo) && quoted`),
+  // and only when its initialiser is itself an emptiness test; otherwise the
+  // local stands for itself (`isMobile = $derived(w < 768)` is a switch).
+  const inits = new Map<string, Node>();
   (function collect(n: Node): void {
     if (n.type === "VariableDeclarator" && isNode(n.init) && (n.id as Node).type === "Identifier") {
-      const name = (n.id as Node).name as string;
-      inits.set(name, [...(inits.get(name) ?? []), valuePaths(n.init)]);
+      inits.set((n.id as Node).name as string, n.init);
     }
     for (const [, c] of children(n)) collect(c);
   })(ast);
-  // What a TEST reads. An alias is expanded only where the test reads it
-  // whole (`{#if title}`), never through a member (`page.layout` and
-  // `page.title` are two fields of one `page`, not one field because `page`
-  // came from `data.page.data`), and never on the branch side: in
-  // `{#if !isMobile}…{:else}{brands}{/if}`, `brands` being derived from
-  // `isMobile` makes the else a layout switch, not a fallback.
-  const reads = (n: Node): Set<string> => {
-    const out = pathsUnder(n);
-    for (let depth = 0; depth < 2; depth++) {
-      // `inits` is keyed by a bare name, so only a whole-alias read matches.
-      for (const p of [...out]) {
-        for (const paths of inits.get(p) ?? []) for (const q of paths) out.add(q);
+  const unwrap = (n: Node): Node => {
+    if (TRANSPARENT.has(n.type)) return unwrap(n.expression as Node);
+    if (
+      n.type === "CallExpression" &&
+      RUNE.test(calleePath(n) ?? "") &&
+      isNode((n.arguments as Node[])[0])
+    ) {
+      return unwrap((n.arguments as Node[])[0]!);
+    }
+    return n;
+  };
+  const isEmptyLiteral = (n: Node): boolean =>
+    (n.type === "Literal" && (n.value === null || n.value === "" || n.value === 0)) ||
+    (n.type === "Identifier" && n.name === "undefined");
+  const lengthOf = (n: Node): Node | undefined => {
+    const u = unwrap(n);
+    if (u.type !== "MemberExpression" || u.computed) return undefined;
+    return (u.property as Node).name === "length" ? (u.object as Node) : undefined;
+  };
+  function emptiness(test: Node, depth = 0): Set<string> | undefined {
+    const n = unwrap(test);
+    if (n.type === "Identifier" || n.type === "MemberExpression") {
+      const p = memberPath(n);
+      if (!p) return undefined;
+      const out = new Set([p]);
+      const init = n.type === "Identifier" && depth < 2 ? inits.get(p) : undefined;
+      const via = init ? emptiness(init, depth + 1) : undefined;
+      if (via) for (const q of via) out.add(q);
+      return out;
+    }
+    if (n.type === "LogicalExpression" && (n.operator === "&&" || n.operator === "||")) {
+      const l = emptiness(n.left as Node, depth);
+      const r = emptiness(n.right as Node, depth);
+      if (n.operator === "||" && (!l || !r)) return undefined;
+      if (!l && !r) return undefined;
+      return new Set([...(l ?? []), ...(r ?? [])]);
+    }
+    if (n.type === "CallExpression") {
+      const callee = calleePath(n) ?? "";
+      if (!/^isFilled(?:\.\w+)?$|^(?:asText|asHTML|asLink|Boolean|hasContent)$/.test(callee)) {
+        return undefined;
+      }
+      const out = new Set<string>();
+      for (const a of n.arguments as Node[]) valuePaths(a, out);
+      return out.size ? out : undefined;
+    }
+    if (n.type === "BinaryExpression") {
+      const op = n.operator as string;
+      const [a, b] = [n.left as Node, n.right as Node];
+      // `items.length > 0`, `items.length !== 0`, `items.length >= 1`
+      const len = lengthOf(a);
+      if (len && b.type === "Literal" && typeof b.value === "number") {
+        const v = b.value;
+        if (
+          (op === ">" && v === 0) ||
+          ((op === "!==" || op === "!=") && v === 0) ||
+          (op === ">=" && v === 1)
+        ) {
+          return emptiness(len, depth);
+        }
+        return undefined;
+      }
+      // `x != null`, `x !== undefined`, `x !== ""`
+      if ((op === "!==" || op === "!=") && (isEmptyLiteral(b) || isEmptyLiteral(a))) {
+        return emptiness(isEmptyLiteral(b) ? a : b, depth);
       }
     }
+    return undefined;
+  }
+  /** `!x`, `x.length === 0`, `x == null`: the paths of x, as an emptiness test. */
+  function negatedEmptiness(test: Node): Set<string> | undefined {
+    const n = unwrap(test);
+    if (n.type === "UnaryExpression" && n.operator === "!") return emptiness(n.argument as Node);
+    if (n.type === "BinaryExpression") {
+      const op = n.operator as string;
+      const [a, b] = [n.left as Node, n.right as Node];
+      const len = lengthOf(a);
+      if (len && b.type === "Literal" && b.value === 0 && (op === "===" || op === "==")) {
+        return emptiness(len);
+      }
+      if ((op === "===" || op === "==") && (isEmptyLiteral(b) || isEmptyLiteral(a))) {
+        return emptiness(isEmptyLiteral(b) ? a : b);
+      }
+    }
+    return undefined;
+  }
+  /** The value paths a template fragment SHOWS: text and prop values, the list
+   *  an `#each` renders. Not event handlers, `bind:`, `class` or `style`, and
+   *  not the tests of nested blocks: a menu toggle's `onclick` reading
+   *  `menuOpen` does not make its branch "show" `menuOpen`. */
+  function rendered(n: Node, out = new Set<string>()): Set<string> {
+    if (DIRECTIVES.has(n.type) || isStyling(n)) return out;
+    if (n.type === "Attribute" && /^on/i.test(String(n.name))) return out;
+    if (n.type === "ExpressionTag" || n.type === "HtmlTag" || n.type === "RenderTag") {
+      valuePaths(n.expression as Node, out);
+      return out;
+    }
+    const element = n.type === "RegularElement" || n.type === "SvelteElement";
+    for (const [key, c] of children(n)) {
+      if (key === "test" && (n.type === "IfBlock" || n.type === "ConditionalExpression")) continue;
+      // On an HTML element only the attributes a visitor reads show a value:
+      // `aria-expanded={menuOpen}` or `id={slug}` does not. A component's
+      // props all count: `<PrismicRichText field={doc.intro} />` shows it.
+      if (
+        element &&
+        key === "attributes" &&
+        c.type === "Attribute" &&
+        !SHOWN_ATTRS.has(String(c.name).toLowerCase())
+      ) {
+        continue;
+      }
+      if (key === "expression" && n.type === "EachBlock") {
+        valuePaths(c, out);
+        continue;
+      }
+      rendered(c, out);
+    }
     return out;
-  };
+  }
+  const shares = (a: Set<string> | undefined, b: Set<string>): boolean =>
+    a !== undefined && sharePath(a, b);
 
   // SvelteKit's `dev` is true only under `vite dev`: a branch it guards never
   // reaches a visitor, so nothing in it is reported and no read in it counts.
@@ -453,6 +600,7 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
   // fallback itself.
   const uses: Uses = new Map();
   // Literals inside `const NAME = …`, held until the walk knows NAME's reads.
+  const props: PropDefault[] = [];
   const pending: Array<{
     binding: string;
     exported: boolean;
@@ -530,7 +678,9 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
           if (
             other &&
             !isPureLiteral(other) &&
-            sharePath(reads(parent.test as Node), pathsUnder(other))
+            (key === "alternate"
+              ? shares(emptiness(parent.test as Node), valuePaths(other))
+              : shares(negatedEmptiness(parent.test as Node), valuePaths(other)))
           ) {
             return true;
           }
@@ -550,7 +700,8 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
           break;
         }
         case "AssignmentPattern":
-          if (key === "right") return true;
+          // A `$props()` default is decided by the call sites (`propOf`).
+          if (key === "right" && !propOf(chain)) return true;
           break;
         case "AssignmentExpression":
           if (key === "right" && assignsFallback(chain, i - 1)) return true;
@@ -558,15 +709,6 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
         case "VariableDeclarator":
           // Only `export let` in the instance script is a Svelte 4 prop; an
           // `export const` is a constant, and `<script module>` has no props.
-          if (
-            key === "init" &&
-            isSvelte &&
-            chain[i - 3]?.node.type === "ExportNamedDeclaration" &&
-            chain[i - 2]?.node.kind === "let" &&
-            chain[1]?.key === "instance"
-          ) {
-            return true;
-          }
           break;
         case "RegularElement":
         case "Component":
@@ -585,6 +727,53 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
     }
     return false;
   }
+
+  /**
+   * The prop a literal is the default of, if it is one:
+   * `let { label = "x" } = $props()` (or `$props<…>()`), or a Svelte 4
+   * `export let label = "x"` in the instance script (never `export const`,
+   * and never `<script module>`, which has no props).
+   */
+  function propOf(chain: Ancestor[]): string | undefined {
+    for (let i = chain.length - 1; i > 0; i--) {
+      const parent = chain[i - 1]!.node;
+      const key = chain[i]!.key;
+      if (parent.type === "AssignmentPattern" && key === "right") {
+        const prop = chain[i - 2]?.node;
+        const pattern = chain[i - 3]?.node;
+        const decl = chain[i - 4]?.node;
+        if (
+          prop?.type === "Property" &&
+          pattern?.type === "ObjectPattern" &&
+          decl?.type === "VariableDeclarator" &&
+          isNode(decl.init) &&
+          unwrapCall(decl.init) === "$props"
+        ) {
+          const k = prop.key as Node;
+          return k.type === "Identifier" ? (k.name as string) : literalText(k);
+        }
+        return undefined;
+      }
+      if (parent.type === "VariableDeclarator" && key === "init") {
+        const id = parent.id as Node;
+        if (
+          isSvelte &&
+          id.type === "Identifier" &&
+          chain[i - 3]?.node.type === "ExportNamedDeclaration" &&
+          chain[i - 2]?.node.kind === "let" &&
+          chain[1]?.key === "instance"
+        ) {
+          return id.name as string;
+        }
+        return undefined;
+      }
+    }
+    return undefined;
+  }
+  const unwrapCall = (n: Node): string | undefined => {
+    const u = TRANSPARENT.has(n.type) ? (n.expression as Node) : n;
+    return u.type === "CallExpression" ? calleePath(u) : undefined;
+  };
 
   /** `cond && "A"`: the left of `cond && "A" || "B"` is a literal or nothing,
    *  so "B" is the other literal of a choice, not a fallback for a field. */
@@ -633,15 +822,12 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
 
   /** `{#if X}…{:else}literal{/if}` is a fallback when the true branch shows a
    *  field the test is about: the test and the branch share a member path. */
-  const elseIsFallback = (block: Node): boolean => {
-    return sharePath(reads(block.test as Node), pathsUnder(block.consequent as Node));
-  };
+  const elseIsFallback = (block: Node): boolean =>
+    shares(emptiness(block.test as Node), rendered(block.consequent as Node));
 
-  const negatedIsFallback = (block: Node): boolean => {
-    const test = block.test as Node;
-    if (!isNode(block.alternate) || negated(test) === undefined) return false;
-    return sharePath(reads(test.argument as Node), pathsUnder(block.alternate));
-  };
+  const negatedIsFallback = (block: Node): boolean =>
+    isNode(block.alternate) &&
+    shares(negatedEmptiness(block.test as Node), rendered(block.alternate));
 
   /** The name a literal's value sits under, climbing through arrays, wrappers,
    *  concatenation and non-fallback branches: `{ title: "x" }` → title,
@@ -708,6 +894,14 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
         const id = parent.id as Node;
         return { name: id.type === "Identifier" ? (id.name as string) : undefined };
       }
+      // `{ label = "x" }`: the default sits under the property's name.
+      if (parent.type === "AssignmentPattern" && key === "right") {
+        const prop = chain[i - 2]?.node;
+        if (prop?.type === "Property" && (prop.key as Node).type === "Identifier") {
+          return { name: (prop.key as Node).name as string };
+        }
+        return { name: paramName(parent.left as Node) || undefined };
+      }
       if (parent.type === "AssignmentExpression" && key === "right") {
         const left = parent.left as Node;
         const p = memberPath(left);
@@ -722,6 +916,8 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
         if (grand?.node.type === "Attribute") {
           return { attr: grand.node, templateText: chain.slice(0, i - 2) };
         }
+        // `style:font-family={"Open Sans"}`: a style value, never words.
+        if (grand && DIRECTIVES.has(grand.node.type)) return {};
         return { templateText: chain.slice(0, i) };
       }
       return {};
@@ -918,6 +1114,13 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
       unnamed.push({ binding: binding.name, pos, text });
     }
     if (!kind || (holes && !isProseKind(kind))) return;
+    const prop = propOf(chain);
+    if (prop) {
+      const before = findings.length;
+      report(pos, kind, text);
+      if (findings.length > before) props.push({ ...findings.pop()!, prop });
+      return;
+    }
     if (binding)
       pending.push({ binding: binding.name, exported: binding.exported, pos, kind, text });
     else report(pos, kind, text);
@@ -933,12 +1136,36 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
     }
   }
 
+  /** `background-image: url('/images/hero.jpg')` in a static style value:
+   *  an image like any other. A `url()` with a hole is built from data. */
+  function styleImages(parts: Node[], chain: Ancestor[]): void {
+    if (isDevOnly(chain) || isFallback(chain)) return;
+    for (const p of parts) {
+      if (p.type !== "Text") continue;
+      const data = p.data as string;
+      for (const m of data.matchAll(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g)) {
+        const url = m[2]!.trim();
+        if (assetKind(url) || /^(?:https?:)?\/\//.test(url)) {
+          report((p.start as number) + (m.index ?? 0), "image", url);
+        }
+      }
+    }
+  }
+
+  function onStyle(dir: Node, chain: Ancestor[]): void {
+    if (Array.isArray(dir.value)) styleImages(dir.value as Node[], chain);
+  }
+
   function onAttribute(attr: Node, chain: Ancestor[]): void {
     const v = attr.value;
     if (!Array.isArray(v)) return; // expression values are walked as expressions
     const el = chain.at(-2)!.node;
     if (isDevOnly(chain)) return;
     const parts = v as Node[];
+    if (String(attr.name).toLowerCase() === "style") {
+      styleImages(parts, chain);
+      return;
+    }
     const allText = parts.every((p) => p.type === "Text");
     const text = parts.map((p) => (p.type === "Text" ? (p.data as string) : "${…}")).join("");
     if (!allText) {
@@ -1025,10 +1252,17 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
           visit(e, [...chain, { node: e, key: "expressions" }]);
         return;
       case "Text":
-        if (chain.at(-2)?.node.type !== "Attribute") onText(node, chain);
+        if (
+          chain.at(-2)?.node.type !== "Attribute" &&
+          !DIRECTIVES.has(chain.at(-2)?.node.type ?? "")
+        )
+          onText(node, chain);
         return;
       case "Attribute":
         onAttribute(node, chain);
+        break;
+      case "StyleDirective":
+        onStyle(node, chain);
         break;
       case "Identifier":
         onIdentifier(node, chain);
@@ -1064,11 +1298,11 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
         report(p.pos, p.kind, p.text);
         // `report` applies the filters; what survives waits for the site.
         if (findings.length > before) deferred.push({ ...findings.pop()!, binding: p.binding });
-      } else if (!onlyFallbacks(p.binding) && !onlyStyling(p.binding)) {
+      } else if (!onlyFallbacks(p.binding) && !(isProseKind(p.kind) && onlyStyling(p.binding))) {
         report(p.pos, p.kind, p.text);
       }
     }
     findings.sort((x, y) => (offsets.get(x) ?? 0) - (offsets.get(y) ?? 0));
-    return { findings, deferred, uses };
+    return { findings, deferred, uses, props };
   }
 }

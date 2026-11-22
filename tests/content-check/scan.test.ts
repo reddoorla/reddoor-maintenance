@@ -215,8 +215,6 @@ describe("fallbacks are never reported (decision 2026-11-21-1841, fork 1)", () =
       `<h1>{isFilled.keyText(doc.title) ? doc.title : "Welcome home"}</h1>`,
     ],
     ["a fallback-named helper", `<V vimeoId={vimeoIdOr(doc.vimeo, "1092190178")} />`],
-    ["a prop default", `<script>let { heading = "Welcome home" } = $props();</script>`],
-    ["a Svelte 4 prop default", `<script>export let heading = "Welcome home";</script>`],
     [
       "media beside a field prop",
       `<script>import img from "$lib/a.jpg";</script><Media field={doc.image} src={img} fallbackAlt="A home" />`,
@@ -583,6 +581,128 @@ describe("ignore list, round 1", () => {
         "src/routes/+page.svelte",
         `<p>Acme one</p><p>Acme two</p><p>Acme three</p><p>Acme four</p>`,
         { ignore: ["/Acme/g"] },
+      ),
+    ).toEqual([]);
+  });
+});
+
+// Review round 2 on #2231.
+describe("a branch is a fallback only behind an emptiness test it renders (round 2, blocker)", () => {
+  it("a menu toggle's other branch is not a fallback", () => {
+    expect(
+      svelte(
+        `{#if menuOpen}<button aria-expanded={menuOpen} onclick={() => (menuOpen = false)}>x</button>{:else}<nav><a href="/about">About Us</a></nav>{/if}`,
+      ),
+    ).toEqual([
+      ["link", "/about"],
+      ["copy", "About Us"],
+    ]);
+  });
+
+  it("a form whose done state styles itself is not a fallback", () => {
+    expect(
+      svelte(
+        `{#if !submitted}<form><h2>Get a free quote</h2><button>Send it</button></form>{:else}<p class:done={submitted}>Thanks, we got it</p>{/if}`,
+      ),
+    ).toEqual([
+      ["heading", "Get a free quote"],
+      ["button", "Send it"],
+      ["copy", "Thanks, we got it"],
+    ]);
+  });
+
+  it("a comparison with a literal is a switch, not an emptiness test", () => {
+    expect(
+      svelte(
+        `{#if theme === "dark"}<div class="bg-{theme}">{theme}</div>{:else}<h2>Our Services</h2>{/if}`,
+      ),
+    ).toEqual([["heading", "Our Services"]]);
+    expect(
+      svelte(`<p>{status.code === 404 ? "Page not found, sorry" : status.message}</p>`),
+    ).toEqual([["copy", "Page not found, sorry"]]);
+  });
+
+  it("a layout switch whose branch reads the switch only in a class is not a fallback", () => {
+    expect(
+      svelte(
+        `<script>const isMobile = $derived(w > 0 && w < 768);</script>{#if !isMobile}<h4>Join these brands</h4>{:else}<div class="w-{isMobile ? 1 : 2}">x</div>{/if}`,
+      ),
+    ).toEqual([["heading", "Join these brands"]]);
+  });
+
+  it("a local holding a comparison is a switch, not the field it compares", () => {
+    expect(
+      svelte(
+        `<script>const isWide = $derived(doc.layout === "wide");</script>{#if isWide}<h1>{doc.layout}</h1>{:else}<h2>Our story began in 1901</h2>{/if}`,
+      ),
+    ).toEqual([["heading", "Our story began in 1901"]]);
+  });
+
+  it("emptiness tests that do make a fallback", () => {
+    const cases = [
+      `{#if doc.links.length > 0}{#each doc.links as l}{l.text}{/each}{:else}<a href="/contact">Contact us</a>{/if}`,
+      `{#if doc.title != null}{doc.title}{:else}<h1>Welcome home</h1>{/if}`,
+      `{#if doc.items.length === 0}<p>No listings right now</p>{:else}{#each doc.items as i}{i.name}{/each}{/if}`,
+      `{#if doc.title == null}<h1>Welcome home</h1>{:else}{doc.title}{/if}`,
+      `<p>{!doc.tagline ? "Built to last" : doc.tagline}</p>`,
+      `<script>const has = $derived(isFilled.keyText(doc.title));</script>{#if has}<h1>{doc.title}</h1>{:else}<h1>Welcome home</h1>{/if}`,
+    ];
+    for (const src of cases) expect(svelte(src), src).toEqual([]);
+  });
+});
+
+describe("style values are not copy, but their images are images (round 2)", () => {
+  it("a style: directive value is not reported as copy", () => {
+    expect(
+      svelte(`<div style:height="600px" style:font-family={"Open Sans, serif"}></div>`),
+    ).toEqual([]);
+  });
+
+  it("a background image in a style attribute or directive is an image", () => {
+    expect(
+      svelte(
+        `<div style="background-image: url('/images/hero.jpg')"></div><div style:background-image="url(/images/two.webp)"></div>`,
+      ),
+    ).toEqual([
+      ["image", "/images/hero.jpg"],
+      ["image", "/images/two.webp"],
+    ]);
+  });
+
+  it("an image constant read only in a style is still an image", () => {
+    expect(
+      svelte(
+        `<script>const heroImage = "/images/hero.jpg";</script><div style="background-image: url({heroImage})"></div>`,
+      ),
+    ).toEqual([["image", "/images/hero.jpg"]]);
+  });
+});
+
+describe("prop defaults (round 2, critical)", () => {
+  it("are reported on their own: a default is what shows when no caller passes the prop", () => {
+    expect(
+      svelte(
+        `<script>let { label = "Request Appointment", phone = "(310) 555-1234" } = $props();</script><p>{label} {phone}</p>`,
+        "src/lib/components/CtaBand.svelte",
+      ),
+    ).toEqual([
+      ["copy", "Request Appointment"],
+      ["phone", "(310) 555-1234"],
+    ]);
+  });
+
+  it("a destructuring default outside $props() is still a fallback", () => {
+    expect(
+      svelte(`<script>const { title = "Welcome home" } = data.page;</script><h1>{title}</h1>`),
+    ).toEqual([]);
+  });
+});
+
+describe("built-in fallback helpers (round 2)", () => {
+  it("a call named …Or, withFallback or orDefault", () => {
+    expect(
+      svelte(
+        `<p>{textOr(doc.a, "Built to last")}</p><p>{withFallback(doc.b, "Since 1901")}</p><p>{orDefault(doc.c, "Call us today")}</p>`,
       ),
     ).toEqual([]);
   });

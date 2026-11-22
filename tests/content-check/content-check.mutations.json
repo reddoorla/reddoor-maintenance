@@ -191,7 +191,7 @@
     "edits": [
       {
         "file": "src/content-check/scan.ts",
-        "find": "            !isPureLiteral(other) &&\n            sharePath(reads(parent.test as Node), pathsUnder(other))\n",
+        "find": "            !isPureLiteral(other) &&\n            sharePath(reads(parent.test as Node), valuePaths(other))\n",
         "replace": "            !isPureLiteral(other)\n"
       }
     ],
@@ -208,7 +208,7 @@
     "edits": [
       {
         "file": "src/content-check/scan.ts",
-        "find": "    return sharePath(reads(block.test as Node), pathsUnder(block.consequent as Node));",
+        "find": "    return sharePath(reads(block.test as Node), valuePaths(block.consequent as Node));",
         "replace": "    return false;"
       }
     ],
@@ -236,57 +236,6 @@
     ],
     "expect": "red",
     "why": "warn mode exits 1 on a new literal; the warn-mode cases must go red"
-  },
-  {
-    "id": "init-reads-callee-names",
-    "edits": [
-      {
-        "file": "src/content-check/scan.ts",
-        "find": "  if (node.type === \"CallExpression\" || node.type === \"NewExpression\") {\n    const callee",
-        "replace": "  if (false) {\n    const callee"
-      }
-    ],
-    "test": [
-      "tests/content-check/scan.test.ts",
-      "tests/content-check/site.test.ts",
-      "tests/content-check/command.test.ts"
-    ],
-    "expect": "red",
-    "why": "round 1 critical: every $state(\u2026) shares $state again; the two-runes case must go red"
-  },
-  {
-    "id": "init-reads-function-bodies",
-    "edits": [
-      {
-        "file": "src/content-check/scan.ts",
-        "find": "  if (node.type === \"ArrowFunctionExpression\" || node.type === \"FunctionExpression\") return out;\n",
-        "replace": ""
-      }
-    ],
-    "test": [
-      "tests/content-check/scan.test.ts",
-      "tests/content-check/site.test.ts",
-      "tests/content-check/command.test.ts"
-    ],
-    "expect": "red",
-    "why": "round 1 critical: a handler's body counts as what its name reads; the handleSubmit case must go red"
-  },
-  {
-    "id": "expand-alias-through-members",
-    "edits": [
-      {
-        "file": "src/content-check/scan.ts",
-        "find": "        for (const paths of inits.get(p) ?? []) for (const q of paths) out.add(q);",
-        "replace": "        for (const paths of inits.get(p.split(\".\")[0]!) ?? []) for (const q of paths) out.add(q);"
-      }
-    ],
-    "test": [
-      "tests/content-check/scan.test.ts",
-      "tests/content-check/site.test.ts",
-      "tests/content-check/command.test.ts"
-    ],
-    "expect": "red",
-    "why": "round 1 critical: a test on page.layout reads all of data.page.data; the alias-member case must go red"
   },
   {
     "id": "drop-negated-if-rule",
@@ -578,28 +527,6 @@
     "why": "round 1 minor: \"counts\": [] reads as an empty baseline"
   },
   {
-    "id": "expand-branch-aliases",
-    "edits": [
-      {
-        "file": "src/content-check/scan.ts",
-        "find": "sharePath(reads(block.test as Node), pathsUnder(block.consequent as Node))",
-        "replace": "sharePath(reads(block.test as Node), reads(block.consequent as Node))"
-      },
-      {
-        "file": "src/content-check/scan.ts",
-        "find": "sharePath(reads(test.argument as Node), pathsUnder(block.alternate))",
-        "replace": "sharePath(reads(test.argument as Node), reads(block.alternate))"
-      }
-    ],
-    "test": [
-      "tests/content-check/scan.test.ts",
-      "tests/content-check/site.test.ts",
-      "tests/content-check/command.test.ts"
-    ],
-    "expect": "red",
-    "why": "found after round 1: an else branch's alias is followed back to the test; the layout-switch case must go red"
-  },
-  {
     "id": "string-method-args-are-content",
     "edits": [
       {
@@ -632,5 +559,260 @@
     ],
     "expect": "red",
     "why": "found after round 1: Tailwind classes under a `lines` constant read only in class= are copy again"
+  },
+  {
+    "id": "alias-expands-any-init",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "      const via = init ? emptiness(init, depth + 1) : undefined;",
+        "replace": "      const via = init ? valuePaths(init) : undefined;"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 2 blocker: a local holding a comparison stands for the field it compares; the isWide case must go red"
+  },
+  {
+    "id": "comparisons-are-emptiness",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "    const n = unwrap(test);\n    if (n.type === \"Identifier\" || n.type === \"MemberExpression\") {",
+        "replace": "    const n = unwrap(test);\n    if (n.type === \"BinaryExpression\") return valuePaths(n);\n    if (n.type === \"Identifier\" || n.type === \"MemberExpression\") {"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 2 blocker: theme === \"dark\" is an emptiness test; the theme switch hides its else again"
+  },
+  {
+    "id": "element-attrs-all-shown",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "        !SHOWN_ATTRS.has(String(c.name).toLowerCase())\n",
+        "replace": "        false\n"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 2 blocker: aria-expanded={menuOpen} shows menuOpen; the menu toggle hides its nav again"
+  },
+  {
+    "id": "directives-are-shown",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "    if (DIRECTIVES.has(n.type) || isStyling(n)) return out;",
+        "replace": "    if (isStyling(n) && !DIRECTIVES.has(n.type)) return out;"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 2 blocker: class:done={submitted} shows submitted; the form hides its copy again"
+  },
+  {
+    "id": "prop-defaults-always-fallbacks",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "          if (key === \"right\" && !propOf(chain)) return true;",
+        "replace": "          if (key === \"right\") return true;"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 2 critical: a $props() default is never reported"
+  },
+  {
+    "id": "prop-default-has-no-name",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "        if (prop?.type === \"Property\" && (prop.key as Node).type === \"Identifier\") {\n          return { name: (prop.key as Node).name as string };\n        }\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 2 critical: a prose default has no slot, so it is never reported"
+  },
+  {
+    "id": "one-call-site-is-enough",
+    "edits": [
+      {
+        "file": "src/content-check/check.ts",
+        "find": "calls.every((u) => u.spread || u.attrs.includes(prop))",
+        "replace": "calls.some((u) => u.spread || u.attrs.includes(prop))"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 2 critical: a default left out by one caller is hidden because another passes it"
+  },
+  {
+    "id": "drop-builtin-fallback-helpers",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "if (name && (FALLBACK_HELPER.test(name) || helpers.has(name))) return true;",
+        "replace": "if (name && helpers.has(name)) return true;"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 2 minor: textOr, withFallback, orDefault are reported"
+  },
+  {
+    "id": "style-images-skipped",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "      styleImages(parts, chain);\n      return;",
+        "replace": "      return;"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 2 #5: a background-image url() in style= is never reported"
+  },
+  {
+    "id": "style-directive-is-copy",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "        if (grand && DIRECTIVES.has(grand.node.type)) return {};\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 2 #4: style:font-family={\"Open Sans\"} is copy again"
+  },
+  {
+    "id": "styling-drops-images",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "!(isProseKind(p.kind) && onlyStyling(p.binding))",
+        "replace": "!onlyStyling(p.binding)"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 2 #5: an image constant read only in a style is dropped"
+  },
+  {
+    "id": "fixtures-scanned",
+    "edits": [
+      {
+        "file": "src/content-check/check.ts",
+        "find": "  \"**/fixtures/**\",\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 2 #6: src/lib/**/fixtures/** is scanned"
+  },
+  {
+    "id": "legal-any-segment",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": "if (segs[0] !== undefined && LEGAL.has(norm(segs[0])))",
+        "replace": "if (segs.some((s) => LEGAL.has(norm(s))))"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 2 #8: /services/accessibility is a legal page"
+  },
+  {
+    "id": "legal-any-component",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": "LEGAL_COMPONENT.has(norm(base))",
+        "replace": "LEGAL.has(norm(base))"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 2 #8: Disclaimer.svelte is a legal page"
+  },
+  {
+    "id": "baseline-null-crashes",
+    "edits": [
+      {
+        "file": "src/content-check/check.ts",
+        "find": "  if (typeof raw !== \"object\" || raw === null || Array.isArray(raw)) {\n    throw new ContentCheckConfigError(`${BASELINE_FILE}: must be a JSON object`);\n  }\n  const b",
+        "replace": "  const b"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 2 #7: a null baseline crashes with exit 1, not 2"
   }
 ]
