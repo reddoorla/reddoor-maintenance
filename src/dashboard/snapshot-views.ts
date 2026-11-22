@@ -4,7 +4,7 @@ import type { ReportRow } from "../reports/report-fields.js";
 import type { SubmissionRow } from "../reports/submission-row.js";
 import type { DigestSnapshot } from "../alerts/digest-state.js";
 import type { CockpitRollup } from "../db/digest-state.js";
-import type { FleetEvent } from "../db/fleet-events.js";
+import type { FleetEvent, FleetEventType } from "../db/fleet-events.js";
 import type { ScreenOutBucket, ScreenOutTotals } from "../db/screenouts.js";
 import type {
   NotifyBounceCounts,
@@ -49,6 +49,12 @@ export const RECENT_EVENTS_LIMIT = 20;
  *  update merged on that site in this long before it (the merge's line already says the
  *  site changed). The window is inclusive at both ends. */
 export const DEPLOY_AFTER_MERGE_MS = 3_600_000;
+
+/** The shared recent read (`recentEvents`, `/fleet`'s Recently lane) leaves out deploys
+ *  (P1-87 PR 9, review C1): a deploy after a merge repeats the merge's line, and a burst of
+ *  deploys must not fill the read's cap. They come back through `feedDeploys`. Shared with
+ *  `loadCockpitModel`'s recent read, the parity tests' reference (#2201). */
+export const RECENT_EXCLUDED_TYPES: readonly FleetEventType[] = ["site_deployed"];
 /** `/audits` lists this many: plenty for one screen of "recent" without a pager; the
  *  design deliberately has no pagination for this list (v1 non-goal). */
 export const RECENT_AUDITS_LIMIT = 25;
@@ -61,11 +67,15 @@ const AUTO_SPAM_WINDOW_DAYS = 7;
 /** The deploys the overview's feed lists (P1-87 PR 9), newest first, at most
  *  `RECENT_EVENTS_LIMIT`. A deploy is left out when a `pr_automerged` event on the same
  *  non-null site has its `ts` in `[deploy.ts - DEPLOY_AFTER_MERGE_MS, deploy.ts]`; a deploy
- *  with no site is always kept. Other types are ignored. */
-export function deploysToShow(events: readonly FleetEvent[]): FleetEvent[] {
+ *  with no site is always kept. Other types are ignored. With `sinceIso`, only deploys at
+ *  or after it are listed, while every merge given still hides one: the caller reads
+ *  merges from `DEPLOY_AFTER_MERGE_MS` earlier, so a merge just before the window still
+ *  hides the deploy just inside it (#2193). */
+export function deploysToShow(events: readonly FleetEvent[], sinceIso?: string): FleetEvent[] {
   const merges = events.filter((e) => e.type === "pr_automerged" && e.siteId !== null);
+  const since = sinceIso === undefined ? -Infinity : Date.parse(sinceIso);
   return events
-    .filter((e) => e.type === "site_deployed")
+    .filter((e) => e.type === "site_deployed" && Date.parse(e.ts) >= since)
     .filter((d) => {
       if (d.siteId === null) return true;
       const at = Date.parse(d.ts);

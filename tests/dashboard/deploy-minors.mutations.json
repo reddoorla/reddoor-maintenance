@@ -1,0 +1,226 @@
+[
+  {
+    "id": "E1-merges-read-from-the-week",
+    "why": "#2193: merges read over the same week as deploys, so a merge just before the week does not hide the deploy after it",
+    "edits": [
+      {
+        "file": "src/dashboard/snapshot.ts",
+        "find": "sinceIso: new Date(since - DEPLOY_AFTER_MERGE_MS).toISOString(),",
+        "replace": "sinceIso: new Date(since).toISOString(),"
+      }
+    ],
+    "test": "tests/dashboard/snapshot-feed-events.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "E1b-merges-read-half-an-hour-early",
+    "why": "#2193 round 1 (tests C1): merges read 30 minutes early instead of an hour, so a merge an hour before the week does not hide the deploy at its start",
+    "edits": [
+      {
+        "file": "src/dashboard/snapshot.ts",
+        "find": "sinceIso: new Date(since - DEPLOY_AFTER_MERGE_MS).toISOString(),",
+        "replace": "sinceIso: new Date(since - DEPLOY_AFTER_MERGE_MS / 2).toISOString(),"
+      }
+    ],
+    "test": "tests/dashboard/snapshot-feed-events.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "E1c-merges-read-5-minutes-short",
+    "why": "#2193 round 2: a read-back 5 minutes short of the hour, which the 55-minute fixture let through",
+    "edits": [
+      {
+        "file": "src/dashboard/snapshot.ts",
+        "find": "sinceIso: new Date(since - DEPLOY_AFTER_MERGE_MS).toISOString(),",
+        "replace": "sinceIso: new Date(since - DEPLOY_AFTER_MERGE_MS + 5 * 60_000).toISOString(),"
+      }
+    ],
+    "test": "tests/dashboard/snapshot-feed-events.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "E1d-merges-read-1-ms-short",
+    "why": "#2193 round 2: a read-back 1 ms short of the hour",
+    "edits": [
+      {
+        "file": "src/dashboard/snapshot.ts",
+        "find": "sinceIso: new Date(since - DEPLOY_AFTER_MERGE_MS).toISOString(),",
+        "replace": "sinceIso: new Date(since - DEPLOY_AFTER_MERGE_MS + 1).toISOString(),"
+      }
+    ],
+    "test": "tests/dashboard/snapshot-feed-events.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "E2-no-window-on-deploys",
+    "why": "#2193: the extra hour's deploys reach the feed",
+    "edits": [
+      {
+        "file": "src/dashboard/snapshot-views.ts",
+        "find": "e.type === \"site_deployed\" && Date.parse(e.ts) >= since",
+        "replace": "e.type === \"site_deployed\""
+      }
+    ],
+    "test": [
+      "tests/dashboard/deploys-to-show.test.ts",
+      "tests/dashboard/snapshot-feed-events.test.ts"
+    ],
+    "expect": "red"
+  },
+  {
+    "id": "E3-window-exclusive",
+    "why": "#2193: a deploy exactly at the week's start drops out",
+    "edits": [
+      {
+        "file": "src/dashboard/snapshot-views.ts",
+        "find": "e.type === \"site_deployed\" && Date.parse(e.ts) >= since",
+        "replace": "e.type === \"site_deployed\" && Date.parse(e.ts) > since"
+      }
+    ],
+    "test": "tests/dashboard/deploys-to-show.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "E4-upper-end-exclusive",
+    "why": "#2195: a merge at exactly the deploy's time no longer hides it",
+    "edits": [
+      {
+        "file": "src/dashboard/snapshot-views.ts",
+        "find": "return t >= at - DEPLOY_AFTER_MERGE_MS && t <= at;",
+        "replace": "return t >= at - DEPLOY_AFTER_MERGE_MS && t < at;"
+      }
+    ],
+    "test": "tests/dashboard/deploys-to-show.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "E5-no-deploy-to-detector",
+    "why": "#2197: writeBackOneSite stops passing netlifyDeploy, so no site_deployed is ever detected",
+    "edits": [
+      {
+        "file": "src/audits/write-audits.ts",
+        "find": "      ...(audits.netlifyDeploy !== undefined ? { netlifyDeploy: audits.netlifyDeploy } : {}),\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/audits/write-audits-events.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "E6-loader-reads-deploys",
+    "why": "#2201: loadCockpitModel's recent read keeps deploys, so the parity reference differs from the snapshot",
+    "edits": [
+      {
+        "file": "src/dashboard/page-data.ts",
+        "find": "        excludeTypes: RECENT_EXCLUDED_TYPES,\n",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/snapshot/parity.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "E6b-loader-excludes-more",
+    "why": "#2201 round 1 (tests C4): the loader leaves out sweeps too, a type split the snapshot does not make",
+    "edits": [
+      {
+        "file": "src/dashboard/page-data.ts",
+        "find": "        excludeTypes: RECENT_EXCLUDED_TYPES,\n",
+        "replace": "        excludeTypes: [...RECENT_EXCLUDED_TYPES, \"fleet_swept\"],\n"
+      }
+    ],
+    "test": "cockpit/tests/snapshot/parity.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "E9-recent-events-exclusive",
+    "why": "#2202: an event exactly 7 days old drops while the deploy stays",
+    "edits": [
+      {
+        "file": "src/dashboard/snapshot-views.ts",
+        "find": "recentEvents: s.recentEvents.filter((e) => e.ts >= eventsSince),",
+        "replace": "recentEvents: s.recentEvents.filter((e) => e.ts > eventsSince),"
+      }
+    ],
+    "test": "cockpit/tests/fleet/sites.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "E11-how-drops-deploy-clause",
+    "why": "#2194: How we count's Lately text loses the deploy rule",
+    "edits": [
+      {
+        "file": "cockpit/src/lib/overview/view.ts",
+        "find": "; a deploy is listed only when no dependency update merged on its site in the hour before it, since that merge's line already says the site changed",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/how/page.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "E12-zero-tables-verified",
+    "why": "#2200 (answer (a)): a rehearsal that restored no table records a verified backup",
+    "edits": [
+      {
+        "file": "src/audits/fleet-event-detectors.ts",
+        "find": "  if (t === 0) return null;\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/audits/fleet-event-detectors.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "E12b-zero-rows-refused",
+    "why": "#2200 round 4: the guard reads rows instead of tables",
+    "edits": [
+      {
+        "file": "src/audits/fleet-event-detectors.ts",
+        "find": "  if (t === 0) return null;\n",
+        "replace": "  if (r === 0) return null;\n"
+      }
+    ],
+    "test": "tests/audits/fleet-event-detectors.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "E12c-zero-tables-and-rows-only",
+    "why": "#2200 round 4: only a line with 0 tables and 0 rows is refused",
+    "edits": [
+      {
+        "file": "src/audits/fleet-event-detectors.ts",
+        "find": "  if (t === 0) return null;\n",
+        "replace": "  if (t === 0 && r === 0) return null;\n"
+      }
+    ],
+    "test": "tests/audits/fleet-event-detectors.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "E12d-guard-reads-hashed",
+    "why": "#2200 round 5: the guard reads hashed instead of tables",
+    "edits": [
+      {
+        "file": "src/audits/fleet-event-detectors.ts",
+        "find": "  if (t === 0) return null;\n",
+        "replace": "  if (fields.get(\"hashed\") === \"0\") return null;\n"
+      }
+    ],
+    "test": "tests/audits/fleet-event-detectors.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "E12e-two-tables-needed",
+    "why": "#2200 round 5: one table is refused (tables at least 2)",
+    "edits": [
+      {
+        "file": "src/audits/fleet-event-detectors.ts",
+        "find": "  if (t === 0) return null;\n",
+        "replace": "  if (t <= 1) return null;\n"
+      }
+    ],
+    "test": "tests/audits/fleet-event-detectors.test.ts",
+    "expect": "red"
+  }
+]

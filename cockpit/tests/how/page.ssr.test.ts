@@ -754,6 +754,15 @@ describe("How we count's Lately entry (P1-87 PR 4, review round 3 D)", () => {
     expect(text(entry)).toContain("naming up to two steps that did not run to the end");
     expect(text(entry)).toContain("from six Pacific calendar days back carries its date");
   });
+
+  // #2194: the rule deploysToShow applies, said where the feed's rules are.
+  it("says a deploy is listed only when no dependency update merged on its site in the hour before it", () => {
+    const terms = DOC.querySelectorAll("details dl dt").map(text);
+    const entry = DOC.querySelectorAll("details dl dd")[terms.indexOf("Lately")]!;
+    expect(text(entry)).toContain(
+      "a deploy is listed only when no dependency update merged on its site in the hour before it",
+    );
+  });
 });
 
 describe("PR 8c item 8: the night fills in as you scroll (server render)", () => {
@@ -836,6 +845,24 @@ describe("PR 8c item 10: the ladder's levels open", () => {
     }
   });
 
+  // #2177: each button controls the panel of its own level. The panels' ids name their tier,
+  // and the button's data-level names the same one, inside the same level's item.
+  it("each button's aria-controls names the panel of its own level, in its own item", () => {
+    const buttons = DOC.querySelectorAll(".how-ladder li button");
+    expect(buttons).toHaveLength(4);
+    for (const b of buttons) {
+      const tier = b.getAttribute("data-level")!;
+      const panel = DOC.getElementById(b.getAttribute("aria-controls")!)!;
+      expect(panel.getAttribute("id")).toBe(`how-level-${tier}`);
+      expect(panel.parentNode).toBe(b.parentNode);
+      expect(
+        (
+          b.parentNode as unknown as { classList: { contains(c: string): boolean } }
+        ).classList.contains(tier),
+      ).toBe(true);
+    }
+  });
+
   it("without script every panel is open, so no visitor loses its sites or the nights line", () => {
     expect(DOC.querySelectorAll(".how-ladder li button")).toHaveLength(4);
     for (const b of DOC.querySelectorAll(".how-ladder li button")) {
@@ -856,6 +883,21 @@ describe("PR 8c item 10: the ladder's levels open", () => {
     expect(ok).not.toContain("every check passing");
     expect(text(panelOf("broken"))).toContain("None today");
     expect(text(panelOf("broken"))).toMatch(/[Nn]ights/);
+  });
+});
+
+describe("#2180: a lit step under forced colours", () => {
+  it("how.css fills the lit step's marker with a text-colour border under forced-colors: active", () => {
+    const css = readFileSync(
+      new URL("../../src/lib/how/how.css", import.meta.url).pathname,
+      "utf8",
+    );
+    const forced = css.match(
+      /@media \(forced-colors: active\)\s*\{\s*\.how-steps li\[data-lit="true"\]::before\s*\{([^}]*)\}/,
+    );
+    expect(forced, "a forced-colours rule for the lit marker").not.toBeNull();
+    // Half the marker's 0.6rem box on each side: the box is all border, in currentColor.
+    expect(forced![1]).toMatch(/border:\s*0\.3rem solid\s*;/);
   });
 });
 

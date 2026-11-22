@@ -86,6 +86,8 @@ describe("PR 8c item 9, round 1 E: the chapter counts as in view on a short scre
   it("at 0.6 of the viewport when the chapter is taller than it (844x390: 662px tall)", () => {
     expect(chapterInView(234 / 662, 234, 662, 390)).toBe(true);
     expect(chapterInView(233 / 662, 233, 662, 390)).toBe(false);
+    // #2183: a section of no height is never in view.
+    expect(chapterInView(0, 0, 0, 844)).toBe(false);
   });
 
   it("a tall chapter at 390x700 (716px) needs 420px showing, not the whole screen", () => {
@@ -194,6 +196,18 @@ describe("PR 8c item 10: the nights line", () => {
 
   it("no counted night yet says so", () => {
     expect(line([])).toBe("No nights counted yet in the last 21.");
+  });
+
+  // #2179: a count of sites must be a whole number; a night counting 1.5 is left out.
+  it("a non-integer count is left out, as an unreadable one is", () => {
+    const nights = window21([0, 2, 1, 0, 3, ...ZEROS]);
+    const second = nights[1]!.counts.sites as unknown as {
+      value: { tiers: Record<string, number> };
+    };
+    second.value.tiers.broken = 1.5;
+    expect(line(nights)).toBe(
+      "At least one site sat here on 2 of the 20 nights counted in the last 21; the most on one night was 3.",
+    );
   });
 
   it("unreadable nights say the counts could not be read", () => {
@@ -357,14 +371,33 @@ describe("PR 8c item 10: today's sites at each level", () => {
 });
 
 describe("PR 8c item 10: the level's sites, by their own status and count", () => {
-  it("a site that is not maintained is never listed, even at a broken tier", () => {
+  // #2182, the operator's answer (a), 2026-11-21: a launching site whose card sits at a level
+  // (its alarm broke through the pre-launch mute) is listed there, as the nights line counts
+  // it. A muted launching card is `pre-launch`, and any other status is never listed.
+  it("a launching site at a level is listed there; a muted one and any other status never are", () => {
     const card = (name: string, status: string, tier: string) =>
-      ({ site: { name, status }, tier, items: [], watchReasons: [] }) as unknown as SiteCard;
+      ({
+        site: { id: `rec${name}`, name, status },
+        tier,
+        items: [],
+        watchReasons: [],
+      }) as unknown as SiteCard;
     const model = {
-      cards: [card("Tower", "launching", "broken"), card("Maint", "maintained", "broken")],
+      cards: [
+        card("Tower", "launching", "broken"),
+        card("Maint", "maintained", "broken"),
+        card("Muted", "launching", "pre-launch"),
+        card("Gone", "archived", "broken"),
+      ],
       pending: [],
     } as unknown as CockpitModel;
-    expect(todayFromModel(model).broken.map((s) => s.name)).toEqual(["Maint"]);
+    const today = todayFromModel(model);
+    expect(today.broken.map((s) => s.name)).toEqual(["Maint", "Tower"]);
+    expect(
+      Object.values(today)
+        .flat()
+        .map((s) => s.name),
+    ).not.toContain("Muted");
   });
 
   it("a tier count that is not a count is left out, never read as 0", () => {
@@ -373,5 +406,28 @@ describe("PR 8c item 10: the level's sites, by their own status and count", () =
     expect(line(bad)).toBe(
       "At least one site sat here on 2 of the 20 nights counted in the last 21; the most on one night was 3.",
     );
+  });
+});
+
+// #2178: "Acme Co" and "Acme-Co" slug alike. The ladder matched each card to its Triage row by
+// slug, so both read the certificate's reason. It matches by site id now.
+describe("today's sites: two names that slug alike keep their own reasons (#2178)", () => {
+  const SNAP = snapshot({
+    sites: [
+      healthy({ id: "recCO", name: "Acme Co", certDaysRemaining: 10 }),
+      healthy({ id: "recDASH", name: "Acme-Co", pScore: 78, lastLighthouseAuditAt: FRESH }),
+    ],
+  });
+  const today = todayAtLevels(SNAP, NOW);
+
+  it("premise: they slug alike, and sit at two levels", () => {
+    expect(siteSlug("Acme Co")).toBe(siteSlug("Acme-Co"));
+    expect(today.attention.map((s) => s.name)).toEqual(["Acme Co"]);
+    expect(today.watch.map((s) => s.name)).toEqual(["Acme-Co"]);
+  });
+
+  it("each names its own reason", () => {
+    expect(today.attention[0]!.reason).toBe("TLS certificate expires in 10 days");
+    expect(today.watch[0]!.reason).toBe("Performance 78");
   });
 });
