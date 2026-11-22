@@ -203,6 +203,55 @@ describe("the count-up action on a refresh (P1-87 PR 8a, review round 1, F1)", (
       vi.restoreAllMocks();
     }
   });
+  // P1-87 minors, #2164: a hidden mount runs no frame until the page is shown, so its count starts
+  // at the first frame, not at the mount.
+  const withFrames = (run: () => void) => {
+    now = 0;
+    pending = new Map();
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+      const id = ++seq;
+      pending.set(id, cb);
+      return id;
+    });
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => void pending.delete(id));
+    vi.stubGlobal("matchMedia", () => ({ matches: true }));
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    try {
+      run();
+    } finally {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    }
+  };
+
+  it("a figure mounted in a hidden page counts from its first frame, so a late show still counts (#2164)", () => {
+    withFrames(() => {
+      vi.stubGlobal("document", { visibilityState: "hidden" });
+      const { node, attrs, text } = setup();
+      countUp(node, { to: "1,674", enabled: true });
+      expect(attrs.has("data-counting")).toBe(true);
+      // The page is shown 10 s later: its first frame runs then.
+      tick(10_000);
+      expect(attrs.has("data-counting"), "the first frame after the show starts the count").toBe(
+        true,
+      );
+      tick(COUNT_MS / 2);
+      expect(text(), "the count is under way half a count later").not.toBe("");
+      expect(attrs.has("data-counting")).toBe(true);
+      tick(COUNT_MS / 2);
+      expect(attrs.has("data-counted"), "it ends a whole count after the show").toBe(true);
+    });
+  });
+
+  it("a figure mounted in a visible page counts from its mount, as before (#2164's control)", () => {
+    withFrames(() => {
+      vi.stubGlobal("document", { visibilityState: "visible" });
+      const { node, attrs } = setup();
+      countUp(node, { to: "1,674", enabled: true });
+      tick(COUNT_MS + 16);
+      expect(attrs.has("data-counted"), "a visible count ends COUNT_MS after its mount").toBe(true);
+    });
+  });
 });
 
 /** The body of the first rule in `css` whose prelude is `prelude` (whitespace collapsed),

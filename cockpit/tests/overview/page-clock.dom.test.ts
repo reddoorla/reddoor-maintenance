@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { mount, unmount, flushSync } from "svelte";
 import { overviewFromSnapshot } from "../../src/lib/overview/view.js";
 import { snapshot, night } from "./fixtures.js";
+import { markIntroPlayed } from "../../src/lib/overview/motion.js";
 
 const { invalidate } = vi.hoisted(() => ({ invalidate: vi.fn(async (_key: string) => undefined) }));
 vi.mock("$app/navigation", () => ({ invalidate, afterNavigate: () => undefined }));
@@ -138,6 +139,10 @@ describe("the nightly bar's page clock (P1-87 PR 5a)", () => {
       snapshot({ nights: [], sites: [] }),
       new Date("2026-10-27T07:30:00.000Z"),
     );
+    // This test is about the clock, not the intro: a first load's intro holds a re-read until its
+    // end (#2164), so the intro is marked played, as it is for every test after the first. Without
+    // this the test passed only after another test had played it.
+    markIntroPlayed();
     await mountPage(view);
     await vi.advanceTimersByTimeAsync(5 * MIN);
     expect(invalidate).not.toHaveBeenCalled();

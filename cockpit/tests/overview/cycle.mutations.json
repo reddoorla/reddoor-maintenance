@@ -382,7 +382,7 @@
     "edits": [
       {
         "file": "cockpit/src/routes/+page.svelte",
-        "find": "      invalidate: () => invalidate(\"cockpit:snapshot\"),",
+        "find": "      invalidate: () => {\n        if (!intro) return invalidate(\"cockpit:snapshot\");\n        rereadHeld = true;\n        return Promise.resolve();\n      },",
         "replace": "      invalidate: () => Promise.resolve(),"
       }
     ],
