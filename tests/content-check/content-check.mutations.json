@@ -140,7 +140,7 @@
     "edits": [
       {
         "file": "src/content-check/check.ts",
-        "find": "          if (imp.imported === d.binding) add(otherScan.uses.get(local));\n",
+        "find": "            if (o.name === d.binding) add(otherScan.uses.get(local));\n",
         "replace": ""
       }
     ],
@@ -361,8 +361,8 @@
     "edits": [
       {
         "file": "src/content-check/scan.ts",
-        "find": "      kind === \"video\" ||\n      kind === \"link\"",
-        "replace": "      kind === \"video\" ||\n      kind === \"alt\" ||\n      kind === \"link\""
+        "find": "kind === \"video\" || kind === \"link\";",
+        "replace": "kind === \"video\" || kind === \"alt\" || kind === \"link\";"
       }
     ],
     "test": [
