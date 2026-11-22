@@ -189,6 +189,10 @@ const calleeName = (node: Node): string | undefined => {
   return undefined;
 };
 
+/** Methods whose string argument is matched against, never shown. */
+const STRING_TEST =
+  /^(?:startsWith|endsWith|includes|indexOf|lastIndexOf|split|match|matchAll|search|replace|replaceAll|test|has|get|getAll|getAttribute|hasAttribute|querySelector|querySelectorAll|closest|matches|addEventListener|removeEventListener)$/;
+
 /** A URL or path to code or data, never something a visitor sees. */
 const CODE_URL = /\.(?:m?js|css|json|xml)(?:[?#].*)?$/i;
 
@@ -363,14 +367,17 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
     }
     for (const [, c] of children(n)) collect(c);
   })(ast);
-  // An alias is expanded only where it is read itself (`{#if title}`), never
-  // through a member: `page.layout` and `page.title` are two fields of one
-  // `page`, not the same field because `page` came from `data.page.data`.
+  // What a TEST reads. An alias is expanded only where the test reads it
+  // whole (`{#if title}`), never through a member (`page.layout` and
+  // `page.title` are two fields of one `page`, not one field because `page`
+  // came from `data.page.data`), and never on the branch side: in
+  // `{#if !isMobile}…{:else}{brands}{/if}`, `brands` being derived from
+  // `isMobile` makes the else a layout switch, not a fallback.
   const reads = (n: Node): Set<string> => {
     const out = pathsUnder(n);
     for (let depth = 0; depth < 2; depth++) {
+      // `inits` is keyed by a bare name, so only a whole-alias read matches.
       for (const p of [...out]) {
-        if (p.includes(".")) continue;
         for (const paths of inits.get(p) ?? []) for (const q of paths) out.add(q);
       }
     }
@@ -509,7 +516,7 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
           if (
             other &&
             !isPureLiteral(other) &&
-            sharePath(reads(parent.test as Node), reads(other))
+            sharePath(reads(parent.test as Node), pathsUnder(other))
           ) {
             return true;
           }
@@ -613,13 +620,13 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
   /** `{#if X}…{:else}literal{/if}` is a fallback when the true branch shows a
    *  field the test is about: the test and the branch share a member path. */
   const elseIsFallback = (block: Node): boolean => {
-    return sharePath(reads(block.test as Node), reads(block.consequent as Node));
+    return sharePath(reads(block.test as Node), pathsUnder(block.consequent as Node));
   };
 
   const negatedIsFallback = (block: Node): boolean => {
     const test = block.test as Node;
     if (!isNode(block.alternate) || negated(test) === undefined) return false;
-    return sharePath(reads(test.argument as Node), reads(block.alternate));
+    return sharePath(reads(test.argument as Node), pathsUnder(block.alternate));
   };
 
   /** The name a literal's value sits under, climbing through arrays, wrappers,
@@ -849,6 +856,16 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
         return;
       }
       if (parent.type === "SwitchCase" && key === "test") return;
+      // `href.startsWith("tel:")`, `url.searchParams.get("Topic")`: a method
+      // that tests, finds or splits by the string is a comparison by another
+      // name.
+      if (
+        parent.type === "CallExpression" &&
+        key === "arguments" &&
+        STRING_TEST.test(calleeName(parent) ?? "")
+      ) {
+        return;
+      }
       if (TRANSPARENT.has(parent.type)) continue;
       break;
     }

@@ -372,6 +372,22 @@ describe("a fallback needs the SAME field, not a shared helper (round 1, critica
     ).toEqual([["heading", "Our story began in 1901"]]);
   });
 
+  it("a branch's alias is not followed back to the test (a layout switch)", () => {
+    expect(
+      svelte(
+        `<script>const isMobile = $derived(w < 768); const brands = $derived(isMobile ? few : all);</script>{#if !isMobile}<h4>Join these brands</h4>{:else}{#each brands as b}{b.name}{/each}{/if}`,
+      ),
+    ).toEqual([["heading", "Join these brands"]]);
+  });
+
+  it("a test on a member of an alias is not about the alias's whole source", () => {
+    expect(
+      svelte(
+        `<script>const page = $derived(data.page.data);</script>{#if page.layout === "wide"}<h1>{data.page.data.title}</h1>{:else}<h2>Our story began in 1901</h2>{/if}`,
+      ),
+    ).toEqual([["heading", "Our story began in 1901"]]);
+  });
+
   it("an alias read itself still reaches its source", () => {
     expect(
       svelte(
@@ -496,7 +512,7 @@ describe("literals with no slot of their own (round 1)", () => {
   it("FAQ, stat and price keys", () => {
     expect(
       ts(
-        `export const FAQS = [{ question: "Do you host weddings?", answer: "Yes, year round." }]; export const s = { stat: "Since 1901", price: "From $40 a person" };`,
+        `export const items = [{ question: "Do you host weddings?", answer: "Yes, year round." }]; export const s = { stat: "Since 1901", price: "From $40 a person" };`,
       ),
     ).toEqual([
       ["copy", "Do you host weddings?"],
@@ -504,6 +520,24 @@ describe("literals with no slot of their own (round 1)", () => {
       ["copy", "Since 1901"],
       ["copy", "From $40 a person"],
     ]);
+  });
+});
+
+describe("a string a method matches against is not content (found after round 1)", () => {
+  it("startsWith, includes, get and querySelector arguments", () => {
+    expect(
+      svelte(
+        `<script>const phone = $derived.by(() => { for (const item of items) if (item.href?.startsWith("tel:")) return item; }); const topic = $derived(page.url.searchParams.get("Topic Name")); const el = document.querySelector("Main Menu");</script><a href={phone.href}>{phone.text}</a><p>{topic}</p>`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("replace's replacement is still words", () => {
+    expect(
+      svelte(
+        `<p>{name.replace("_", " ") || "Unnamed listing"}</p><p>{"Call us today".replace("us", "Acme")}</p>`,
+      ),
+    ).toEqual([["copy", "Call us today"]]);
   });
 });
 

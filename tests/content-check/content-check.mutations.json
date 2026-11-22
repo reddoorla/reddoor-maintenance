@@ -276,8 +276,8 @@
     "edits": [
       {
         "file": "src/content-check/scan.ts",
-        "find": "        if (p.includes(\".\")) continue;\n",
-        "replace": ""
+        "find": "        for (const paths of inits.get(p) ?? []) for (const q of paths) out.add(q);",
+        "replace": "        for (const paths of inits.get(p.split(\".\")[0]!) ?? []) for (const q of paths) out.add(q);"
       }
     ],
     "test": [
@@ -286,7 +286,7 @@
       "tests/content-check/command.test.ts"
     ],
     "expect": "red",
-    "why": "round 1 critical: page.layout and page.title share data.page.data; the alias-member case must go red"
+    "why": "round 1 critical: a test on page.layout reads all of data.page.data; the alias-member case must go red"
   },
   {
     "id": "drop-negated-if-rule",
