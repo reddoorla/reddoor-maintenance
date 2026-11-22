@@ -17,6 +17,7 @@ import { join, posix } from "node:path";
 import { glob } from "tinyglobby";
 import { builtInExemption } from "./rules.js";
 import {
+  JSON_BINDING,
   ScanParseError,
   compileIgnore,
   onlyFallbackUses,
@@ -47,7 +48,7 @@ export class ContentCheckConfigError extends Error {
   readonly exitCode = 2;
 }
 
-const SOURCE_GLOBS = ["src/routes/**/*.{svelte,ts,js}", "src/lib/**/*.{svelte,ts,js}"];
+const SOURCE_GLOBS = ["src/routes/**/*.{svelte,ts,js,json}", "src/lib/**/*.{svelte,ts,js,json}"];
 const NEVER = [
   "**/*.d.ts",
   "**/*.{test,spec}.{ts,js}",
@@ -309,6 +310,9 @@ export async function scanSite(cwd: string, config: ContentCheckConfig): Promise
   // Pass 2: scan the files a visitor can reach.
   const scans = new Map<string, FileScan>();
   for (const [file, p] of parsed) {
+    // A `.json` file counts only when a file imports it (`site-config.json`);
+    // Slice Machine's model.json and mocks.json are read by tools, not pages.
+    if (file.endsWith(".json") && !importers.has(file)) continue;
     const why = exemptions.get(file);
     if (why) {
       result.exempt.push({ file, why });
@@ -339,7 +343,9 @@ export async function scanSite(cwd: string, config: ContentCheckConfig): Promise
     for (const [other, p] of parsed) {
       for (const imp of p.imports.values()) {
         const hit = importOrigins(other, imp, parsed, known).some(
-          (o) => o.file === file && (o.name === name || o.name === "*"),
+          (o) =>
+            o.file === file &&
+            (o.name === name || o.name === "*" || (o.name === "default" && name === JSON_BINDING)),
         );
         if (!hit) continue;
         if (!exemptions.has(other)) return false;
@@ -370,7 +376,8 @@ export async function scanSite(cwd: string, config: ContentCheckConfig): Promise
         for (const [local, imp] of p.imports) {
           for (const o of importOrigins(other, imp, parsed, known)) {
             if (o.file !== file) continue;
-            if (o.name === d.binding) add(otherScan.uses.get(local));
+            const name = o.name === "default" && file.endsWith(".json") ? JSON_BINDING : o.name;
+            if (name === d.binding) add(otherScan.uses.get(local));
             else if (o.name === "*" && otherScan.uses.has(local)) total.bare++;
             break;
           }

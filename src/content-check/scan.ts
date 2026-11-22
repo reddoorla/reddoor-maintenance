@@ -84,6 +84,10 @@ type Node = { type: string; start?: number; end?: number; [key: string]: unknown
 const isNode = (v: unknown): v is Node =>
   typeof v === "object" && v !== null && typeof (v as { type?: unknown }).type === "string";
 
+/** The name a `.json` file's value is scanned under; its importers' default
+ *  import reads it. */
+export const JSON_BINDING = "__json__";
+
 /** A parse that failed. The caller reports it and moves on: one odd file must
  *  never turn the check (and so a site's CI) red in warn mode. */
 export class ScanParseError extends Error {}
@@ -328,10 +332,15 @@ export function parseFile(file: string, source: string): Parsed {
   const isSvelte = file.endsWith(".svelte");
   // A `</script` inside a .ts file (JSON-LD helpers write one) would end the
   // wrapper early, so it is defused to the same length first: offsets, and so
-  // line numbers, stay the file's own.
+  // line numbers, stay the file's own. A `.json` file is one exported
+  // constant, so its values meet the same key rules as a `.ts` file's, and
+  // its importers decide whether they are fallbacks (pass 3).
+  const body = file.endsWith(".json")
+    ? `export const ${JSON_BINDING} = (${source.replace(/^\uFEFF/, "")})`
+    : source;
   const wrapped = isSvelte
     ? source
-    : `<script lang="ts">${source.replace(/<\/(script)/gi, "<_$1")}\n</script>`;
+    : `<script lang="ts">${body.replace(/<\/(script)/gi, "<_$1")}\n</script>`;
 
   let ast: Node;
   try {

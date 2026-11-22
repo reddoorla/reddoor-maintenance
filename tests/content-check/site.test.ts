@@ -568,3 +568,37 @@ describe("a file only exempt files import is exempt (round 4, major 7)", () => {
     expect(r.findings.map((f) => f.text)).toEqual(["(512) 555-0100"]);
   });
 });
+
+describe("an imported .json file is scanned (round 4, major 5)", () => {
+  const config = `{\n  "nav": [{ "label": "Who We Are", "href": "/about" }],\n  "email": "hello@acme.org"\n}\n`;
+
+  it("reports its nav and contact values, at their own lines", async () => {
+    const r = await scan(
+      site({
+        "src/lib/site-config.json": config,
+        "src/routes/+layout.svelte": `<script>import cfg from "$lib/site-config.json";</script>{#each cfg.nav as n}<a href={n.href}>{n.label}</a>{/each}`,
+      }),
+    );
+    expect(r.findings.map((f) => [f.file, f.line, f.kind, f.text])).toEqual([
+      ["src/lib/site-config.json", 2, "copy", "Who We Are"],
+      ["src/lib/site-config.json", 2, "link", "/about"],
+      ["src/lib/site-config.json", 3, "email", "hello@acme.org"],
+    ]);
+  });
+
+  it("skips a .json file nothing imports (a slice's model.json)", async () => {
+    const r = await scan(site({ "src/lib/slices/Hero/model.json": config }));
+    expect(r.findings).toEqual([]);
+    expect(r.files).toBe(0);
+  });
+
+  it("hides it when every read is a fallback, like an exported constant", async () => {
+    const r = await scan(
+      site({
+        "src/lib/site-config.json": config,
+        "src/routes/+layout.svelte": `<script>import cfg from "$lib/site-config.json"; let { data } = $props(); const nav = data.nav ?? cfg.nav; const email = data.email ?? cfg.email;</script>{#each nav as n}<a href={n.href}>{n.label}</a>{/each}<p>{email}</p>`,
+      }),
+    );
+    expect(r.findings).toEqual([]);
+  });
+});
