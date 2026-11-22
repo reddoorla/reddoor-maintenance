@@ -608,11 +608,20 @@ describe("a Testing report sent within a month of Maintenance pushes Maintenance
     ).not.toContain("Maintenance");
   });
 
-  it("negative controls for that cover: a move that did not finish, the operator's own take-back, a superseded row (#2157)", () => {
+  it("so does one whose move did not finish, dated by the old date it is still on (#2157)", () => {
+    // The re-render failed: taken back, still on 10-02, retried while held.
+    const reports = [
+      maint("2026-09-01"),
+      retaken("2026-10-02", "2026-10-04", { dueOn: "2026-10-02" }),
+    ];
+    expect(ymd(nextDueDate(monthly, reports, "Maintenance", on("2026-09-26")))).toBe("2026-11-02");
+  });
+
+  it("negative controls for that cover: a row on neither end of its move, the operator's own take-back, a superseded row (#2157)", () => {
     const base = [maint("2026-09-01")];
     for (const other of [
-      // still on the move's "from" date
-      retaken("2026-10-01", "2026-10-03", { dueOn: "2026-10-01" }),
+      // moved again since, by hand or by a later move
+      retaken("2026-10-01", "2026-10-03", { dueOn: "2026-10-05" }),
       retaken("2026-10-01", "2026-10-03", { unapprovedBy: "Reddoor" }),
       retaken("2026-10-01", "2026-10-03", { draftReady: false }),
     ]) {

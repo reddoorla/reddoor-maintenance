@@ -159,12 +159,16 @@ export function cycleBase(site: WebsiteRow, reports: ReportRow[], type: ReportTy
 const APPROVED_UNSENT_GRACE_DAYS = 3;
 
 /** #2157: a ready, unapproved Testing row the nightly took the approval back
- *  from to move it, and that now sits on the date it was moved to. It still
- *  covers Maintenance, dated by that date: the take-back was the nightly's, not
- *  the operator's, and without this the next nightly would draft a Maintenance
- *  report that his re-approval of the Testing one then orphans. */
+ *  from to move its due date, and that sits on either end of that move: on the
+ *  new date when the move finished, on the old one when its re-render failed
+ *  (the next nightly retries it while the row is held). It still covers
+ *  Maintenance, dated by its due date: the take-back was the nightly's, not the
+ *  operator's, and without this a nightly would draft a Maintenance report that
+ *  his re-approval of the Testing one then orphans. */
 function nightlyRedated(r: ReportRow): boolean {
-  return r.draftReady && !r.approvedToSend && r.dueOn !== null && redatedMove(r)?.to === r.dueOn;
+  if (!r.draftReady || r.approvedToSend || r.dueOn === null) return false;
+  const move = redatedMove(r);
+  return move !== null && (move.to === r.dueOn || move.from === r.dueOn);
 }
 
 /**
@@ -187,8 +191,8 @@ function nightlyRedated(r: ReportRow): boolean {
  * then, so it is dated by the later of its approval and its `dueOn`, the day it
  * will go out.
  *
- * #2157: so is a held Testing row whose approval the nightly took back when it
- * moved the row's due date ({@link nightlyRedated}), dated by that date.
+ * #2157: so is a held Testing row whose approval the nightly took back to move
+ * its due date ({@link nightlyRedated}), dated by its due date.
  */
 function pushPastTesting(
   reports: ReportRow[],
