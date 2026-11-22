@@ -191,7 +191,7 @@
     "edits": [
       {
         "file": "src/content-check/scan.ts",
-        "find": "            !isPureLiteral(other) &&\n            (key === \"alternate\"\n              ? shares(emptiness(parent.test as Node), valuePaths(other))\n              : shares(negatedEmptiness(parent.test as Node), valuePaths(other)))\n",
+        "find": "            !isPureLiteral(other) &&\n            (key === \"alternate\"\n              ? coveredBy(parent.test as Node, valuePaths(other))\n              : shares(negatedEmptiness(parent.test as Node), valuePaths(other)))\n",
         "replace": "            !isPureLiteral(other)\n"
       }
     ],
@@ -208,7 +208,7 @@
     "edits": [
       {
         "file": "src/content-check/scan.ts",
-        "find": "    shares(emptiness(block.test as Node), rendered(block.consequent as Node));",
+        "find": "    coveredBy(block.test as Node, rendered(block.consequent as Node));",
         "replace": "    false;"
       }
     ],
