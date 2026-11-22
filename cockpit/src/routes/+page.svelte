@@ -300,7 +300,30 @@
   onMount(() => {
     markIntroPlayed();
     motionReady = true;
-    const introTimer = setTimeout(() => (intro = false), INTRO_MS);
+    // P1-87 minors, #2164: the intro's timer starts once the page is visible. A page loaded in a
+    // background tab holds its CSS animations until it is shown, so a timer started at mount would
+    // cut the bars' fill short (shown 0.3 to 2 s later) or drop it (shown later still). The intro
+    // waits instead, and plays whole when the tab is first shown. A re-read the cycle clock asks
+    // for while the intro is on (a tab shown with its view due, which the clock re-reads on that
+    // show, or due within the intro) waits for the intro's end, so a re-read never inserts a row
+    // or a figure under it (F2: a refresh plays no intro on what it inserts).
+    let introTimer: ReturnType<typeof setTimeout> | undefined;
+    let rereadHeld = false;
+    const endIntro = () => {
+      intro = false;
+      if (rereadHeld) {
+        rereadHeld = false;
+        // As the clock does: a read's failure is not waited for and never thrown.
+        invalidate("cockpit:snapshot").catch(() => undefined);
+      }
+    };
+    const startIntro = () => {
+      if (document.visibilityState !== "visible") return;
+      document.removeEventListener("visibilitychange", startIntro);
+      introTimer = setTimeout(endIntro, INTRO_MS);
+    };
+    document.addEventListener("visibilitychange", startIntro);
+    startIntro();
     offsetMs = Date.parse(v.cycle.nowIso) - Date.now();
     clock = Date.now() + offsetMs;
     const cycle = startCycleClock({
@@ -311,7 +334,11 @@
         document.addEventListener("visibilitychange", handler);
         return () => document.removeEventListener("visibilitychange", handler);
       },
-      invalidate: () => invalidate("cockpit:snapshot"),
+      invalidate: () => {
+        if (!intro) return invalidate("cockpit:snapshot");
+        rereadHeld = true;
+        return Promise.resolve();
+      },
       onTick: (t) => {
         clock = t;
       },
@@ -320,6 +347,7 @@
     });
     return () => {
       cycle.stop();
+      document.removeEventListener("visibilitychange", startIntro);
       clearTimeout(introTimer);
       for (const t of freshTimers.values()) clearTimeout(t);
     };
@@ -896,6 +924,16 @@
                 r="4"
               />
             {/each}
+            <!-- P1-87 minors: a mouse's or a pen's hover previews its night (#2169: a pen is a pointer, as a
+                 mouse is; a touch has no hover, and its tap is the click). Leaving a night ends its own
+                 preview, so a pointer moved off the columns onto the chart's empty area keeps none
+                 (#2171). The preview is the chart's, not a pointer's: a leave ends it only while it is
+                 the night left, so a pen leaving another night keeps a resting mouse's, and a pen and
+                 a mouse on the same night share one preview, which either's leave ends until the
+                 other moves. A move over a night with no key
+                 night (after Escape, a blur, or a Tab away and back) restores the preview the pointer
+                 rests on (#2172); after a key step or a click the readout still follows the key night
+                 until the pointer enters another night (round 3 I). -->
             {#each g.slots as t, ti (ti)}
               <!-- svelte-ignore a11y_click_events_have_key_events -->
               <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -907,7 +945,14 @@
                 height={g.baseline - g.top}
                 data-title={t.title}
                 onpointerenter={(e) => {
-                  if (e.pointerType === "mouse") hoverSel[ci] = ti;
+                  if (e.pointerType !== "touch") hoverSel[ci] = ti;
+                }}
+                onpointermove={(e) => {
+                  if (e.pointerType !== "touch" && placeOf(c.nights, keySel[ci]) === null)
+                    hoverSel[ci] = ti;
+                }}
+                onpointerleave={() => {
+                  if (hoverSel[ci] === ti) hoverSel[ci] = null;
                 }}
                 onclick={() => setKeyNight(ci, c.nights[ti]!)}
               />
