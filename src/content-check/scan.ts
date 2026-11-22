@@ -529,6 +529,7 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
   // Locals declared with no initialiser (`let error;`): Svelte 4 local state,
   // never a field, unless exported (a prop).
   const bareLets = new Set<string>();
+  const eachOf = new Map<string, string>();
   (function collect(n: Node): void {
     if (n.type === "VariableDeclarator" && isNode(n.init) && (n.id as Node).type === "Identifier") {
       inits.set((n.id as Node).name as string, n.init);
@@ -545,6 +546,15 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
         if ((d.id as Node).type === "Identifier") bareLets.delete((d.id as Node).name as string);
       }
       return;
+    }
+    // `{#each services as s}`: s → services, so showing s shows the list.
+    if (
+      n.type === "EachBlock" &&
+      isNode(n.context) &&
+      n.context.type === "Identifier" &&
+      (n.expression as Node).type === "Identifier"
+    ) {
+      eachOf.set(n.context.name as string, (n.expression as Node).name as string);
     }
     if (n.type === "SnippetBlock" && (n.expression as Node).type === "Identifier") {
       snippets.set((n.expression as Node).name as string, n);
@@ -894,6 +904,13 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
     return r !== undefined && r.cls > 0 && r.cls === r.style && r.other === 0;
   };
   const unnamed: Array<{ binding: string; pos: number; text: string }> = [];
+  /** The kind a list is shown as through `{#each list as item}{item}`. */
+  const eachShown = (list: string): Kind | undefined => {
+    for (const [item, of] of eachOf) {
+      if (of === list && shownAs.has(item)) return shownAs.get(item);
+    }
+    return undefined;
+  };
 
   /** The constant a literal is part of: `const NAME = { … "x" … }`. */
   function enclosingBinding(chain: Ancestor[]): { name: string; exported: boolean } | undefined {
@@ -1614,6 +1631,22 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
       const kind = textKind(chain.slice(0, -2));
       if (kind) shownAs.set(name, kind);
     }
+    // `<Hero subtitle={msg} />`, `<img alt={msg}>`: a local handed straight to
+    // a prop or attribute a visitor reads is shown as that (round 4).
+    const attr = chain.at(-3)?.node;
+    const el = chain.at(-4)?.node;
+    if (!fallback && parent.type === "ExpressionTag" && attr?.type === "Attribute" && el) {
+      const attrName = String(attr.name);
+      const kind =
+        el.type === "Component" || el.type === "SvelteComponent"
+          ? kindForKey(attrName)
+          : /^(?:alt|title|aria-label|placeholder)$/i.test(attrName)
+            ? attrName.toLowerCase() === "alt"
+              ? "alt"
+              : "copy"
+            : undefined;
+      if (kind && isProseKind(kind)) shownAs.set(name, kind);
+    }
   }
 
   // `chain` is the path from the root to `node`, `node` included as its last
@@ -1688,7 +1721,7 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
       if (!onlyFallbacks(name) && !onlyInClass(name)) report(a.pos, a.kind, a.text);
     }
     for (const u of unnamed) {
-      const kind = shownAs.get(u.binding);
+      const kind = shownAs.get(u.binding) ?? eachShown(u.binding);
       if (!kind || isIdentifierLike(u.text) || onlyStyling(u.binding)) continue;
       report(u.pos, refineProse(kind, u.text), u.text);
     }

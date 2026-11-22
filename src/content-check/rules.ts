@@ -177,6 +177,10 @@ addKeys("copy", [
 ]);
 
 addKeys("copy", ["siteName", "businessName", "companyName", "brandName", "ariaLabel"]);
+// Round 4 on #2231: espada's `desc`, a testimonial's `author`, reddoor-website's
+// `aria:`. Not `status`, which is as often a code value ("sold", "pending"),
+// nor `note`, which on reddoor-website is the CRM record's note.
+addKeys("copy", ["desc", "author", "aria", "info"]);
 
 // The last word of a longer name, for `DEFAULT_TITLE`, `heroHeading`,
 // `ROUTE_TITLES`. Only words that are content whatever comes before them: not

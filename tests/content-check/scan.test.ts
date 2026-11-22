@@ -1049,3 +1049,51 @@ describe("a default outside $props() (round 4, major 3)", () => {
     expect(ts(`const { heading = "Welcome to Acme Plumbing" } = slice.primary;`)).toEqual([]);
   });
 });
+
+describe("words reached through a list, a prop or a key (round 4, major 6)", () => {
+  it("reports a list an {#each} shows", () => {
+    expect(
+      svelte(
+        `<script>const services = ["Weddings and Events", "Corporate retreats"];</script><ul>{#each services as s}<li>{s}</li>{/each}</ul>`,
+      ),
+    ).toEqual([
+      ["copy", "Weddings and Events"],
+      ["copy", "Corporate retreats"],
+    ]);
+  });
+
+  it("does not report a list an {#each} only keys or styles with", () => {
+    expect(
+      svelte(
+        `<script>const tones = ["Bright and airy", "Dark and moody"];</script>{#each tones as t}<div class={t}></div>{/each}`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("reports a local handed to a content-named prop or a shown attribute", () => {
+    expect(
+      svelte(
+        `<script>import Hero from "$lib/Hero.svelte"; const msg = "Serving Austin since 1990"; const pic = "Our crew on site";</script><Hero subtitle={msg} /><img src={x} alt={pic} />`,
+      ),
+    ).toEqual([
+      ["heading", "Serving Austin since 1990"],
+      ["alt", "Our crew on site"],
+    ]);
+  });
+
+  it("does not report a local handed to a prop no visitor reads", () => {
+    expect(
+      svelte(
+        `<script>import Hero from "$lib/Hero.svelte"; const mode = "Full width hero";</script><Hero variant={mode} />`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("reports desc, author, aria and info, but not note or status", () => {
+    expect(
+      ts(
+        `export const items = [{ desc: "We build custom homes", author: "Jane Doe", aria: "Go to Revogen project", info: "Open on weekends", note: "Routed to the not-a-fit page", status: "Under contract" }];`,
+      ).map(([, t]) => t),
+    ).toEqual(["We build custom homes", "Jane Doe", "Go to Revogen project", "Open on weekends"]);
+  });
+});
