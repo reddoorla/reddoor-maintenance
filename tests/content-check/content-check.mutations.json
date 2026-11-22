@@ -191,7 +191,7 @@
     "edits": [
       {
         "file": "src/content-check/scan.ts",
-        "find": "            !isPureLiteral(other) &&\n            sharePath(reads(parent.test as Node), reads(other))\n",
+        "find": "            !isPureLiteral(other) &&\n            sharePath(reads(parent.test as Node), pathsUnder(other))\n",
         "replace": "            !isPureLiteral(other)\n"
       }
     ],
@@ -208,7 +208,7 @@
     "edits": [
       {
         "file": "src/content-check/scan.ts",
-        "find": "    return sharePath(reads(block.test as Node), reads(block.consequent as Node));",
+        "find": "    return sharePath(reads(block.test as Node), pathsUnder(block.consequent as Node));",
         "replace": "    return false;"
       }
     ],
