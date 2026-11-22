@@ -104,3 +104,44 @@ describe("loadCockpitSnapshot — the feed's deploys are read on their own (P1-8
     expect(snap.recentEvents.map((e) => e.id)).toEqual(["merge"]);
   });
 });
+
+// #2193: the week's start is NOW - 7 days. A merge exactly an hour before it hides the
+// same site's deploy exactly at it (DEPLOY_AFTER_MERGE_MS apart; both ends inclusive), so
+// the merges must be read the whole hour early, to the millisecond; a deploy before the
+// start is never listed.
+describe("loadCockpitSnapshot — a merge just before the week still hides the deploy after it", () => {
+  let dir: string;
+  let db: Db;
+  const START = NOW.getTime() - 7 * 86_400_000;
+  const iso = (ms: number): string => new Date(START + ms).toISOString();
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), "snapshot-deploy-edge-"));
+    db = await openDb({ url: `file:${join(dir, "fleet.db")}` });
+    await recordFleetEvent(db, ev("early-merge", iso(-60 * 60_000), "pr_automerged"));
+    await recordFleetEvent(db, ev("edge-deploy", iso(0), "site_deployed"));
+    await recordFleetEvent(db, {
+      ...ev("old-deploy", iso(-5 * 60_000), "site_deployed"),
+      siteId: "recOTHER",
+    });
+    await recordFleetEvent(db, {
+      ...ev("kept-deploy", iso(30 * 60_000), "site_deployed"),
+      siteId: "recOTHER",
+    });
+    // Round 3: a control at exactly the start with no merge, so edge-deploy's absence can
+    // only come from its merge, never from the window's own edge.
+    await recordFleetEvent(db, {
+      ...ev("start-deploy", iso(0), "site_deployed"),
+      siteId: "recTHIRD",
+    });
+  });
+  afterEach(async () => {
+    await db.destroy();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("feedDeploys holds only the other sites' deploys inside the week", async () => {
+    const snap = await loadCockpitSnapshot(db, NOW, "https://dash");
+    expect(snap.feedDeploys.map((e) => e.id)).toEqual(["kept-deploy", "start-deploy"]);
+    expect(snap.gaps).toEqual([]);
+  });
+});

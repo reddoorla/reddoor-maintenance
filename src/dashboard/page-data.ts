@@ -27,6 +27,7 @@ import {
   RECENT_AUDITS_LIMIT,
   RECENT_EVENTS_DAYS,
   RECENT_EVENTS_LIMIT,
+  RECENT_EXCLUDED_TYPES,
 } from "./snapshot-views.js";
 import type { CockpitModel, SiteAlarmContext } from "./fleet-cockpit.js";
 import { parseFleetTableQuery, buildFleetTableModel } from "./fleet-table.js";
@@ -85,7 +86,12 @@ export async function loadCockpitModel(db: Db, now: Date, baseUrl: string): Prom
     // Recently lane simply absent — the cockpit still renders.
     orElse(() => {
       const sinceIso = new Date(now.getTime() - RECENT_EVENTS_DAYS * 86_400_000).toISOString();
-      return listFleetEvents(db, { sinceIso, limit: RECENT_EVENTS_LIMIT });
+      // #2201: without deploys, as the snapshot's `recentEvents` read (`RECENT_EXCLUDED_TYPES`).
+      return listFleetEvents(db, {
+        sinceIso,
+        limit: RECENT_EVENTS_LIMIT,
+        excludeTypes: RECENT_EXCLUDED_TYPES,
+      });
     }, []),
     // affordance simply absent — never blank the cockpit
     orElse(() => countAutoSpamSince(db, screenOutsSince(now, 7)), 0),

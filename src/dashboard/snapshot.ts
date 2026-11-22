@@ -15,8 +15,10 @@ import { prismicAckNamesReport } from "../alerts/digest-collectors.js";
 import { readLatestDeps, readOverviewNights } from "../fleet-daily/read.js";
 import type { SubmissionRow } from "../reports/submission-row.js";
 import {
+  DEPLOY_AFTER_MERGE_MS,
   RECENT_AUDITS_LIMIT,
   RECENT_EVENTS_DAYS,
+  RECENT_EXCLUDED_TYPES,
   RECENT_EVENTS_LIMIT,
   SNAPSHOT_SCREENOUT_DAYS,
   deploysToShow,
@@ -110,16 +112,21 @@ export async function loadCockpitSnapshot(
     // P1-87 PR 9: the same week's deploys, read on their own (so they cannot fill the
     // feed's read above), then left out where a dependency merge on their site came
     // first (`deploysToShow`). Under the same gap name, so an unread feed still says so.
+    // #2193: read from an hour before the week, so a merge just before the week's start
+    // still hides the deploy just after it; `deploysToShow` lists the week's deploys only.
     read(
       "feed events",
-      async () =>
-        deploysToShow(
+      async () => {
+        const since = now.getTime() - RECENT_EVENTS_DAYS * 86_400_000;
+        return deploysToShow(
           await listFleetEvents(db, {
-            sinceIso: new Date(now.getTime() - RECENT_EVENTS_DAYS * 86_400_000).toISOString(),
+            sinceIso: new Date(since - DEPLOY_AFTER_MERGE_MS).toISOString(),
             limit: 500,
             types: ["site_deployed", "pr_automerged"],
           }),
-        ),
+          new Date(since).toISOString(),
+        );
+      },
       [],
     ),
     read<ReadonlyMap<string, number>>(
@@ -193,11 +200,6 @@ export async function loadCockpitSnapshot(
  *  deploys too: they are read on their own (`feedDeploys`, P1-87 PR 9), so a burst of
  *  them cannot push the week's other events out of this read. */
 const LATELY_EXCLUDED_TYPES: readonly FleetEventType[] = ["fleet_swept", "site_deployed"];
-
-/** The shared recent read (`recentEvents`, `/fleet`'s Recently lane) leaves out deploys
- *  (P1-87 PR 9, review C1): a deploy after a merge repeats the merge's line, and a burst of
- *  deploys must not fill the read's cap. They come back through `feedDeploys`. */
-const RECENT_EXCLUDED_TYPES: readonly FleetEventType[] = ["site_deployed"];
 
 /** `read`'s marker for a read that fell back. */
 const GAP = Symbol("gap");
