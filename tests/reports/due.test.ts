@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { findDueReports, nextDueDate, reportPeriodKey } from "../../src/reports/due.js";
 import { mapRow, type WebsiteRow } from "../../src/fleet/site-fields.js";
 import type { ReportRow } from "../../src/reports/report-fields.js";
+import { redatedBy } from "../../src/reports/report-row.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 function site(over: Partial<WebsiteRow> = {}): WebsiteRow {
@@ -57,6 +58,8 @@ function report(over: Partial<ReportRow> = {}): ReportRow {
     withdrawnAt: null,
     withdrawnBy: null,
     sendStartedAt: null,
+    unapprovedBy: null,
+    unapprovedAt: null,
     dueOn: null,
     ...over,
   };
@@ -578,6 +581,98 @@ describe("a Testing report sent within a month of Maintenance pushes Maintenance
       testing("2026-10-01", { siteId: "rec_other" }),
     ]) {
       expect(ymd(nextDueDate(monthly, [...base, other], "Maintenance", on("2026-09-02")))).toBe(
+        "2026-10-01",
+      );
+    }
+  });
+
+  // #2157: the nightly took a held Testing row's approval back to move its due
+  // date. Until the operator approves it again, it still covers Maintenance,
+  // dated like an approval: by the later of the take-back and its due date.
+  const retaken = (from: string, to: string, over: Partial<ReportRow> = {}) =>
+    testing(to, {
+      sentAt: null,
+      deliveryStatus: "pending",
+      approvedToSend: false,
+      approvedAt: null,
+      dueOn: to,
+      unapprovedBy: redatedBy(from, to),
+      ...over,
+    });
+
+  it("a held Testing row the nightly took back to move it still covers Maintenance, dated by its new date (#2157)", () => {
+    // Maintenance due 10-01; Testing moved 10-01 → 10-03 and taken back.
+    const reports = [maint("2026-09-01"), retaken("2026-10-01", "2026-10-03")];
+    expect(ymd(nextDueDate(monthly, reports, "Maintenance", on("2026-09-26")))).toBe("2026-11-03");
+    expect(
+      findDueReports([monthly], reports, on("2026-09-26")).map((d) => d.reportType),
+    ).not.toContain("Maintenance");
+  });
+
+  it("so does one whose move did not finish, dated by the old date it is still on (#2157)", () => {
+    // The re-render failed: taken back, still on 10-02, retried while held.
+    const reports = [
+      maint("2026-09-01"),
+      retaken("2026-10-02", "2026-10-04", { dueOn: "2026-10-02" }),
+    ];
+    expect(ymd(nextDueDate(monthly, reports, "Maintenance", on("2026-09-26")))).toBe("2026-11-02");
+  });
+
+  it("a move into the past keeps the cover, dated from the take-back, then lapses after the grace days (#2157)", () => {
+    // Maintenance due 10-01. Testing moved 10-02 → 09-20 (an anchor moved back)
+    // and taken back on 09-25. Dated by the later of the two, like an approval.
+    const moved = (unapprovedAt: string) => [
+      maint("2026-09-01"),
+      retaken("2026-10-02", "2026-09-20", { unapprovedAt: `${unapprovedAt}T06:10:00.000Z` }),
+    ];
+    expect(ymd(nextDueDate(monthly, moved("2026-09-25"), "Maintenance", on("2026-09-26")))).toBe(
+      "2026-11-01",
+    );
+    // Taken back 09-21: past the 3 grace days by 09-26, so it no longer covers.
+    expect(ymd(nextDueDate(monthly, moved("2026-09-21"), "Maintenance", on("2026-09-26")))).toBe(
+      "2026-10-01",
+    );
+  });
+
+  it("taken back today and due later, it is dated by its due date, not the take-back (#2157)", () => {
+    const reports = [
+      maint("2026-09-01"),
+      retaken("2026-10-01", "2026-10-03", { unapprovedAt: "2026-09-26T06:10:00.000Z" }),
+    ];
+    expect(ymd(nextDueDate(monthly, reports, "Maintenance", on("2026-09-26")))).toBe("2026-11-03");
+  });
+
+  it("its grace ends where an approval's does: taken back exactly 3 days ago still covers (#2157)", () => {
+    const reports = [
+      maint("2026-09-01"),
+      retaken("2026-10-02", "2026-09-20", { unapprovedAt: "2026-09-23T06:10:00.000Z" }),
+    ];
+    expect(ymd(nextDueDate(monthly, reports, "Maintenance", on("2026-09-26")))).toBe("2026-11-01");
+  });
+
+  it("once re-approved, the row is dated by his approval, not the nightly's take-back (#2157)", () => {
+    // The nightly's mark stays after he approves again; the approval dates it.
+    const reports = [
+      maint("2026-09-01"),
+      retaken("2026-10-02", "2026-09-20", {
+        approvedToSend: true,
+        approvedAt: "2026-09-25T18:00:00.000Z",
+        unapprovedAt: "2026-09-21T06:10:00.000Z",
+      }),
+    ];
+    expect(ymd(nextDueDate(monthly, reports, "Maintenance", on("2026-09-26")))).toBe("2026-11-01");
+  });
+
+  it("negative controls for that cover: a row on neither end of its move, the operator's own take-back, a superseded row (#2157)", () => {
+    const base = [maint("2026-09-01")];
+    for (const other of [
+      // a mark naming neither end: the nightly rewrites it on every move, so
+      // only a stale one reads like this
+      retaken("2026-10-01", "2026-10-03", { dueOn: "2026-10-05" }),
+      retaken("2026-10-01", "2026-10-03", { unapprovedBy: "Reddoor" }),
+      retaken("2026-10-01", "2026-10-03", { draftReady: false }),
+    ]) {
+      expect(ymd(nextDueDate(monthly, [...base, other], "Maintenance", on("2026-09-26")))).toBe(
         "2026-10-01",
       );
     }

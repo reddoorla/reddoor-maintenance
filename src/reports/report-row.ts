@@ -75,6 +75,13 @@ export type ReportRow = {
   /** #1262: when the send batch claimed the row, right before Resend. A claimed,
    *  unsent row is mid-send, and an unapprove refuses it. */
   sendStartedAt: string | null;
+  /** #2157: who last took back this row's approval: the operator, or the nightly
+   *  when the row's cycle moved its due date (an anchor edit, or a same-type send
+   *  mid-cycle: {@link redatedMove}). */
+  unapprovedBy: string | null;
+  /** #2157: when that approval was taken back (ISO). The nightly's take-back
+   *  keeps a Testing row's cover of Maintenance dated from it. */
+  unapprovedAt: string | null;
   /** P1-117: the due date (`YYYY-MM-DD`) the nightly drafted this report for. It
    *  can be drafted and approved up to a week before; the send holds it until the
    *  Pacific date reaches this. Null on rows without a schedule (legacy, Launch,
@@ -122,6 +129,33 @@ export function parseAutoEvidence(raw: unknown): Record<string, EvidenceRecord> 
     };
   }
   return Object.keys(out).length > 0 ? out : null;
+}
+
+const REDATED_BY = "nightly: due date moved";
+
+/** #2157: whether a stored `unapproved_by` is the nightly's take-back marker
+ *  ({@link redatedBy}), as a SQL `LIKE` pattern, for a write that rewrites the
+ *  nightly's marker and keeps any other. */
+export const REDATED_BY_LIKE = `${REDATED_BY} %`;
+
+/**
+ * #2157 (the operator, 2026-11-21: "Re-draft on new date"). When the nightly
+ * moves an approved early draft to its cycle's new due date, it takes the
+ * approval back with this as its `unapproved_by`, so the digest can say why the
+ * report is waiting on him again.
+ */
+export function redatedBy(from: string, to: string): string {
+  return `${REDATED_BY} ${from} → ${to}`;
+}
+
+/** The move {@link redatedBy} recorded, or null for any other unapprove. */
+export function redatedMove(
+  r: Pick<ReportRow, "unapprovedBy">,
+): { from: string; to: string } | null {
+  const m = r.unapprovedBy?.match(
+    /^nightly: due date moved (\d{4}-\d{2}-\d{2}) → (\d{4}-\d{2}-\d{2})$/u,
+  );
+  return m ? { from: m[1]!, to: m[2]! } : null;
 }
 
 /**

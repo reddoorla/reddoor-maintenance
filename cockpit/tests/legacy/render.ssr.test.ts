@@ -93,6 +93,8 @@ function reportRow(over: Partial<ReportRow> = {}): ReportRow {
     withdrawnAt: null,
     withdrawnBy: null,
     sendStartedAt: null,
+    unapprovedBy: null,
+    unapprovedAt: null,
     dueOn: null,
     ...over,
   };

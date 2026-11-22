@@ -291,6 +291,38 @@ describe("runDigest", () => {
     expect(result.output).toContain("skipped");
   });
 
+  it("says why a report the nightly re-dated is waiting again: its due date moved and its approval was taken back (#2157)", async () => {
+    const send = async (unapprovedBy: string) => {
+      const tables = {
+        Reports: [readyReport({ "Due on": "2026-06-02", "Unapproved by": unapprovedBy })],
+        Websites: [siteRow()],
+      };
+      const { client, captured } = captureClient();
+      await runDigest({
+        digestState: memoryDigestState(),
+        ...io(tables),
+        resend: client,
+        baseUrl: "https://reddoor-maintenance.netlify.app",
+      });
+      return captured[0]!.html;
+    };
+    expect(await send("nightly: due date moved 2026-06-01 → 2026-06-02")).toContain(
+      "(due date moved 06-01 → 06-02, so its approval was taken back)",
+    );
+    // The operator's own unapprove says nothing extra.
+    expect(await send("Reddoor")).not.toContain("due date moved");
+    // A move that did not finish: the row is still on the move's "from" date.
+    const unfinished = await send("nightly: due date moved 2026-06-02 → 2026-06-03");
+    expect(unfinished).toContain(
+      "(its approval was taken back for a due-date move 06-02 → 06-03 that did not finish)",
+    );
+    expect(unfinished).not.toContain("due date moved");
+    // A marker from a move the row is on neither end of (a later move).
+    const stale = await send("nightly: due date moved 2026-05-30 → 2026-06-01");
+    expect(stale).not.toContain("due date moved");
+    expect(stale).not.toContain("due-date move");
+  });
+
   it("sends a digest (Needs attention) when an APPROVED report has send blockers", async () => {
     const tables = {
       Reports: [approvedReport()],
@@ -1236,6 +1268,97 @@ describe("runDigest — sends only on change, with ages and exact asks (P1-20)",
     expect(html).toContain("(3 days)");
     expect(html).toContain("(waiting 3 days)");
     expect(html).toMatch(/NEW<\/strong> <a [^>]*>A sent report bounced<\/a>(?! <span)/);
+  });
+
+  it("mails a report the nightly took back, or moved again, though its row was already mailed (#2157)", async () => {
+    const w = world();
+    const row = (dueOn: string, mark?: string) => ({
+      Reports: [readyReport({ "Due on": dueOn, ...(mark ? { "Unapproved by": mark } : {}) })],
+      Websites: navy.Websites,
+    });
+    // Pending and mailed; he approves it; that night the nightly takes it back.
+    await run(w, row("2026-06-01"), day(0));
+    const taken = await run(
+      w,
+      row("2026-06-02", "nightly: due date moved 2026-06-01 → 2026-06-02"),
+      day(1),
+    );
+    expect(taken.output).toContain("Digest sent (added)");
+    // It moves again before he approves it.
+    const again = row("2026-06-03", "nightly: due date moved 2026-06-02 → 2026-06-03");
+    expect((await run(w, again, day(2))).output).toContain("Digest sent (added)");
+    // The same move the next night is not news.
+    expect((await run(w, again, day(3))).output).toContain("Digest skipped (unchanged");
+    expect(w.captured).toHaveLength(3);
+  });
+
+  it("mails a second take-back for the same move, and not the same take-back on a later night (#2157)", async () => {
+    const w = world();
+    const A = "nightly: due date moved 2026-06-01 → 2026-06-02";
+    const row = (dueOn: string, unapprovedAt: string) => ({
+      Reports: [
+        readyReport({ "Due on": dueOn, "Unapproved by": A, "Unapproved at": unapprovedAt }),
+      ],
+      Websites: navy.Websites,
+    });
+    // Night 1 takes it back and the render fails: still on 06-01, mailed.
+    const first = await run(w, row("2026-06-01", "2026-09-19T06:10:00.000Z"), day(1));
+    expect(first.output).toContain("Digest sent (first)");
+    // The same take-back, finished on night 2, is not news.
+    const finished = await run(w, row("2026-06-02", "2026-09-19T06:10:00.000Z"), day(2));
+    expect(finished.output).toContain("Digest skipped (unchanged");
+    // He approves again; night 3 takes it back again for the same move.
+    const again = await run(w, row("2026-06-02", "2026-09-21T06:10:00.000Z"), day(3));
+    expect(again.output).toContain("Digest sent (added)");
+    expect(w.captured).toHaveLength(2);
+  });
+
+  it("mails a move away and back again under one take-back (#2157 round 6)", async () => {
+    // 06-01 → 06-02, → 06-01, → 06-02 on three nights: the mark rewrite keeps
+    // the take-back time, so night 3's ask is night 1's again, and the last mail
+    // named 06-01.
+    const w = world();
+    const row = (dueOn: string, mark: string) => ({
+      Reports: [
+        readyReport({
+          "Due on": dueOn,
+          "Unapproved by": mark,
+          "Unapproved at": "2026-09-19T06:10:00.000Z",
+        }),
+      ],
+      Websites: navy.Websites,
+    });
+    const there = row("2026-06-02", "nightly: due date moved 2026-06-01 → 2026-06-02");
+    const back = row("2026-06-01", "nightly: due date moved 2026-06-02 → 2026-06-01");
+    expect((await run(w, there, day(1))).output).toContain("Digest sent (first)");
+    expect((await run(w, back, day(2))).output).toContain("Digest sent (added)");
+    const again = await run(w, there, day(3));
+    expect(again.output).toContain("Digest sent (added)");
+    expect(w.captured).toHaveLength(3);
+    // Still on the same move the next night: not news.
+    expect((await run(w, there, day(4))).output).toContain("Digest skipped (unchanged");
+  });
+
+  it("mails a move whose new date changes though its old date does not (#2157)", async () => {
+    const w = world();
+    const row = (dueOn: string, mark: string) => ({
+      Reports: [
+        readyReport({
+          "Due on": dueOn,
+          "Unapproved by": mark,
+          "Unapproved at": "2026-09-19T06:10:00.000Z",
+        }),
+      ],
+      Websites: navy.Websites,
+    });
+    // The move to 06-02 did not finish; by the next night the cycle says 06-03.
+    await run(w, row("2026-06-01", "nightly: due date moved 2026-06-01 → 2026-06-02"), day(1));
+    const moved = await run(
+      w,
+      row("2026-06-03", "nightly: due date moved 2026-06-01 → 2026-06-03"),
+      day(2),
+    );
+    expect(moved.output).toContain("Digest sent (added)");
   });
 
   it("a resolution alone sends nothing; it rides the next send", async () => {

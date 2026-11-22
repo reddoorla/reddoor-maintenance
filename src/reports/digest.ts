@@ -1,5 +1,5 @@
 // src/reports/digest.ts
-import { isPendingApproval, type ReportRow } from "./report-row.js";
+import { isPendingApproval, redatedMove, type ReportRow } from "./report-row.js";
 import type { NotifyBounceCounts } from "../db/submissions.js";
 import { isDashboardVisible, siteSlug, type WebsiteRow } from "../fleet/site-row.js";
 import { defaultResendClient, type ResendClient } from "./send/resend.js";
@@ -97,11 +97,18 @@ function readySection(items: ReadyItem[]): string {
         : `review &amp; approve`;
       const age = ageLabel(it.ageDays);
       const ageHtml = age ? ` <span style="color:${GREY}">(waiting ${esc(age)})</span>` : "";
+      const m = it.dueMoved;
+      const moveText = m
+        ? m.finished
+          ? `due date moved ${m.from.slice(5)} → ${m.to.slice(5)}, so its approval was taken back`
+          : `its approval was taken back for a due-date move ${m.from.slice(5)} → ${m.to.slice(5)} that did not finish`
+        : null;
+      const movedHtml = moveText ? ` <span style="color:${GREY}">(${esc(moveText)})</span>` : "";
       return `
       <tr>
         <td style="color:${GREY};font-family:helvetica,sans-serif;font-size:16px;line-height:24px;padding-bottom:8px">
           <strong style="color:#222">${esc(it.siteName)}</strong> — ${esc(it.reportType)} (${esc(it.period)})
-          — ${link}${ageHtml}
+          — ${link}${ageHtml}${movedHtml}
         </td>
       </tr>`;
     })
@@ -847,6 +854,12 @@ export async function runDigest(
 
     const readyForYourYes: ReadyItem[] = [];
     const readyKeys: string[] = [];
+    // #2157: a ready row's move, as an ask on its line, so a take-back or a
+    // later move is news to the send decision though the row's key is not. The
+    // take-back's time is part of it: a second take-back for the same move
+    // (after he approved again) is news too, while the same take-back on a
+    // later night, finished or not, is not.
+    const readyAsks: Array<string[] | undefined> = [];
     const baseUrl = options.baseUrl.replace(/\/$/, "");
     for (const r of pending) {
       const site = sites.get(r.siteId);
@@ -856,12 +869,30 @@ export async function runDigest(
       // somewhere usable instead of a 404.
       const slug = siteSlug(site.name);
       readyKeys.push(`ready:${r.id}`);
+      // #2157: named while the row is on either end of the move the nightly
+      // took its approval back for: on "to", the move finished; on "from", it
+      // did not (the next nightly retries it while the row is still held). A
+      // mark the row is on neither end of (a stale one) leaves the note out.
+      const move = redatedMove(r);
+      const moveEnd = move
+        ? move.to === r.dueOn
+          ? true
+          : move.from === r.dueOn
+            ? false
+            : null
+        : null;
       readyForYourYes.push({
         siteName: site.name,
         reportType: r.reportType,
         period: r.period ?? "—",
         dashboardUrl: slug ? `${baseUrl}/s/${slug}` : `${baseUrl}${TRIAGE_PATH}`,
+        ...(move && moveEnd !== null ? { dueMoved: { ...move, finished: moveEnd } } : {}),
       });
+      readyAsks.push(
+        move && moveEnd !== null
+          ? [`moved:${move.from}→${move.to}@${r.unapprovedAt ?? ""}`]
+          : undefined,
+      );
     }
 
     // M5: collect the free signals (isolated), diff against yesterday's snapshot.
@@ -909,7 +940,11 @@ export async function runDigest(
       if (since) it.ageDays = daysBetween(since, dayKey);
     });
     const digestLines: DigestLine[] = [
-      ...readyKeys.map((key) => ({ key, metric: 1 })),
+      ...readyKeys.map((key, i) => ({
+        key,
+        metric: 1,
+        ...(readyAsks[i] ? { asks: readyAsks[i] } : {}),
+      })),
       ...needsAttention.map((it) => ({
         key: it.key,
         metric: it.metric,

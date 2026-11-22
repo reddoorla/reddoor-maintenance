@@ -2,6 +2,7 @@ import type { WebsiteRow, Frequency, Status } from "../fleet/site-row.js";
 import type { ReportRow } from "./report-fields.js";
 import type { ReportType } from "./types.js";
 import { pacificYmd } from "../util/date.js";
+import { redatedMove } from "./report-row.js";
 
 /** Statuses where recurring Maintenance/Testing reports are appropriate. Only
  * LIVE sites: "maintained" and "hosted-only". Pre-launch
@@ -125,6 +126,21 @@ export function nextDueDate(
   if (site.status !== null && !ELIGIBLE_STATUSES.has(site.status)) return null;
   const freq = type === "Maintenance" ? site.maintenanceFreq : site.testingFreq;
   if (freq === "None") return null;
+  const baseIso = cycleBase(site, reports, type);
+  if (!baseIso) return startOfDay(today);
+  const base = new Date(baseIso);
+  const due = addMonths(base, MONTHS[freq]);
+  if (type !== "Maintenance") return due;
+  return pushPastTesting(reports, site.id, base, due, MONTHS[freq], today);
+}
+
+/**
+ * What a (site, type)'s cycle counts from: the later of its last send and its
+ * last withdrawn draft's day, else the site's anchor (`maintenance day` /
+ * `testing day`), else null. With no base, {@link nextDueDate} says "due today",
+ * a date that moves every day; #2157's re-date asks this so it never chases it.
+ */
+export function cycleBase(site: WebsiteRow, reports: ReportRow[], type: ReportType): string | null {
   const lastSent = lastSentForType(reports, site.id, type);
   const withdrawnDraft = lastWithdrawnDraftForType(reports, site.id, type);
   const latest =
@@ -134,18 +150,28 @@ export function nextDueDate(
         : withdrawnDraft
       : (lastSent ?? withdrawnDraft);
   const fallback = type === "Maintenance" ? site.maintenanceDay : site.testingDay;
-  const baseIso = latest ?? fallback;
-  if (!baseIso) return startOfDay(today);
-  const base = new Date(baseIso);
-  const due = addMonths(base, MONTHS[freq]);
-  if (type !== "Maintenance") return due;
-  return pushPastTesting(reports, site.id, base, due, MONTHS[freq], today);
+  return latest ?? fallback ?? null;
 }
 
 /** An approved Testing report not yet sent counts as "sent" for this long after
  *  its approval: long enough for the next `daily-reports` send step, short
  *  enough that a report stuck behind a failing gate stops covering Maintenance. */
 const APPROVED_UNSENT_GRACE_DAYS = 3;
+
+/** #2157: a ready, unapproved Testing row the nightly took the approval back
+ *  from to move its due date, and that sits on either end of that move: on the
+ *  new date when the move finished, on the old one when its re-render failed
+ *  (the next nightly retries it while the row is held). The nightly rewrites
+ *  the marker on every later move, so it always names the latest. It still
+ *  covers Maintenance, dated by the later of the take-back and its due date,
+ *  under the grace an approved row has: the take-back was the nightly's, not
+ *  the operator's, and without this a nightly would draft a Maintenance report
+ *  that his re-approval of the Testing one then orphans. */
+function nightlyRedated(r: ReportRow): boolean {
+  if (!r.draftReady || r.approvedToSend || r.dueOn === null) return false;
+  const move = redatedMove(r);
+  return move !== null && (move.to === r.dueOn || move.from === r.dueOn);
+}
 
 /**
  * The operator's rule (2026-10-01): a Testing report sent within a month either
@@ -166,6 +192,10 @@ const APPROVED_UNSENT_GRACE_DAYS = 3;
  * 2026-10-01). P1-117: a report approved before its due date is held until
  * then, so it is dated by the later of its approval and its `dueOn`, the day it
  * will go out.
+ *
+ * #2157: so is a held Testing row whose approval the nightly took back to move
+ * its due date ({@link nightlyRedated}), dated by the later of the take-back
+ * and its due date.
  */
 function pushPastTesting(
   reports: ReportRow[],
@@ -180,6 +210,15 @@ function pushPastTesting(
     .filter((r) => r.siteId === siteId && r.reportType === "Testing" && r.withdrawnAt === null)
     .map((r) => {
       if (r.sentAt !== null) return startOfDay(new Date(r.sentAt)).getTime();
+      if (nightlyRedated(r)) {
+        // Dated like an approved row: by the later of the take-back (the
+        // approval it stands in for) and its due date, under the same grace.
+        const due = startOfDay(new Date(r.dueOn!)).getTime();
+        const back =
+          r.unapprovedAt === null ? Number.NaN : startOfDay(new Date(r.unapprovedAt)).getTime();
+        const t = Number.isNaN(back) ? due : Math.max(back, due);
+        return t >= graceFrom ? t : null;
+      }
       if (!r.approvedToSend || r.approvedAt === null) return null;
       const approved = startOfDay(new Date(r.approvedAt)).getTime();
       const due = r.dueOn === null ? Number.NaN : startOfDay(new Date(r.dueOn)).getTime();

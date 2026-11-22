@@ -36,6 +36,7 @@ import type { CellValue } from "../fleet/site-fields.js";
 import {
   toReportType,
   parseAutoEvidence,
+  REDATED_BY_LIKE,
   type ReportRow,
   type DeliveryStatus,
 } from "../reports/report-row.js";
@@ -660,6 +661,8 @@ function reportRowFromDb(
     withdrawnAt: r.withdrawn_at,
     withdrawnBy: r.withdrawn_by,
     sendStartedAt: r.send_started_at,
+    unapprovedBy: r.unapproved_by,
+    unapprovedAt: r.unapproved_at,
     dueOn: r.due_on,
   };
 }
@@ -921,6 +924,60 @@ export async function unapproveReportIfUnsent(
     .where("withdrawn_at", "is", null)
     .where("send_started_at", "is", null)
     .executeTakeFirst();
+  return res.numUpdatedRows > 0n;
+}
+
+/** #2157: how {@link storeRedatedBody} treats the nightly's take-back marker. */
+export type RedatedMarker = { was: string; now: string } | { nightlyOnly: true; now: string };
+
+/** #2157: the nightly's re-date, in one write: the re-rendered body and the
+ *  cycle's new due date land together, conditioned on the row being
+ *  draft-ready, unapproved, unsent, unwithdrawn and unclaimed. An approval
+ *  given while the body rendered keeps its date and body (the write matches
+ *  nothing), and a run killed before this write leaves the date and body as
+ *  they were, so the next nightly sees the move again.
+ *
+ *  `marker`, when given, rewrites the row's nightly take-back marker
+ *  (`unapproved_by`, `redatedBy` in src/reports/report-row.ts) to name this move, and the write is
+ *  then also conditioned on the marker still reading `was`: an approve and
+ *  unapprove by the operator meanwhile replaces it, and the row is left alone.
+ *
+ *  `{ nightlyOnly: true, now }` is for a run whose own unapprove matched
+ *  nothing, so it cannot know the marker. It leaves the marker as it is, and
+ *  the write is refused when the marker is the nightly's for a move other than
+ *  `now`: another run took the approval back for that move, and the move is
+ *  that run's (the next nightly re-plans it while the row is held). The
+ *  operator's own marker, or none, does not refuse it.
+ *  Returns whether a row matched. */
+export async function storeRedatedBody(
+  db: Db,
+  reportId: string,
+  dueOn: string,
+  html: string,
+  marker: RedatedMarker | null = null,
+): Promise<boolean> {
+  const mark = marker !== null && "was" in marker ? { unapproved_by: marker.now } : {};
+  let q = db
+    .updateTable("reports")
+    .set({ rendered_html: html, due_on: dueOn, ...mark })
+    .where("id", "=", reportId)
+    .where("draft_ready", "=", 1)
+    .where("approved_to_send", "=", 0)
+    .where("sent_at", "is", null)
+    .where("withdrawn_at", "is", null)
+    .where("send_started_at", "is", null);
+  if (marker && "was" in marker) q = q.where("unapproved_by", "=", marker.was);
+  else if (marker) {
+    const now = marker.now;
+    q = q.where((eb) =>
+      eb.or([
+        eb("unapproved_by", "is", null),
+        eb("unapproved_by", "not like", REDATED_BY_LIKE),
+        eb("unapproved_by", "=", now),
+      ]),
+    );
+  }
+  const res = await q.executeTakeFirst();
   return res.numUpdatedRows > 0n;
 }
 

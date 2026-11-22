@@ -21,6 +21,10 @@ export type ReadyItem = {
   /** Absolute URL to /s/<slug> on the dashboard. */
   dashboardUrl: string;
   ageDays?: number;
+  /** #2157: the nightly took this report's approval back to move its due date
+   *  (both `YYYY-MM-DD`). `finished` is false while the row is still on the
+   *  old date: the re-render or its write did not land. */
+  dueMoved?: { from: string; to: string; finished: boolean };
 };
 
 /** Severity of a "Needs attention" entry. `critical` sorts above `warning`. */

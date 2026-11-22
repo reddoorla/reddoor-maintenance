@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { isPendingApproval, mapRow } from "../../src/reports/report-fields.js";
+import { redatedBy, redatedMove } from "../../src/reports/report-row.js";
 
 const pending = (over: Record<string, unknown> = {}) =>
   mapRow({
@@ -23,5 +24,16 @@ describe("isPendingApproval — a withdrawn draft is not pending (P1-28)", () =>
     const r = pending();
     expect(r.withdrawnAt).toBeNull();
     expect(r.withdrawnBy).toBeNull();
+  });
+});
+
+describe("redatedBy / redatedMove (#2157)", () => {
+  it("reads back the move the nightly wrote, and nothing else", () => {
+    const unapprovedBy = redatedBy("2026-06-01", "2026-06-02");
+    expect(redatedMove({ unapprovedBy })).toEqual({ from: "2026-06-01", to: "2026-06-02" });
+    expect(redatedMove({ unapprovedBy: "Reddoor" })).toBeNull();
+    expect(redatedMove({ unapprovedBy: null })).toBeNull();
+    expect(redatedMove({ unapprovedBy: "nightly: due date moved soon" })).toBeNull();
+    expect(redatedMove({ unapprovedBy: "nightly: due date moved 2026-06-01 → later" })).toBeNull();
   });
 });
