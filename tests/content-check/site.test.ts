@@ -203,6 +203,39 @@ export const homeCopy = (d) => ({ heading: text(d?.heading, HOME_COPY.heading) }
     expect((await scan(dir)).findings).toHaveLength(1);
   });
 
+  it("follows a barrel's re-exports one hop (round 1)", async () => {
+    const files = (page: string) => ({
+      "src/lib/site.ts": `export const SITE = { title: "Acme Winery" };`,
+      "src/lib/index.ts": `export { SITE } from "./site";\nexport * from "./more";`,
+      "src/lib/more.ts": `export const MORE = { title: "Taste the coast" };`,
+      "src/routes/+page.svelte": page,
+    });
+    const fallbackOnly = site(
+      files(
+        `<script>import { SITE, MORE } from "$lib";</script><h1>{doc.title || SITE.title}</h1><h2>{doc.sub || MORE.title}</h2>`,
+      ),
+    );
+    expect((await scan(fallbackOnly)).findings).toEqual([]);
+    const plain = site(
+      files(
+        `<script>import { SITE, MORE } from "$lib"; const t = doc.t || SITE.title;</script><h1>{SITE.title}</h1><h2>{MORE.title}</h2>`,
+      ),
+    );
+    expect((await scan(plain)).findings.map((f) => f.text)).toEqual([
+      "Taste the coast",
+      "Acme Winery",
+    ]);
+  });
+
+  it("finds a fallback parameter through a barrel (round 1)", async () => {
+    const dir = site({
+      "src/lib/content.ts": `export function text(value, fallback) { return value || fallback; }`,
+      "src/lib/index.ts": `export { text } from "./content";`,
+      "src/routes/+page.svelte": `<script>import { text } from "$lib";</script><h1>{text(doc.title, "Welcome home")}</h1>`,
+    });
+    expect((await scan(dir)).findings).toEqual([]);
+  });
+
   it("resolves ./, ../ and $lib/ specifiers, with or without an extension", () => {
     const known = new Set(["src/lib/a.ts", "src/lib/b/index.ts", "src/lib/C.svelte"]);
     expect(resolveImport("src/routes/x.ts", "$lib/a", known)).toBe("src/lib/a.ts");
@@ -249,6 +282,8 @@ describe("the baseline", () => {
       `{"version": 2, "counts": {}}`,
       `{"version": 1, "counts": {"a": {"copy\\tx": 0}}}`,
       `{"version": 1}`,
+      `{"version": 1, "counts": []}`,
+      `{"version": 1, "counts": {"a": []}}`,
     ]) {
       const dir = site({ "content-check.baseline.json": body });
       expect(() => readBaseline(dir)).toThrow(ContentCheckConfigError);
@@ -264,6 +299,15 @@ describe("settings", () => {
       ignore: [],
       fallbackHelpers: [],
     });
+  });
+
+  it("refuses an ignore entry that is not a valid regex, or has a flag other than imsu (round 1)", () => {
+    for (const entry of ["/[a-/", "/x/q", "/x/d"]) {
+      const dir = site({ "content-check.json": JSON.stringify({ ignore: [entry] }) });
+      expect(() => readConfig(dir), entry).toThrow(ContentCheckConfigError);
+    }
+    const ok = site({ "content-check.json": JSON.stringify({ ignore: ["/acme/gi", "[a-"] }) });
+    expect(readConfig(ok).ignore).toEqual(["/acme/gi", "[a-"]);
   });
 
   it("refuses an unknown key, a bad mode or a non-list", () => {

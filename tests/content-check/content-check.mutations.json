@@ -236,5 +236,345 @@
     ],
     "expect": "red",
     "why": "warn mode exits 1 on a new literal; the warn-mode cases must go red"
+  },
+  {
+    "id": "init-reads-callee-names",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "  if (node.type === \"CallExpression\" || node.type === \"NewExpression\") {\n    const callee",
+        "replace": "  if (false) {\n    const callee"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 1 critical: every $state(\u2026) shares $state again; the two-runes case must go red"
+  },
+  {
+    "id": "init-reads-function-bodies",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "  if (node.type === \"ArrowFunctionExpression\" || node.type === \"FunctionExpression\") return out;\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 1 critical: a handler's body counts as what its name reads; the handleSubmit case must go red"
+  },
+  {
+    "id": "expand-alias-through-members",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "        if (p.includes(\".\")) continue;\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 1 critical: page.layout and page.title share data.page.data; the alias-member case must go red"
+  },
+  {
+    "id": "drop-negated-if-rule",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "          if (key === \"consequent\" && negatedIsFallback(parent)) return true;\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 1 #9: {#if !doc.title}Welcome{:else}{doc.title} is reported again"
+  },
+  {
+    "id": "drop-if-not-assign-rule",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "          if (key === \"right\" && assignsFallback(chain, i - 1)) return true;\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 1 #9: if (!x) x = \"lit\" is reported again"
+  },
+  {
+    "id": "and-literal-or-is-fallback",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "            !isLiteralChoice(parent.left as Node)\n",
+        "replace": "            true\n"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 1 #10: cond && \"A\" || \"B\" hides B again"
+  },
+  {
+    "id": "export-const-is-prop",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "            chain[i - 2]?.node.kind === \"let\" &&\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 1 #5: export const in a .svelte file is a prop default again"
+  },
+  {
+    "id": "alt-beside-field-is-fallback",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "      kind === \"video\" ||\n      kind === \"link\"",
+        "replace": "      kind === \"video\" ||\n      kind === \"alt\" ||\n      kind === \"link\""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 1 #11: alt beside field= is hidden again"
+  },
+  {
+    "id": "loose-roman-numerals",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": "  return /^X{0,3}(?:IX|IV|V?I{0,3})\\.?$/.test(text.trim());",
+        "replace": "  return /^[IVXLCDM]{1,6}\\.?$/.test(text.trim());"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 1 #6: ID, MIX, LLC are numerals again"
+  },
+  {
+    "id": "drop-each-literals",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "      if (parent.type === \"EachBlock\" && key === \"expression\") {\n        return { templateText: chain.slice(0, i) };\n      }\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 1 #8: {#each [\"Weddings\"]} is unreported again"
+  },
+  {
+    "id": "drop-call-in-template",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "        words &&\n",
+        "replace": "        false &&\n"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 1 #8: {upper(\"\u2026\")} is unreported again"
+  },
+  {
+    "id": "drop-local-shown-in-template",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "      if (kind) shownAs.set(name, kind);\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 1 #8: const greeting = \"\u2026\"; {greeting} is unreported again"
+  },
+  {
+    "id": "drop-faq-keys",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": "  \"question\",\n  \"questions\",\n  \"answer\",\n  \"answers\",\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 1 #8: FAQ question/answer keys are unreported again"
+  },
+  {
+    "id": "video-url-without-id",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": "const VIDEO_URL =\n  /^(?:https?:)?\\/\\/(?:(?:player\\.)?vimeo\\.com\\/(?:video\\/)?\\d+|(?:www\\.|m\\.)?youtube(?:-nocookie)?\\.com\\/(?:embed\\/[\\w-]+|watch\\?(?:.*&)?v=[\\w-]+|shorts\\/[\\w-]+)|youtu\\.be\\/[\\w-]+)/i;",
+        "replace": "const VIDEO_URL =\n  /^(?:https?:)?\\/\\/(?:player\\.)?(?:vimeo\\.com|youtube\\.com\\/(?:embed|watch)|youtu\\.be|(?:www\\.)?youtube-nocookie\\.com)/i;"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "found after round 1: a bare https://player.vimeo.com is a video again"
+  },
+  {
+    "id": "ignore-keeps-g-flag",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "  const flags = m[2]!.replace(/[gy]/g, \"\");",
+        "replace": "  const flags = m[2]!;\n  if (false) throw new Error(\"\");"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 1 #3: /Acme/g skips every other match again"
+  },
+  {
+    "id": "config-skips-ignore-check",
+    "edits": [
+      {
+        "file": "src/content-check/check.ts",
+        "find": "      compileIgnore(entry);\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 1 #2: a bad ignore regex reaches the scan and exits 1, not 2"
+  },
+  {
+    "id": "init-rewrites-baseline",
+    "edits": [
+      {
+        "file": "src/cli/commands/content-check.ts",
+        "find": "    if (opts.init && !opts.writeBaseline && existsSync(join(cwd, BASELINE_FILE))) {",
+        "replace": "    if (false) {"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 1 #4: re-running --init absorbs new literals again"
+  },
+  {
+    "id": "init-pins-any-version",
+    "edits": [
+      {
+        "file": "src/content-check/workflow.ts",
+        "find": "  if (below(version, FIRST_VERSION)) {",
+        "replace": "  if (false) {"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 1 #12: --init pins a release with no content-check"
+  },
+  {
+    "id": "barrels-not-followed",
+    "edits": [
+      {
+        "file": "src/content-check/check.ts",
+        "find": "  for (const re of parsed.get(target)?.reexports ?? []) {",
+        "replace": "  for (const re of [] as Parsed[\"reexports\"]) {"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 1 #7: reads through $lib's re-exports are not followed"
+  },
+  {
+    "id": "baseline-accepts-arrays",
+    "edits": [
+      {
+        "file": "src/content-check/check.ts",
+        "find": "typeof v === \"object\" && v !== null && !Array.isArray(v);",
+        "replace": "typeof v === \"object\" && v !== null;"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 1 minor: \"counts\": [] reads as an empty baseline"
   }
 ]

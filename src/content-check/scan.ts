@@ -56,6 +56,9 @@ export type Parsed = {
   imports: Map<string, { source: string; imported: string }>;
   /** function name → parameter names, for functions declared at top level */
   functions: Map<string, string[]>;
+  /** `export { a as b } from "./x"` (imported "a", exported "b") and
+   *  `export * from "./x"` (both "*"): what a barrel passes on. */
+  reexports: Array<{ source: string; imported: string; exported: string }>;
 };
 
 type Node = { type: string; start?: number; end?: number; [key: string]: unknown };
@@ -131,6 +134,35 @@ function pathsUnder(node: Node, out = new Set<string>()): Set<string> {
       continue;
     }
     pathsUnder(c, out);
+  }
+  return out;
+}
+
+/** The values an expression reads, without the functions it calls: in
+ *  `isFilled.image(d?.logo) && quoted` that is `d.logo` and `quoted`, not
+ *  `isFilled.image`. A callee's object is still read: `doc.title.trim()`
+ *  reads `doc.title`. */
+function valuePaths(node: Node, out = new Set<string>()): Set<string> {
+  if (node.type === "CallExpression" || node.type === "NewExpression") {
+    const callee = node.callee as Node;
+    if (callee.type === "MemberExpression") valuePaths(callee.object as Node, out);
+    for (const a of node.arguments as Node[]) valuePaths(a, out);
+    return out;
+  }
+  if (node.type === "ArrowFunctionExpression" || node.type === "FunctionExpression") return out;
+  if (node.type === "MemberExpression" || node.type === "Identifier") {
+    const p = memberPath(node);
+    if (p) {
+      out.add(p);
+      if (node.type === "MemberExpression" && node.computed) valuePaths(node.property as Node, out);
+      return out;
+    }
+  }
+  for (const [key, c] of children(node)) {
+    if ((node.type === "Property" && key === "key" && !node.computed) || key === "typeAnnotation") {
+      continue;
+    }
+    valuePaths(c, out);
   }
   return out;
 }
@@ -218,9 +250,27 @@ export function parseFile(file: string, source: string): Parsed {
 
   const imports = new Map<string, { source: string; imported: string }>();
   const functions = new Map<string, string[]>();
+  const reexports: Parsed["reexports"] = [];
+  const nameOf = (n: Node): string => literalText(n) ?? (n.name as string);
   for (const script of [ast.module, ast.instance]) {
     if (!isNode(script)) continue;
     for (const top of (script.content as Node).body as Node[]) {
+      if (top.type === "ExportAllDeclaration" && isNode(top.source)) {
+        if (!top.exported) {
+          reexports.push({ source: top.source.value as string, imported: "*", exported: "*" });
+        }
+        continue;
+      }
+      if (top.type === "ExportNamedDeclaration" && isNode(top.source)) {
+        for (const sp of top.specifiers as Node[]) {
+          reexports.push({
+            source: top.source.value as string,
+            imported: nameOf(sp.local as Node),
+            exported: nameOf(sp.exported as Node),
+          });
+        }
+        continue;
+      }
       if (top.type === "ImportDeclaration") {
         const source = (top.source as Node).value as string;
         for (const sp of top.specifiers as Node[]) {
@@ -254,7 +304,7 @@ export function parseFile(file: string, source: string): Parsed {
       }
     }
   }
-  return { file, ast, isSvelte, lineOf, imports, functions };
+  return { file, ast, isSvelte, lineOf, imports, functions, reexports };
 }
 
 /** One file on its own: an exported constant's literals are reported unless
@@ -273,6 +323,26 @@ export function scanSource(file: string, source: string, opts: ScanOptions = {})
 export const onlyFallbackUses = (u: { bare: number; fallback: number } | undefined): boolean =>
   u !== undefined && u.fallback > 0 && u.bare === 0;
 
+/**
+ * An `ignore` entry: an exact string, or `/regex/flags` when it is wrapped in
+ * slashes (so `"/about/"` is a regex, and also hides "Learn about us"). Only
+ * the flags `imsu` mean anything here; `g` and `y` are dropped, because they
+ * make `.test()` remember where it stopped and skip every other match. Throws
+ * on a bad pattern or flag, which `readConfig` turns into exit 2.
+ */
+export function compileIgnore(entry: string): string | RegExp {
+  const m = /^\/(.*)\/([a-z]*)$/s.exec(entry);
+  if (!m) return entry;
+  const flags = m[2]!.replace(/[gy]/g, "");
+  if (/[^imsu]/.test(flags))
+    throw new Error(`ignore entry ${entry}: only the flags imsu are allowed`);
+  try {
+    return new RegExp(m[1]!, flags);
+  } catch (err) {
+    throw new Error(`ignore entry ${entry}: ${(err as Error).message}`, { cause: err });
+  }
+}
+
 const FALLBACK_PARAM = /^(?:fallback|default|otherwise|backup)/i;
 
 export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
@@ -281,20 +351,27 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
 
   // What each local constant is computed from, so a test can be "about" a
   // value through one: `const pair = isFilled.image(d?.logo) && quoted;`
-  // makes `pair ? quoted : "x"` a fallback for `quoted`.
-  const inits = new Map<string, Node[]>();
+  // makes `pair ? quoted : "x"` a fallback for `quoted`. Only the VALUES an
+  // initialiser reads count: never the name of the function it calls (every
+  // `$state(…)` would share `$state`), and never a function's body (a submit
+  // handler is not the field it sets). Review round 1 on #2231.
+  const inits = new Map<string, Set<string>[]>();
   (function collect(n: Node): void {
     if (n.type === "VariableDeclarator" && isNode(n.init) && (n.id as Node).type === "Identifier") {
       const name = (n.id as Node).name as string;
-      inits.set(name, [...(inits.get(name) ?? []), n.init]);
+      inits.set(name, [...(inits.get(name) ?? []), valuePaths(n.init)]);
     }
     for (const [, c] of children(n)) collect(c);
   })(ast);
+  // An alias is expanded only where it is read itself (`{#if title}`), never
+  // through a member: `page.layout` and `page.title` are two fields of one
+  // `page`, not the same field because `page` came from `data.page.data`.
   const reads = (n: Node): Set<string> => {
     const out = pathsUnder(n);
     for (let depth = 0; depth < 2; depth++) {
       for (const p of [...out]) {
-        for (const init of inits.get(p.split(".")[0]!) ?? []) pathsUnder(init, out);
+        if (p.includes(".")) continue;
+        for (const paths of inits.get(p) ?? []) for (const q of paths) out.add(q);
       }
     }
     return out;
@@ -338,10 +415,7 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
     }
     return false;
   }
-  const ignores = (opts.ignore ?? []).map((s) => {
-    const m = /^\/(.*)\/([a-z]*)$/.exec(s);
-    return m ? new RegExp(m[1]!, m[2]) : s;
-  });
+  const ignores = (opts.ignore ?? []).map(compileIgnore);
   const ignored = (text: string): boolean =>
     ignores.some((i) => (typeof i === "string" ? i === text.trim() : i.test(text)));
 
@@ -374,6 +448,11 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
     text: string;
   }> = [];
   const onlyFallbacks = (name: string): boolean => onlyFallbackUses(uses.get(name));
+  // `const greeting = "Welcome"; <h1>{greeting}</h1>`: a local whose name says
+  // nothing, reported only if the template shows it. Name → the kind of the
+  // template text it is shown as.
+  const shownAs = new Map<string, Kind>();
+  const unnamed: Array<{ binding: string; pos: number; text: string }> = [];
 
   /** The constant a literal is part of: `const NAME = { … "x" … }`. */
   function enclosingBinding(chain: Ancestor[]): { name: string; exported: boolean } | undefined {
@@ -411,7 +490,8 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
           if (
             key === "right" &&
             (parent.operator === "||" || parent.operator === "??") &&
-            !isPureLiteral(parent.left as Node)
+            !isPureLiteral(parent.left as Node) &&
+            !isLiteralChoice(parent.left as Node)
           ) {
             return true;
           }
@@ -451,8 +531,19 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
         case "AssignmentPattern":
           if (key === "right") return true;
           break;
+        case "AssignmentExpression":
+          if (key === "right" && assignsFallback(chain, i - 1)) return true;
+          break;
         case "VariableDeclarator":
-          if (key === "init" && isSvelte && chain[i - 3]?.node.type === "ExportNamedDeclaration") {
+          // Only `export let` in the instance script is a Svelte 4 prop; an
+          // `export const` is a constant, and `<script module>` has no props.
+          if (
+            key === "init" &&
+            isSvelte &&
+            chain[i - 3]?.node.type === "ExportNamedDeclaration" &&
+            chain[i - 2]?.node.kind === "let" &&
+            chain[1]?.key === "instance"
+          ) {
             return true;
           }
           break;
@@ -466,26 +557,52 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
           break;
         case "IfBlock":
           if (key === "alternate" && elseIsFallback(parent)) return true;
+          // `{#if !doc.title}Welcome{:else}{doc.title}{/if}`
+          if (key === "consequent" && negatedIsFallback(parent)) return true;
           break;
       }
     }
     return false;
   }
 
+  /** `cond && "A"`: the left of `cond && "A" || "B"` is a literal or nothing,
+   *  so "B" is the other literal of a choice, not a fallback for a field. */
+  const isLiteralChoice = (n: Node): boolean =>
+    n.type === "LogicalExpression" && n.operator === "&&" && isPureLiteral(n.right as Node);
+
+  /** `!x`, as the path x, else undefined. */
+  const negated = (n: Node): string | undefined =>
+    n.type === "UnaryExpression" && n.operator === "!" ? memberPath(n.argument as Node) : undefined;
+
+  /** `x = "lit"` inside `if (!x) …`, or `x ||= "lit"` / `x ??= "lit"`. */
+  function assignsFallback(chain: Ancestor[], at: number): boolean {
+    const assign = chain[at]!.node;
+    if (assign.operator === "||=" || assign.operator === "??=") return true;
+    if (assign.operator !== "=") return false;
+    const target = memberPath(assign.left as Node);
+    if (!target) return false;
+    for (let j = at; j > 0; j--) {
+      const parent = chain[j - 1]!.node;
+      if (parent.type === "ExpressionStatement" || parent.type === "BlockStatement") continue;
+      return (
+        parent.type === "IfStatement" &&
+        chain[j]!.key === "consequent" &&
+        negated(parent.test as Node) === target
+      );
+    }
+    return false;
+  }
+
   /** Props a component shows only while its `field` is empty: the media and
-   *  link it falls back to, and anything named `fallback…`. An `aria-label` or
-   *  a heading prop beside a field is still the component's own words. */
+   *  link it falls back to, and anything named `fallback…`. An `aria-label`,
+   *  a heading prop or an `alt` beside a field is still the component's own
+   *  words (`<Img field alt="…">` may override the field's alt, not stand in
+   *  for it); `fallbackAlt` is the fallback. */
   const besideField = (attr: Node): boolean => {
     if (attr.type !== "Attribute") return false;
     const name = String(attr.name);
     const kind = kindForKey(name);
-    return (
-      /^fallback/i.test(name) ||
-      kind === "image" ||
-      kind === "video" ||
-      kind === "alt" ||
-      kind === "link"
-    );
+    return /^fallback/i.test(name) || kind === "image" || kind === "video" || kind === "link";
   };
 
   const hasFieldProp = (el: Node): boolean =>
@@ -499,6 +616,12 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
     return sharePath(reads(block.test as Node), reads(block.consequent as Node));
   };
 
+  const negatedIsFallback = (block: Node): boolean => {
+    const test = block.test as Node;
+    if (!isNode(block.alternate) || negated(test) === undefined) return false;
+    return sharePath(reads(test.argument as Node), reads(block.alternate));
+  };
+
   /** The name a literal's value sits under, climbing through arrays, wrappers,
    *  concatenation and non-fallback branches: `{ title: "x" }` → title,
    *  `const heading = "x"` → heading, `items: ["a", "b"]` → items. */
@@ -507,9 +630,41 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
     templateText?: Ancestor[];
     attr?: Node;
   } {
+    // Words passed through a call (`{upper("Welcome")}`, `{"Open".toUpperCase()}`)
+    // are followed to the template only, and only when they hold a space: a
+    // call in script is behaviour, and `toLocaleDateString("en-US")` is code.
+    let viaCall = false;
+    const words = /\s/.test(literalText(chain.at(-1)!.node) ?? "");
     for (let i = chain.length - 1; i > 0; i--) {
       const { node: parent } = chain[i - 1]!;
       const { key } = chain[i]!;
+      if (
+        words &&
+        ((parent.type === "CallExpression" && key === "arguments") ||
+          (parent.type === "MemberExpression" &&
+            key === "object" &&
+            chain[i - 2]?.node.type === "CallExpression" &&
+            chain[i - 1]!.key === "callee") ||
+          (parent.type === "CallExpression" && key === "callee" && viaCall))
+      ) {
+        if (!(parent.type === "CallExpression" && RUNE.test(calleePath(parent) ?? ""))) {
+          viaCall = true;
+        }
+        continue;
+      }
+      if (
+        viaCall &&
+        (parent.type === "Property" ||
+          parent.type === "VariableDeclarator" ||
+          parent.type === "AssignmentExpression" ||
+          parent.type === "PropertyDefinition")
+      ) {
+        return {};
+      }
+      // `{#each ["Weddings", "Events"] as s}`: the list is what the block shows.
+      if (parent.type === "EachBlock" && key === "expression") {
+        return { templateText: chain.slice(0, i) };
+      }
       if (
         TRANSPARENT.has(parent.type) ||
         parent.type === "ArrayExpression" ||
@@ -728,6 +883,9 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
       (slot.name ? kindForKey(slot.name) : undefined) ??
       (binding ? kindForKey(binding.name) : undefined);
     const kind = valueKindForKey(byKey, text);
+    if (!kind && binding && !binding.exported && slot.name === binding.name && !holes) {
+      unnamed.push({ binding: binding.name, pos, text });
+    }
     if (!kind || (holes && !isProseKind(kind))) return;
     if (binding)
       pending.push({ binding: binding.name, exported: binding.exported, pos, kind, text });
@@ -787,9 +945,14 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
     if (parent.type === "VariableDeclarator" && key === "id") return;
     if (isDevOnly(chain)) return;
     const use = uses.get(name) ?? { bare: 0, fallback: 0 };
-    if (isFallback(chain)) use.fallback++;
+    const fallback = isFallback(chain);
+    if (fallback) use.fallback++;
     else use.bare++;
     uses.set(name, use);
+    if (!fallback && parent.type === "ExpressionTag" && chain.at(-3)?.node.type !== "Attribute") {
+      const kind = textKind(chain.slice(0, -2));
+      if (kind) shownAs.set(name, kind);
+    }
   }
 
   // `chain` is the path from the root to `node`, `node` included as its last
@@ -854,6 +1017,11 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
 
   function finalize(): FileScan {
     for (const [name, a] of assets) if (!onlyFallbacks(name)) report(a.pos, a.kind, a.text);
+    for (const u of unnamed) {
+      const kind = shownAs.get(u.binding);
+      if (!kind || isIdentifierLike(u.text)) continue;
+      report(u.pos, refineProse(kind, u.text), u.text);
+    }
     const deferred: Deferred[] = [];
     for (const p of pending) {
       if (p.exported) {

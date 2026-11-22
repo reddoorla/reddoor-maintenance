@@ -219,7 +219,7 @@ describe("fallbacks are never reported (decision 2026-11-21-1841, fork 1)", () =
     ["a Svelte 4 prop default", `<script>export let heading = "Welcome home";</script>`],
     [
       "media beside a field prop",
-      `<script>import img from "$lib/a.jpg";</script><Media field={doc.image} src={img} alt="A home" />`,
+      `<script>import img from "$lib/a.jpg";</script><Media field={doc.image} src={img} fallbackAlt="A home" />`,
     ],
     [
       "an else branch for the same field",
@@ -330,6 +330,204 @@ describe("code is not content", () => {
     expect(
       ts(
         `export const load = () => { const s = { src: "https://player.vimeo.com/api/player.js", href: "/app.css" }; return s; };`,
+      ),
+    ).toEqual([]);
+  });
+});
+
+// Review round 1 on #2231: each case is a reproduced miss or false report.
+describe("a fallback needs the SAME field, not a shared helper (round 1, critical)", () => {
+  it("two runes do not share a field through `$state`", () => {
+    expect(
+      svelte(
+        `<script>let submitted = $state(false); let email = $state("");</script>{#if !submitted}<input bind:value={email} />{:else}<h2>Thank you for joining our list!</h2>{/if}<p>{submitted ? email : "We never share your address."}</p>`,
+      ),
+    ).toEqual([
+      ["heading", "Thank you for joining our list!"],
+      ["copy", "We never share your address."],
+    ]);
+  });
+
+  it("two calls to one function do not share a field through its name", () => {
+    expect(
+      svelte(
+        `<script>const app = getAppState(); const menu = getAppState();</script><p>{app.open ? menu.label : "Browse the menu"}</p>`,
+      ),
+    ).toEqual([["copy", "Browse the menu"]]);
+  });
+
+  it("a function's body is not what its name reads", () => {
+    expect(
+      svelte(
+        `<script>let sent = $state(false); const handleSubmit = async () => { sent = true; };</script>{#if !sent}<form onsubmit={handleSubmit}></form>{:else}<p>Thanks, we will call you back.</p>{/if}`,
+      ),
+    ).toEqual([["copy", "Thanks, we will call you back."]]);
+  });
+
+  it("a member of an alias is not the alias's whole source", () => {
+    expect(
+      svelte(
+        `<script>const page = $derived(data.page.data);</script>{#if page.layout === "wide"}{page.title}{:else}<h2>Our story began in 1901</h2>{/if}`,
+      ),
+    ).toEqual([["heading", "Our story began in 1901"]]);
+  });
+
+  it("an alias read itself still reaches its source", () => {
+    expect(
+      svelte(
+        `<script>const title = $derived(data.page.title);</script>{#if title}<h1>{data.page.title}</h1>{:else}<h1>Welcome home</h1>{/if}`,
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("fallbacks written other ways (round 1)", () => {
+  it("a negated #if whose else shows the field", () => {
+    expect(svelte(`{#if !doc.title}<h1>Welcome</h1>{:else}<h1>{doc.title}</h1>{/if}`)).toEqual([]);
+  });
+
+  it("a negated #if whose else shows something else is reported", () => {
+    expect(svelte(`{#if !doc.title}<h1>Welcome</h1>{:else}<h1>{doc.name}</h1>{/if}`)).toEqual([
+      ["heading", "Welcome"],
+    ]);
+  });
+
+  it("`if (!x) x = literal` and `x ||= literal`", () => {
+    expect(
+      svelte(
+        `<script>let heading = doc.title; if (!heading) heading = "Welcome"; let sub = doc.sub; if (!sub) { sub = "Since 1901"; } let cta = doc.cta; cta ||= "Book a tour";</script><h1>{heading}</h1><p>{sub}{cta}</p>`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("an assignment under some other test is reported", () => {
+    expect(
+      svelte(
+        `<script>let heading = doc.title; if (!other) heading = "Welcome back";</script><h1>{heading}</h1>`,
+      ),
+    ).toEqual([["heading", "Welcome back"]]);
+  });
+
+  it('`cond && "A" || "B"` is a choice of two literals, not a fallback', () => {
+    expect(svelte(`<p>{open && "Close menu" || "Open menu"}</p>`)).toEqual([
+      ["copy", "Close menu"],
+      ["copy", "Open menu"],
+    ]);
+  });
+
+  it("alt beside a field prop is the component's own words", () => {
+    expect(svelte(`<Img field={doc.image} alt="A sunlit tasting room" />`)).toEqual([
+      ["alt", "A sunlit tasting room"],
+    ]);
+  });
+
+  it("fallbackAlt beside a field prop is a fallback", () => {
+    expect(svelte(`<Img field={doc.image} fallbackAlt="A sunlit tasting room" />`)).toEqual([]);
+  });
+});
+
+describe("constants that are not prop defaults (round 1)", () => {
+  it("an `export const` in a .svelte module is reported", () => {
+    expect(
+      svelte(
+        `<script module>export const HERO_TITLE = "Welcome to Acme Winery";</script><h1>{HERO_TITLE}</h1>`,
+      ),
+    ).toEqual([["heading", "Welcome to Acme Winery"]]);
+  });
+
+  it("an `export const` in the instance script is reported", () => {
+    expect(svelte(`<script>export const HERO_TITLE = "Welcome to Acme Winery";</script>`)).toEqual([
+      ["heading", "Welcome to Acme Winery"],
+    ]);
+  });
+});
+
+describe("roman numerals are only the small ones a list numbers with (round 1)", () => {
+  it("keeps real words and abbreviations", () => {
+    expect(
+      svelte(
+        `<p>ID</p><p>VIVID</p><p>MIX</p><p>CIVIC</p><p>MD</p><p>DC</p><p>IL</p><p>MI</p><p>LLC</p>`,
+      ).map(([, t]) => t),
+    ).toEqual(["ID", "VIVID", "MIX", "CIVIC", "MD", "DC", "IL", "MI", "LLC"]);
+  });
+
+  it("still skips II to XXXIX", () => {
+    expect(svelte(`<p>II</p><p>IV</p><p>IX.</p><p>XIV</p><p>XXXIX</p>`)).toEqual([]);
+  });
+});
+
+describe("literals with no slot of their own (round 1)", () => {
+  it("an #each over literal words", () => {
+    expect(
+      svelte(`<ul>{#each ["Weddings", "Private events"] as s}<li>{s}</li>{/each}</ul>`),
+    ).toEqual([
+      ["copy", "Weddings"],
+      ["copy", "Private events"],
+    ]);
+  });
+
+  it("a call or method on words shown in the template", () => {
+    expect(
+      svelte(`<h1>{upper("Welcome to the vineyard")}</h1><p>{"Open daily".toUpperCase()}</p>`),
+    ).toEqual([
+      ["heading", "Welcome to the vineyard"],
+      ["copy", "Open daily"],
+    ]);
+  });
+
+  it("a local constant shown in the template", () => {
+    expect(
+      svelte(`<script>const greeting = "Welcome to the vineyard";</script><h1>{greeting}</h1>`),
+    ).toEqual([["heading", "Welcome to the vineyard"]]);
+  });
+
+  it("a local constant used only as a fallback is not", () => {
+    expect(
+      svelte(
+        `<script>const greeting = "Welcome to the vineyard";</script><h1>{doc.title || greeting}</h1>`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("a code word in a constant shown in the template is not", () => {
+    expect(svelte(`<script>const variant = "hero-dark";</script><p>{variant}</p>`)).toEqual([]);
+  });
+
+  it("FAQ, stat and price keys", () => {
+    expect(
+      ts(
+        `export const FAQS = [{ question: "Do you host weddings?", answer: "Yes, year round." }]; export const s = { stat: "Since 1901", price: "From $40 a person" };`,
+      ),
+    ).toEqual([
+      ["copy", "Do you host weddings?"],
+      ["copy", "Yes, year round."],
+      ["copy", "Since 1901"],
+      ["copy", "From $40 a person"],
+    ]);
+  });
+});
+
+describe("video URLs need a video in them (found after round 1)", () => {
+  it("a bare player origin is not a video", () => {
+    expect(ts(`export const ORIGIN = { video: "https://player.vimeo.com" };`)).toEqual([]);
+  });
+
+  it("a player, watch, embed or short link with an ID is", () => {
+    expect(
+      ts(
+        `export const v = { a: "https://player.vimeo.com/video/1092190178", b: "https://vimeo.com/1092190178", c: "https://www.youtube.com/embed/dQw4w9WgXcQ", d: "https://youtu.be/dQw4w9WgXcQ", e: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" };`,
+      ).map(([k]) => k),
+    ).toEqual(["video", "video", "video", "video", "video"]);
+  });
+});
+
+describe("ignore list, round 1", () => {
+  it("a /g or /y regex matches every literal, not every other one", () => {
+    expect(
+      scanSource(
+        "src/routes/+page.svelte",
+        `<p>Acme one</p><p>Acme two</p><p>Acme three</p><p>Acme four</p>`,
+        { ignore: ["/Acme/g"] },
       ),
     ).toEqual([]);
   });

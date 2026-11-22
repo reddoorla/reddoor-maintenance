@@ -118,6 +118,29 @@ describe("--init", () => {
     ]);
   });
 
+  it("re-run, keeps the baseline, so it absorbs no new literal (round 1)", async () => {
+    const dir = copyOf("dirty");
+    await run(dir, { init: true });
+    addLine(dir, `<p>A brand new sentence</p>`);
+    const again = await run(dir, { init: true, version: "0.119.0" });
+    expect(again.output).toContain("kept content-check.baseline.json");
+    expect(readFileSync(join(dir, ".github/workflows/content-check.yml"), "utf8")).toContain(
+      "@reddoorla/maintenance@0.119.0",
+    );
+    expect((await run(dir)).output).toContain(`warning ${PAGE}:35 copy "A brand new sentence"`);
+    // With --write-baseline as well, it does re-record.
+    await run(dir, { init: true, writeBaseline: true });
+    expect((await run(dir)).output).toContain("content-check: 0 NEW hard-coded literal(s)");
+  });
+
+  it("refuses to pin a release older than the command (round 1)", async () => {
+    const dir = copyOf("clean");
+    await expect(run(dir, { init: true, version: "0.117.2" })).rejects.toThrow(/no content-check/);
+    await expect(run(dir, { init: true, version: "0.99.0" })).rejects.toThrow(/no content-check/);
+    expect(existsSync(join(dir, ".github/workflows/content-check.yml"))).toBe(false);
+    expect(contentCheckWorkflow("1.0.0")).toContain("@reddoorla/maintenance@1.0.0");
+  });
+
   it("refuses to pin a version that is not a release", async () => {
     const dir = copyOf("clean");
     await expect(run(dir, { init: true, version: "unknown" })).rejects.toThrow(/cannot pin/);

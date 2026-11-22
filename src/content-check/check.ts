@@ -18,6 +18,7 @@ import { glob } from "tinyglobby";
 import { builtInExemption } from "./rules.js";
 import {
   ScanParseError,
+  compileIgnore,
   onlyFallbackUses,
   parseFile,
   scanParsed,
@@ -89,6 +90,17 @@ export function readConfig(cwd: string): ContentCheckConfig {
     }
     config[key] = r[key];
   }
+  // A bad pattern found here is exit 2; found mid-scan it would be a crash
+  // (exit 1) that turns a warn-mode site's CI red.
+  for (const entry of config.ignore) {
+    try {
+      compileIgnore(entry);
+    } catch (err) {
+      throw new ContentCheckConfigError(`${CONFIG_FILE}: ${(err as Error).message}`, {
+        cause: err,
+      });
+    }
+  }
   return config;
 }
 
@@ -102,14 +114,11 @@ export function readBaseline(cwd: string): Baseline {
     throw new ContentCheckConfigError(`${BASELINE_FILE}: not JSON (${(err as Error).message})`);
   }
   const b = raw as Partial<Baseline>;
+  const isMap = (v: unknown): boolean => typeof v === "object" && v !== null && !Array.isArray(v);
   const countsOk =
-    typeof b.counts === "object" &&
-    b.counts !== null &&
-    Object.values(b.counts).every(
-      (m) =>
-        typeof m === "object" &&
-        m !== null &&
-        Object.values(m).every((n) => Number.isInteger(n) && (n as number) > 0),
+    isMap(b.counts) &&
+    Object.values(b.counts!).every(
+      (m) => isMap(m) && Object.values(m).every((n) => Number.isInteger(n) && (n as number) > 0),
     );
   if (b.version !== 1 || !countsOk) {
     throw new ContentCheckConfigError(
@@ -205,6 +214,29 @@ export function resolveImport(
   return undefined;
 }
 
+/** Where an imported name is defined: the file it names, or, when that file
+ *  is a barrel (`export { SITE } from "./site"`, `export * from "./site"`),
+ *  the file the barrel passes it on from, one hop. Every candidate is listed:
+ *  a `*` re-export may or may not be where the name comes from. */
+export function importOrigins(
+  from: string,
+  imp: { source: string; imported: string },
+  parsed: ReadonlyMap<string, Parsed>,
+  known: ReadonlySet<string>,
+): Array<{ file: string; name: string }> {
+  const target = resolveImport(from, imp.source, known);
+  if (!target) return [];
+  const out = [{ file: target, name: imp.imported }];
+  for (const re of parsed.get(target)?.reexports ?? []) {
+    const all = imp.imported === "*";
+    if (!all && re.exported !== imp.imported && re.exported !== "*") continue;
+    const next = resolveImport(target, re.source, known);
+    const name = all ? "*" : re.imported === "*" ? imp.imported : re.imported;
+    if (next) out.push({ file: next, name });
+  }
+  return out;
+}
+
 export async function scanSite(cwd: string, config: ContentCheckConfig): Promise<ScanResult> {
   const files = (
     await glob(SOURCE_GLOBS, { cwd, ignore: NEVER, onlyFiles: true, expandDirectories: false })
@@ -245,8 +277,12 @@ export async function scanSite(cwd: string, config: ContentCheckConfig): Promise
         const local = p.functions.get(name);
         if (local) return local;
         const imp = p.imports.get(name);
-        const target = imp && resolveImport(file, imp.source, known);
-        return target ? parsed.get(target)?.functions.get(imp.imported) : undefined;
+        if (!imp) return undefined;
+        for (const o of importOrigins(file, imp, parsed, known)) {
+          const params = parsed.get(o.file)?.functions.get(o.name);
+          if (params) return params;
+        }
+        return undefined;
       },
     });
     scans.set(file, scan);
@@ -269,9 +305,12 @@ export async function scanSite(cwd: string, config: ContentCheckConfig): Promise
       for (const [other, otherScan] of scans) {
         const p = parsed.get(other)!;
         for (const [local, imp] of p.imports) {
-          if (resolveImport(other, imp.source, known) !== file) continue;
-          if (imp.imported === d.binding) add(otherScan.uses.get(local));
-          else if (imp.imported === "*" && otherScan.uses.has(local)) total.bare++;
+          for (const o of importOrigins(other, imp, parsed, known)) {
+            if (o.file !== file) continue;
+            if (o.name === d.binding) add(otherScan.uses.get(local));
+            else if (o.name === "*" && otherScan.uses.has(local)) total.bare++;
+            break;
+          }
         }
       }
       if (!onlyFallbackUses(total)) {

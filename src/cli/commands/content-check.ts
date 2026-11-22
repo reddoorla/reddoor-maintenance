@@ -81,10 +81,17 @@ export async function runContentCheckCommand(
   }
 
   if (opts.init || opts.writeBaseline) {
-    writeBaselineFile(cwd, result.findings);
-    lines.push(
-      `wrote ${BASELINE_FILE}: ${result.findings.length} literal(s) in ${result.files} file(s) (${result.exempt.length} exempt)`,
-    );
+    // Re-running --init re-pins the workflow; it must never re-record the
+    // baseline as a side effect, which would absorb every literal added since.
+    if (opts.init && !opts.writeBaseline && existsSync(join(cwd, BASELINE_FILE))) {
+      readBaseline(cwd); // a broken one is still exit 2
+      lines.push(`kept ${BASELINE_FILE} (--write-baseline re-records it)`);
+    } else {
+      writeBaselineFile(cwd, result.findings);
+      lines.push(
+        `wrote ${BASELINE_FILE}: ${result.findings.length} literal(s) in ${result.files} file(s) (${result.exempt.length} exempt)`,
+      );
+    }
     notes();
     return { output: lines.join("\n"), code: 0 };
   }

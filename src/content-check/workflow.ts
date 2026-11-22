@@ -17,10 +17,27 @@ export const WORKFLOW_PATH = ".github/workflows/content-check.yml";
 const CHECKOUT = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7";
 const SETUP_NODE = "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7";
 
+/** The first release that has `content-check`. A workflow pinned below it
+ *  would run `npx … reddoor-maint content-check` and exit 1 on "unknown
+ *  command", red on a site that changed nothing. */
+export const FIRST_VERSION = "0.118.0";
+
+const parts = (v: string): number[] => v.split(".").map(Number);
+const below = (a: string, b: string): boolean => {
+  const [x, y] = [parts(a), parts(b)];
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i]! < y[i]!;
+  return false;
+};
+
 export function contentCheckWorkflow(version: string): string {
   if (!/^\d+\.\d+\.\d+$/.test(version)) {
     throw new Error(
       `content-check: cannot pin the workflow to version "${version}"; run --init from a released @reddoorla/maintenance`,
+    );
+  }
+  if (below(version, FIRST_VERSION)) {
+    throw new Error(
+      `content-check: cannot pin the workflow to version ${version}, which has no content-check command; run --init from @reddoorla/maintenance@${FIRST_VERSION} or later`,
     );
   }
   return `# Flags NEW hard-coded visitor-facing content (P1-120): words, images, video
@@ -61,7 +78,7 @@ jobs:
 export const STARTER_CONFIG = `${JSON.stringify(
   {
     $comment:
-      "reddoor-maint content-check (P1-120). mode: warn | fail. exempt: globs of files no visitor reads as content. ignore: literals (or /regex/) never to report. fallbackHelpers: names of calls whose literal arguments are fallbacks for a Prismic field.",
+      "reddoor-maint content-check (P1-120). mode: warn | fail. exempt: globs of files no visitor reads as content. ignore: literals never to report; an entry wrapped in slashes is a regex, so '/about/' also hides 'Learn about us'. fallbackHelpers: names of calls whose literal arguments are fallbacks for a Prismic field.",
     mode: "warn",
     exempt: [],
     ignore: [],

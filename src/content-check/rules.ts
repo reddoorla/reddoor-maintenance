@@ -164,6 +164,16 @@ addKeys("copy", [
   "highlights",
   "benefits",
   "lines",
+  "question",
+  "questions",
+  "answer",
+  "answers",
+  "faq",
+  "faqs",
+  "stat",
+  "stats",
+  "price",
+  "prices",
 ]);
 
 addKeys("copy", ["siteName", "businessName", "companyName", "brandName", "ariaLabel"]);
@@ -190,6 +200,8 @@ const LAST_WORD = new Set([
   "copy",
   "bio",
   "cta",
+  "question",
+  "answer",
 ]);
 
 export function kindForKey(name: string): Kind | undefined {
@@ -220,8 +232,10 @@ export function assetKind(spec: string): "image" | "video" | undefined {
 
 const SOCIAL_HOST =
   /^(?:https?:)?\/\/(?:[a-z0-9-]+\.)*(?:facebook\.com|fb\.com|instagram\.com|linkedin\.com|twitter\.com|x\.com|tiktok\.com|pinterest\.com|yelp\.com|threads\.net|youtube\.com\/(?:@|c\/|channel\/|user\/))/i;
+// A URL that names one video: a bare `https://player.vimeo.com` is an origin a
+// component posts messages to, not something a visitor watches.
 const VIDEO_URL =
-  /^(?:https?:)?\/\/(?:player\.)?(?:vimeo\.com|youtube\.com\/(?:embed|watch)|youtu\.be|(?:www\.)?youtube-nocookie\.com)/i;
+  /^(?:https?:)?\/\/(?:(?:player\.)?vimeo\.com\/(?:video\/)?\d+|(?:www\.|m\.)?youtube(?:-nocookie)?\.com\/(?:embed\/[\w-]+|watch\?(?:.*&)?v=[\w-]+|shorts\/[\w-]+)|youtu\.be\/[\w-]+)/i;
 const EMAIL = /^[\w.+-]+@[\w-]+(?:\.[\w-]+)+$/;
 const PHONE = /(?:\+?1[\s.-]?)?\(?\b\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}\b/;
 const HOURS =
@@ -285,7 +299,9 @@ export function linkKind(value: string): Kind | undefined {
 export function isDecorative(text: string): boolean {
   const letters = text.match(/\p{L}/gu)?.length ?? 0;
   if (letters < 2) return true;
-  return /^[IVXLCDM]{1,6}\.?$/.test(text.trim());
+  // Only the numerals a list or a step counts with, II to XXXIX: a wider
+  // grammar reads ID, MIX, MD, DC, MI and LLC as numbers (review round 1).
+  return /^X{0,3}(?:IX|IV|V?I{0,3})\.?$/.test(text.trim());
 }
 
 /** A lower-case code word (`"email"`, `"contact-form"`, `"hero_image"`): a key,
