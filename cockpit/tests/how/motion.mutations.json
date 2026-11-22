@@ -205,8 +205,8 @@
     "edits": [
       {
         "file": "cockpit/src/lib/how/view.ts",
-        "find": "return typeof v === \"number\" && Number.isFinite(v) && v >= 0 ? v : null;",
-        "replace": "return typeof v === \"number\" && Number.isFinite(v) && v >= 0 ? v : 0;"
+        "find": "return typeof v === \"number\" && Number.isInteger(v) && v >= 0 ? v : null;",
+        "replace": "return typeof v === \"number\" && Number.isInteger(v) && v >= 0 ? v : 0;"
       }
     ],
     "test": "cockpit/tests/how/view.ssr.test.ts",
@@ -240,11 +240,11 @@
   },
   {
     "id": "10-11-launching-site-listed",
-    "why": "A launching site is listed at its level",
+    "why": "A site of any status (an archived one included) is listed at its level. Re-pointed 2026-11-21 under #2182's answer (a), which lists a launching site at its level on purpose.",
     "edits": [
       {
         "file": "cockpit/src/lib/how/view.ts",
-        "find": "    if (c.site.status !== \"maintained\") continue;",
+        "find": "    if (c.site.status !== \"maintained\" && c.site.status !== \"launching\") continue;",
         "replace": "    if (false as boolean) continue;"
       }
     ],
