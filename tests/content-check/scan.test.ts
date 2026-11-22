@@ -900,3 +900,22 @@ describe("a renamed prop default sits under the prop's name (round 3 hand-off)",
     ).toEqual([["heading", "Welcome home"]]);
   });
 });
+
+describe("round 3's mutation sweep", () => {
+  it("a local whose initialiser ANDs a comparison is not an emptiness test", () => {
+    expect(
+      svelte(
+        `<script>const show = $derived(slice.variation === "default" && slice.primary.vimeo_id);</script>{#if show}<iframe src={slice.primary.vimeo_id} title=""></iframe>{:else}<h2>Our latest project</h2>{/if}`,
+      ),
+    ).toEqual([["heading", "Our latest project"]]);
+  });
+
+  it("an attribute no visitor reads does not show the field", () => {
+    expect(
+      svelte(`{#if doc.title}<h1 id={doc.title}>Hi there</h1>{:else}<h1>Welcome home</h1>{/if}`),
+    ).toEqual([
+      ["heading", "Hi there"],
+      ["heading", "Welcome home"],
+    ]);
+  });
+});
