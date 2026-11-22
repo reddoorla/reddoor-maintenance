@@ -1,0 +1,871 @@
+// Find hard-coded visitor-facing literals in one SvelteKit source file.
+//
+// One parser for everything: a `.svelte` file is parsed as itself, and a
+// `.ts`/`.js` file is parsed as the body of a `<script lang="ts">` block, so the
+// template and every script share one ESTree walk and one set of rules. The
+// wrapper opens on the file's first line, so line numbers are the file's own.
+//
+// The two questions the walk answers for each string literal:
+//   1. Does a visitor read or see it? (`rules.ts`: a place in the template, a
+//      content-shaped name, or a value shaped like a phone, URL or asset.)
+//   2. Is it a FALLBACK for a Prismic field? (`isFallback` below.) The operator
+//      kept fallbacks (decision 2026-11-21-1841, fork 1), so these never count.
+import { parse } from "svelte/compiler";
+import {
+  FALLBACK_HELPER,
+  assetKind,
+  isDecorative,
+  isIdentifierLike,
+  isProseKind,
+  kindForKey,
+  linkKind,
+  refineProse,
+  strongKind,
+  type Kind,
+} from "./rules.js";
+
+export type Finding = { file: string; line: number; kind: Kind; text: string };
+
+export type ScanOptions = {
+  /** Extra fallback helper names (the site's own `vimeoIdOr`-style calls). */
+  fallbackHelpers?: readonly string[];
+  /** Literals never to report: exact strings, or `/regex/flags`. */
+  ignore?: readonly string[];
+  /** The parameter names of a function this file calls by name, wherever it
+   *  is defined (`scanSite` resolves imports). An argument passed to a
+   *  parameter named `fallback…` or `default…` is a fallback. */
+  paramsOf?: (callee: string) => readonly string[] | undefined;
+};
+
+/** A literal inside an exported constant: whether it is a fallback depends on
+ *  how other files read the constant, so the site-level scan decides. */
+export type Deferred = Finding & { binding: string };
+
+export type Uses = Map<string, { bare: number; fallback: number }>;
+
+export type FileScan = { findings: Finding[]; deferred: Deferred[]; uses: Uses };
+
+/** What other files need to know about this one: what it imports from where,
+ *  and the parameter names of the functions it defines. */
+export type Parsed = {
+  file: string;
+  ast: Node;
+  isSvelte: boolean;
+  lineOf: (pos: number) => number;
+  /** local name → where it comes from (`imported` is "default" or "*" for those forms) */
+  imports: Map<string, { source: string; imported: string }>;
+  /** function name → parameter names, for functions declared at top level */
+  functions: Map<string, string[]>;
+};
+
+type Node = { type: string; start?: number; end?: number; [key: string]: unknown };
+
+const isNode = (v: unknown): v is Node =>
+  typeof v === "object" && v !== null && typeof (v as { type?: unknown }).type === "string";
+
+/** A parse that failed. The caller reports it and moves on: one odd file must
+ *  never turn the check (and so a site's CI) red in warn mode. */
+export class ScanParseError extends Error {}
+
+// --- small AST helpers --------------------------------------------------------
+
+const children = (node: Node): Array<[string, Node]> => {
+  const out: Array<[string, Node]> = [];
+  for (const [key, value] of Object.entries(node)) {
+    if (key === "loc" || key === "metadata" || key === "parent") continue;
+    if (Array.isArray(value)) {
+      for (const v of value) if (isNode(v)) out.push([key, v]);
+    } else if (isNode(value)) {
+      out.push([key, value]);
+    }
+  }
+  return out;
+};
+
+/** A string literal's text, or a template literal's with `${…}` for each hole. */
+function literalText(node: Node): string | undefined {
+  if (node.type === "Literal" && typeof node.value === "string") return node.value;
+  if (node.type === "TemplateLiteral") {
+    const quasis = node.quasis as Array<{ value: { cooked: string | null; raw: string } }>;
+    return quasis.map((q) => q.value.cooked ?? q.value.raw).join("${…}");
+  }
+  return undefined;
+}
+
+const isPureLiteral = (node: Node): boolean =>
+  node.type === "Literal" ||
+  (node.type === "TemplateLiteral" && (node.expressions as unknown[]).length === 0);
+
+/** `a.b.c` / `a?.b` / `a["b"]` as a dotted path, else undefined. */
+function memberPath(node: Node): string | undefined {
+  if (node.type === "Identifier") return node.name as string;
+  if (node.type === "ChainExpression") return memberPath(node.expression as Node);
+  if (node.type === "MemberExpression") {
+    const obj = memberPath(node.object as Node);
+    const prop = node.property as Node;
+    const name =
+      !node.computed && prop.type === "Identifier"
+        ? (prop.name as string)
+        : prop.type === "Literal"
+          ? String(prop.value)
+          : undefined;
+    return obj && name ? `${obj}.${name}` : undefined;
+  }
+  return undefined;
+}
+
+/** Every value path a node reads: `content.title`, `title`. A member chain
+ *  counts once, as its longest path. */
+function pathsUnder(node: Node, out = new Set<string>()): Set<string> {
+  if (node.type === "MemberExpression" || node.type === "Identifier") {
+    const p = memberPath(node);
+    if (p) {
+      out.add(p);
+      if (node.type === "MemberExpression" && node.computed) pathsUnder(node.property as Node, out);
+      return out;
+    }
+  }
+  for (const [key, c] of children(node)) {
+    // A property's name is not a read: `{ title: x }` reads x, not title.
+    if ((node.type === "Property" && key === "key" && !node.computed) || key === "typeAnnotation") {
+      continue;
+    }
+    pathsUnder(c, out);
+  }
+  return out;
+}
+
+/** Do two sets of paths read the same value? `content.hero` and
+ *  `content.hero.url` do; `page.status` and `page.error` do not. */
+function sharePath(a: Set<string>, b: Set<string>): boolean {
+  for (const p of a) {
+    for (const q of b) if (p === q || q.startsWith(`${p}.`) || p.startsWith(`${q}.`)) return true;
+  }
+  return false;
+}
+
+/** Svelte runes that only wrap a value: `const x = $derived("…")`. */
+const RUNE = /^\$(?:derived|state)(?:\.raw)?$/;
+const calleePath = (node: Node): string | undefined => memberPath(node.callee as Node);
+
+const calleeName = (node: Node): string | undefined => {
+  const callee = node.callee as Node;
+  if (callee.type === "Identifier") return callee.name as string;
+  if (callee.type === "MemberExpression" && !callee.computed) {
+    return (callee.property as Node).name as string;
+  }
+  return undefined;
+};
+
+/** A URL or path to code or data, never something a visitor sees. */
+const CODE_URL = /\.(?:m?js|css|json|xml)(?:[?#].*)?$/i;
+
+const ELEMENTS = new Set([
+  "RegularElement",
+  "Component",
+  "SvelteElement",
+  "SvelteComponent",
+  "SvelteSelf",
+]);
+
+/** Expression wrappers a literal passes through without changing its role. */
+const TRANSPARENT = new Set([
+  "TSAsExpression",
+  "TSSatisfiesExpression",
+  "TSNonNullExpression",
+  "ParenthesizedExpression",
+  "ChainExpression",
+]);
+
+// --- the scanner --------------------------------------------------------------
+
+type Ancestor = { node: Node; key: string };
+
+const paramName = (p: Node): string => {
+  if (p.type === "Identifier") return p.name as string;
+  if (p.type === "AssignmentPattern") return paramName(p.left as Node);
+  return "";
+};
+
+export function parseFile(file: string, source: string): Parsed {
+  const isSvelte = file.endsWith(".svelte");
+  // A `</script` inside a .ts file (JSON-LD helpers write one) would end the
+  // wrapper early, so it is defused to the same length first: offsets, and so
+  // line numbers, stay the file's own.
+  const wrapped = isSvelte
+    ? source
+    : `<script lang="ts">${source.replace(/<\/(script)/gi, "<_$1")}\n</script>`;
+
+  let ast: Node;
+  try {
+    ast = parse(wrapped, { modern: true }) as unknown as Node;
+  } catch (err) {
+    throw new ScanParseError(`${file}: ${(err as Error).message.split("\n")[0]}`);
+  }
+
+  const lineStarts = [0];
+  for (let i = 0; i < wrapped.length; i++) if (wrapped[i] === "\n") lineStarts.push(i + 1);
+  const lineOf = (pos: number): number => {
+    let lo = 0;
+    let hi = lineStarts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (lineStarts[mid]! <= pos) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo + 1;
+  };
+
+  const imports = new Map<string, { source: string; imported: string }>();
+  const functions = new Map<string, string[]>();
+  for (const script of [ast.module, ast.instance]) {
+    if (!isNode(script)) continue;
+    for (const top of (script.content as Node).body as Node[]) {
+      if (top.type === "ImportDeclaration") {
+        const source = (top.source as Node).value as string;
+        for (const sp of top.specifiers as Node[]) {
+          const imported =
+            sp.type === "ImportDefaultSpecifier"
+              ? "default"
+              : sp.type === "ImportNamespaceSpecifier"
+                ? "*"
+                : (literalText(sp.imported as Node) ?? ((sp.imported as Node).name as string));
+          imports.set((sp.local as Node).name as string, { source, imported });
+        }
+        continue;
+      }
+      const decl = top.type === "ExportNamedDeclaration" ? (top.declaration as Node | null) : top;
+      if (!decl) continue;
+      if (decl.type === "FunctionDeclaration" && isNode(decl.id)) {
+        functions.set(decl.id.name as string, (decl.params as Node[]).map(paramName));
+      }
+      if (decl.type === "VariableDeclaration") {
+        for (const d of decl.declarations as Node[]) {
+          const init = d.init as Node | null;
+          const id = d.id as Node;
+          if (
+            init &&
+            id.type === "Identifier" &&
+            (init.type === "ArrowFunctionExpression" || init.type === "FunctionExpression")
+          ) {
+            functions.set(id.name as string, (init.params as Node[]).map(paramName));
+          }
+        }
+      }
+    }
+  }
+  return { file, ast, isSvelte, lineOf, imports, functions };
+}
+
+/** One file on its own: an exported constant's literals are reported unless
+ *  this file's own reads of it are all fallbacks. `scanSite` sees further. */
+export function scanSource(file: string, source: string, opts: ScanOptions = {}): Finding[] {
+  const parsed = parseFile(file, source);
+  const { findings, deferred, uses } = scanParsed(parsed, {
+    ...opts,
+    paramsOf: opts.paramsOf ?? ((name) => parsed.functions.get(name)),
+  });
+  const kept = deferred.filter((d) => !onlyFallbackUses(uses.get(d.binding)));
+  return [...findings, ...kept.map(({ binding: _b, ...f }) => f)].sort((x, y) => x.line - y.line);
+}
+
+/** Every read is a fallback, and there is at least one. */
+export const onlyFallbackUses = (u: { bare: number; fallback: number } | undefined): boolean =>
+  u !== undefined && u.fallback > 0 && u.bare === 0;
+
+const FALLBACK_PARAM = /^(?:fallback|default|otherwise|backup)/i;
+
+export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
+  const { file, ast, isSvelte, lineOf } = parsed;
+  const helpers = new Set(opts.fallbackHelpers ?? []);
+
+  // What each local constant is computed from, so a test can be "about" a
+  // value through one: `const pair = isFilled.image(d?.logo) && quoted;`
+  // makes `pair ? quoted : "x"` a fallback for `quoted`.
+  const inits = new Map<string, Node[]>();
+  (function collect(n: Node): void {
+    if (n.type === "VariableDeclarator" && isNode(n.init) && (n.id as Node).type === "Identifier") {
+      const name = (n.id as Node).name as string;
+      inits.set(name, [...(inits.get(name) ?? []), n.init]);
+    }
+    for (const [, c] of children(n)) collect(c);
+  })(ast);
+  const reads = (n: Node): Set<string> => {
+    const out = pathsUnder(n);
+    for (let depth = 0; depth < 2; depth++) {
+      for (const p of [...out]) {
+        for (const init of inits.get(p.split(".")[0]!) ?? []) pathsUnder(init, out);
+      }
+    }
+    return out;
+  };
+
+  // SvelteKit's `dev` is true only under `vite dev`: a branch it guards never
+  // reaches a visitor, so nothing in it is reported and no read in it counts.
+  const devNames = new Set(
+    [...parsed.imports]
+      .filter(([, i]) => i.imported === "dev" && /^\$app\/env(?:ironment)?$/.test(i.source))
+      .map(([local]) => local),
+  );
+  const conjuncts = (n: Node): Node[] =>
+    n.type === "LogicalExpression" && n.operator === "&&"
+      ? [...conjuncts(n.left as Node), ...conjuncts(n.right as Node)]
+      : [n];
+  const devTest = (n: Node): boolean =>
+    conjuncts(n).some((c) => c.type === "Identifier" && devNames.has(c.name as string));
+  function isDevOnly(chain: Ancestor[]): boolean {
+    if (devNames.size === 0) return false;
+    for (let i = chain.length - 1; i > 0; i--) {
+      const parent = chain[i - 1]!.node;
+      const key = chain[i]!.key;
+      if (
+        (parent.type === "ConditionalExpression" ||
+          parent.type === "IfStatement" ||
+          parent.type === "IfBlock") &&
+        key === "consequent" &&
+        devTest(parent.test as Node)
+      ) {
+        return true;
+      }
+      if (
+        parent.type === "LogicalExpression" &&
+        parent.operator === "&&" &&
+        key === "right" &&
+        devTest(parent.left as Node)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+  const ignores = (opts.ignore ?? []).map((s) => {
+    const m = /^\/(.*)\/([a-z]*)$/.exec(s);
+    return m ? new RegExp(m[1]!, m[2]) : s;
+  });
+  const ignored = (text: string): boolean =>
+    ignores.some((i) => (typeof i === "string" ? i === text.trim() : i.test(text)));
+
+  const findings: Finding[] = [];
+  // Source order within a line: the sort key, kept off the public shape.
+  const offsets = new WeakMap<Finding, number>();
+  const report = (pos: number, kind: Kind, raw: string): void => {
+    const text = raw.replace(/\s+/g, " ").trim();
+    if (text === "") return;
+    if (isProseKind(kind) && isDecorative(text)) return;
+    if (ignored(text)) return;
+    findings.push({ file, line: lineOf(pos), kind, text });
+    offsets.set(findings.at(-1)!, pos);
+  };
+
+  // Asset imports: `import hero from "$lib/assets/hero.jpg"`. Reported at the
+  // import line once the walk has seen whether any use is NOT a fallback.
+  type AssetImport = { pos: number; kind: "image" | "video"; text: string };
+  const assets = new Map<string, AssetImport>();
+  // Every name read anywhere in the file, and how: a constant whose every
+  // read is a fallback (`meta_description || DEFAULT_DESCRIPTION`) is a
+  // fallback itself.
+  const uses: Uses = new Map();
+  // Literals inside `const NAME = …`, held until the walk knows NAME's reads.
+  const pending: Array<{
+    binding: string;
+    exported: boolean;
+    pos: number;
+    kind: Kind;
+    text: string;
+  }> = [];
+  const onlyFallbacks = (name: string): boolean => onlyFallbackUses(uses.get(name));
+
+  /** The constant a literal is part of: `const NAME = { … "x" … }`. */
+  function enclosingBinding(chain: Ancestor[]): { name: string; exported: boolean } | undefined {
+    for (let i = chain.length - 1; i > 0; i--) {
+      const parent = chain[i - 1]!.node;
+      if (parent.type === "VariableDeclarator" && chain[i]!.key === "init") {
+        const id = parent.id as Node;
+        if (id.type !== "Identifier") return undefined;
+        return {
+          name: id.name as string,
+          exported: chain[i - 3]?.node.type === "ExportNamedDeclaration",
+        };
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Is the node at the end of `chain` in a fallback position?
+   *
+   *   field || "x"     field ?? "x"          the right of || or ??
+   *   ok ? field : "x"                       a branch whose other branch is not a literal
+   *   vimeoIdOr(field, "x")                  an argument to a fallback helper
+   *   let { title = "x" } = $props()         a default value
+   *   export let title = "x"                 a Svelte 4 prop default
+   *   <X field={doc.f} src={img} />          anything beside a `field` prop
+   *   {#if doc.f}…{doc.f}…{:else}x{/if}      an else branch for the same field
+   */
+  function isFallback(chain: Ancestor[]): boolean {
+    for (let i = chain.length - 1; i > 0; i--) {
+      const { node: parent } = chain[i - 1]!;
+      const { key } = chain[i]!;
+      switch (parent.type) {
+        case "LogicalExpression":
+          if (
+            key === "right" &&
+            (parent.operator === "||" || parent.operator === "??") &&
+            !isPureLiteral(parent.left as Node)
+          ) {
+            return true;
+          }
+          break;
+        case "ConditionalExpression": {
+          // `f ? f : "x"`, `isFilled.keyText(f) ? asText(f) : "x"`: the test asks
+          // about the value the other branch shows. `status === 404 ? "a" : b`
+          // is a choice between two things, not a fallback.
+          const other =
+            key === "consequent"
+              ? (parent.alternate as Node)
+              : key === "alternate"
+                ? (parent.consequent as Node)
+                : undefined;
+          if (
+            other &&
+            !isPureLiteral(other) &&
+            sharePath(reads(parent.test as Node), reads(other))
+          ) {
+            return true;
+          }
+          break;
+        }
+        case "CallExpression": {
+          if (key !== "arguments") break;
+          const name = calleeName(parent);
+          if (name && (FALLBACK_HELPER.test(name) || helpers.has(name))) return true;
+          // `text(d?.title, "Welcome")` where `text(value, fallback)`.
+          const callee = parent.callee as Node;
+          if (callee.type === "Identifier" && opts.paramsOf) {
+            const params = opts.paramsOf(callee.name as string);
+            const at = (parent.arguments as Node[]).indexOf(chain[i]!.node);
+            if (params && at >= 0 && FALLBACK_PARAM.test(params[at] ?? "")) return true;
+          }
+          break;
+        }
+        case "AssignmentPattern":
+          if (key === "right") return true;
+          break;
+        case "VariableDeclarator":
+          if (key === "init" && isSvelte && chain[i - 3]?.node.type === "ExportNamedDeclaration") {
+            return true;
+          }
+          break;
+        case "RegularElement":
+        case "Component":
+        case "SvelteElement":
+        case "SvelteComponent":
+        case "SvelteSelf":
+          if (key === "attributes" && hasFieldProp(parent) && besideField(chain[i]!.node))
+            return true;
+          break;
+        case "IfBlock":
+          if (key === "alternate" && elseIsFallback(parent)) return true;
+          break;
+      }
+    }
+    return false;
+  }
+
+  /** Props a component shows only while its `field` is empty: the media and
+   *  link it falls back to, and anything named `fallback…`. An `aria-label` or
+   *  a heading prop beside a field is still the component's own words. */
+  const besideField = (attr: Node): boolean => {
+    if (attr.type !== "Attribute") return false;
+    const name = String(attr.name);
+    const kind = kindForKey(name);
+    return (
+      /^fallback/i.test(name) ||
+      kind === "image" ||
+      kind === "video" ||
+      kind === "alt" ||
+      kind === "link"
+    );
+  };
+
+  const hasFieldProp = (el: Node): boolean =>
+    (el.attributes as Node[]).some(
+      (a) => a.type === "Attribute" && a.name === "field" && a.value !== true,
+    );
+
+  /** `{#if X}…{:else}literal{/if}` is a fallback when the true branch shows a
+   *  field the test is about: the test and the branch share a member path. */
+  const elseIsFallback = (block: Node): boolean => {
+    return sharePath(reads(block.test as Node), reads(block.consequent as Node));
+  };
+
+  /** The name a literal's value sits under, climbing through arrays, wrappers,
+   *  concatenation and non-fallback branches: `{ title: "x" }` → title,
+   *  `const heading = "x"` → heading, `items: ["a", "b"]` → items. */
+  function slotOf(chain: Ancestor[]): {
+    name?: string | undefined;
+    templateText?: Ancestor[];
+    attr?: Node;
+  } {
+    for (let i = chain.length - 1; i > 0; i--) {
+      const { node: parent } = chain[i - 1]!;
+      const { key } = chain[i]!;
+      if (
+        TRANSPARENT.has(parent.type) ||
+        parent.type === "ArrayExpression" ||
+        parent.type === "ConditionalExpression" ||
+        parent.type === "LogicalExpression" ||
+        (parent.type === "BinaryExpression" && parent.operator === "+") ||
+        parent.type === "TemplateLiteral" ||
+        (parent.type === "CallExpression" &&
+          key === "arguments" &&
+          RUNE.test(calleePath(parent) ?? ""))
+      ) {
+        continue;
+      }
+      if (parent.type === "Property" && key === "value") {
+        const k = parent.key as Node;
+        const name = k.type === "Identifier" ? (k.name as string) : literalText(k);
+        return { name };
+      }
+      if (parent.type === "VariableDeclarator" && key === "init") {
+        const id = parent.id as Node;
+        return { name: id.type === "Identifier" ? (id.name as string) : undefined };
+      }
+      if (parent.type === "AssignmentExpression" && key === "right") {
+        const left = parent.left as Node;
+        const p = memberPath(left);
+        return { name: p?.split(".").at(-1) };
+      }
+      if (parent.type === "PropertyDefinition" && key === "value") {
+        const k = parent.key as Node;
+        return { name: k.type === "Identifier" ? (k.name as string) : undefined };
+      }
+      if (parent.type === "ExpressionTag" || parent.type === "HtmlTag") {
+        const grand = chain[i - 2];
+        if (grand?.node.type === "Attribute") {
+          return { attr: grand.node, templateText: chain.slice(0, i - 2) };
+        }
+        return { templateText: chain.slice(0, i) };
+      }
+      return {};
+    }
+    return {};
+  }
+
+  /** The kind of template text by the element it sits in. */
+  function textKind(chain: Ancestor[]): Kind | undefined {
+    let kind: Kind = "copy";
+    let inHead = false;
+    for (const { node } of chain) {
+      if (node.type === "SvelteHead") inHead = true;
+      // Svelte 5 parses `<svelte:head><title>` as its own node type.
+      if (node.type === "TitleElement") kind = "seo";
+      if (node.type !== "RegularElement" && node.type !== "SvelteElement") continue;
+      const name = String(node.name).toLowerCase();
+      if (name === "script" || name === "style" || name === "code" || name === "pre") {
+        return undefined;
+      }
+      if (name === "title" && inHead) kind = "seo";
+      else if (/^h[1-6]$/.test(name)) kind = "heading";
+      else if (name === "button") kind = "button";
+      else if (name === "blockquote" && kind === "copy") kind = "testimonial";
+    }
+    return kind;
+  }
+
+  /** Which kind a value under an attribute is, or undefined when no visitor
+   *  reads it. `el` is the element or component the attribute is on. */
+  function attrKind(el: Node, attrName: string, value: string): Kind | undefined {
+    const tag = String(el.name);
+    const isComponent = el.type === "Component" || el.type === "SvelteComponent";
+    const name = attrName.toLowerCase();
+    if (!isComponent) {
+      switch (name) {
+        case "alt":
+          return "alt";
+        case "title":
+        case "placeholder":
+        case "label":
+        case "aria-label":
+          return "copy";
+        case "href":
+          return tag === "link" ? undefined : linkKind(value);
+        case "src":
+        case "srcset":
+        case "data-src":
+        case "poster": {
+          if (tag === "iframe") return strongKind(value) === "video" ? "video" : linkKind(value);
+          if (tag === "script") return undefined;
+          const a = assetKind(value.split(/\s/)[0] ?? "");
+          if (name === "poster") return a ? "video" : undefined;
+          return (
+            a ??
+            (/^(?:https?:)?\/\//.test(value) ? (tag === "video" ? "video" : "image") : undefined)
+          );
+        }
+        case "content": {
+          if (tag !== "meta") return undefined;
+          const meta = (el.attributes as Node[]).find(
+            (a) => a.type === "Attribute" && (a.name === "name" || a.name === "property"),
+          );
+          const which = meta ? staticValue(meta)?.toLowerCase() : undefined;
+          if (!which || !/(?:description|title|image)$/.test(which)) return undefined;
+          return "seo";
+        }
+        case "value": {
+          if (tag !== "input") return undefined;
+          const type = (el.attributes as Node[]).find(
+            (a) => a.type === "Attribute" && a.name === "type",
+          );
+          const t = type ? staticValue(type) : undefined;
+          return t === "submit" || t === "button" ? "button" : undefined;
+        }
+        default:
+          return undefined;
+      }
+    }
+    // A component prop: by its name, then by the value's shape.
+    const byKey = kindForKey(attrName);
+    return valueKindForKey(byKey, value);
+  }
+
+  /** Combine a name's kind with what the value looks like. */
+  function valueKindForKey(byKey: Kind | undefined, value: string): Kind | undefined {
+    // `script.src = "https://player.vimeo.com/api/player.js"` loads code.
+    if (CODE_URL.test(value.trim())) return undefined;
+    const strong = strongKind(value);
+    if (byKey === undefined) return strong;
+    switch (byKey) {
+      case "link":
+      case "social":
+        return linkKind(value) ?? strong;
+      case "image":
+        return assetKind(value) ?? (/^(?:https?:)?\/\//.test(value) ? "image" : strong);
+      case "video":
+        // A poster image under a video name is part of the video.
+        if (strong === "video" || assetKind(value) !== undefined) return "video";
+        return /^\d{5,}$/.test(value.trim()) || /^[\w-]{11}$/.test(value.trim()) ? "video" : strong;
+      case "phone":
+      case "email":
+        return strong ?? (/\d|@/.test(value) ? byKey : undefined);
+      default:
+        if (strong) return strong;
+        if (isIdentifierLike(value)) return undefined;
+        return refineProse(byKey === "copy" ? "copy" : byKey, value);
+    }
+  }
+
+  const staticValue = (attr: Node): string | undefined => {
+    const v = attr.value;
+    if (Array.isArray(v) && v.every((p) => isNode(p) && p.type === "Text")) {
+      return (v as Node[]).map((p) => p.data as string).join("");
+    }
+    if (isNode(v) && v.type === "ExpressionTag") return literalText(v.expression as Node);
+    return undefined;
+  };
+
+  // A string literal (or template literal) somewhere in an expression.
+  function onLiteral(node: Node, chain: Ancestor[]): void {
+    const text = literalText(node);
+    if (text === undefined) return;
+    // Types, import sources, object keys, comparisons and computed keys are
+    // never content.
+    for (let i = chain.length - 1; i > 0; i--) {
+      const parent = chain[i - 1]!.node;
+      const key = chain[i]!.key;
+      if (parent.type.startsWith("TS") && !TRANSPARENT.has(parent.type)) return;
+      if (
+        parent.type === "ImportDeclaration" ||
+        parent.type === "ExportNamedDeclaration" ||
+        parent.type === "ExportAllDeclaration" ||
+        parent.type === "ImportExpression"
+      ) {
+        if (key === "source") return;
+      }
+      if ((parent.type === "Property" || parent.type === "PropertyDefinition") && key === "key") {
+        return;
+      }
+      if (parent.type === "MemberExpression" && key === "property") return;
+      if (
+        parent.type === "BinaryExpression" &&
+        ["===", "!==", "==", "!=", "in", "instanceof"].includes(parent.operator as string)
+      ) {
+        return;
+      }
+      if (parent.type === "SwitchCase" && key === "test") return;
+      if (TRANSPARENT.has(parent.type)) continue;
+      break;
+    }
+    if (isFallback(chain) || isDevOnly(chain)) return;
+
+    const pos = node.start ?? 0;
+    const holes = node.type === "TemplateLiteral" && (node.expressions as unknown[]).length > 0;
+    // A link or a path with a hole in it is built from data; words with a hole
+    // in them are still words written in code.
+    const reportLiteral = (p: number, kind: Kind, t: string): void => {
+      if (holes && !isProseKind(kind)) return;
+      report(p, kind, t);
+    };
+    const slot = slotOf(chain);
+    if (slot.attr) {
+      const el = [...chain].reverse().find((a) => ELEMENTS.has(a.node.type))?.node;
+      if (!el) return;
+      const kind = attrKind(el, String(slot.attr.name), text);
+      if (kind) reportLiteral(pos, kind, text);
+      return;
+    }
+    if (slot.templateText) {
+      // `{"script"}` is a code word, and `{@html "<script …>"}` is markup.
+      if (isIdentifierLike(text) || /<(?:script|style)\b/i.test(text)) return;
+      const kind = textKind(slot.templateText);
+      const words = text.replace(/<[^>]*>/g, " ");
+      if (kind) reportLiteral(pos, refineProse(kind, words), words);
+      return;
+    }
+    const binding = enclosingBinding(chain);
+    const byKey =
+      (slot.name ? kindForKey(slot.name) : undefined) ??
+      (binding ? kindForKey(binding.name) : undefined);
+    const kind = valueKindForKey(byKey, text);
+    if (!kind || (holes && !isProseKind(kind))) return;
+    if (binding)
+      pending.push({ binding: binding.name, exported: binding.exported, pos, kind, text });
+    else report(pos, kind, text);
+  }
+
+  // A number literal can be a video ID: `vimeoId={1092190178}`, `vimeoId: 123456789`.
+  function onNumber(node: Node, chain: Ancestor[]): void {
+    if (typeof node.value !== "number" || isFallback(chain)) return;
+    const slot = slotOf(chain);
+    const name = slot.attr ? String(slot.attr.name) : slot.name;
+    if (name && kindForKey(name) === "video" && String(node.value).length >= 5) {
+      report(node.start ?? 0, "video", String(node.value));
+    }
+  }
+
+  function onAttribute(attr: Node, chain: Ancestor[]): void {
+    const v = attr.value;
+    if (!Array.isArray(v)) return; // expression values are walked as expressions
+    const el = chain.at(-2)!.node;
+    if (isDevOnly(chain)) return;
+    const parts = v as Node[];
+    const allText = parts.every((p) => p.type === "Text");
+    const text = parts.map((p) => (p.type === "Text" ? (p.data as string) : "${…}")).join("");
+    if (!allText) {
+      // `alt="Photo of {name}"`: the words are still written in code. A link or
+      // a path with a hole in it is built from data, so it is not reported.
+      const kind = attrKind(el, String(attr.name), text);
+      if (kind && isProseKind(kind) && !isFallback(chain)) {
+        report(attr.start ?? 0, kind, text);
+      }
+      return;
+    }
+    if (isFallback(chain)) return;
+    const kind = attrKind(el, String(attr.name), text);
+    if (kind) report((parts[0]?.start as number | undefined) ?? attr.start ?? 0, kind, text);
+  }
+
+  function onText(node: Node, chain: Ancestor[]): void {
+    const kind = textKind(chain);
+    if (!kind) return;
+    if (isFallback(chain) || isDevOnly(chain)) return;
+    const text = node.data as string;
+    if (text.trim() === "") return;
+    const start = (node.start ?? 0) + (text.length - text.trimStart().length);
+    report(start, refineProse(kind, text), text);
+  }
+
+  function onIdentifier(node: Node, chain: Ancestor[]): void {
+    const name = node.name as string;
+    const parent = chain.at(-2)?.node;
+    const key = chain.at(-1)!.key;
+    if (!parent) return;
+    // A property key, `x.y`'s `y`, or a declaration's own name is not a use.
+    if (parent.type === "Property" && key === "key" && !parent.shorthand) return;
+    if (parent.type === "MemberExpression" && key === "property" && !parent.computed) return;
+    if (parent.type === "VariableDeclarator" && key === "id") return;
+    if (isDevOnly(chain)) return;
+    const use = uses.get(name) ?? { bare: 0, fallback: 0 };
+    if (isFallback(chain)) use.fallback++;
+    else use.bare++;
+    uses.set(name, use);
+  }
+
+  // `chain` is the path from the root to `node`, `node` included as its last
+  // entry; each entry's `key` is the property of the entry before it that the
+  // node hangs off.
+  function visit(node: Node, chain: Ancestor[]): void {
+    switch (node.type) {
+      case "ImportDeclaration": {
+        const src = (node.source as Node).value as string;
+        const kind = assetKind(src);
+        if (kind) {
+          for (const s of node.specifiers as Node[]) {
+            const local = (s.local as Node).name as string;
+            assets.set(local, {
+              pos: (node.source as Node).start ?? 0,
+              kind,
+              text:
+                src
+                  .replace(/[?#].*$/, "")
+                  .split("/")
+                  .at(-1) ?? src,
+            });
+          }
+        }
+        return; // nothing else in an import is content
+      }
+      case "Literal":
+        if (typeof node.value === "string") onLiteral(node, chain);
+        else if (typeof node.value === "number") onNumber(node, chain);
+        return;
+      case "TemplateLiteral":
+        onLiteral(node, chain);
+        // Holes are expressions in their own right: `${a || "x"}`.
+        for (const e of node.expressions as Node[])
+          visit(e, [...chain, { node: e, key: "expressions" }]);
+        return;
+      case "Text":
+        if (chain.at(-2)?.node.type !== "Attribute") onText(node, chain);
+        return;
+      case "Attribute":
+        onAttribute(node, chain);
+        break;
+      case "Identifier":
+        onIdentifier(node, chain);
+        return;
+      case "Comment":
+        return;
+    }
+    for (const [key, child] of children(node)) visit(child, [...chain, { node: child, key }]);
+  }
+
+  // Asset imports first: the template can come before the script in the
+  // file, and a use is only recognisable once its import is known.
+  for (const script of [ast.module, ast.instance]) {
+    if (!isNode(script)) continue;
+    for (const stmt of (script.content as Node).body as Node[]) {
+      if (stmt.type === "ImportDeclaration") visit(stmt, []);
+    }
+  }
+  visit(ast, [{ node: ast, key: "" }]);
+  return finalize();
+
+  function finalize(): FileScan {
+    for (const [name, a] of assets) if (!onlyFallbacks(name)) report(a.pos, a.kind, a.text);
+    const deferred: Deferred[] = [];
+    for (const p of pending) {
+      if (p.exported) {
+        const before = findings.length;
+        report(p.pos, p.kind, p.text);
+        // `report` applies the filters; what survives waits for the site.
+        if (findings.length > before) deferred.push({ ...findings.pop()!, binding: p.binding });
+      } else if (!onlyFallbacks(p.binding)) {
+        report(p.pos, p.kind, p.text);
+      }
+    }
+    findings.sort((x, y) => (offsets.get(x) ?? 0) - (offsets.get(y) ?? 0));
+    return { findings, deferred, uses };
+  }
+}

@@ -1,0 +1,240 @@
+[
+  {
+    "id": "drop-fallback-exemption",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "  function isFallback(chain: Ancestor[]): boolean {\n",
+        "replace": "  function isFallback(chain: Ancestor[]): boolean {\n    return false;\n"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "brief: no literal is a fallback; the clean fixture and every fallback case must go red"
+  },
+  {
+    "id": "drop-legal-page-exemption",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": "    if (segs.some((s) => LEGAL.has(norm(s)))) return \"legal page\";\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "brief: legal pages are scanned; the clean fixture's privacy page must be reported"
+  },
+  {
+    "id": "ignore-the-baseline",
+    "edits": [
+      {
+        "file": "src/content-check/check.ts",
+        "find": "    const allowed = baseline.counts[g[0]!.file]?.[baselineKey(g[0]!)] ?? 0;",
+        "replace": "    const allowed = 0;"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "brief: every literal is new after --init; the warn and fail flows must go red"
+  },
+  {
+    "id": "stop-flagging-tel-links",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": "  if (/^tel:/i.test(v)) return \"phone\";\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "brief: a tel: href is no longer a phone row; the dirty fixture and link cases must go red"
+  },
+  {
+    "id": "stop-flagging-alt",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "        case \"alt\":\n          return \"alt\";",
+        "replace": "        case \"alt\":\n          return undefined;"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "brief: alt text is not reported; dirty fixture, Vineyard rows and attribute cases must go red"
+  },
+  {
+    "id": "drop-dev-route-exemption",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": "    if (segs[0] === \"dev\") return \"dev route\";\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "/dev/* is scanned; the clean fixture's dev page must be reported"
+  },
+  {
+    "id": "drop-dev-only-rule",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "    if (devNames.size === 0) return false;\n",
+        "replace": "    return false;\n"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "code behind SvelteKit's dev counts; the dev-only and MSOT cross-file cases must go red"
+  },
+  {
+    "id": "drop-fallback-parameter-rule",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "FALLBACK_PARAM.test(params[at] ?? \"\")",
+        "replace": "false"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "text(field, \"x\") is no longer a fallback; the clean fixture's copy module must be reported"
+  },
+  {
+    "id": "drop-importer-reads",
+    "edits": [
+      {
+        "file": "src/content-check/check.ts",
+        "find": "          if (imp.imported === d.binding) add(otherScan.uses.get(local));\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "an importer's plain read stops counting; the 'reported once any scanned file reads it plainly' case must go red"
+  },
+  {
+    "id": "drop-decorative-filter",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": "  const letters = text.match(/\\p{L}/gu)?.length ?? 0;\n  if (letters < 2) return true;\n",
+        "replace": "  const letters = text.match(/\\p{L}/gu)?.length ?? 0;\n  if (letters < 0) return true;\n"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "\"01\" and \"V\" are reported; the decorative case and the clean fixture must go red"
+  },
+  {
+    "id": "drop-beside-field-rule",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "hasFieldProp(parent) && besideField(chain[i]!.node)",
+        "replace": "false"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "media beside field= is reported; Vineyard main must flag homethumb.jpg"
+  },
+  {
+    "id": "loosen-ternary-to-any-branch",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "if (other && !isPureLiteral(other) && sharePath(reads(parent.test as Node), reads(other))) {",
+        "replace": "if (other && !isPureLiteral(other)) {"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "any ternary with a non-literal branch is a fallback; the status === 404 case must go red"
+  },
+  {
+    "id": "drop-else-branch-rule",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "    return sharePath(reads(block.test as Node), reads(block.consequent as Node));",
+        "replace": "    return false;"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "an {:else} for the same field is reported; the clean fixture's intro fallback must go red"
+  },
+  {
+    "id": "warn-mode-fails",
+    "edits": [
+      {
+        "file": "src/cli/commands/content-check.ts",
+        "find": "  const failed = config.mode === \"fail\" && !opts.all && shown.length > 0;",
+        "replace": "  const failed = !opts.all && shown.length > 0;"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "warn mode exits 1 on a new literal; the warn-mode cases must go red"
+  }
+]
