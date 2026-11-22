@@ -224,6 +224,39 @@ describe("Sites filtered to one health check (P1-87, PR 8b)", () => {
       expect(more ? Number(more[1]) : 0, name).toBe(bar.unknown);
     }
   });
+  // #2185: the count is the fleet's; when the status form or the search leaves fewer rows, the
+  // line also says how many are shown, so it is true of the rows under it.
+  it.each([
+    ["/fleet?check=certificate&status=archived", "Failing Certificate: 2 sites, 0 shown"],
+    ["/fleet?check=certificate&q=zzz", "Failing Certificate: 2 sites, 0 shown"],
+    ["/fleet?check=certificate&q=bra", "Failing Certificate: 2 sites, 1 shown"],
+  ])("%s says how many of the failing sites are shown", async (href, line) => {
+    const doc = await page(href);
+    expect(text(checkLine(doc)!)).toContain(line);
+  });
+
+  it("says nothing of shown when every failing site is a row", async () => {
+    const doc = await page("/fleet?check=certificate");
+    expect(text(checkLine(doc)!)).not.toContain("shown");
+  });
+
+  // #2186: the title names the check, so the route announcer reads it on arrival.
+  async function title(href: string): Promise<string> {
+    const url = new URL(href, "https://dash.example");
+    const data = (await (load as unknown as (e: unknown) => Promise<Data>)({
+      url,
+      parent: async () => ({ snapshot: CHECK_SNAP, failure: null, clockOffsetMs: 0 }),
+    })) as Data;
+    return text(parse(render(Page, { props: { data } }).head).querySelector("title")!);
+  }
+
+  it("titles the page with the check in force, and leaves the plain title otherwise", async () => {
+    expect(await title("/fleet?check=certificate")).toBe(
+      "Failing Certificate · Sites — Reddoor maintenance",
+    );
+    expect(await title("/fleet")).toBe("Sites — Reddoor maintenance");
+    expect(await title("/fleet?check=nope")).toBe("Sites — Reddoor maintenance");
+  });
 });
 
 describe("the Sites links keep or drop the check (P1-87, PR 8b)", () => {
@@ -334,5 +367,89 @@ describe("/fleet's Recently lane windows at the page's now, not the snapshot's t
     const html = await renderAt("2026-11-19T18:00:00.000Z");
     expect(html).not.toContain(EVENT_SUMMARY);
     expect(html).not.toContain(DEPLOY_SUMMARY);
+  });
+});
+
+/** #2202 and #2203: the Recently lane's window, at its edge and under a clock offset. An event
+ *  and a deploy at the same time must both show or both go: they share one window. */
+describe("/fleet's Recently lane: the window's inclusive edge and the page's clock offset", () => {
+  type Data = Parameters<typeof Page>[1]["data"];
+  const EVENT_SUMMARY = "cleared 2 critical/high vulns";
+  const DEPLOY_SUMMARY = "Deploy published";
+  const WEEK = 7 * 86_400_000;
+
+  const snapWith = (takenAt: string, ts: string) =>
+    snapshot({
+      takenAt,
+      recentEvents: [
+        {
+          id: "vuln_cleared:recA:edge",
+          ts,
+          type: "vuln_cleared",
+          siteId: "recA",
+          siteName: "Caltex",
+          summary: EVENT_SUMMARY,
+          data: { from: 2 },
+        },
+      ],
+      feedDeploys: [
+        {
+          id: `site_deployed:recA:${ts}`,
+          ts,
+          type: "site_deployed",
+          siteId: "recA",
+          siteName: "Caltex",
+          summary: DEPLOY_SUMMARY,
+          data: null,
+        },
+      ],
+    });
+
+  async function renderWith(
+    systemTime: string,
+    takenAt: string,
+    ts: string,
+    clockOffsetMs: number,
+  ): Promise<string> {
+    vi.setSystemTime(new Date(systemTime));
+    const data = (await (load as unknown as (e: unknown) => Promise<Data>)({
+      url: new URL("/fleet", "https://dash.example"),
+      parent: async () => ({ snapshot: snapWith(takenAt, ts), failure: null, clockOffsetMs }),
+    })) as Data;
+    return render(Page, { props: { data } }).body;
+  }
+
+  afterAll(() => {
+    vi.setSystemTime(OVERVIEW_NOW);
+  });
+
+  const AT = "2026-11-17T18:00:00.000Z";
+
+  // #2202: `>= since`, the same inclusive bound the recent events get.
+  it("shows the event and the deploy exactly 7 days old", async () => {
+    const html = await renderWith(AT, AT, new Date(Date.parse(AT) - WEEK).toISOString(), 0);
+    expect(html).toContain(EVENT_SUMMARY);
+    expect(html).toContain(DEPLOY_SUMMARY);
+    expect(html).toContain("Recently (2)");
+  });
+
+  it("shows neither 1 ms older than that", async () => {
+    const html = await renderWith(AT, AT, new Date(Date.parse(AT) - WEEK - 1).toISOString(), 0);
+    expect(html).not.toContain(EVENT_SUMMARY);
+    expect(html).not.toContain(DEPLOY_SUMMARY);
+  });
+
+  // #2203: a browser clock 3 days ahead of the server's. The page's now is
+  // Date.now() + clockOffsetMs = 2026-11-17T18:00Z, so both rows, 5.25 days old, show.
+  it("windows both rows at Date.now() + clockOffsetMs, not at the machine's clock", async () => {
+    const html = await renderWith(
+      "2026-11-20T18:00:00.000Z",
+      AT,
+      "2026-11-12T12:00:00.000Z",
+      -3 * 86_400_000,
+    );
+    expect(html).toContain(EVENT_SUMMARY);
+    expect(html).toContain(DEPLOY_SUMMARY);
+    expect(html).toContain("Recently (2)");
   });
 });

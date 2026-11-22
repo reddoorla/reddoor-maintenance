@@ -5862,6 +5862,81 @@ describe("PR 8c, How this works motion", () => {
     expect(order).toEqual([...order].sort((a, b) => a - b));
   });
 
+  // #2183: once every step is lit the step observer has nothing left to do, and is disconnected.
+  // An init script marks the observers that watch a step and counts their disconnects.
+  it("disconnects the step observer once every step is lit", async () => {
+    const page = await signedIn();
+    await page.addInitScript(() => {
+      const w = window as unknown as { __stepDisconnects: number };
+      w.__stepDisconnects = 0;
+      const watching = new WeakSet<IntersectionObserver>();
+      const proto = IntersectionObserver.prototype;
+      const observe = proto.observe;
+      const disconnect = proto.disconnect;
+      proto.observe = function (this: IntersectionObserver, el: Element) {
+        if (el.closest("ol.how-steps") !== null) watching.add(this);
+        return observe.call(this, el);
+      };
+      proto.disconnect = function (this: IntersectionObserver) {
+        if (watching.has(this)) w.__stepDisconnects++;
+        return disconnect.call(this);
+      };
+    });
+    await page.setViewportSize({ width: 390, height: 700 });
+    await page.goto(`${origin}/how`);
+    await stepsScripted(page);
+    const disconnects = () =>
+      page.evaluate(() => (window as unknown as { __stepDisconnects: number }).__stepDisconnects);
+    expect(await disconnects(), "the premise: not disconnected while steps are unlit").toBe(0);
+    const n = await page.locator("ol.how-steps > li").count();
+    await scrollToStep(page, n - 1);
+    await expect
+      .poll(async () => (await litFlags(page)).every((f) => f === "true"), { timeout: 5_000 })
+      .toBe(true);
+    await expect.poll(disconnects, { timeout: 5_000 }).toBeGreaterThan(0);
+  });
+
+  // Round 1: at 1280x700 every step is in view on load, so the observer is disconnected at
+  // mount, by the other of the two disconnect calls.
+  it("disconnects the step observer at mount when every step is lit on load", async () => {
+    const page = await signedIn();
+    await page.addInitScript(() => {
+      const w = window as unknown as { __stepDisconnects: number };
+      w.__stepDisconnects = 0;
+      const watching = new WeakSet<IntersectionObserver>();
+      const proto = IntersectionObserver.prototype;
+      const observe = proto.observe;
+      const disconnect = proto.disconnect;
+      proto.observe = function (this: IntersectionObserver, el: Element) {
+        if (el.closest("ol.how-steps") !== null) watching.add(this);
+        return observe.call(this, el);
+      };
+      proto.disconnect = function (this: IntersectionObserver) {
+        if (watching.has(this)) w.__stepDisconnects++;
+        return disconnect.call(this);
+      };
+    });
+    await page.setViewportSize({ width: 1280, height: 700 });
+    await page.goto(`${origin}/how`);
+    await stepsScripted(page);
+    const below = await page
+      .locator("ol.how-steps > li")
+      .evaluateAll((els) => els.some((el) => el.getBoundingClientRect().top >= window.innerHeight));
+    expect(below, "the premise: no step is below the fold").toBe(false);
+    await expect
+      .poll(async () => (await litFlags(page)).every((f) => f === "true"), { timeout: 5_000 })
+      .toBe(true);
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            () => (window as unknown as { __stepDisconnects: number }).__stepDisconnects,
+          ),
+        { timeout: 5_000 },
+      )
+      .toBeGreaterThan(0);
+  });
+
   it("each step's light takes 300 ms, the transition's length", async () => {
     const page = await signedIn();
     await page.goto(`${origin}/how`);
@@ -6618,5 +6693,28 @@ describe("a health bar opens /fleet filtered, in a browser (P1-87 PR 8b)", () =>
     expect(ring.width).toBeGreaterThanOrEqual(2);
     expect(ring.style).toBe("solid");
     expect(ring.ring).toBe(ring.focus);
+  });
+
+  // #2189: the style guide's link rule. No underline at rest, an underline on hover and on
+  // keyboard focus. The premise: at rest it is not underlined, so the two reads can tell.
+  it("a linked check row is underlined on hover and on keyboard focus, and not at rest", async () => {
+    const page = await nextRun();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(`${origin}/`);
+    const bar = page.locator('a[href="/fleet?check=certificate"]');
+    await expect.poll(() => bar.count()).toBe(1);
+    await figuresSettled(page);
+    const line = () => bar.evaluate((el) => getComputedStyle(el).textDecorationLine);
+    await page.mouse.move(0, 0);
+    expect(await line(), "at rest").toBe("none");
+    await bar.hover();
+    expect(await line(), "on hover").toBe("underline");
+    await page.mouse.move(0, 0);
+    expect(await line(), "after the pointer leaves").toBe("none");
+    await bar.focus();
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Tab");
+    expect(await bar.evaluate((el) => el.matches(":focus-visible"))).toBe(true);
+    expect(await line(), "on keyboard focus").toBe("underline");
   });
 });

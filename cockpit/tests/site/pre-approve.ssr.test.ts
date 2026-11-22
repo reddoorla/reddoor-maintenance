@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import Page from "../../src/routes/s/[slug]/+page.svelte";
-import { buildSiteView, sendDayLabel } from "../../src/lib/site/view.js";
+import { buildSiteView } from "../../src/lib/site/view.js";
+import { sendDayLabel } from "../../../src/reports/due.js";
 import { renderPage } from "../_helpers/parity.js";
 import type { ReportRow } from "../../../src/reports/report-fields.js";
 import { input, pending, reportRow } from "./fixtures.js";

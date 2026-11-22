@@ -84,7 +84,7 @@ describe("section 1: the one-line status", () => {
     // In plain words, not the triage title ("a sampled page did not answer 2xx or 3xx").
     expect(v.status.broken).toEqual([
       {
-        key: "bravo",
+        key: "recB",
         siteName: "Bravo",
         url: "/s/bravo",
         reasons: "a page on the site did not answer at the last check",
@@ -4192,5 +4192,29 @@ describe("P1-87 PR 8b: the per-site verdicts behind the health bars", () => {
     expect(checkNameForSlug("nope")).toBeNull();
     expect(checkNameForSlug("constructor")).toBeNull();
     expect(checkNameForSlug("")).toBeNull();
+  });
+});
+
+// #2178: two Broken sites whose names slug alike are two Triage rows now, so the status panel's
+// Broken list, rendered with a keyed {#each}, must key them apart: by site id, never by slug.
+describe("section 1: two Broken namesakes get two keys (#2178)", () => {
+  it("keys each Broken row by its site id", () => {
+    const v = overviewFromSnapshot(
+      snapshot({
+        sites: [
+          healthy({ id: "recCO", name: "Acme Co", reachableOk: "fail" }),
+          healthy({ id: "recDASH", name: "Acme-Co", reachableOk: "fail" }),
+        ],
+        digest: {
+          "uptime:recCO": { metric: 1, firstFlaggedAt: "2026-10-25" },
+          "uptime:recDASH": { metric: 1, firstFlaggedAt: "2026-10-25" },
+        },
+      }),
+      NOW,
+    );
+    expect(v.status.broken.map((b) => b.siteName).sort()).toEqual(["Acme Co", "Acme-Co"]);
+    const keys = v.status.broken.map((b) => b.key);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(keys.sort()).toEqual(["recCO", "recDASH"]);
   });
 });

@@ -301,3 +301,20 @@ export function reportPeriodKey(dueDate: Date): string {
 export function heldUntilDue(report: Pick<ReportRow, "dueOn">, now: Date): boolean {
   return report.dueOn !== null && pacificYmd(now) < report.dueOn;
 }
+
+/** A due date as the send that delivers it: "Sat 11-21, 8:07am PT". The send
+ *  clock runs at 16:07 UTC, which is 8:07am in PST and 9:07am in PDT. */
+export function sendDayLabel(dueOn: string): string {
+  const run = new Date(`${dueOn}T16:07:00Z`);
+  if (Number.isNaN(run.getTime())) return dueOn;
+  const weekday = run.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
+  const time = run
+    .toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: "America/Los_Angeles",
+    })
+    .replace(/\s/u, "")
+    .toLowerCase();
+  return `${weekday} ${dueOn.slice(5)}, ${time} PT`;
+}

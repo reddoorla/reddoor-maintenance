@@ -216,6 +216,16 @@ describe("backupEventFromVerify", () => {
       "a non-integer row count",
       "DUMP_VERIFY loaded=true tables=44 rows=1.5 blob_bytes=987 hashed=44 mismatches=0",
     ],
+    // #2200, the operator's answer (a): 0 tables restored is not a verified backup.
+    [
+      "a rehearsal that restored no table",
+      "DUMP_VERIFY loaded=true tables=0 rows=0 blob_bytes=0 hashed=0 mismatches=0",
+    ],
+    // Round 5: with rows, and with hashed unlike tables, so only a guard on tables refuses it.
+    [
+      "a rehearsal that restored no table, with rows",
+      "DUMP_VERIFY loaded=true tables=0 rows=5 blob_bytes=0 hashed=2 mismatches=0",
+    ],
     ["no machine line at all", "✗ sites: dump=44 restored=43"],
     ["empty text", ""],
   ])("returns null for %s", (_name, text) => {
@@ -231,6 +241,26 @@ describe("backupEventFromVerify", () => {
         AT,
       ),
     ).toBeNull();
+  });
+
+  // #2200 round 4: the guard reads tables, not rows: a rehearsal of real tables that hold no
+  // rows is still a verified restore.
+  it("records a rehearsal of 3 tables and 0 rows", () => {
+    const e = backupEventFromVerify(
+      "DUMP_VERIFY loaded=true tables=3 rows=0 blob_bytes=0 hashed=3 mismatches=0",
+      AT,
+    );
+    expect(e?.data).toEqual({ tables: 3, rows: 0 });
+  });
+
+  // #2200 round 5: one table is enough ("tables at least 1"), and hashed=0 there, so a guard on
+  // hashed, or one that wants more than one table, goes red.
+  it("records a rehearsal of 1 table", () => {
+    const e = backupEventFromVerify(
+      "DUMP_VERIFY loaded=true tables=1 rows=4 blob_bytes=0 hashed=0 mismatches=0",
+      AT,
+    );
+    expect(e?.data).toEqual({ tables: 1, rows: 4 });
   });
 
   it("returns null when two machine lines disagree", () => {
