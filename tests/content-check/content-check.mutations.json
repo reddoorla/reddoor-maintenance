@@ -21,7 +21,7 @@
     "edits": [
       {
         "file": "src/content-check/rules.ts",
-        "find": "    if (segs.some((s) => LEGAL.has(norm(s)))) return \"legal page\";\n",
+        "find": "    if (segs[0] !== undefined && LEGAL.has(norm(segs[0]))) return \"legal page\";\n",
         "replace": ""
       }
     ],
@@ -191,7 +191,7 @@
     "edits": [
       {
         "file": "src/content-check/scan.ts",
-        "find": "            !isPureLiteral(other) &&\n            sharePath(reads(parent.test as Node), valuePaths(other))\n",
+        "find": "            !isPureLiteral(other) &&\n            (key === \"alternate\"\n              ? shares(emptiness(parent.test as Node), valuePaths(other))\n              : shares(negatedEmptiness(parent.test as Node), valuePaths(other)))\n",
         "replace": "            !isPureLiteral(other)\n"
       }
     ],
@@ -208,8 +208,8 @@
     "edits": [
       {
         "file": "src/content-check/scan.ts",
-        "find": "    return sharePath(reads(block.test as Node), valuePaths(block.consequent as Node));",
-        "replace": "    return false;"
+        "find": "    shares(emptiness(block.test as Node), rendered(block.consequent as Node));",
+        "replace": "    false;"
       }
     ],
     "test": [
@@ -293,7 +293,7 @@
     "edits": [
       {
         "file": "src/content-check/scan.ts",
-        "find": "            chain[i - 2]?.node.kind === \"let\" &&\n",
+        "find": "          chain[i - 2]?.node.kind === \"let\" &&\n",
         "replace": ""
       }
     ],
