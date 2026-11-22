@@ -48,8 +48,10 @@ function dueDeps(reports: RawRow[] = [], over: Record<string, unknown> = {}) {
 }
 
 /** #2157's re-date IO, recorded in call order. `unapprove` answers `took`
- *  (false = a send or a withdraw won the race); `rerender` answers `status` and
- *  `stored` (false = an approve, send or withdraw landed while it rendered).
+ *  (false = its write matched nothing: a send, claim or withdraw won, he
+ *  unapproved it himself, or another run took it back first); `rerender`
+ *  answers `status` and `stored` (false = the conditioned write matched
+ *  nothing). `ats` records each take-back's time.
  *  `unapproveThrows` / `rerenderThrows` make that call throw the value given. */
 function fakeRedate(
   opts: {
@@ -63,12 +65,15 @@ function fakeRedate(
   const calls: string[] = [];
   const unapproves: Array<{ id: string; by: string }> = [];
   const markers: Array<RedatedMarker | null> = [];
+  const ats: Date[] = [];
   return {
     calls,
     unapproves,
     markers,
-    unapprove: async (id: string, _at: Date, by: string) => {
+    ats,
+    unapprove: async (id: string, at: Date, by: string) => {
       calls.push(`unapprove ${id}`);
+      ats.push(at);
       unapproves.push({ id, by });
       if (opts.unapproveThrows !== undefined) throw opts.unapproveThrows;
       return opts.took ?? true;
@@ -788,6 +793,7 @@ describe("draftDueReports — P1-117 early drafts", () => {
     expect(draftReportForSite).not.toHaveBeenCalled();
     const line = `• ${MOVED} — approval taken back, preview re-rendered; approve again`;
     expect(res.output).toContain(line);
+    expect(res.output).toContain("skipped (already drafted 2026-06)");
     // The pass runs after the draft loop, so its line follows the loop's.
     const out = res.output.split("\n");
     expect(out.indexOf(line)).toBeGreaterThan(
@@ -994,6 +1000,46 @@ describe("draftDueReports — P1-117 early drafts", () => {
     );
     expect(res.output).not.toContain("approve again");
     expect(res.code).toBe(0);
+  });
+
+  it("stamps the take-back with this run's time", async () => {
+    const redate = fakeRedate();
+    await redateRun({ maintenanceDay: "2026-05-02" }, [readyRow()], redate);
+    expect(redate.ats).toEqual([TODAY]);
+  });
+
+  it("names another run's take-back when the store after a missed take-back is refused", async () => {
+    const { res } = await redateRun(
+      { maintenanceDay: "2026-05-02" },
+      [readyRow()],
+      fakeRedate({ took: false, stored: false }),
+    );
+    expect(res.output).toContain(
+      `⚠ ${MOVED} — not re-dated: it was approved, claimed for a send, sent, withdrawn or superseded while this run worked, or another run took its approval back for another move`,
+    );
+    expect(res.output).not.toContain("approved and unapproved again");
+  });
+
+  it("names only what can refuse a never-approved row's store", async () => {
+    const { res } = await redateRun(
+      { maintenanceDay: "2026-05-02" },
+      [readyRow(unapproved)],
+      fakeRedate({ stored: false }),
+    );
+    expect(res.output).toContain(
+      `⚠ ${MOVED} — not re-dated: it was approved, claimed for a send, sent, withdrawn or superseded while this run worked`,
+    );
+    expect(res.output).not.toContain("approved and unapproved again");
+    expect(res.output).not.toContain("another run");
+  });
+
+  it("an unreadable cycle on a night with nothing due still prints ✗ and fails the run", async () => {
+    const res = await redateRun({ maintenanceDay: "garbage" }, [readyRow()]);
+    expect(res.res.output).toContain(
+      "✗ Acme Co Maintenance (due 2026-06-01): its cycle could not be read, so a due-date move was not checked",
+    );
+    expect(res.res.output).toContain("No reports due.");
+    expect(res.res.code).toBe(1);
   });
 
   it("says a row sent while it rendered was not re-dated", async () => {

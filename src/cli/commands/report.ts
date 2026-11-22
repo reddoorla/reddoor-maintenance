@@ -571,7 +571,8 @@ export type DraftDueDeps = {
 export type RedateDeps = {
   /** Take back the row's approval, conditioned on it being approved, unsent,
    *  unwithdrawn and unclaimed (`unapproveReportIfUnsent`); false when the
-   *  write matched nothing, because a send or a withdraw won. */
+   *  write matched nothing: a send, a claim or a withdraw won, the operator
+   *  unapproved it himself, or another run took it back first. */
   unapprove: (reportId: string, at: Date, by: string) => Promise<boolean>;
   /** Re-render the row's body on the send's own path (`rerenderReport`, which
    *  refreshes an unapproved row's scores, visits and evidence first), with
@@ -579,8 +580,8 @@ export type RedateDeps = {
    *  conditioned on the row being draft-ready, unapproved, unsent, unwithdrawn
    *  and unclaimed (`storeRedatedBody`). With `marker`, the same write rewrites
    *  the nightly's take-back marker from `was` to `now`, conditioned on it still
-   *  reading `was`; with `{ nightlyOnly }`, it rewrites the marker only where it
-   *  is the nightly's. `status` is the render's; `stored` is false when the
+   *  reading `was`; with `{ nightlyOnly }`, it keeps the marker and is refused
+   *  where the marker is the nightly's for another move. `status` is the render's; `stored` is false when the
    *  write matched nothing. */
   rerender: (
     reportId: string,
@@ -913,9 +914,9 @@ async function redateReadyRow(
     } catch (e) {
       return `✗ ${moved} — approval not taken back: ${String(e)}`;
     }
-    // A miss: a send, a claim or a withdraw won (the store refuses those), the
-    // operator unapproved it himself, or another run took it back for another
-    // move. The store rewrites the marker only in the last case.
+    // A miss: a send, a claim or a withdraw won, or another run took it back
+    // for another move (the store refuses all of those), or the operator
+    // unapproved it himself (the store goes ahead and keeps his marker).
     if (ok) marker = { was: by, now: by };
     else {
       took = null;
@@ -939,7 +940,13 @@ async function redateReadyRow(
     return `✗ ${moved} — ${after}preview not re-rendered (${result.status}); ${kept}`;
   }
   if (!result.stored) {
-    return `⚠ ${moved} — ${after}not re-dated: it was approved, claimed for a send, sent, withdrawn or superseded while this run worked, or approved and unapproved again`;
+    const also =
+      marker === null
+        ? ""
+        : "was" in marker
+          ? ", or approved and unapproved again"
+          : ", or another run took its approval back for another move";
+    return `⚠ ${moved} — ${after}not re-dated: it was approved, claimed for a send, sent, withdrawn or superseded while this run worked${also}`;
   }
   return took
     ? `• ${moved} — ${took}, preview re-rendered; approve again`

@@ -855,7 +855,10 @@ export async function runDigest(
     const readyForYourYes: ReadyItem[] = [];
     const readyKeys: string[] = [];
     // #2157: a ready row's move, as an ask on its line, so a take-back or a
-    // later move is news to the send decision though the row's key is not.
+    // later move is news to the send decision though the row's key is not. The
+    // take-back's time is part of it: a second take-back for the same move
+    // (after he approved again) is news too, while the same take-back on a
+    // later night, finished or not, is not.
     const readyAsks: Array<string[] | undefined> = [];
     const baseUrl = options.baseUrl.replace(/\/$/, "");
     for (const r of pending) {
@@ -869,7 +872,7 @@ export async function runDigest(
       // #2157: named while the row is on either end of the move the nightly
       // took its approval back for: on "to", the move finished; on "from", it
       // did not (the next nightly retries it while the row is still held). A
-      // later move leaves the note out.
+      // mark the row is on neither end of (a stale one) leaves the note out.
       const move = redatedMove(r);
       const moveEnd = move
         ? move.to === r.dueOn
@@ -885,7 +888,11 @@ export async function runDigest(
         dashboardUrl: slug ? `${baseUrl}/s/${slug}` : `${baseUrl}${TRIAGE_PATH}`,
         ...(move && moveEnd !== null ? { dueMoved: { ...move, finished: moveEnd } } : {}),
       });
-      readyAsks.push(move && moveEnd !== null ? [`moved:${move.from}→${move.to}`] : undefined);
+      readyAsks.push(
+        move && moveEnd !== null
+          ? [`moved:${move.from}→${move.to}@${r.unapprovedAt ?? ""}`]
+          : undefined,
+      );
     }
 
     // M5: collect the free signals (isolated), diff against yesterday's snapshot.

@@ -1292,6 +1292,49 @@ describe("runDigest — sends only on change, with ages and exact asks (P1-20)",
     expect(w.captured).toHaveLength(3);
   });
 
+  it("mails a second take-back for the same move, and not the same take-back on a later night (#2157)", async () => {
+    const w = world();
+    const A = "nightly: due date moved 2026-06-01 → 2026-06-02";
+    const row = (dueOn: string, unapprovedAt: string) => ({
+      Reports: [
+        readyReport({ "Due on": dueOn, "Unapproved by": A, "Unapproved at": unapprovedAt }),
+      ],
+      Websites: navy.Websites,
+    });
+    // Night 1 takes it back and the render fails: still on 06-01, mailed.
+    const first = await run(w, row("2026-06-01", "2026-09-19T06:10:00.000Z"), day(1));
+    expect(first.output).toContain("Digest sent (first)");
+    // The same take-back, finished on night 2, is not news.
+    const finished = await run(w, row("2026-06-02", "2026-09-19T06:10:00.000Z"), day(2));
+    expect(finished.output).toContain("Digest skipped (unchanged");
+    // He approves again; night 3 takes it back again for the same move.
+    const again = await run(w, row("2026-06-02", "2026-09-21T06:10:00.000Z"), day(3));
+    expect(again.output).toContain("Digest sent (added)");
+    expect(w.captured).toHaveLength(2);
+  });
+
+  it("mails a move whose new date changes though its old date does not (#2157)", async () => {
+    const w = world();
+    const row = (dueOn: string, mark: string) => ({
+      Reports: [
+        readyReport({
+          "Due on": dueOn,
+          "Unapproved by": mark,
+          "Unapproved at": "2026-09-19T06:10:00.000Z",
+        }),
+      ],
+      Websites: navy.Websites,
+    });
+    // The move to 06-02 did not finish; by the next night the cycle says 06-03.
+    await run(w, row("2026-06-01", "nightly: due date moved 2026-06-01 → 2026-06-02"), day(1));
+    const moved = await run(
+      w,
+      row("2026-06-03", "nightly: due date moved 2026-06-01 → 2026-06-03"),
+      day(2),
+    );
+    expect(moved.output).toContain("Digest sent (added)");
+  });
+
   it("a resolution alone sends nothing; it rides the next send", async () => {
     const w = world();
     await run(w, navy, day(0));

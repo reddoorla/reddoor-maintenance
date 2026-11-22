@@ -943,9 +943,11 @@ export type RedatedMarker = { was: string; now: string } | { nightlyOnly: true; 
  *  unapprove by the operator meanwhile replaces it, and the row is left alone.
  *
  *  `{ nightlyOnly: true, now }` is for a run whose own unapprove matched
- *  nothing, so it cannot know the marker: the write rewrites the marker to
- *  `now` only when it is the nightly's (another run took the approval back for
- *  another move), and keeps any other (the operator's own) as it is.
+ *  nothing, so it cannot know the marker. It leaves the marker as it is, and
+ *  the write is refused when the marker is the nightly's for a move other than
+ *  `now`: another run took the approval back for that move, and the move is
+ *  that run's (the next nightly re-plans it while the row is held). The
+ *  operator's own marker, or none, does not refuse it.
  *  Returns whether a row matched. */
 export async function storeRedatedBody(
   db: Db,
@@ -954,14 +956,7 @@ export async function storeRedatedBody(
   html: string,
   marker: RedatedMarker | null = null,
 ): Promise<boolean> {
-  const mark =
-    marker === null
-      ? {}
-      : "was" in marker
-        ? { unapproved_by: marker.now }
-        : {
-            unapproved_by: sql<string>`CASE WHEN unapproved_by LIKE ${REDATED_BY_LIKE} THEN ${marker.now} ELSE unapproved_by END`,
-          };
+  const mark = marker !== null && "was" in marker ? { unapproved_by: marker.now } : {};
   let q = db
     .updateTable("reports")
     .set({ rendered_html: html, due_on: dueOn, ...mark })
@@ -972,6 +967,16 @@ export async function storeRedatedBody(
     .where("withdrawn_at", "is", null)
     .where("send_started_at", "is", null);
   if (marker && "was" in marker) q = q.where("unapproved_by", "=", marker.was);
+  else if (marker) {
+    const now = marker.now;
+    q = q.where((eb) =>
+      eb.or([
+        eb("unapproved_by", "is", null),
+        eb("unapproved_by", "not like", REDATED_BY_LIKE),
+        eb("unapproved_by", "=", now),
+      ]),
+    );
+  }
   const res = await q.executeTakeFirst();
   return res.numUpdatedRows > 0n;
 }

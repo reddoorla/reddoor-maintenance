@@ -139,8 +139,20 @@ describe("storeRedatedBody after a take-back that missed (another run's, or his 
         .executeTakeFirstOrThrow()
     ).unapproved_by;
 
-  it("rewrites another run's nightly mark to name this move", async () => {
+  it("refuses where another run's nightly mark names another move: that run owns the move", async () => {
     await seed({ unapproved_by: A });
+    expect(
+      await storeRedatedBody(db, REPORT, "2026-06-03", "<p>06-03</p>", {
+        nightlyOnly: true,
+        now: B,
+      }),
+    ).toBe(false);
+    expect(await mark()).toBe(A);
+    expect(await stored()).toEqual({ dueOn: "2026-06-01", html: "<p>06-01</p>" });
+  });
+
+  it("stores where the mark already names this move (another run took it back for the same one)", async () => {
+    await seed({ unapproved_by: B });
     expect(
       await storeRedatedBody(db, REPORT, "2026-06-03", "<p>06-03</p>", {
         nightlyOnly: true,
@@ -163,18 +175,34 @@ describe("storeRedatedBody after a take-back that missed (another run's, or his 
     expect(await stored()).toEqual({ dueOn: "2026-06-03", html: "<p>06-03</p>" });
   });
 
-  it("two overlapping runs leave the row on the later run's date with its mark", async () => {
-    await seed({ approved_to_send: 1, approved_at: "2026-05-25T18:00:00.000Z" });
-    const at = new Date("2026-05-26T13:00:00.000Z");
-    // Run 1's take-back lands; run 2's misses, and run 2 stores last.
-    expect(await unapproveReportIfUnsent(db, REPORT, at, A)).toBe(true);
-    expect(await unapproveReportIfUnsent(db, REPORT, at, B)).toBe(false);
-    await storeRedatedBody(db, REPORT, "2026-06-02", "<p>06-02</p>", { was: A, now: A });
-    await storeRedatedBody(db, REPORT, "2026-06-03", "<p>06-03</p>", { nightlyOnly: true, now: B });
-    const row = await getReportById(db, REPORT);
-    expect(row?.dueOn).toBe("2026-06-03");
-    expect(row && redatedMove(row)).toEqual({ from: "2026-06-01", to: "2026-06-03" });
-  });
+  it.each([
+    ["the stale run stores last", ["fresh", "stale"]],
+    ["the stale run stores first", ["stale", "fresh"]],
+  ])(
+    "two overlapping runs: the one whose take-back landed owns the move, whichever stores last (%s)",
+    async (_name, order) => {
+      await seed({ approved_to_send: 1, approved_at: "2026-05-25T18:00:00.000Z" });
+      const at = new Date("2026-05-26T13:00:00.000Z");
+      // The fresh run (planned from the edited anchor) takes it back first; the
+      // stale run's take-back misses.
+      expect(await unapproveReportIfUnsent(db, REPORT, at, B)).toBe(true);
+      expect(await unapproveReportIfUnsent(db, REPORT, at, A)).toBe(false);
+      const results: Record<string, boolean> = {};
+      for (const who of order) {
+        results[who] =
+          who === "fresh"
+            ? await storeRedatedBody(db, REPORT, "2026-06-03", "<p>06-03</p>", { was: B, now: B })
+            : await storeRedatedBody(db, REPORT, "2026-06-02", "<p>06-02</p>", {
+                nightlyOnly: true,
+                now: A,
+              });
+      }
+      expect(results).toEqual({ fresh: true, stale: false });
+      const row = await getReportById(db, REPORT);
+      expect(row?.dueOn).toBe("2026-06-03");
+      expect(row && redatedMove(row)).toEqual({ from: "2026-06-01", to: "2026-06-03" });
+    },
+  );
 });
 
 describe("bindRedateDeps: the nightly's re-date wiring over Turso", () => {
@@ -218,6 +246,7 @@ describe("bindRedateDeps: the nightly's re-date wiring over Turso", () => {
     expect(await redate.unapprove(REPORT, AT, by)).toBe(true);
     const row = await getReportById(db, REPORT);
     expect(row?.unapprovedBy).toBe(by);
+    expect(row?.unapprovedAt).toBe(AT.toISOString());
     expect(await redate.rerender(REPORT, "2026-06-02", { was: by, now: by })).toEqual({
       status: "rendered",
       stored: true,
