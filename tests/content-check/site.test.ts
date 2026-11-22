@@ -430,3 +430,84 @@ describe("the fixtures are what the tests say they are", () => {
     expect((await scan(dir)).findings).toHaveLength(24);
   });
 });
+
+describe("`prop || literal` is decided by the call sites (round 4, major 2)", () => {
+  const btn = (body: string, call: string) =>
+    site({
+      "src/lib/Btn.svelte": body,
+      "src/routes/+page.svelte": `<script>import Btn from "$lib/Btn.svelte";</script>${call}`,
+    });
+
+  it("reports it when no caller passes the prop", async () => {
+    const r = await scan(
+      btn(
+        `<script>let { sub } = $props();</script><p>{sub || "Serving Austin since 1990"}</p>`,
+        `<Btn />`,
+      ),
+    );
+    expect(r.findings.map((f) => f.text)).toEqual(["Serving Austin since 1990"]);
+  });
+
+  it("hides it when every caller passes the prop", async () => {
+    const r = await scan(
+      btn(
+        `<script>let { sub } = $props();</script><p>{sub || "Serving Austin since 1990"}</p>`,
+        `<Btn sub={doc.data.sub} />`,
+      ),
+    );
+    expect(r.findings).toEqual([]);
+  });
+
+  it("follows a whole-props object and a renamed prop", async () => {
+    const r = await scan(
+      btn(
+        `<script>let props = $props(); let { label: l } = $props();</script><p>{props.text ?? "Learn more about us"}</p><p>{l || "Call us today"}</p>`,
+        `<Btn label={x} />`,
+      ),
+    );
+    expect(r.findings.map((f) => f.text)).toEqual(["Learn more about us"]);
+  });
+
+  it("covers `a || b || literal` when a caller passes either prop", async () => {
+    const r = await scan(
+      btn(
+        `<script>let { a, b } = $props();</script><p>{a || b || "Our work speaks"}</p>`,
+        `<Btn b={x} />`,
+      ),
+    );
+    expect(r.findings).toEqual([]);
+  });
+
+  it("keeps a deeper read a field: `slice.primary.title || literal` stays hidden", async () => {
+    const r = await scan(
+      btn(
+        `<script>let { slice } = $props();</script><h1>{slice.primary.title || "Welcome to Acme"}</h1>`,
+        ``,
+      ),
+    );
+    expect(r.findings).toEqual([]);
+  });
+});
+
+describe("a spread passes only what it can be seen to pass (round 4, major 4)", () => {
+  const card = (script: string, call: string) =>
+    site({
+      "src/lib/Card.svelte": `<script>let { title = "Our services", cta = "Learn more about us" } = $props();</script><h2>{title}</h2><p>{cta}</p>`,
+      "src/routes/+page.svelte": `<script>import Card from "$lib/Card.svelte";${script}</script>${call}`,
+    });
+
+  it("a spread of an empty local object passes nothing", async () => {
+    const r = await scan(card(`const p = {};`, `<Card {...p} />`));
+    expect(r.findings.map((f) => f.text)).toEqual(["Our services", "Learn more about us"]);
+  });
+
+  it("an object literal spread passes its keys", async () => {
+    const r = await scan(card(``, `<Card {...{ title: doc.title }} />`));
+    expect(r.findings.map((f) => f.text)).toEqual(["Learn more about us"]);
+  });
+
+  it("a spread it cannot see (props, a rest) may pass anything", async () => {
+    const r = await scan(card(`let { ...rest } = $props();`, `<Card {...rest} />`));
+    expect(r.findings).toEqual([]);
+  });
+});

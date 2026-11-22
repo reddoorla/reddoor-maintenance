@@ -329,8 +329,9 @@ export async function scanSite(cwd: string, config: ContentCheckConfig): Promise
       }
     }
   }
-  // Pass 4: a component's prop default is a fallback only when every place a
-  // scanned file renders the component passes that prop (or spreads props).
+  // Pass 4: a component's prop default, or a literal behind `prop || "…"`, is
+  // a fallback only when every place a scanned file renders the component
+  // passes that prop (or spreads props it cannot see into).
   // With no call site, or one that leaves it out, the default is what shows.
   for (const [file, scan] of scans) {
     if (scan.props.length === 0) continue;
@@ -350,7 +351,9 @@ export async function scanSite(cwd: string, config: ContentCheckConfig): Promise
       }
     }
     for (const { prop, ...finding } of scan.props) {
-      const always = calls.length > 0 && calls.every((u) => u.spread || u.attrs.includes(prop));
+      const names = typeof prop === "string" ? [prop] : prop;
+      const always =
+        calls.length > 0 && calls.every((u) => u.spread || names.some((n) => u.attrs.includes(n)));
       if (!always) result.findings.push(finding);
     }
   }

@@ -43,9 +43,11 @@ export type Deferred = Finding & { binding: string };
 
 export type Uses = Map<string, { bare: number; fallback: number }>;
 
-/** A component's prop default: shown whenever a caller leaves the prop out,
- *  so the site-level scan decides by the component's call sites. */
-export type PropDefault = Finding & { prop: string };
+/** A component's prop default, or a literal behind `prop || "…"`: shown
+ *  whenever a caller leaves the prop out, so the site-level scan decides by
+ *  the component's call sites. With several props (`a || b || "…"`), a call
+ *  that passes any one of them covers it. */
+export type PropDefault = Finding & { prop: string | readonly string[] };
 
 export type FileScan = {
   findings: Finding[];
@@ -54,7 +56,9 @@ export type FileScan = {
   props: PropDefault[];
 };
 
-/** One `<Component …>` in a template: the props it passes. */
+/** One `<Component …>` in a template: the props it passes. A spread of an
+ *  object literal (or a `const` of one) passes its keys; any other spread may
+ *  pass anything, so `spread` is set. */
 export type Usage = { name: string; attrs: string[]; spread: boolean };
 
 /** What other files need to know about this one: what it imports from where,
@@ -405,17 +409,49 @@ export function parseFile(file: string, source: string): Parsed {
       }
     }
   }
+  // `const p = { label: "x" }`: what a `{...p}` spread passes, by its keys.
+  const objects = new Map<string, Node>();
+  (function collect(n: Node): void {
+    if (n.type === "VariableDeclaration" && n.kind === "const") {
+      for (const d of n.declarations as Node[]) {
+        const init = d.init as Node | null;
+        if ((d.id as Node).type === "Identifier" && init?.type === "ObjectExpression") {
+          objects.set((d.id as Node).name as string, init);
+        }
+      }
+    }
+    for (const [, c] of children(n)) collect(c);
+  })(ast);
+  /** The keys a spread passes, or undefined when it cannot be seen (a prop,
+   *  `slice`, a computed object): then it may pass anything (round 4). */
+  const spreadKeys = (e: Node): string[] | undefined => {
+    const o = e.type === "Identifier" ? objects.get(e.name as string) : e;
+    if (o?.type !== "ObjectExpression") return undefined;
+    const keys: string[] = [];
+    for (const p of o.properties as Node[]) {
+      if (p.type !== "Property" || p.computed) return undefined;
+      const k = p.key as Node;
+      const key = k.type === "Identifier" ? (k.name as string) : literalText(k);
+      if (key === undefined) return undefined;
+      keys.push(key);
+    }
+    return keys;
+  };
   const usages: Usage[] = [];
   (function walk(n: Node): void {
     if (n.type === "Component" || n.type === "SvelteComponent") {
       const attrs = (n.attributes as Node[]) ?? [];
-      usages.push({
-        name: String(n.name),
-        attrs: attrs
-          .filter((a) => a.type === "Attribute" || a.type === "BindDirective")
-          .map((a) => String(a.name)),
-        spread: attrs.some((a) => a.type === "SpreadAttribute"),
-      });
+      const names = attrs
+        .filter((a) => a.type === "Attribute" || a.type === "BindDirective")
+        .map((a) => String(a.name));
+      let spread = false;
+      for (const a of attrs) {
+        if (a.type !== "SpreadAttribute") continue;
+        const keys = spreadKeys(a.expression as Node);
+        if (keys) names.push(...keys);
+        else spread = true;
+      }
+      usages.push({ name: String(n.name), attrs: names, spread });
     }
     for (const [, c] of children(n)) walk(c);
   })(ast);
@@ -506,6 +542,72 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
     }
     for (const [, c] of children(n)) collect(c);
   })(ast);
+  // The names `$props()` hands this component: `let { sub, label: l } =
+  // $props()` gives sub → sub and l → label; `let props = $props()` or a
+  // `...rest` gives a whole object whose members are props. Svelte 4's
+  // `export let sub` in the instance script is one too.
+  const unwrapCall = (n: Node): string | undefined => {
+    const u = TRANSPARENT.has(n.type) ? (n.expression as Node) : n;
+    return u.type === "CallExpression" ? calleePath(u) : undefined;
+  };
+  const propLocals = new Map<string, string>();
+  const propObjects = new Set<string>();
+  for (const [name, init] of inits) {
+    if (init.type === "CallExpression" && calleePath(init) === "$props") propObjects.add(name);
+  }
+  (function props(n: Node): void {
+    if (
+      n.type === "VariableDeclarator" &&
+      (n.id as Node).type === "ObjectPattern" &&
+      isNode(n.init) &&
+      unwrapCall(n.init) === "$props"
+    ) {
+      for (const p of ((n.id as Node).properties as Node[]) ?? []) {
+        if (p.type === "RestElement" && (p.argument as Node).type === "Identifier") {
+          propObjects.add((p.argument as Node).name as string);
+          continue;
+        }
+        const k = p.key as Node;
+        const key = k.type === "Identifier" ? (k.name as string) : literalText(k);
+        const v = p.value as Node;
+        const local = v.type === "AssignmentPattern" ? (v.left as Node) : v;
+        if (key && local.type === "Identifier") propLocals.set(local.name as string, key);
+      }
+    }
+    for (const [, c] of children(n)) props(c);
+  })(ast);
+  if (isSvelte && isNode(ast.instance)) {
+    for (const top of (ast.instance.content as Node).body as Node[]) {
+      const decl = top.type === "ExportNamedDeclaration" ? (top.declaration as Node | null) : null;
+      if (decl?.type !== "VariableDeclaration" || decl.kind !== "let") continue;
+      for (const d of decl.declarations as Node[]) {
+        if ((d.id as Node).type === "Identifier") {
+          const name = (d.id as Node).name as string;
+          propLocals.set(name, name);
+        }
+      }
+    }
+  }
+  /** The props an expression is exactly a read of: `sub`, `props.label`,
+   *  `a || b`. A deeper read (`slice.primary.title`) is a field, not a prop. */
+  function propReads(n: Node): string[] | undefined {
+    const u = TRANSPARENT.has(n.type) ? unwrap(n) : n;
+    if (u.type === "Identifier") {
+      const p = propLocals.get(u.name as string);
+      return p ? [p] : undefined;
+    }
+    if (u.type === "MemberExpression" && !u.computed && (u.object as Node).type === "Identifier") {
+      return propObjects.has((u.object as Node).name as string)
+        ? [(u.property as Node).name as string]
+        : undefined;
+    }
+    if (u.type === "LogicalExpression" && (u.operator === "||" || u.operator === "??")) {
+      const l = propReads(u.left as Node);
+      const r = propReads(u.right as Node);
+      return l && r ? [...l, ...r] : undefined;
+    }
+    return undefined;
+  }
   const unwrap = (n: Node): Node => {
     if (TRANSPARENT.has(n.type)) return unwrap(n.expression as Node);
     if (
@@ -811,7 +913,7 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
    *   <X field={doc.f} src={img} />          anything beside a `field` prop
    *   {#if doc.f}…{doc.f}…{:else}x{/if}      an else branch for the same field
    */
-  function isFallback(chain: Ancestor[]): boolean {
+  function isFallback(chain: Ancestor[], via?: string[]): boolean {
     for (let i = chain.length - 1; i > 0; i--) {
       const { node: parent } = chain[i - 1]!;
       const { key } = chain[i]!;
@@ -823,7 +925,11 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
             !isPureLiteral(parent.left as Node) &&
             !isLiteralChoice(parent.left as Node)
           ) {
-            return true;
+            // `{sub || "Serving Austin"}` with `sub` a prop: shown whenever a
+            // caller leaves `sub` out, so the call sites decide (round 4).
+            const read = via && propReads(parent.left as Node);
+            if (!read) return true;
+            via.push(...read);
           }
           break;
         case "ConditionalExpression": {
@@ -936,10 +1042,6 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
     }
     return undefined;
   }
-  const unwrapCall = (n: Node): string | undefined => {
-    const u = TRANSPARENT.has(n.type) ? (n.expression as Node) : n;
-    return u.type === "CallExpression" ? calleePath(u) : undefined;
-  };
 
   /** `cond && "A"`: the left of `cond && "A" || "B"` is a literal or nothing,
    *  so "B" is the other literal of a choice, not a fallback for a field. */
@@ -1319,15 +1421,22 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
       if (TRANSPARENT.has(parent.type)) continue;
       break;
     }
-    if (isFallback(chain) || isDevOnly(chain)) return;
+    const via: string[] = [];
+    if (isFallback(chain, via) || isDevOnly(chain)) return;
 
     const pos = node.start ?? 0;
     const holes = node.type === "TemplateLiteral" && (node.expressions as unknown[]).length > 0;
     // A link or a path with a hole in it is built from data; words with a hole
     // in them are still words written in code.
+    // Behind `prop || "…"`, the finding waits for the call sites (pass 4).
+    const emit = (p: number, kind: Kind, t: string): void => {
+      const before = findings.length;
+      report(p, kind, t);
+      if (via.length && findings.length > before) props.push({ ...findings.pop()!, prop: via });
+    };
     const reportLiteral = (p: number, kind: Kind, t: string): void => {
       if (holes && !isProseKind(kind)) return;
-      report(p, kind, t);
+      emit(p, kind, t);
     };
     const slot = slotOf(chain);
     if (slot.attr) {
@@ -1354,7 +1463,7 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
       unnamed.push({ binding: binding.name, pos, text });
     }
     if (!kind || (holes && !isProseKind(kind))) return;
-    const prop = propOf(chain);
+    const prop = propOf(chain) ?? (via.length ? via : undefined);
     if (prop) {
       const before = findings.length;
       report(pos, kind, text);
