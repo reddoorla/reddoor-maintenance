@@ -895,8 +895,8 @@ async function applyRedates(
  *  unapproved it himself meanwhile, another run took it back, or it was sent,
  *  claimed or withdrawn) still goes on to the re-render. Its write refuses a
  *  send, a claim, a withdraw, and another run's take-back for another move; it
- *  goes ahead over his own mark (kept) and over a take-back for this same
- *  move. */
+ *  goes ahead over his own mark (kept), over no mark, and over a take-back for
+ *  this same move. */
 async function redateReadyRow(
   { row, from, to, site }: PlannedRedate,
   today: Date,
