@@ -1313,6 +1313,32 @@ describe("runDigest — sends only on change, with ages and exact asks (P1-20)",
     expect(w.captured).toHaveLength(2);
   });
 
+  it("mails a move away and back again under one take-back (#2157 round 6)", async () => {
+    // 06-01 → 06-02, → 06-01, → 06-02 on three nights: the mark rewrite keeps
+    // the take-back time, so night 3's ask is night 1's again, and the last mail
+    // named 06-01.
+    const w = world();
+    const row = (dueOn: string, mark: string) => ({
+      Reports: [
+        readyReport({
+          "Due on": dueOn,
+          "Unapproved by": mark,
+          "Unapproved at": "2026-09-19T06:10:00.000Z",
+        }),
+      ],
+      Websites: navy.Websites,
+    });
+    const there = row("2026-06-02", "nightly: due date moved 2026-06-01 → 2026-06-02");
+    const back = row("2026-06-01", "nightly: due date moved 2026-06-02 → 2026-06-01");
+    expect((await run(w, there, day(1))).output).toContain("Digest sent (first)");
+    expect((await run(w, back, day(2))).output).toContain("Digest sent (added)");
+    const again = await run(w, there, day(3));
+    expect(again.output).toContain("Digest sent (added)");
+    expect(w.captured).toHaveLength(3);
+    // Still on the same move the next night: not news.
+    expect((await run(w, there, day(4))).output).toContain("Digest skipped (unchanged");
+  });
+
   it("mails a move whose new date changes though its old date does not (#2157)", async () => {
     const w = world();
     const row = (dueOn: string, mark: string) => ({

@@ -142,6 +142,12 @@ describe("day sequences (P1-20 review round 2)", () => {
     ]);
   });
 
+  it("a due-date move's ask back after one run is news: the row moved away and back (#2157)", () => {
+    const there = [line("ready:r1", 1, ["moved:2026-06-01→2026-06-02@2026-09-19T06:10:00.000Z"])];
+    const back = [line("ready:r1", 1, ["moved:2026-06-02→2026-06-01@2026-09-19T06:10:00.000Z"])];
+    expect(replay([there, back, there, there])).toEqual(["first", "added", "added", "skip"]);
+  });
+
   it("a fixed ask part that comes back after two runs is news; after one it is not", () => {
     const withAsk = [line("p", 1, ["set Report recipients (To)"])];
     const without = [line("p", 1, ["add a Header image"])];

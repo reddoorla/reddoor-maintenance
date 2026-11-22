@@ -223,8 +223,9 @@ export async function rerenderReport(
  * body and the due date together (`storeRedatedBody`). `stored()` says whether
  * that write matched: false when an approval, a send claim, a send, a withdraw
  * or a superseding draft landed while the body rendered, or the nightly's mark
- * changed (he approved and unapproved it), and the row then keeps its date and
- * body.
+ * changed (he approved and unapproved it, or another run re-dated it), or,
+ * after a take-back that missed, the mark is another run's for another move;
+ * the row then keeps its date and body.
  */
 export function redatedRerenderDeps(
   base: RerenderDeps,

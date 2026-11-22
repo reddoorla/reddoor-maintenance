@@ -969,9 +969,9 @@ describe("draftDueReports — P1-117 early drafts", () => {
 
   it("an unapprove that matches nothing still re-renders, and the conditioned write decides", async () => {
     // He unapproved it himself meanwhile, another run took it back for another
-    // move, or it was sent, claimed or withdrawn (which the store refuses). This
-    // run cannot know the mark, so the store rewrites it to this move only where
-    // it is the nightly's, and keeps his own.
+    // move, or it was sent, claimed or withdrawn. This run cannot know the mark,
+    // so the store keeps it as it is: it goes ahead over his own mark, none, or
+    // the nightly's for this move, and refuses the nightly's for another move.
     const { res, calls, markers } = await redateRun(
       { maintenanceDay: "2026-05-02" },
       [readyRow()],
@@ -998,6 +998,9 @@ describe("draftDueReports — P1-117 early drafts", () => {
     expect(res.output).toContain(
       `⚠ ${MOVED} — approval taken back, but not re-dated: it was approved, claimed for a send, sent, withdrawn or superseded while this run worked, or approved and unapproved again`,
     );
+    // An overlapping run that re-dated it first rewrote the mark this write
+    // conditions on, so the line names that too (#2157 round 6).
+    expect(res.output).toContain(", or approved and unapproved again, or another run re-dated it");
     expect(res.output).not.toContain("approve again");
     expect(res.code).toBe(0);
   });
@@ -1018,6 +1021,7 @@ describe("draftDueReports — P1-117 early drafts", () => {
       `⚠ ${MOVED} — not re-dated: it was approved, claimed for a send, sent, withdrawn or superseded while this run worked, or another run took its approval back for another move`,
     );
     expect(res.output).not.toContain("approved and unapproved again");
+    expect(res.output).not.toContain("re-dated it");
   });
 
   it("names only what can refuse a never-approved row's store", async () => {

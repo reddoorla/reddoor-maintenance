@@ -889,10 +889,14 @@ async function applyRedates(
  *
  *  The take-back marker always names the latest move: a row the nightly took
  *  back on an earlier night, and that moves again before the operator approves
- *  it, has its marker rewritten in the same write. An unapprove that matches
- *  nothing (the operator unapproved it himself meanwhile, or it was sent,
- *  claimed or withdrawn) still goes on to the re-render, whose write refuses
- *  every one of those but the first. */
+ *  it, has its marker rewritten in the same write, conditioned on the marker it
+ *  read (so a run that re-dated it first, or an approve and unapprove, refuses
+ *  this run's write). An unapprove that matches nothing (the operator
+ *  unapproved it himself meanwhile, another run took it back, or it was sent,
+ *  claimed or withdrawn) still goes on to the re-render. Its write refuses a
+ *  send, a claim, a withdraw, and another run's take-back for another move; it
+ *  goes ahead over his own mark (kept) and over a take-back for this same
+ *  move. */
 async function redateReadyRow(
   { row, from, to, site }: PlannedRedate,
   today: Date,
@@ -944,7 +948,7 @@ async function redateReadyRow(
       marker === null
         ? ""
         : "was" in marker
-          ? ", or approved and unapproved again"
+          ? ", or approved and unapproved again, or another run re-dated it"
           : ", or another run took its approval back for another move";
     return `⚠ ${moved} — ${after}not re-dated: it was approved, claimed for a send, sent, withdrawn or superseded while this run worked${also}`;
   }

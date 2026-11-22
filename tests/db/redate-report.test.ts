@@ -175,6 +175,19 @@ describe("storeRedatedBody after a take-back that missed (another run's, or his 
     expect(await stored()).toEqual({ dueOn: "2026-06-03", html: "<p>06-03</p>" });
   });
 
+  it("stores where there is no mark at all (#2157 round 6)", async () => {
+    // SQL's `NULL NOT LIKE …` is not true, so the null case needs its own term.
+    await seed({ unapproved_by: null });
+    expect(
+      await storeRedatedBody(db, REPORT, "2026-06-03", "<p>06-03</p>", {
+        nightlyOnly: true,
+        now: B,
+      }),
+    ).toBe(true);
+    expect(await mark()).toBeNull();
+    expect(await stored()).toEqual({ dueOn: "2026-06-03", html: "<p>06-03</p>" });
+  });
+
   it.each([
     ["the stale run stores last", ["fresh", "stale"]],
     ["the stale run stores first", ["stale", "fresh"]],

@@ -69,12 +69,19 @@ export function flattenLines(lines: readonly DigestLine[]): Map<string, Flat> {
 
 export type DigestChanges = { added: string[]; worse: string[] };
 
+/** #2157: a due-date move's ask (`moved:<from>→<to>@<takenBackAt>`, set by the
+ *  digest's ready lines) gets no one-run grace. A key back the night after it
+ *  left means the row moved away and back again (06-01 → 06-02, → 06-01,
+ *  → 06-02 on three nights, under one take-back), and the last mail named the
+ *  other date. Every other key keeps the grace a flap needs. */
+const MOVE_ASK = "#moved:";
+
 export function digestChanges(lines: readonly DigestLine[], log: DigestSendLog): DigestChanges {
   const added: string[] = [];
   const worse: string[] = [];
   for (const [k, f] of flattenLines(lines)) {
     const was = log.sent[k];
-    if (was === undefined) added.push(k);
+    if (was === undefined || (was.gone !== undefined && k.includes(MOVE_ASK))) added.push(k);
     else if (f.metric > was.metric + f.tolerance) worse.push(k);
     // P1-78d: a rise in level is news though the key and its count are unchanged.
     // No key can rise between two mailed levels on today's ladder (Renovate leaves
