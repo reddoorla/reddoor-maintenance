@@ -1012,3 +1012,40 @@ describe("words around holes are a literal in a ternary (round 4, major 1)", () 
     ).toEqual([]);
   });
 });
+
+describe("a default outside $props() (round 4, major 3)", () => {
+  it("reports a parameter's destructuring default", () => {
+    expect(
+      ts(
+        `export function seo({ title = "Acme Plumbing | Home", description = "Licensed plumbers in Austin" } = {}) { return { title, description }; }`,
+      ),
+    ).toEqual([
+      ["heading", "Acme Plumbing | Home"],
+      ["copy", "Licensed plumbers in Austin"],
+    ]);
+  });
+
+  it("reports a default over an object written right there", () => {
+    expect(ts(`const { heading = "Welcome to Acme Plumbing" } = {};`)).toEqual([
+      ["heading", "Welcome to Acme Plumbing"],
+    ]);
+  });
+
+  it("reports a plain parameter default", () => {
+    expect(ts(`export const label = (text = "Our Services") => text;`)).toEqual([
+      ["copy", "Our Services"],
+    ]);
+  });
+
+  it("hides a parameter named fallback… or default…", () => {
+    expect(
+      ts(
+        `export const label = (v, fallback = "Our Services", defaultText = "Call us") => v || fallback;`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("hides a destructuring default over a field", () => {
+    expect(ts(`const { heading = "Welcome to Acme Plumbing" } = slice.primary;`)).toEqual([]);
+  });
+});

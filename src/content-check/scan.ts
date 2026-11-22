@@ -973,7 +973,7 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
         }
         case "AssignmentPattern":
           // A `$props()` default is decided by the call sites (`propOf`).
-          if (key === "right" && !propOf(chain)) return true;
+          if (key === "right" && !propOf(chain) && defaultIsFallback(chain, i - 1)) return true;
           break;
         case "AssignmentExpression":
           if (key === "right" && assignsFallback(chain, i - 1)) return true;
@@ -1041,6 +1041,43 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
       }
     }
     return undefined;
+  }
+
+  /**
+   * Is a default outside `$props()` a fallback? `const { heading = "x" } =
+   * slice.primary` is: it stands in for a field the value may lack. A
+   * parameter's default is what shows whenever a caller leaves it out, and a
+   * default over an object or list written right there always shows, so both
+   * are reported (review round 4 on #2231: `seo({ title = "Acme" } = {})`),
+   * unless the parameter is named `fallback…` or `default…`.
+   */
+  function defaultIsFallback(chain: Ancestor[], at: number): boolean {
+    const isFn = (n: Node | undefined): boolean =>
+      n !== undefined &&
+      /^(?:FunctionDeclaration|FunctionExpression|ArrowFunctionExpression)$/.test(n.type);
+    const pattern = chain[at]!.node;
+    if (isFn(chain[at - 1]?.node) && chain[at]!.key === "params") {
+      return FALLBACK_PARAM.test(paramName(pattern));
+    }
+    const prop = chain[at - 1]?.node;
+    const object = chain[at - 2]?.node;
+    if (prop?.type !== "Property" || object?.type !== "ObjectPattern") return true;
+    const holder = chain[at - 3];
+    if (holder?.node.type === "VariableDeclarator" && holder.key !== "init") {
+      const init = holder.node.init as Node | null;
+      const u = init ? unwrap(init) : undefined;
+      return !(u?.type === "ObjectExpression" || u?.type === "ArrayExpression");
+    }
+    // `function seo({ title = "x" })`, `({ title = "x" } = {}) => …`
+    if (isFn(holder?.node) && chain[at - 2]!.key === "params") return false;
+    if (
+      holder?.node.type === "AssignmentPattern" &&
+      chain[at - 2]!.key === "left" &&
+      isFn(chain[at - 4]?.node)
+    ) {
+      return false;
+    }
+    return true;
   }
 
   /** `cond && "A"`: the left of `cond && "A" || "B"` is a literal or nothing,
