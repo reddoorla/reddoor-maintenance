@@ -4,8 +4,8 @@
     "edits": [
       {
         "file": "src/content-check/scan.ts",
-        "find": "  function isFallback(chain: Ancestor[]): boolean {\n",
-        "replace": "  function isFallback(chain: Ancestor[]): boolean {\n    return false;\n"
+        "find": "  function isFallback(chain: Ancestor[], via?: string[]): boolean {\n",
+        "replace": "  function isFallback(chain: Ancestor[], via?: string[]): boolean {\n    return false;\n"
       }
     ],
     "test": [
@@ -140,8 +140,8 @@
     "edits": [
       {
         "file": "src/content-check/check.ts",
-        "find": "            if (o.name === d.binding) add(otherScan.uses.get(local));\n",
-        "replace": ""
+        "find": "            if (name === d.binding) add(otherScan.uses.get(local));\n",
+        "replace": "            if (name !== name) add(otherScan.uses.get(local));\n"
       }
     ],
     "test": [
@@ -191,8 +191,8 @@
     "edits": [
       {
         "file": "src/content-check/scan.ts",
-        "find": "            !isPureLiteral(other) &&\n            (key === \"alternate\"\n              ? coveredBy(parent.test as Node, valuePaths(other))\n              : shares(negatedEmptiness(parent.test as Node), valuePaths(other)))\n",
-        "replace": "            !isPureLiteral(other)\n"
+        "find": "            !isWordLiteral(other) &&\n            (chain[1]?.key !== \"fragment\" || aboutField(parent.test as Node)) &&\n            (key === \"alternate\"\n              ? coveredBy(parent.test as Node, valuePaths(other))\n              : shares(negatedEmptiness(parent.test as Node), valuePaths(other)))\n",
+        "replace": "            !isWordLiteral(other)\n"
       }
     ],
     "test": [
@@ -633,7 +633,7 @@
     "edits": [
       {
         "file": "src/content-check/scan.ts",
-        "find": "          if (key === \"right\" && !propOf(chain)) return true;",
+        "find": "          if (key === \"right\" && !propOf(chain) && defaultIsFallback(chain, i - 1)) return true;",
         "replace": "          if (key === \"right\") return true;"
       }
     ],
@@ -667,8 +667,8 @@
     "edits": [
       {
         "file": "src/content-check/check.ts",
-        "find": "calls.every((u) => u.spread || u.attrs.includes(prop))",
-        "replace": "calls.some((u) => u.spread || u.attrs.includes(prop))"
+        "find": "calls.every((u) => u.spread || names.some((n) => u.attrs.includes(n)))",
+        "replace": "calls.some((u) => u.spread || names.some((n) => u.attrs.includes(n)))"
       }
     ],
     "test": [
@@ -1177,8 +1177,8 @@
     "edits": [
       {
         "file": "src/content-check/check.ts",
-        "find": "  for (let changed = true; changed; ) {\n",
-        "replace": "  for (let changed = false; changed; ) {\n"
+        "find": "  for (let changed = true; changed;) {\n",
+        "replace": "  for (let changed = false; changed;) {\n"
       }
     ],
     "test": [
