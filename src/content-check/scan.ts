@@ -427,7 +427,8 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
     return n;
   };
   const isEmptyLiteral = (n: Node): boolean =>
-    (n.type === "Literal" && (n.value === null || n.value === "" || n.value === 0)) ||
+    (n.type === "Literal" &&
+      (n.value === null || n.value === "" || n.value === 0 || n.value === false)) ||
     (n.type === "Identifier" && n.name === "undefined");
   const lengthOf = (n: Node): Node | undefined => {
     const u = unwrap(n);
@@ -444,6 +445,14 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
       const via = init ? emptiness(init, depth + 1) : undefined;
       if (via) for (const q of via) out.add(q);
       return out;
+    }
+    // `T ? x : null` is truthy exactly when `T && x` is: MSOT's
+    // `const pair = isFilled.image(d?.logo) && quoted ? d.logo : null`.
+    if (n.type === "ConditionalExpression" && isEmptyLiteral(unwrap(n.alternate as Node))) {
+      const t = emptiness(n.test as Node, depth);
+      const c = emptiness(n.consequent as Node, depth);
+      if (!t && !c) return undefined;
+      return new Set([...(t ?? []), ...(c ?? [])]);
     }
     if (n.type === "LogicalExpression" && (n.operator === "&&" || n.operator === "||")) {
       const l = emptiness(n.left as Node, depth);

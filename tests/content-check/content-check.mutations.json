@@ -814,5 +814,22 @@
     ],
     "expect": "red",
     "why": "round 2 #7: a null baseline crashes with exit 1, not 2"
+  },
+  {
+    "id": "ternary-null-not-emptiness",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "    if (n.type === \"ConditionalExpression\" && isEmptyLiteral(unwrap(n.alternate as Node))) {",
+        "replace": "    if (false) {"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 2 fold: MSOT's `pair = \u2026 ? d.logo : null` is no emptiness test; its partners copy is reported again"
   }
 ]

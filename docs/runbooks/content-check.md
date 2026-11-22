@@ -6,21 +6,28 @@
 
 The operator's answers (workspace `decisions/2026-11-21-1841-p1-120-census-forks.md`):
 
-- **Fallbacks behind a Prismic field.** `field || "x"`, `field ?? "x"`, a ternary whose test is about the value its other branch shows, an `{:else}` for the field its `{#if}` shows (or the `{#if !field}` branch whose `{:else}` shows it), `if (!x) x = "x"` and `x ||= "x"`, a prop default (`$props()` defaults, and `export let` in a component's instance script; never `export const`), media, links and `fallback…` props beside a `field=` prop (not `alt`: `<Img field alt="…">` may override the field; `fallbackAlt` is the fallback), an argument to a parameter named `fallback…`/`default…` (`text(d?.title, "Welcome")` where `text(value, fallback)`, across files), a call whose name ends in `Or`/`Fallback`/`WithDefault`, and a constant every read of which is one of those, in its own file or in any file that imports it.
-- **Legal pages and `/dev/*` routes**, by route segment (route groups and `[[param]]` segments are skipped), and components named for a legal page.
+- **Fallbacks behind a Prismic field.** `field || "x"`, `field ?? "x"`; a ternary or `{#if}` branch shown only when a value is empty, whose other branch shows that value (the next section); `if (!x) x = "x"` and `x ||= "x"`; a component's prop default (`$props()` or a Svelte 4 `export let`, never `export const`) when every file that renders the component passes that prop; media, links and `fallback…` props beside a `field=` prop (not `alt`: `<Img field alt="…">` may override the field; `fallbackAlt` is the fallback); an argument to a parameter named `fallback…`/`default…` (`text(d?.title, "Welcome")` where `text(value, fallback)`, across files); a call whose name ends in `Or`/`Fallback`/`WithDefault`; and a constant every read of which is one of those, in its own file or in any file that imports it.
+- **Legal pages and `/dev/*` routes**, by the route's first segment (route groups and `[[param]]` segments are skipped: `/privacy`, `/legal/terms`, not `/services/accessibility`), and components named for a legal page without ambiguity (`PrivacyPolicy`, `TermsOfService`; not `Disclaimer`).
 - **Decorative labels**: fewer than two letters (`01`, `V`, `•`, `3/5`) or a roman numeral from II to XXXIX (`ID`, `MIX`, `MD`, `LLC` are words, and are reported).
 - **Code SvelteKit's `dev` guards** (`dev && …`, `dev ? … :`, `{#if dev}`): no visitor reaches it, so nothing in it is reported and no read in it counts.
-- Class names, styles, ids, `data-*` attributes, comparisons, types, import paths, `+server` endpoints, tests and `.d.ts` files.
+- **Fixtures**: `**/fixtures/**` and `*-fixture.ts` / `*.fixture.ts` (and `…fixtures`), the data tests and `/dev` pages feed components.
+- Class names, styles (a `style:` value is never copy, though a `url(…)` image in a style is an image), ids, `data-*` attributes, comparisons, the string a method matches against (`href.startsWith("tel:")`), a constant read only in `class` or `style` (unless it is an image), types, import paths, `+server` endpoints, tests and `.d.ts` files.
 
-## What makes two values "the same field"
+## When a branch is a fallback
 
-A test and a branch are about the same field when they read the same value path (`doc.title` and `doc.title.text`, not `page.status` and `page.error`). A local is followed to what it was computed from only where it is read whole (`{#if title}`, with `const title = $derived(doc.title)`), never through a member (`page.layout` and `page.title` stay two fields of `page`), and only through the values it reads: never the function it calls (every `$state(…)` would share `$state`) and never a function's body (a submit handler is not the field it sets).
+A branch of a ternary or an `{#if}` is a fallback only when both hold:
+
+1. **The test asks whether a value is empty**: a value path (`doc.title`), `isFilled.*(…)`, `asText(…)`, `x.length > 0`, `x != null`, `!x`, `x.length === 0`, `T ? x : null`, and `&&`/`||` of those. A local stands for what it was computed from only when its initialiser is itself such a test (`const has = $derived(isFilled.keyText(doc.title))`); `const isMobile = $derived(w < 768)` stands for itself. A comparison with a literal (`theme === "dark"`, `status === 404`) is a choice, never an emptiness test.
+2. **The other branch shows that value**: in its text, a component's props, or the HTML attributes a visitor reads (`alt`, `title`, `aria-label`, `placeholder`, `src`, `href`, `content`, `value`, `label`, `poster`). Never an event handler, `bind:`, `class`, `style` or `aria-expanded`: a menu toggle's other branch is not a fallback.
 
 ## Known limits
 
+- **An empty-state message reads as a fallback.** `{#if rows.length === 0}<p>Nothing to show yet</p>{:else}{#each rows …}{/if}` is shown only while `rows` is empty, which is the shape of a fallback, and the check cannot tell whether `rows` is a Prismic field or computed data. reddoor-website's report pages carry several of these (`SiteHealth.svelte:40`, `ScoreBars.svelte:79`).
+- **A component nothing renders reports its prop defaults**, as dead code reports its text: with no call site, the default is all there is.
 - Words built in script and shown through a call are followed only into the template, and only when they hold a space: `{upper("Welcome home")}` is reported, `const t = upper("Welcome home")` is not, and neither is `toLocaleDateString("en-US")`.
 - A local constant with no content-shaped name is reported only when the template shows it directly (`const greeting = "…"; <h1>{greeting}</h1>`), in the same file.
 - A barrel's re-exports (`export { SITE } from "./site"`, `export * from "./site"`) are followed one hop, not two.
+- A prop passed through a spread (`<CtaBand {...props} />`) counts as passed.
 
 ## A site's two files
 

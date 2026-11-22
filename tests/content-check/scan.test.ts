@@ -646,6 +646,7 @@ describe("a branch is a fallback only behind an emptiness test it renders (round
       `{#if doc.title == null}<h1>Welcome home</h1>{:else}{doc.title}{/if}`,
       `<p>{!doc.tagline ? "Built to last" : doc.tagline}</p>`,
       `<script>const has = $derived(isFilled.keyText(doc.title));</script>{#if has}<h1>{doc.title}</h1>{:else}<h1>Welcome home</h1>{/if}`,
+      `<script>const quoted = named(d?.name); const pair = isFilled.image(d?.logo) && quoted ? d.logo : null;</script><p>{pair ? quoted : "Revogen"}</p><img src={pair ? src(pair) : "/logo.png"} alt="" />`,
     ];
     for (const src of cases) expect(svelte(src), src).toEqual([]);
   });
