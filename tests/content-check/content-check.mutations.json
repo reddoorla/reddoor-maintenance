@@ -191,8 +191,8 @@
     "edits": [
       {
         "file": "src/content-check/scan.ts",
-        "find": "if (other && !isPureLiteral(other) && sharePath(reads(parent.test as Node), reads(other))) {",
-        "replace": "if (other && !isPureLiteral(other)) {"
+        "find": "            !isPureLiteral(other) &&\n            sharePath(reads(parent.test as Node), reads(other))\n",
+        "replace": "            !isPureLiteral(other)\n"
       }
     ],
     "test": [
