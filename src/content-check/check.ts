@@ -63,6 +63,9 @@ const NEVER = [
   "**/node_modules/**",
 ];
 
+/** SvelteKit's route files: `+page.svelte`, `+layout.ts`, `+error.svelte`, … */
+const ROUTE_FILE = /(?:^|\/)\+[^/]+$/;
+
 const isStringArray = (v: unknown): v is string[] =>
   Array.isArray(v) && v.every((x) => typeof x === "string");
 
@@ -271,10 +274,42 @@ export async function scanSite(cwd: string, config: ContentCheckConfig): Promise
   }
   const known = new Set(parsed.keys());
 
+  // A file only exempt files import is out of a visitor's reach too: seed data
+  // that only a /dev route and scripts/ read (review round 4 on #2231: 506
+  // rows of williamson's and beachfront's site-pages.js). A file no scanned
+  // file imports is still scanned: it may be read some way this cannot see.
+  const exemptions = new Map<string, string>();
+  for (const file of parsed.keys()) {
+    const why = builtInExemption(file) ?? (userExempt.has(file) ? CONFIG_FILE : undefined);
+    if (why) exemptions.set(file, why);
+  }
+  const importers = new Map<string, Set<string>>();
+  for (const [file, p] of parsed) {
+    const specs = [
+      ...[...p.imports.values()].map((i) => i.source),
+      ...p.reexports.map((r) => r.source),
+    ];
+    for (const spec of specs) {
+      const target = resolveImport(file, spec, known);
+      if (target && target !== file)
+        (importers.get(target) ?? importers.set(target, new Set()).get(target)!).add(file);
+    }
+  }
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const [file, from] of importers) {
+      // A route file is reached by its URL, whoever imports it.
+      if (exemptions.has(file) || ROUTE_FILE.test(file)) continue;
+      if (![...from].every((f) => exemptions.has(f))) continue;
+      exemptions.set(file, "only exempt files import it");
+      changed = true;
+    }
+  }
+
   // Pass 2: scan the files a visitor can reach.
   const scans = new Map<string, FileScan>();
   for (const [file, p] of parsed) {
-    const why = builtInExemption(file) ?? (userExempt.has(file) ? CONFIG_FILE : undefined);
+    const why = exemptions.get(file);
     if (why) {
       result.exempt.push({ file, why });
       continue;
@@ -299,6 +334,21 @@ export async function scanSite(cwd: string, config: ContentCheckConfig): Promise
     result.findings.push(...scan.findings);
   }
 
+  const onlyExemptRead = (file: string, name: string): boolean => {
+    let readers = 0;
+    for (const [other, p] of parsed) {
+      for (const imp of p.imports.values()) {
+        const hit = importOrigins(other, imp, parsed, known).some(
+          (o) => o.file === file && (o.name === name || o.name === "*"),
+        );
+        if (!hit) continue;
+        if (!exemptions.has(other)) return false;
+        readers++;
+      }
+    }
+    return readers > 0;
+  };
+
   // Pass 3: an exported constant's literals are fallbacks only when every
   // read of it, in its own file and in every scanned file that imports it,
   // is a fallback. A namespace import (`import * as copy`) cannot be followed,
@@ -312,6 +362,9 @@ export async function scanSite(cwd: string, config: ContentCheckConfig): Promise
         total.fallback += u.fallback;
       };
       add(scan.uses.get(d.binding));
+      // Read only by exempt files (MSOT's PRIVACY_VALUES, read by the privacy
+      // copy): as far from a visitor as they are.
+      if (!scan.uses.has(d.binding) && onlyExemptRead(file, d.binding)) continue;
       for (const [other, otherScan] of scans) {
         const p = parsed.get(other)!;
         for (const [local, imp] of p.imports) {

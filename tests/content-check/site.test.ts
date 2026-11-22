@@ -511,3 +511,60 @@ describe("a spread passes only what it can be seen to pass (round 4, major 4)", 
     expect(r.findings).toEqual([]);
   });
 });
+
+describe("a file only exempt files import is exempt (round 4, major 7)", () => {
+  const seed = `export const PAGES = [{ heading: "Start feeling like a top priority" }];`;
+
+  it("exempts seed data that only a /dev route imports, and what only it imports", async () => {
+    const r = await scan(
+      site({
+        "src/lib/site-pages.js": `import { HERO } from "./hero.js"; ${seed}`,
+        "src/lib/hero.js": `export const HERO = { heading: "Built to last in Austin" };`,
+        "src/routes/dev/match/+page.server.ts": `import { PAGES } from "$lib/site-pages";`,
+      }),
+    );
+    expect(r.findings).toEqual([]);
+    expect(r.exempt.map((e) => [e.file, e.why])).toEqual([
+      ["src/lib/hero.js", "only exempt files import it"],
+      ["src/lib/site-pages.js", "only exempt files import it"],
+      ["src/routes/dev/match/+page.server.ts", "dev route"],
+    ]);
+  });
+
+  it("still scans a file that a visitor-facing file also imports", async () => {
+    const r = await scan(
+      site({
+        "src/lib/site-pages.js": seed,
+        "src/routes/dev/match/+page.server.ts": `import { PAGES } from "$lib/site-pages";`,
+        "src/routes/+page.svelte": `<script>import { PAGES } from "$lib/site-pages";</script><h1>{PAGES[0].heading}</h1>`,
+      }),
+    );
+    expect(r.findings.map((f) => f.text)).toEqual(["Start feeling like a top priority"]);
+  });
+
+  it("still scans a file nothing imports, and a route file a /dev page imports", async () => {
+    const r = await scan(
+      site({
+        "src/lib/orphan.js": seed,
+        "src/routes/about/+page.svelte": `<h1>About our team</h1>`,
+        "src/routes/dev/all/+page.svelte": `<script>import About from "../../about/+page.svelte";</script><About />`,
+      }),
+    );
+    expect(r.findings.map((f) => f.text)).toEqual([
+      "Start feeling like a top priority",
+      "About our team",
+    ]);
+  });
+
+  it("does not report a constant only exempt files read", async () => {
+    const r = await scan(
+      site({
+        "src/lib/policy.ts": `export const PHONE = "(512) 555-0100"; export const VALUES = { contactEmail: "info@acme.com" };`,
+        "src/lib/Footer.svelte": `<script>import { PHONE } from "$lib/policy";</script><p>{PHONE}</p>`,
+        "src/routes/+layout.svelte": `<script>import Footer from "$lib/Footer.svelte";</script><Footer />`,
+        "src/routes/privacy/+page.svelte": `<script>import { VALUES } from "$lib/policy";</script><p>{VALUES.contactEmail}</p>`,
+      }),
+    );
+    expect(r.findings.map((f) => f.text)).toEqual(["(512) 555-0100"]);
+  });
+});
