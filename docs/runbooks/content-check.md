@@ -23,7 +23,7 @@ A branch of a ternary or an `{#if}` is a fallback only when all of these hold:
 
 ## Known limits
 
-- **An empty-state message reads as a fallback.** `{#if rows.length === 0}<p>Nothing to show yet</p>{:else}{#each rows …}{/if}` is shown only while `rows` is empty, which is the shape of a fallback, and the check cannot tell whether `rows` is a Prismic field or computed data. reddoor-website's report pages carry several of these (`SiteHealth.svelte:40`, `ScoreBars.svelte:79`).
+- **An empty-state message reads as a fallback.** `{#if rows.length === 0}<p>Nothing to show yet</p>{:else}{#each rows …}{/if}` is shown only while `rows` is empty, which is the shape of a fallback, and the check cannot tell whether `rows` is a Prismic field or computed data. reddoor-website's report pages carry several of these.
 - **A component nothing renders reports its prop defaults**, as dead code reports its text: with no call site, the default is all there is. A component also read by name anywhere but as a tag (`<svelte:component this={Hero} />`, `const C = Hero`) counts as rendered once with no props.
 - **A link or a button standing in for an empty list is reported.** `{#if links.length}…{:else}<a href="/contact">Contact us</a>{/if}` is a fallback in intent, but the leaf rule cannot tell it from a whole alternate menu, so it goes in the baseline.
 - **A returned literal is named by its function** (`get title() { return "…" }`, `function heading() { return "…" }`, `const subtitle = () => "…"`), and reported when that name is content-shaped. One returned from an unnamed callback, or from a function named for something else (`format()`), is not.
