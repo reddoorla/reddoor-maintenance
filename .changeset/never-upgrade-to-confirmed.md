@@ -2,12 +2,4 @@
 "@reddoorla/maintenance": patch
 ---
 
-prospect audit: code no longer upgrades an accuracy verdict to `confirmed`. A rule turned the model's `contradicted` into `confirmed` whenever the site used one of the claim's search terms, including the model's own evidence against the claim, so a report could tell a business that its own site agrees with something the site contradicts. Now only the model can make a verdict `confirmed`. Code takes a `contradicted` down to `unverified` only when all of these hold:
-
-- the claim denies nothing;
-- the term carries every name the claim asserts (any capitalised word, the first included), apart from the business's own name where it appears whole;
-- the claim asserts at least one such name;
-- the model's own quote does not already contain the term;
-- the site uses the term as whole words, outside the business's own name.
-
-The verdict then quotes the site around the term, with the reason `Your site does say "<term as the site spells it>", so we have not called this wrong.` In every other case the model's verdict and quote stand, under the usual quote checks.
+prospect audit: code no longer changes an accuracy verdict. A rule turned the model's `contradicted` into `confirmed` whenever the site used one of the claim's search terms, including the model's own evidence against the claim, so a report could tell a business that its own site agrees with something the site contradicts. That rule is gone, and no replacement takes its place: the model's verdict and its own quote stand, under the usual quote checks. Only the model can make a verdict `confirmed` or `contradicted`.
