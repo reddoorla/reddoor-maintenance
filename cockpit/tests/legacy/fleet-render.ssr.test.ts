@@ -623,8 +623,9 @@ describe("needs-you feed", () => {
 
 describe("renderCockpitHtml — region order", () => {
   it("composes the regions in order: verdict → needs-you (the fleet panel moved to Sites, #672 step 3; the inbox to /submissions, #2241)", () => {
-    // A model that populates ALL four regions at once: a pending-approval report
-    // (→ needs-you feed, verdict warns) plus a new submission and spam (no region since #2241).
+    // A model that populates both regions: a pending-approval report (→ needs-you
+    // feed, verdict warns). The submission and spam inputs fed the inbox lane,
+    // gone since #2241; they stay as noise that must not add a region.
     const m = buildCockpitModel(
       [siteRow({ id: "recSITE", name: "Acme Co" })],
       [
