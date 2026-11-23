@@ -34,7 +34,7 @@
     "edits": [
       {
         "file": "src/dashboard/backlog.ts",
-        "find": "    if (STATUS_WORD.test(segment)) {",
+        "find": "    if (isStatusAttempt(segment)) {",
         "replace": "    if (STATUS_DATED.test(segment)) {"
       }
     ],
