@@ -3,12 +3,15 @@
 
   // P1-111: the backlog's top five P1 items, read from the workspace's
   // BACKLOG.md on the server at request time (src/dashboard/backlog-source.ts).
-  let { view }: { view: BacklogView } = $props();
+  // `null` while the read is in flight.
+  let { view }: { view: BacklogView | null } = $props();
 </script>
 
 <section class="backlog" aria-labelledby="backlog-heading">
   <h2 id="backlog-heading">Backlog: the top five</h2>
-  {#if view.kind === "ok"}
+  {#if view === null}
+    <p class="backlog-loading muted">Reading BACKLOG.md…</p>
+  {:else if view.kind === "ok"}
     <div class="backlog-meta muted">
       {view.meta} · <a href={view.fileHref}>BACKLOG.md →</a>
     </div>

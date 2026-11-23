@@ -6,15 +6,17 @@
   import healthCss from "../../lib/cockpit/health.css?inline";
   import cockpitCss from "../cockpit.css?inline";
   import backlogCss from "../../lib/backlog/backlog.css?inline";
-  import BacklogTop from "../../lib/backlog/BacklogTop.svelte";
-  import type { BacklogView } from "../../lib/backlog/view.js";
+  import BacklogSection from "../../lib/backlog/BacklogSection.svelte";
 
   // The fleet cockpit, a start page: verdict bar, the per-site Needs-you feed,
   // the Setup count, and the quiet lanes (Cardless, Inbox). The per-site cards
   // and the Recently and Archived lanes moved to Sites (/fleet, #672 step 3).
   // Every string comes decided from the server (lib/cockpit/view.ts).
-  // `backlog` is absent only in the markup snapshots, which predate it.
-  let { data }: { data: { view: CockpitView; backlog?: BacklogView } } = $props();
+  // `backlogSource` names where the backlog is fetched from once the page is on
+  // screen (P1-111); without it the page shows no backlog section. The page's
+  // load sets it; the markup snapshots and the DOM tests of the rest of the page,
+  // whose fetch mocks answer in order, mount it without.
+  let { data }: { data: { view: CockpitView; backlogSource?: string } } = $props();
   const v = $derived(data.view);
 </script>
 
@@ -34,8 +36,8 @@
   <AuditFleet />
 </div>
 
-{#if data.backlog}
-  <BacklogTop view={data.backlog} />
+{#if data.backlogSource}
+  <BacklogSection source={data.backlogSource} />
 {/if}
 
 {#if v.feedCount > 0}

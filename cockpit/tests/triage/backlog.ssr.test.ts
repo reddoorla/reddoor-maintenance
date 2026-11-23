@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { parse } from "node-html-parser";
 import type { RequestEvent } from "@sveltejs/kit";
 import Page from "../../src/routes/triage/+page.svelte";
-import { load as serverLoad } from "../../src/routes/triage/+page.server.js";
-import { handle } from "../../src/hooks.server.js";
+import BacklogTop from "../../src/lib/backlog/BacklogTop.svelte";
+import { fallback } from "../../src/routes/api/backlog/+server.js";
 import { buildCockpitView } from "../../src/lib/cockpit/view.js";
 import { buildBacklogView, BACKLOG_FILE_HREF } from "../../src/lib/backlog/view.js";
 import type { BacklogPanel } from "../../../src/dashboard/backlog-source.js";
@@ -12,10 +12,11 @@ import { renderPage } from "../_helpers/parity.js";
 import { cases, NOW } from "../home/fixtures.js";
 
 /**
- * P1-111: the backlog's top five on /triage. Read on the server per request
- * from the private workspace repo; every signed-in user may see it (the
- * operator, 2026-11-23: "it's fine if they see it, the audience is just me"),
- * and a signed-out request never reaches the load. The text is invented.
+ * P1-111: the backlog's top five on /triage, fetched by the page from
+ * `GET /api/backlog`, which reads the private workspace repo per request. Every
+ * signed-in user may read it (the operator, 2026-11-23: "it's fine if they see
+ * it, the audience is just me"); a signed-out caller gets none of it. The text
+ * is invented.
  */
 
 const model = cases()[0]![1];
@@ -47,10 +48,8 @@ const PANEL: BacklogPanel = {
 /** Two hours after the fixture file's last write. */
 const LATER = new Date("2026-11-23T19:35:00Z");
 
-function render(panel: BacklogPanel) {
-  const html = renderPage(Page, {
-    data: { view: buildCockpitView(model, NOW), backlog: buildBacklogView(panel, LATER) },
-  });
+function render(panel: BacklogPanel | null) {
+  const html = renderPage(BacklogTop, { view: panel ? buildBacklogView(panel, LATER) : null });
   return parse(html);
 }
 
@@ -96,33 +95,29 @@ describe("/triage's backlog section", () => {
   });
 });
 
-describe("/triage's server load", () => {
-  const ORIGINAL_ENV = { ...process.env };
-  afterEach(() => {
-    process.env = { ...ORIGINAL_ENV };
-    vi.unstubAllGlobals();
+describe("/triage's page", () => {
+  it("server-renders the section's frame while the read is in flight", () => {
+    const doc = parse(
+      renderPage(Page, {
+        data: { view: buildCockpitView(model, NOW), backlogSource: "/api/backlog" },
+      }),
+    );
+    expect(doc.querySelector("section.backlog h2")!.text).toBe("Backlog: the top five");
+    expect(doc.querySelector(".backlog-loading")!.text).toBe("Reading BACKLOG.md…");
   });
 
-  it("reads the backlog with the dashboard's GH_TOKEN", async () => {
-    process.env.GH_TOKEN = "dash-token";
-    const fetch = vi.fn(async (url: string) =>
-      String(url).includes("/commits?")
-        ? Response.json([])
-        : new Response("## P1\n| # | Item |\n| --- | --- |\n| P1-901 | **Paint the fence** |\n"),
-    );
-    vi.stubGlobal("fetch", fetch);
-    const data = (await serverLoad({} as Parameters<typeof serverLoad>[0])) as {
-      backlog: BacklogPanel;
-    };
-    expect(data.backlog.kind === "ok" && data.backlog.items.map((i) => i.id)).toEqual(["P1-901"]);
-    const [, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
-    expect((init.headers as Record<string, string>).authorization).toBe("Bearer dash-token");
+  it("shows no section when its load names no source", () => {
+    const doc = parse(renderPage(Page, { data: { view: buildCockpitView(model, NOW) } }));
+    expect(doc.querySelector("section.backlog")).toBeNull();
   });
 });
 
-describe("/triage's data behind the sign-in gate", () => {
+describe("GET /api/backlog", () => {
   const ORIGINAL_ENV = { ...process.env };
   const SECRET = "test-session-secret-0123456789abcdef";
+  const MD = "## P1\n| # | Item |\n| --- | --- |\n| P1-901 | **Paint the fence** |\n";
+  let fetchMock: ReturnType<typeof vi.fn>;
+
   beforeEach(() => {
     process.env = {
       ...ORIGINAL_ENV,
@@ -131,47 +126,58 @@ describe("/triage's data behind the sign-in gate", () => {
       GOOGLE_OAUTH_CLIENT_ID: "id",
       GOOGLE_OAUTH_CLIENT_SECRET: "secret",
       CONTEXT: "production",
+      GH_TOKEN: "dash-token",
     };
     delete process.env.DASHBOARD_PASSWORD;
+    fetchMock = vi.fn(async (url: string) =>
+      String(url).includes("/commits?") ? Response.json([]) : new Response(MD),
+    );
+    vi.stubGlobal("fetch", fetchMock);
   });
   afterEach(() => {
     process.env = { ...ORIGINAL_ENV };
+    vi.unstubAllGlobals();
   });
 
-  function dataRequest(headers: Record<string, string>) {
-    return {
-      request: new Request("https://cockpit.example/triage/__data.json", { headers }),
-      url: new URL("https://cockpit.example/triage"),
-      route: { id: "/triage" },
-      locals: {} as App.Locals,
-    } as unknown as RequestEvent;
+  async function get(email: string | null, method = "GET") {
+    const headers: Record<string, string> = { accept: "application/json" };
+    if (email) {
+      headers.cookie = `${SESSION_COOKIE}=${encodeURIComponent(mintSession(email, SECRET, new Date()))}`;
+    }
+    const request = new Request("https://cockpit.example/api/backlog", { method, headers });
+    return fallback({ request, params: {} } as unknown as RequestEvent);
   }
 
-  it("refuses a signed-out request before any load runs", async () => {
-    const resolve = vi.fn(async () => new Response("backlog data"));
-    const res = await handle({ event: dataRequest({}), resolve });
-    expect(resolve).not.toHaveBeenCalled();
-    expect(res.status).toBe(302);
-    expect(await res.text()).not.toContain("backlog data");
+  it("gives a signed-in operator the top five, read with the dashboard's GH_TOKEN", async () => {
+    const res = await get("op@example.com");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+    const body = (await res.json()) as BacklogPanel;
+    expect(body.kind === "ok" && body.items.map((i) => i.id)).toEqual(["P1-901"]);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect((init.headers as Record<string, string>).authorization).toBe("Bearer dash-token");
   });
 
-  it("refuses an address off the allowlist", async () => {
-    const token = mintSession("stranger@example.com", SECRET, new Date());
-    const resolve = vi.fn(async () => new Response("backlog data"));
-    await handle({
-      event: dataRequest({ cookie: `${SESSION_COOKIE}=${encodeURIComponent(token)}` }),
-      resolve,
-    });
-    expect(resolve).not.toHaveBeenCalled();
+  it("gives any allowlisted address the same, not only the operator's", async () => {
+    const body = (await (await get("erik@example.com")).json()) as BacklogPanel;
+    expect(body.kind === "ok" && body.items.map((i) => i.id)).toEqual(["P1-901"]);
   });
 
-  it("serves any allowlisted address, not only the operator's", async () => {
-    const token = mintSession("erik@example.com", SECRET, new Date());
-    const resolve = vi.fn(async () => new Response("backlog data"));
-    await handle({
-      event: dataRequest({ cookie: `${SESSION_COOKIE}=${encodeURIComponent(token)}` }),
-      resolve,
-    });
-    expect(resolve).toHaveBeenCalledOnce();
+  it("gives a signed-out caller a 401 and none of the backlog, without reading it", async () => {
+    const res = await get(null);
+    expect(res.status).toBe(401);
+    expect(await res.text()).not.toContain("Paint the fence");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("gives an address off the allowlist a 403 and none of the backlog", async () => {
+    const res = await get("stranger@example.com");
+    expect(res.status).toBe(403);
+    expect(await res.text()).not.toContain("Paint the fence");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("answers any other method 405", async () => {
+    expect((await get("op@example.com", "POST")).status).toBe(405);
   });
 });

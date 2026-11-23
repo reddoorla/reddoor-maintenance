@@ -41,8 +41,6 @@ export async function runPage<T>(
   href: string,
   params: Record<string, string> = {},
   layout?: LayoutRun,
-  /** The page's own server load's data, for a page that has one (`/triage`). */
-  pageServerData: unknown = null,
 ): Promise<T> {
   const url = new URL(href, "https://dash.example");
   const server = layout ?? (await runLayout());
@@ -53,7 +51,6 @@ export async function runPage<T>(
   return (await (pageLoad as (e: unknown) => Promise<T>)({
     url,
     params,
-    data: pageServerData,
     parent: async () => layoutData,
   })) as T;
 }
