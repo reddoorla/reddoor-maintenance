@@ -638,6 +638,7 @@ describe("name collision", () => {
         assertions: [],
         conflation: {
           detected: true,
+          settled: false,
           otherNames: ["Acme Design Photography"],
           engineQuote: '"Acme Design" is a name used by several companies',
         },
@@ -646,6 +647,7 @@ describe("name collision", () => {
     });
     expect(r.conflation).toEqual({
       detected: true,
+      settled: false,
       otherNames: ["Acme Design Photography"],
       engineQuote: '"Acme Design" is a name used by several companies',
     });
@@ -668,7 +670,65 @@ describe("name collision", () => {
       }),
       ownership: offline,
     });
-    expect(r.conflation).toEqual({ detected: false, otherNames: [], engineQuote: null });
+    expect(r.conflation).toEqual({
+      detected: false,
+      settled: true,
+      otherNames: [],
+      engineQuote: null,
+    });
+  });
+
+  // An answer that names this business first and sets an unrelated namesake
+  // apart has settled which one it is. That is not a finding, and the record
+  // says so rather than leaving "detected" to stand for "unsure".
+  it("records a namesake the answer set apart as settled", async () => {
+    const answer = branded({
+      query: "who is Acme Design",
+      citedDomains: [],
+      fullAnswer:
+        "Acme Design is a Boise design studio (acme.example). It is unrelated to ACME-2, a protein " +
+        "marker, which just shares the name.",
+    });
+    const r = await checkAccuracy("https://acme.example/", site, [answer], [], {
+      run: async () => ({
+        assertions: [],
+        conflation: {
+          detected: true,
+          settled: true,
+          otherNames: ["ACME-2 (a protein marker)"],
+          engineQuote: "It is unrelated to ACME-2, a protein marker, which just shares the name.",
+        },
+      }),
+      ownership: offline,
+    });
+    expect(r.conflation).toEqual({
+      detected: true,
+      settled: true,
+      otherNames: ["ACME-2 (a protein marker)"],
+      engineQuote: "It is unrelated to ACME-2, a protein marker, which just shares the name.",
+    });
+  });
+
+  // A model that leaves `settled` out has not said the answer was unsure, so
+  // the record must not say so either.
+  it("reads a detected conflation without `settled` as settled", async () => {
+    const answer = branded({
+      query: "who is Acme Design",
+      citedDomains: [],
+      fullAnswer: '"Acme Design" is a name used by several companies.',
+    });
+    const r = await checkAccuracy("https://acme.example/", site, [answer], [], {
+      run: async () => ({
+        assertions: [],
+        conflation: {
+          detected: true,
+          otherNames: ["Acme Design Photography"],
+          engineQuote: '"Acme Design" is a name used by several companies',
+        },
+      }),
+      ownership: offline,
+    });
+    expect(r.conflation.settled).toBe(true);
   });
 
   it("reads as not-detected when the model omits the field", async () => {
@@ -681,7 +741,12 @@ describe("name collision", () => {
       run: async () => ({ assertions: [] }),
       ownership: offline,
     });
-    expect(r.conflation).toEqual({ detected: false, otherNames: [], engineQuote: null });
+    expect(r.conflation).toEqual({
+      detected: false,
+      settled: true,
+      otherNames: [],
+      engineQuote: null,
+    });
   });
 });
 
