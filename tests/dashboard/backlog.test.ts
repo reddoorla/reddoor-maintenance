@@ -179,6 +179,30 @@ describe("topBacklogItems", () => {
       expect(status.refs.map((r) => r.label)).toEqual(["#2"]);
     });
 
+    it("a second status inside a prefix is read, and the newer wins", () => {
+      const row = "| P1-916 | **Status 2026-11-01 old. Status 2026-11-22 new.** **Title** | 🟢 |";
+      const status = topBacklogItems(backlog([row])).items[0]!.status!;
+      expect([status.date, status.sentence]).toEqual(["2026-11-22", "new."]);
+    });
+
+    it("a prefix whose bold holds only its label keeps the text after it", () => {
+      const row = "| P1-917 | **Status 2026-11-22:** done (#4). **Title** | 🟢 |";
+      const item = topBacklogItems(backlog([row])).items[0]!;
+      expect(item.title).toBe("Title");
+      expect(item.status?.sentence).toBe("done (#4).");
+      expect(item.status?.refs.map((r) => r.label)).toEqual(["#4"]);
+    });
+
+    it("a status bolded with underscores in another column", () => {
+      const row = "| P1-918 | **Title** | 🟢 | S | __Status 2026-11-22__ x. | done |";
+      expect(topBacklogItems(backlog([row])).items[0]!.status?.sentence).toBe("x.");
+    });
+
+    it("a lone backtick splits no fewer cells", () => {
+      const row = "| P1-919 | **Title** run the ` flag | 🟢 | S | ev | done |";
+      expect(topBacklogItems(backlog([row])).items[0]!.tier).toBe("🟢");
+    });
+
     it("a word that only contains status is not one", () => {
       const row = "| P1-915 | **Title** statuses noted | 🟢 | S | Statuses wait. | done |";
       expect(topBacklogItems(backlog([row])).items[0]!.status).toBeNull();
@@ -357,6 +381,26 @@ describe("topBacklogItems", () => {
         "a malformed status in the item cell after the title",
         "| P1-908 | **Title** then Status: shipped. | 🟢 |",
         /^P1-908: column 2 /,
+      ],
+      [
+        "a lower-case status inside a prefix",
+        "| P1-908 | **Status 2026-11-01 blocked; status 2026-11-22 shipped.** **Title** | 🟢 |",
+        /^P1-908: column 2 /,
+      ],
+      [
+        "an impossible date for a second status inside a prefix",
+        "| P1-908 | **Status 2026-11-01 a. Status 2026-13-45 shipped.** **Title** | 🟢 |",
+        /^P1-908: column 2 /,
+      ],
+      [
+        "a struck status inside a prefix",
+        "| P1-908 | **Status 2026-11-01 x <s>status 2026-11-22</s> shipped.** **Title** | 🟢 |",
+        /^P1-908: column 2 /,
+      ],
+      [
+        "a lone backtick before a malformed status names the status's own column",
+        "| P1-908 | **Title** a ` b | 🟢 | S | status 2026-11-22 shipped. | done |",
+        /^P1-908: column 5 /,
       ],
       ["no bold title", "| P1-908 | Plain title | 🟢 |", /^P1-908: .*no bold title/],
       ["no ID", "| | **Title** | 🟢 |", /^line \d+: .*P1-NNN/],

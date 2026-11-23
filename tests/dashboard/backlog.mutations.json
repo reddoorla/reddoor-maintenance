@@ -170,5 +170,44 @@
     ],
     "test": "tests/dashboard/backlog.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "14-prefix-text-unchecked",
+    "why": "Round 6, major: a status prefix is parsed from its start alone, so a second status inside it is dropped and a misspelled or impossibly dated one is accepted silently.",
+    "edits": [
+      {
+        "file": "src/dashboard/backlog.ts",
+        "find": "spans.flatMap((s) => statusesIn(id, 2, s))",
+        "replace": "spans.flatMap((s) => statusesIn(id, 2, s).slice(0, 1))"
+      }
+    ],
+    "test": "tests/dashboard/backlog.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "15-label-only-prefix-text-lost",
+    "why": "Round 6, major: `**Status 2026-11-22:** done. **Title**` loses the text after the label's bold and fails with \"no text after the date\".",
+    "edits": [
+      {
+        "file": "src/dashboard/backlog.ts",
+        "find": "    if (!opened && statuses.length > 0 && segment.trim() !== \"\") {",
+        "replace": "    if (false && !opened && statuses.length > 0 && segment.trim() !== \"\") {"
+      }
+    ],
+    "test": "tests/dashboard/backlog.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "16-lone-backtick-opens-code",
+    "why": "Round 6, major: one unpaired backtick keeps the splitter in a code span to the line's end, so every later column merges into one.",
+    "edits": [
+      {
+        "file": "src/dashboard/backlog.ts",
+        "find": "if (inCode || line.indexOf(\"`\", i + 1) !== -1) inCode = !inCode;",
+        "replace": "inCode = !inCode;"
+      }
+    ],
+    "test": "tests/dashboard/backlog.test.ts",
+    "expect": "red"
   }
 ]

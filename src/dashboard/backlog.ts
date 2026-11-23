@@ -61,7 +61,8 @@ export function splitRow(line: string): string[] {
       cur += "|";
       i++;
     } else if (ch === "`") {
-      inCode = !inCode;
+      // A lone backtick with no partner later in the line opens no code span.
+      if (inCode || line.indexOf("`", i + 1) !== -1) inCode = !inCode;
       cur += ch;
     } else if (ch === "|" && !inCode) {
       cells.push(cur);
@@ -185,19 +186,16 @@ function leadingParts(cell: string): {
       rest = close === -1 ? "" : rest.slice(close + 2);
       continue;
     }
+    // Plain text straight after a status whose bold held only its label
+    // (`**Status 2026-11-22:** done. **Title**`) is that status's text.
+    if (!opened && statuses.length > 0 && segment.trim() !== "") {
+      statuses[statuses.length - 1] += ` ${segment.trim()}`;
+      rest = close === -1 ? "" : rest.slice(close);
+      continue;
+    }
     const title = opened && close !== -1 ? segment.trim() : null;
     return { statuses, title, after: title === null ? "" : rest.slice(close + 2) };
   }
-}
-
-function parseStatus(id: string, span: string): BacklogStatus {
-  const m = STATUS_DATED.exec(span);
-  if (!m || !validDate(m[1]!)) {
-    throw new BacklogParseError(
-      `${id}: a status line is not "Status YYYY-MM-DD" with a valid date`,
-    );
-  }
-  return statusFrom(id, m[1]!, m[2]!);
 }
 
 /** A status's date and the raw text after it, as a status. */
@@ -224,8 +222,8 @@ function statusFrom(id: string, date: string, raw: string): BacklogStatus {
 const STATUS_WORD = /(?<!\p{L})status(?!\p{L})/giu;
 /** What a status may stand after: the cell's start, a space, or a bold opener that does. */
 const STATUS_BEFORE = /(?:^|\s)(?:\*\*|__)?$/;
-/** A well-formed status at the word: `Status YYYY-MM-DD`, then a space, `[`, `:`, `*` or the end. */
-const STATUS_AT = /^Status (\d{4}-\d{2}-\d{2})(?=[\s[:*]|$)/;
+/** A well-formed status at the word: `Status YYYY-MM-DD`, then a space, `[`, `:`, `*`, `_` or the end. */
+const STATUS_AT = /^Status (\d{4}-\d{2}-\d{2})(?=[\s[:*_]|$)/;
 
 /**
  * Every status in a cell's text, wherever it stands (P1-111, the operator's
@@ -260,7 +258,9 @@ function parseItem(rank: number, cells: string[], lineNo: number): BacklogItem {
     );
   }
   const { statuses: spans, title: lead, after } = leadingParts(cells[1] ?? "");
-  const statuses = spans.map((s) => parseStatus(id, s));
+  // A prefix may itself hold more statuses, or a misspelled one: the same
+  // word check as every other cell applies to it.
+  const statuses = spans.flatMap((s) => statusesIn(id, 2, s));
   const title = lead === null ? "" : plain(lead);
   if (title === "") {
     throw new BacklogParseError(`${id}: its item cell has no bold title`);
