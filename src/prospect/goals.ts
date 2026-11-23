@@ -1,5 +1,11 @@
 import type { ChecksResult, CrawlResult, JourneyMap, PageCapture, PageExtract } from "./types.js";
-import { isContactLike, isDatedOrPaginated, isFetchableCandidate, toSameOrigin } from "./crawl.js";
+import {
+  isContactLike,
+  isDatedOrPaginated,
+  isFetchableCandidate,
+  sitePathKey,
+  toSameOrigin,
+} from "./crawl.js";
 
 /**
  * Can a visitor do the one thing this site needs them to do?
@@ -519,13 +525,13 @@ function priceSignal(text: string): string | null {
   return null;
 }
 
-/** The address of a page, for "did we read it?": no fragment, no trailing
- *  slash, and no query. A link to `/contact?service=x` is the contact page we
- *  read when `/contact` was read; the query selects content on it, it does not
- *  make it another page to be unread. */
+/** The address of a page, for "did we read it?": no scheme, no `www.`, no
+ *  fragment, no trailing slash, and no query. A link to `/contact?service=x` is
+ *  the contact page we read when `/contact` was read; the query selects content
+ *  on it, it does not make it another page to be unread. An `https://` link to
+ *  a page read over `http://` (or the reverse) is the same page, as in crawl.ts. */
 function pageKey(url: string): string {
-  const u = new URL(url);
-  return `${u.origin}${u.pathname.replace(/\/+$/, "") || "/"}`;
+  return sitePathKey(new URL(url));
 }
 
 /**
@@ -806,6 +812,11 @@ export function checkGoal(
     s.formsMeasured && (s.bestEnquiryFields >= 4 || s.contactUnread === null),
   );
 
+  // No page left us anything to read (say, the home page answered as text/plain
+  // and nothing else was readable). Then every requirement is a gap in our data,
+  // and "missing" would print our blindness as the site's failing.
+  const readable = crawl.pages.some((p) => extractOf(p) !== null);
+
   switch (goal) {
     case "book":
       requirements = [
@@ -929,6 +940,14 @@ export function checkGoal(
       // the result as their failing. The finding IS that we could not tell.
       requirements = [];
       break;
+  }
+
+  if (!readable) {
+    requirements = requirements.map((r) => ({
+      ...r,
+      status: "unmeasured" as const,
+      evidence: null,
+    }));
   }
 
   return {

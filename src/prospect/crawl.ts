@@ -288,7 +288,10 @@ export function isSafeNestedSitemap(child: string, origin: string): boolean {
     return false;
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") return false;
-  if (url.origin !== origin) return false;
+  // The same SITE, not the same origin string: a child listed on `https://` for
+  // an `http://` site (or on `www.`) is this site's sitemap, as `toSameOrigin`
+  // already decides for every other address the crawl reads.
+  if (toSameOrigin(url.toString(), origin) === null) return false;
   return !isPrivateOrLoopbackHost(url.hostname);
 }
 
@@ -345,6 +348,26 @@ export function asRendered(v: string | RenderedPage | undefined): RenderedPage |
   // No `formProbe` key: a caller handing back raw HTML never opened a browser,
   // so it did not try a form — which is not the same as trying and finding none.
   return typeof v === "string" ? { html: v, axe: null, vitals: null } : v;
+}
+
+/**
+ * Runs the enquiry-form probe under its time budget, and keeps its three answers
+ * apart: a FormProbe (a form was pressed), `null` (tried, and this page had no
+ * enquiry form) and `undefined` (not tried to the end: the probe ran out of time
+ * or failed). `undefined` is stored as ABSENT, which reads as "not measured";
+ * a timeout must never become `null`, which would read as a fact about the site.
+ * `probeForms` itself answers `undefined` when the forms did not line up with
+ * the classifier's, which is the same "could not try" and stays absent.
+ */
+export async function budgetedFormProbe(
+  probe: Promise<FormProbe | null | undefined>,
+  budgetMs: number,
+): Promise<FormProbe | null | undefined> {
+  const probed = await withTimeout(
+    probe.then((value) => ({ value })),
+    budgetMs,
+  );
+  return probed === null ? undefined : probed.value;
 }
 
 /** Honest, identified UA — we audit on the prospect's behalf and say so. */
@@ -500,13 +523,24 @@ function headerValue(headers: Record<string, string>, name: string): string | nu
  * the crawl.
  */
 function samePageKey(u: URL): string {
-  const path = u.pathname.replace(/\/+$/, "") || "/";
-  return `${u.origin.toLowerCase()}${path}${u.search}`;
+  return `${sitePathKey(u)}${u.search}`;
 }
 
 /** A hostname with one leading `www.` taken off, lower-cased. */
 function bareHost(hostname: string): string {
   return hostname.toLowerCase().replace(/^www\./, "");
+}
+
+/**
+ * The address of a page on its SITE, without its scheme, its `www.`, its query
+ * or a trailing slash: `acme.example/about` for `https://www.acme.example/about/`
+ * and for `http://acme.example/about`. Two addresses with the same key are the
+ * same page, so each is fetched once. Exported for goals.ts, which asks the
+ * same question of "did we read that page?".
+ */
+export function sitePathKey(u: URL): string {
+  const path = u.pathname.replace(/\/+$/, "") || "/";
+  return `${bareHost(u.hostname)}${u.port ? `:${u.port}` : ""}${path}`;
 }
 
 /**
@@ -648,12 +682,21 @@ export function isContactLike(href: string, text = ""): boolean {
   }
   const segments = path.split("/").filter(Boolean);
   for (const [i, segment] of segments.entries()) {
-    const words = segment.replace(/\.[a-z0-9]+$/, "").split(/[-_]+/);
+    const bare = segment.replace(/\.[a-z0-9]+$/, "");
+    // Any segment that starts with `contact` is a contact page: `contact-sales`,
+    // `contact-form`, `contact-page`, `contact-information`, as well as `contact-us`.
+    if (bare.startsWith("contact")) return true;
+    const words = bare.split(/[-_]+/);
     if (isContactSegment(words, segments.length === 1 && i === 0)) return true;
     if (words.join(" ").includes("get started")) return true;
   }
   const label = text.replace(/\s+/g, " ").trim();
-  return label.length > 0 && label.length <= 40 && CONTACT_LABEL.test(label);
+  if (label.length === 0 || label.length > 40) return false;
+  // A label that opens with "Contact" ("Contact Sales", "Contact our team"), or
+  // that offers a consultation ("Free consultation"), or the verb phrases below.
+  return (
+    /^contact\b/i.test(label) || /\bconsultations?\b/i.test(label) || CONTACT_LABEL.test(label)
+  );
 }
 
 /** A dated post (`/2019/04/…`, `/2019/…`), a page of a paginated list
@@ -772,9 +815,11 @@ export function contactLinks(html: string, baseUrl: string): string[] {
  * read, before what a CMS happens to list first.
  *
  *   1. the home page;
- *   2. links in the home page's `<header>` and `<nav>`: the owner's own menu;
- *   3. contact-like links anywhere on the home page (contact, quote, demo,
- *      book, get started): the pages the lead-capture verdicts are about;
+ *   2. contact-like links anywhere on the home page, the menu's included
+ *      (contact, quote, demo, book, get started): the pages the lead-capture
+ *      verdicts are about, ahead of every other menu link;
+ *   3. the other links in the home page's `<header>` and `<nav>`: the owner's
+ *      own menu;
  *   4. the sitemap's URLs and the home page's other links, shallowest path
  *      first, with dated posts, post sitemaps and paginated lists last.
  *
@@ -801,26 +846,13 @@ export function rankCandidates(input: {
     depth: pathDepth(url),
   }));
   pool.sort((a, b) => a.late - b.late || a.depth - b.depth || a.i - b.i);
-  return [input.home, ...input.nav, ...input.contact, ...pool.map((p) => p.url)];
+  // Contact-like links first, wherever they sit: the menu's own "Contact" is
+  // part of `contact` too, so the menu's other links come after it.
+  const contact = new Set(input.contact);
+  const menu = input.nav.filter((url) => !contact.has(url));
+  return [input.home, ...input.contact, ...menu, ...pool.map((p) => p.url)];
 }
 
-/**
- * Which URLs to spend the page budget on.
- *
- * DISTINCT PATHS FIRST, query variants with whatever is left. The budget is
- * small and a query string is the cheapest way for a site to spend all of it on
- * one page: apple.com handed us `/accessibility/features/` five times under
- * `?vision`, `?hearing`, `?speech` and `?cognitive` — tab deep-links into a
- * single page — plus `/airpods-pro/?campaign=true`, so six of twenty slots went
- * to two pages we had already read.
- *
- * A PREFERENCE, never a filter, because `samePageKey` is right that `?page=2`
- * is genuinely another page. A blog whose only content is `?page=N` still gets
- * crawled: those URLs simply queue behind the distinct paths instead of
- * crowding them out.
- *
- * Exported for the offline replay of page selection over stored rows.
- */
 /**
  * Could the crawl ever read this URL as a page? The same three refusals the
  * page budget applies, exported so anything that counts links a visitor could
@@ -844,6 +876,23 @@ export function isFetchableCandidate(url: string, robotsTxt: string | null): boo
   return robotsAllowsUs(robotsTxt, u.toString(), USER_AGENT);
 }
 
+/**
+ * Which URLs to spend the page budget on.
+ *
+ * DISTINCT PATHS FIRST, query variants with whatever is left. The budget is
+ * small and a query string is the cheapest way for a site to spend all of it on
+ * one page: apple.com handed us `/accessibility/features/` five times under
+ * `?vision`, `?hearing`, `?speech` and `?cognitive` — tab deep-links into a
+ * single page — plus `/airpods-pro/?campaign=true`, so six of twenty slots went
+ * to two pages we had already read.
+ *
+ * A PREFERENCE, never a filter, because `samePageKey` is right that `?page=2`
+ * is genuinely another page. A blog whose only content is `?page=N` still gets
+ * crawled: those URLs simply queue behind the distinct paths instead of
+ * crowding them out.
+ *
+ * Exported for the offline replay of page selection over stored rows.
+ */
 export function normalizeCandidates(
   urls: string[],
   origin: string,
@@ -980,8 +1029,13 @@ async function fetchSidecars(
     }
   }
   // A transport failure on any address we tried means we do not know there is
-  // no sitemap; only when every address answered is absence a fact.
-  if (sitemapSource === null) sitemap = { res: null, error: firstError };
+  // no sitemap; only when every address answered is absence a fact. An address
+  // the owner NAMED that answered 404 is the same kind of gap: they told us the
+  // sitemap is there, and we could not read it, so it is not "no sitemap".
+  if (sitemapSource === null) {
+    const namedUnread = namedCount > 0 ? "robots.txt names a sitemap that could not be read" : null;
+    sitemap = { res: null, error: firstError ?? namedUnread };
+  }
 
   let listed: string[] = [];
   const sitemapPostUrls = new Set<string>();
@@ -1663,13 +1717,10 @@ export function defaultCrawlDeps(
               // fact about the site. So a timeout or mismatch never becomes null.
               let formProbe: FormProbe | null | undefined;
               if (!formProbed) {
-                const probed = await withTimeout(
-                  probeForms(pageInteractionDeps(page, url, enquiryFormsIn(html))).then(
-                    (value) => ({ value }),
-                  ),
+                formProbe = await budgetedFormProbe(
+                  probeForms(pageInteractionDeps(page, url, enquiryFormsIn(html))),
                   PROBE_BUDGET_MS,
                 );
-                formProbe = probed === null ? undefined : probed.value;
                 if (formProbe) formProbed = true;
               }
               out.set(url, {

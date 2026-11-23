@@ -832,3 +832,69 @@ describe("qualifying-form — which unread contact links count (W3 review round 
     expect(status(checkGoal("enquire", "inferred", c, null), "qualifying-form")).toBe("unmeasured");
   });
 });
+
+// W3 review round 2. Each block names the finding it pins.
+describe("W3 review round 2 — the contact page is read whatever its scheme", () => {
+  it("MAJOR (1): an https contact link on an http site counts as the page we read over http", () => {
+    const home: CrawlResult = {
+      origin: "http://example.com",
+      robotsTxt: null,
+      agentAccess: [],
+      sitemap: { present: false, urlCount: 0 },
+      llmsTxt: { present: false, firstLine: null },
+      sidecarErrors: { robots: null, llms: null, sitemap: null },
+      homeHeaders: {},
+      pages: [
+        {
+          url: "http://example.com/",
+          status: 200,
+          raw: extract({ anchors: [anchor("https://example.com/contact", "Contact")] }),
+          rendered: null,
+          error: null,
+        },
+        {
+          url: "http://example.com/contact",
+          status: 200,
+          // An extracted page with no enquiry form: "we read it and found none".
+          raw: extract({ text: "Get in touch.", forms: [] }),
+          rendered: null,
+          error: null,
+        },
+      ],
+    };
+    const fit = checkGoal("enquire", "inferred", home, null);
+    // The contact page was read, so the absence of a form there is a finding.
+    expect(status(fit, "qualifying-form")).toBe("missing");
+  });
+});
+
+describe("W3 review round 2 — no readable page means nothing was measured", () => {
+  // A home page answered 200 as text/plain: the crawl kept no extract for it.
+  const unreadable = (): CrawlResult => {
+    const c = crawl("");
+    c.pages[0] = { ...c.pages[0]!, raw: null, rendered: null, error: "not HTML (text/plain)" };
+    return c;
+  };
+
+  it("MAJOR (5): a visit with no extract is unmeasured throughout, never missing", () => {
+    const fit = checkGoal("visit", "inferred", unreadable(), null);
+    expect(fit.requirements.length).toBeGreaterThan(0);
+    expect(fit.requirements.filter((r) => r.status === "missing")).toEqual([]);
+    expect(fit.requirements.every((r) => r.status === "unmeasured")).toBe(true);
+    expect(status(fit, "hours")).toBe("unmeasured");
+    expect(status(fit, "address")).toBe("unmeasured");
+    expect(status(fit, "getting-there")).toBe("unmeasured");
+    expect(fit.total).toBe(0);
+  });
+
+  it("MAJOR (5): an enquiry with no extract is unmeasured, the price signal included", () => {
+    const fit = checkGoal("enquire", "inferred", unreadable(), null);
+    expect(status(fit, "price-signal")).toBe("unmeasured");
+    expect(fit.requirements.filter((r) => r.status === "missing")).toEqual([]);
+  });
+
+  it("still reports missing when a page was read and simply lacks the answer", () => {
+    const fit = checkGoal("visit", "inferred", crawl("Welcome to our shop."), null);
+    expect(status(fit, "hours")).toBe("missing");
+  });
+});

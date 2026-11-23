@@ -15,7 +15,10 @@ import {
   isContactLike,
   isPostSitemap,
   navLinks,
+  contactLinks,
   rankCandidates,
+  normalizeCandidates,
+  budgetedFormProbe,
   toSameOrigin,
   type CrawlDeps,
   type FetchResponse,
@@ -1365,5 +1368,154 @@ describe("W3 review round 1 — isContactLike false positives and verb phrases",
     ["https://acme.example/x", "Get a free quote"],
   ])("%s %s is a contact link", (href, text) => {
     expect(isContactLike(href, text)).toBe(true);
+  });
+});
+
+// W3 review round 2. Each block names the finding it pins.
+describe("W3 review round 2 — the same site is the same site, whatever its scheme", () => {
+  const BARE = "<html><head><title>Acme</title></head><body><h1>Acme</h1></body></html>";
+  const urlset = (urls: string[]): string =>
+    `<urlset>${urls.map((u) => `<url><loc>${u}</loc></url>`).join("")}</urlset>`;
+
+  it("MAJOR (a): a sitemap index on an http site may list its child on https, and the child is read", async () => {
+    const HTTP_HOME = "http://acme.example/";
+    const deps = stubDeps({
+      [HTTP_HOME]: { body: BARE },
+      "http://acme.example/sitemap.xml": {
+        body: `<sitemapindex><sitemap><loc>https://acme.example/page-sitemap.xml</loc></sitemap></sitemapindex>`,
+      },
+      "https://acme.example/page-sitemap.xml": {
+        body: urlset(["https://acme.example/services", "https://acme.example/about"]),
+      },
+    });
+    const result = await crawlSite(HTTP_HOME, deps);
+    expect(result.sitemap).toEqual({
+      present: true,
+      urlCount: 2,
+      sample: ["https://acme.example/services", "https://acme.example/about"],
+      truncated: false,
+    });
+  });
+
+  it("MAJOR (a): a robots-named https sitemap on an http site is read, not dropped", async () => {
+    const HTTP_HOME = "http://acme.example/";
+    const deps = stubDeps({
+      [HTTP_HOME]: { body: BARE },
+      "http://acme.example/robots.txt": {
+        body: "User-agent: *\nAllow: /\nSitemap: https://acme.example/sitemap-main.xml",
+      },
+      "https://acme.example/sitemap-main.xml": { body: urlset(["https://acme.example/services"]) },
+    });
+    const result = await crawlSite(HTTP_HOME, deps);
+    expect(result.sitemap.present).toBe(true);
+    expect(result.sitemap.urlCount).toBe(1);
+    expect(result.selection?.sitemapSource).toBe("https://acme.example/sitemap-main.xml");
+  });
+
+  it("MAJOR (b): an https copy of a page already listed on http takes no second seat", () => {
+    const HTTP = "http://acme.example/";
+    const ranked = rankCandidates({
+      home: HTTP,
+      nav: ["http://acme.example/about"],
+      contact: [],
+      sitemap: ["https://acme.example/about", "https://acme.example/"],
+      bodyLinks: [],
+    });
+    const { chosen, considered } = normalizeCandidates(ranked, "http://acme.example", 20, null);
+    expect(chosen).toEqual(["http://acme.example/", "http://acme.example/about"]);
+    expect(considered).toBe(2);
+  });
+
+  it("MAJOR (b): a www. copy of a page takes no second seat either", () => {
+    const { chosen } = normalizeCandidates(
+      ["https://acme.example/services", "https://www.acme.example/services/"],
+      "https://acme.example",
+      20,
+      null,
+    );
+    expect(chosen).toEqual(["https://acme.example/services"]);
+  });
+});
+
+describe("W3 review round 2 — contact-like links", () => {
+  it.each([
+    ["https://acme.example/contact-sales", ""],
+    ["https://acme.example/contact-form", ""],
+    ["https://acme.example/contact-page", ""],
+    ["https://acme.example/contact-information", ""],
+    ["https://acme.example/x", "Contact Sales"],
+    ["https://acme.example/x", "Contact our team"],
+    ["https://acme.example/x", "Free consultation"],
+  ])("MAJOR (2): %s %s is a contact link", (href, text) => {
+    expect(isContactLike(href, text)).toBe(true);
+  });
+});
+
+describe("W3 review round 2 — a sitemap the owner named that we could not read", () => {
+  it("MAJOR (3): a robots-named sitemap that 404s at our origin is recorded as a sidecar error, not as absent", async () => {
+    const deps = stubDeps({
+      [HOME]: { body: NO_MENU_HOME },
+      "https://acme.example/robots.txt": {
+        body: "User-agent: *\nAllow: /\nSitemap: https://www.acme.example/sitemap-main.xml",
+      },
+    });
+    const result = await crawlSite(HOME, deps);
+    expect(result.sitemap.present).toBe(false);
+    expect(result.sidecarErrors.sitemap).not.toBeNull();
+  });
+
+  it("a CMS default that 404s, with nothing named in robots, is still plain absence", async () => {
+    const deps = stubDeps({ [HOME]: { body: NO_MENU_HOME } });
+    const result = await crawlSite(HOME, deps);
+    expect(result.sitemap.present).toBe(false);
+    expect(result.sidecarErrors.sitemap).toBeNull();
+  });
+});
+
+describe("W3 review round 2 — a mega-menu does not push the contact page out of the budget", () => {
+  const products = Array.from(
+    { length: 30 },
+    (_, i) => `<a href="/product-${i}">Product ${i}</a>`,
+  ).join("");
+  const MENU_HOME = `<html><body><header><nav>${products}<a href="/contact">Contact</a></nav></header>
+    <main><h1>Acme</h1></main></body></html>`;
+
+  it("MAJOR (4): the contact link ranks right after the home page, ahead of the 30 product links", () => {
+    const ranked = rankCandidates({
+      home: HOME,
+      nav: navLinks(MENU_HOME, HOME),
+      contact: contactLinks(MENU_HOME, HOME),
+      sitemap: [],
+      bodyLinks: [],
+    });
+    expect(ranked.slice(0, 3)).toEqual([
+      HOME,
+      "https://acme.example/contact",
+      "https://acme.example/product-0",
+    ]);
+  });
+
+  it("MAJOR (4): with a 20-page cap the contact page is among the pages read", async () => {
+    const deps = stubDeps({
+      [HOME]: { body: MENU_HOME },
+      "https://acme.example/contact": { body: BARE_PAGE },
+    });
+    const result = await crawlSite(HOME, deps);
+    expect(result.pages.map((p) => p.url)).toContain("https://acme.example/contact");
+    expect(result.pages.length).toBeLessThanOrEqual(20);
+  });
+});
+
+const BARE_PAGE = "<html><head><title>Acme</title></head><body><h1>Acme</h1></body></html>";
+
+describe("W3 review round 2 — a probe that runs out of time is not a finding", () => {
+  it("NIT (7): a timed-out form probe is absent (not measured), never null", async () => {
+    const never = new Promise<null>(() => {});
+    expect(await budgetedFormProbe(never, 5)).toBeUndefined();
+  });
+
+  it("a probe that fails is absent too, and a probe that ran and found no form is null", async () => {
+    expect(await budgetedFormProbe(Promise.reject(new Error("boom")), 1000)).toBeUndefined();
+    expect(await budgetedFormProbe(Promise.resolve(null), 1000)).toBeNull();
   });
 });

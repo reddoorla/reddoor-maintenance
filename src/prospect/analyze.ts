@@ -450,9 +450,9 @@ function verifyEvidence(result: AnalyzeResult, crawl: CrawlResult): AnalyzeResul
 const KEY_TERMS: Record<string, RegExp> = {
   cost: /\b(pric(e|es|ing)|fees?|rates?|starting at|per (hour|month|visit|session))\b|\$\s?\d/i,
   "who-for":
-    /\b(we (work with|serve|help|specialize)|ideal for|designed for|who we serve|our clients|industries)\b/i,
+    /\b(we (work with|serve|help|specialize)|ideal for|designed for|who we serve|our clients|industries we (serve|work with))\b/i,
   proof:
-    /\b(testimonials?|case stud(y|ies)|customer reviews|client reviews|years of experience|accredited|awards? (won|winning)|trusted by)\b/i,
+    /\b(testimonials?|case stud(y|ies)|customer reviews|client reviews|years of experience|accredited by|awards? (won|winning)|trusted by)\b/i,
   "who-does-it":
     /\b(meet (the|our) (team|founders?)|founded by|led by|our (founders?|leadership))\b/i,
   where:
@@ -461,23 +461,25 @@ const KEY_TERMS: Record<string, RegExp> = {
     /\b(next steps?|what happens next|what to expect|we('ll| will) (contact|respond|reply|call)|within \d+ (hours?|business days?)|free consultation)\b/i,
   availability: /\b((accepting|taking) new|new (patients|clients) welcome|wait(ing)? ?list)\b/i,
   "how-to-book":
-    /\b(book (online|now|an appointment)|schedule (online|an appointment|a visit)|booking|request an appointment)\b/i,
+    /\b(book (online|now|an appointment)|schedule (online|an appointment|a visit)|online booking|booking (form|page|system|request)|request an appointment)\b/i,
   "first-visit": /\b(first (visit|appointment|session)|new patients?|what to expect)\b/i,
   payment: /\b(insurance|we accept|payment|financing|medicare|medicaid)\b/i,
   timeline:
     /\b(timelines?|turnaround|lead times?|how long|\d+\s*(-|to|–)\s*\d+\s*(days|weeks|months))\b/i,
   process: /\b(our process|how we work|step \d|stages?|phases?|discovery)\b/i,
-  minimum: /\b(minimum|project size|budgets?|starting at)\b/i,
+  minimum: /\b(minimum|project size|(your|our|project) budgets?|starting at)\b/i,
   "my-input": /\b(we('ll| will) need|you('ll| will) need|what we need|bring|provide us)\b/i,
   "reachable-hours":
-    /\b((business|opening|office|operating) hours|open (daily|from|mon\w*)|mon(day)?\s*(-|–|to)\s*fri(day)?|24\/7)\b/i,
+    /\b((business|opening|office|operating) hours|open (daily|from|mon\w*|24\/7)|mon(day)?\s*(-|–|to)\s*fri(day)?|24\/7 (service|support|cover\w*|availability|line))\b/i,
   "who-answers":
     /\b(answered by|speak (with|to) (a|an|our)|real person|live (person|agent|operator))\b/i,
   "call-cost": /\b(free (consultation|call|estimate|assessment)|no[- ]obligation|complimentary)\b/i,
-  urgent: /\b(emergenc(y|ies)|urgent|after[- ]hours|24\/7|same[- ]day)\b/i,
+  urgent:
+    /\b(emergenc(y|ies)|urgent|after[- ]hours|24\/7 (service|support|cover\w*|availability|line)|same[- ]day)\b/i,
   "opening-hours":
     /\b((business|opening|office|operating) hours|open (daily|from|mon\w*)|closed on|mon(day)?\s*(-|–|to)\s*fri(day)?)\b/i,
-  "getting-there": /\b(parking|transit|directions|bus|metro|subway|train station)\b/i,
+  "getting-there":
+    /\b(parking|transit|(driving |travel |getting )?directions (to|from) us|bus|metro|subway|train station)\b/i,
   "what-on-site": /\b(showroom|facility|tour|amenities|on[- ]site)\b/i,
   accessibility: /\b(accessible|wheelchair|ada|step[- ]free|elevator)\b/i,
   shipping: /\b(shipping|delivery|ships)\b/i,
@@ -487,8 +489,10 @@ const KEY_TERMS: Record<string, RegExp> = {
   "demo-content": /\b(demo|walkthrough|product tour)\b/i,
   integration: /\b(integrat\w*|api|works with|connects? (to|with))\b/i,
   compliance: /\b(hipaa|soc ?2|gdpr|iso ?27001|compliance|compliant|encrypt\w*)\b/i,
-  "who-else": /\b(customers|clients include|trusted by|case stud(y|ies))\b/i,
-  "partner-fit": /\b(partners?|resellers?|distributors?)\b/i,
+  "who-else":
+    /\b((our|happy|existing) customers|customer (stories|base|reviews)|clients include|trusted by|case stud(y|ies))\b/i,
+  "partner-fit":
+    /\b((our|new|become an?|join as an?) (partners?|resellers?|distributors?)|(partner|reseller|distributor) (programme|program|network|opportunities))\b/i,
   "partner-terms": /\b((partner|reseller|dealer) terms|margins?|commissions?|discounts?)\b/i,
   territory: /\b(territor(y|ies)|regions?|exclusive|markets?)\b/i,
   "partner-support": /\b(partner (portal|program|support)|training|marketing materials)\b/i,
@@ -531,6 +535,47 @@ function firstTermHit(terms: TermPattern, text: string): string | null {
   return null;
 }
 
+/** Words in a run that must repeat before it counts as boilerplate. Six is long
+ *  enough that two pages sharing an ordinary sentence is rare, and short enough
+ *  to catch a footer whose links sit between its phrases. */
+const BOILERPLATE_RUN = 6;
+
+/** Every run of `BOILERPLATE_RUN` words that appears on two or more of `texts`:
+ *  the footer, the nav and the cookie banner, which every page carries. A run
+ *  that occurs once is this page's own copy, and is never boilerplate. */
+function repeatedRuns(texts: string[]): Set<string> {
+  const pagesWith = new Map<string, number>();
+  for (const text of texts) {
+    const words = text.split(" ");
+    const runs = new Set<string>();
+    for (let i = 0; i + BOILERPLATE_RUN <= words.length; i++) {
+      runs.add(
+        words
+          .slice(i, i + BOILERPLATE_RUN)
+          .join(" ")
+          .toLowerCase(),
+      );
+    }
+    for (const run of runs) pagesWith.set(run, (pagesWith.get(run) ?? 0) + 1);
+  }
+  return new Set([...pagesWith].filter(([, n]) => n >= 2).map(([run]) => run));
+}
+
+/** `text` with every word that sits inside a boilerplate run removed. */
+function withoutRuns(text: string, runs: Set<string>): string {
+  const words = text.split(" ");
+  const drop = new Array<boolean>(words.length).fill(false);
+  for (let i = 0; i + BOILERPLATE_RUN <= words.length; i++) {
+    const run = words
+      .slice(i, i + BOILERPLATE_RUN)
+      .join(" ")
+      .toLowerCase();
+    if (!runs.has(run)) continue;
+    for (let j = i; j < i + BOILERPLATE_RUN; j++) drop[j] = true;
+  }
+  return words.filter((_, i) => !drop[i]).join(" ");
+}
+
 /**
  * The last check before "your site does not answer this" is allowed to stand:
  * do the question's key terms appear in what we crawled and the model did NOT
@@ -547,10 +592,12 @@ function checkAbsence(q: BuyerQuestion, crawl: CrawlResult): BuyerQuestion {
   const terms = termsFor(q);
   if (terms === null) return q;
   const sent = new Set(selectPages(crawl.pages).map((p) => p.url));
-  for (const p of crawl.pages) {
-    const full = (p.rendered ?? p.raw)?.text ?? "";
+  const texts = crawl.pages.map((p) => (p.rendered ?? p.raw)?.text ?? "");
+  const boilerplate = repeatedRuns(texts);
+  for (const [i, p] of crawl.pages.entries()) {
+    const full = texts[i]!;
     const unseen = sent.has(p.url) ? full.slice(MAX_TEXT_CHARS) : full;
-    const hit = firstTermHit(terms, unseen);
+    const hit = firstTermHit(terms, withoutRuns(unseen, boilerplate));
     if (hit !== null) {
       return { ...q, answered: "unknown", notFound: { term: hit, page: p.url } };
     }

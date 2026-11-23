@@ -731,3 +731,54 @@ describe("checkAbsence — a `no` is checked against everything we crawled", () 
     expect(q.notFound?.term).toBe("fees");
   });
 });
+
+// W3 review round 2. Boilerplate and bare words must not flip a `no`.
+describe("checkAbsence — boilerplate and bare words (W3 review round 2)", () => {
+  const withPages = (texts: string[]): CrawlResult => ({
+    ...crawl(0),
+    pages: texts.map((t, i) => page(`https://acme.example/q${i}`, html(`Page ${i}`, t))),
+  });
+  const askNo = async (c: CrawlResult, id: string) =>
+    (
+      await analyzeSite("https://acme.example/", c, runChecks(c), {
+        run: async () => ({
+          ...validOutput,
+          buyerQuestions: validOutput.buyerQuestions.map((q) =>
+            q.id === id ? { ...q, answered: "no" as const, page: null, evidence: null } : q,
+          ),
+        }),
+      })
+    ).buyerQuestions.find((q) => q.id === id)!;
+  const filler = "Filler sentence. ".repeat(120);
+
+  it("MAJOR (6): a footer repeated on every page with a phrase leaves a `no` standing", async () => {
+    // The footer sits past the window the model read, on both pages, and it
+    // carries the phrase the `who-for` question keys on. It is boilerplate:
+    // the same words on two or more pages say nothing about this page.
+    const footer = "We work with Leeds businesses. Privacy policy. Cookie settings.";
+    const q = await askNo(
+      withPages([`${filler}Welcome. ${footer}`, `${filler}Our studio. ${footer}`]),
+      "who-for",
+    );
+    expect(q.answered).toBe("no");
+    expect(q.notFound).toBeUndefined();
+  });
+
+  it("MAJOR (6): a bare footer word such as Industries no longer flips a `no`", async () => {
+    const q = await askNo(
+      withPages([`${filler}Welcome. Industries Accredited 24/7 Directions`]),
+      "who-for",
+    );
+    expect(q.answered).toBe("no");
+    expect(q.notFound).toBeUndefined();
+  });
+
+  it("MAJOR (6) control: the same phrase on one page's body, past the window, still flips the `no`", async () => {
+    const q = await askNo(
+      withPages([`${filler}Welcome.`, `${filler}We work with Leeds businesses.`]),
+      "who-for",
+    );
+    expect(q.answered).toBe("unknown");
+    expect(q.notFound).toEqual({ term: "We work with", page: "https://acme.example/q1" });
+  });
+});
