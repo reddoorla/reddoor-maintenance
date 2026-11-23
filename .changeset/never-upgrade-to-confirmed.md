@@ -5,7 +5,7 @@
 prospect audit: code no longer upgrades an accuracy verdict to `confirmed`. A rule turned the model's `contradicted` into `confirmed` whenever the site used one of the claim's search terms, including the model's own evidence against the claim, so a report could tell a business that its own site agrees with something the site contradicts. Now only the model can make a verdict `confirmed`. Code takes a `contradicted` down to `unverified` only when all of these hold:
 
 - the claim denies nothing;
-- the term carries every name the claim asserts (any capitalised word but the first), apart from the business's own name where it appears whole;
+- the term carries every name the claim asserts (any capitalised word, the first included), apart from the business's own name where it appears whole;
 - the claim asserts at least one such name;
 - the model's own quote does not already contain the term;
 - the site uses the term as whole words, outside the business's own name.

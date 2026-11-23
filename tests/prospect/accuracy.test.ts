@@ -878,6 +878,29 @@ describe("a downgrade needs the claim's own names, as words on the site", () => 
     expect(r?.unverifiedReason ?? "").not.toMatch(/^Your site does say/);
   });
 
+  it.each([
+    [
+      "Texas-based Rosewood Market delivers across Oregon.",
+      "Oregon",
+      "Rosewood Market, Portland, Oregon. Family-run since 2004.",
+    ],
+    [
+      "Jane Smith founded Rosewood Market in 2010.",
+      "Smith",
+      "Rosewood Market. Meet the team: Tom Smith, head florist.",
+    ],
+  ])("counts a name that opens the claim: %s", async (claim, term, siteText) => {
+    const r = await run({
+      siteText,
+      query: "who is Rosewood Market",
+      fullAnswer: claim,
+      claim,
+      engineQuote: claim,
+      term,
+    });
+    expect(r?.unverifiedReason ?? "").not.toMatch(/^Your site does say/);
+  });
+
   it("does not find a name at the start of a longer word", async () => {
     const r = await run({
       siteText: "Stay near Salemtown all week.",

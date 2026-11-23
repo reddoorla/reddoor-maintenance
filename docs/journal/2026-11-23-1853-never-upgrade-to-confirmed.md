@@ -7,7 +7,7 @@
 **The rule now.** Code may only move a verdict down. `doubtingTerm` takes a `contradicted` down to `unverified` only when "your site does say this" really is a reason to doubt the model:
 
 - **The claim denies nothing.** `NEGATED` covers no, not, never, none, nobody, nothing, without, cannot, neither, nor, and n't with either apostrophe. "No business has the name X" is refuted by the site saying X, not put in doubt.
-- **The term carries every name the claim asserts**, apart from the business's own name. A name here is any capitalised word but the claim's first. A sentence-start test would be fooled by "Dr." and "St.", and here a missed name loosens the guard. The business's name is taken from the branded query (`who is <name>`, `<name> reviews`) and removed only where the whole name appears as a run in the claim. This rules out three things:
+- **The term carries every name the claim asserts**, apart from the business's own name. A name here is any capitalised word, the claim's first included. A sentence-start test is fooled by "Dr." and "St.", and the first word can be the very name the claim hinges on ("Texas-based …"); here a missed name loosens the guard. The business's name is taken from the branded query (`who is <name>`, `<name> reviews`) and removed only where the whole name appears as a run in the claim. This rules out three things:
   - "Based in Lakeside, Oregon" is not in doubt because the site says "Oregon".
   - "Founded by Dr. Jane Smith" is not in doubt because the site says "Dr. Smith".
   - "Rosewood Bakery" is a different business, not "Bakery" next to our "Rosewood".
@@ -34,13 +34,14 @@ The term is searched for in the page text as it is, case-insensitively, so the q
 - **Round 4** found two more:
   - The term was still found inside the business's own name on the page.
   - An abbreviation's period hid a name the claim asserts.
+- **Round 5** found one more: the claim's first word was never counted, so "Texas-based … across Oregon" was excused by "Oregon". Fixed by counting it. That was the fifth dirty round, and the operator chose this fix and a sixth round (workspace decision, 11-23).
 - The fixtures are an invented florist mistaken for a bakery.
 - Round 1's commit was on the public branch before round 2 found its wording. The operator chose to accept it and squash-merge (workspace decision, 11-23).
 
 **Tests.**
 
 - The old test "flips contradicted to confirmed when the site uses the claim's own terms" pinned the behaviour this change removes. It now expects `unverified`, the site passage and the full reason.
-- There are 73 accuracy tests, and each guard has at least one. They cover:
+- There are 75 accuracy tests, and each guard has at least one. They cover:
   - a lower-case term quoted back in the site's spelling;
   - a supported contradiction that must stay `contradicted`;
   - twelve negation forms;
@@ -49,6 +50,7 @@ The term is searched for in the page text as it is, case-insensitively, so the q
   - names inside and at the start of longer words;
   - our own name on the page;
   - two abbreviations;
+  - a name that opens the claim;
   - a claim with no name;
   - a site text whose lower case is longer.
 - Mutations, each measured on the final tests:

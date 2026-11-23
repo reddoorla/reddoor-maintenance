@@ -770,13 +770,12 @@ function doubtingTerm(
       }
     }
   }
-  // Every capital but the claim's first word counts. `opensSentence` is
-  // fooled by "Dr." and "St.", and here a missed name loosens the guard: "Dr.
-  // Jane Smith" must not be put in doubt by a site saying "Dr. Smith". Erring
-  // strict only leaves the model's verdict alone.
-  const asserted = words
-    .filter((w, i) => w.capitalised && i > 0 && !own.has(i))
-    .map((w) => w.lower);
+  // Every capital counts, the claim's first word included, unless it is
+  // inside the business's own name. `opensSentence` is fooled by "Dr." and
+  // "St.", and the first word can be the very name the claim hinges on
+  // ("Texas-based …", "Jane Smith founded …"); here a missed name loosens the
+  // guard. Erring strict only leaves the model's verdict alone.
+  const asserted = words.filter((w, i) => w.capitalised && !own.has(i)).map((w) => w.lower);
   if (asserted.length === 0) return null;
   const quote = modelQuote === null ? "" : normalize(modelQuote);
   // Where the business's own name sits on the page, so a term found only
