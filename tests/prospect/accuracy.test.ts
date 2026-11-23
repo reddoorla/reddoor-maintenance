@@ -650,7 +650,28 @@ describe("a place the site itself names", () => {
       unverifiedReason: null,
     });
   });
+
+  it("keeps a supported contradiction even when the site uses its search term", async () => {
+    const r = await checkAccuracy("https://acme.example/", site, [answer], [], {
+      run: async () => ({
+        assertions: [
+          {
+            claim: "Acme Design is located in the Portland metro area.",
+            engineQuote: "Acme Design (Los Angeles-based)",
+            verdict: "contradicted",
+            siteQuote: "We are conveniently located near the Los Angeles metro area.",
+            searchTerms: ["metro area"],
+          },
+        ],
+      }),
+      ownership: offline,
+    });
+    expect(r.assertions[0]).toMatchObject({ verdict: "contradicted", unverifiedReason: null });
+  });
 });
+
+const SAME_SUBJECT =
+  "The passage we found is about the same subject but does not actually say this, so we have not stated it either way.";
 
 describe("code never upgrades a verdict to 'confirmed'", () => {
   // Invented. A rule here once turned the model's "contradicted" into
@@ -688,6 +709,8 @@ describe("code never upgrades a verdict to 'confirmed'", () => {
   it.each([
     {
       why: "the term is the model's counter-evidence, not in the claim",
+      verdict: "unverified",
+      reason: SAME_SUBJECT,
       claim: "The business is a bakery known for sourdough bread.",
       engineQuote: "a bakery known for sourdough bread",
       searchTerms: ["fresh flowers"],
@@ -695,6 +718,8 @@ describe("code never upgrades a verdict to 'confirmed'", () => {
     },
     {
       why: "the claim denies the name the site uses",
+      verdict: "contradicted",
+      reason: null,
       claim: 'No business operates under the name "Rosewood Market".',
       engineQuote: 'I couldn\'t find a company called "Rosewood Market"',
       searchTerms: ["Rosewood Market"],
@@ -702,6 +727,8 @@ describe("code never upgrades a verdict to 'confirmed'", () => {
     },
     {
       why: "the term is only the business's own name",
+      verdict: "unverified",
+      reason: SAME_SUBJECT,
       claim: "Rosewood Market is a bakery known for sourdough bread.",
       engineQuote: "Rosewood Market is a bakery known for sourdough bread",
       searchTerms: ["Rosewood Market"],
@@ -709,6 +736,8 @@ describe("code never upgrades a verdict to 'confirmed'", () => {
     },
     {
       why: "the term carries only part of the place the claim asserts",
+      verdict: "unverified",
+      reason: SAME_SUBJECT,
       claim: "Rosewood Market is based in Lakeside, Oregon.",
       engineQuote: "based in Lakeside, Oregon",
       searchTerms: ["Oregon"],
@@ -717,16 +746,19 @@ describe("code never upgrades a verdict to 'confirmed'", () => {
     },
     {
       why: "the term is the claim's own opening words",
+      verdict: "unverified",
+      reason: SAME_SUBJECT,
       claim: "The business is a bakery known for sourdough bread.",
       engineQuote: "a bakery known for sourdough bread",
       searchTerms: ["The business"],
       siteQuote: "Our business is known for fresh flowers arranged daily for weddings and events.",
     },
-  ])("leaves the model's verdict alone when $why", async (a) => {
-    const [r] = await judge(a);
-    expect(r?.verdict).not.toBe("confirmed");
-    expect(r?.unverifiedReason ?? "").not.toMatch(/^Your site does say/);
-    expect(r?.siteQuote).toBe(a.siteQuote);
+  ] as const)("leaves the model's verdict alone when $why", async (c) => {
+    const { why: _why, verdict, reason, ...a } = c;
+    const [r] = await judge({ ...a, searchTerms: [...a.searchTerms] });
+    // Exactly what main's quote checks give the model's "contradicted": kept
+    // where its own quote supports it, unverified where it does not.
+    expect(r).toMatchObject({ verdict, unverifiedReason: reason, siteQuote: a.siteQuote });
   });
 
   it("leaves it alone when the model's own quote already holds the term", async () => {
