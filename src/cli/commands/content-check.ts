@@ -64,6 +64,9 @@ export async function runContentCheckCommand(
   const lines: string[] = [];
   const notes = (): void => {
     for (const u of result.unparsed) lines.push(`note: not scanned, could not parse ${u}`);
+    for (const e of result.unmatchedExempt) {
+      lines.push(`note: exempt entry ${JSON.stringify(e)} in ${CONFIG_FILE} matches no file`);
+    }
   };
 
   if (opts.init) {

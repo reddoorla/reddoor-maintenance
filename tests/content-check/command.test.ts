@@ -224,3 +224,25 @@ describe("annotations", () => {
     );
   });
 });
+
+describe("review round 6", () => {
+  it("names an exempt entry that matches no file, and still exits 0", async () => {
+    const dir = copyOf("dirty");
+    writeFileSync(
+      join(dir, "content-check.json"),
+      JSON.stringify({ exempt: ["src/routes/promo/**"] }),
+    );
+    const r = await run(dir);
+    expect(r.code).toBe(0);
+    expect(r.output).toContain(
+      'note: exempt entry "src/routes/promo/**" in content-check.json matches no file',
+    );
+  });
+
+  it("cuts a quoted literal at 120 characters", () => {
+    const text = "a".repeat(130);
+    const line = annotation({ file: "f.svelte", line: 1, kind: "copy", text }, "warning");
+    expect(line).toContain(`"${"a".repeat(117)}…"`);
+    expect(line).not.toContain("a".repeat(118));
+  });
+});

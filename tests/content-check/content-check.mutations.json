@@ -371,7 +371,7 @@
       "tests/content-check/command.test.ts"
     ],
     "expect": "red",
-    "why": "round 1 #8: {upper(\"\u2026\")} is unreported again"
+    "why": "round 1 #8: {upper(\"…\")} is unreported again"
   },
   {
     "id": "drop-local-shown-in-template",
@@ -388,7 +388,7 @@
       "tests/content-check/command.test.ts"
     ],
     "expect": "red",
-    "why": "round 1 #8: const greeting = \"\u2026\"; {greeting} is unreported again"
+    "why": "round 1 #8: const greeting = \"…\"; {greeting} is unreported again"
   },
   {
     "id": "drop-faq-keys",
@@ -830,7 +830,7 @@
       "tests/content-check/command.test.ts"
     ],
     "expect": "red",
-    "why": "round 2 fold: MSOT's `pair = \u2026 ? d.logo : null` is no emptiness test; its partners copy is reported again"
+    "why": "round 2 fold: MSOT's `pair = … ? d.logo : null` is no emptiness test; its partners copy is reported again"
   },
   {
     "id": "else-needs-no-leaf",
@@ -922,8 +922,8 @@
     "edits": [
       {
         "file": "src/content-check/scan.ts",
-        "find": "    conjuncts(unwrap(test)).every((c) => shares(emptiness(c), shown));",
-        "replace": "    shares(emptiness(test), shown);"
+        "find": "      real.every((c) => shares(emptiness(c), shown)) &&\n",
+        "replace": "      shares(emptiness(test), shown) &&\n"
       }
     ],
     "test": [
@@ -1374,7 +1374,7 @@
       "tests/content-check/command.test.ts"
     ],
     "expect": "red",
-    "why": "round 4 minor 9: a helper named \u2026Or is a fallback helper"
+    "why": "round 4 minor 9: a helper named …Or is a fallback helper"
   },
   {
     "id": "r5-assigned-literal-has-no-local",
@@ -1517,8 +1517,8 @@
     "edits": [
       {
         "file": "src/content-check/rules.ts",
-        "find": ":(?=\\S)/.test(text.trim());",
-        "replace": ":/.test(text.trim());"
+        "find": ":(?=\\S)/;",
+        "replace": ":/;"
       }
     ],
     "test": [
@@ -1864,5 +1864,736 @@
     "test": ["tests/content-check/scan.test.ts"],
     "expect": "red",
     "why": "CodeQL on #2231: a parameter value that can hold `;A=` backtracks exponentially"
+  },
+  {
+    "id": "r6-computed-alias-bare",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "        if (onlyFallbackUses(u)) use.fallback++;\n",
+        "replace": "        if (false) use.fallback++;\n"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "finding 1: a computed read into a fallback-only local is a fallback read"
+  },
+  {
+    "id": "r6-object-keys-reads",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "calleePath(parent) === \"Object.keys\"",
+        "replace": "calleePath(parent) === \"Object.never\""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "finding 1: Object.keys(CONST) reads names, not values"
+  },
+  {
+    "id": "r6-alias-file-wide",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "const u = readsIn(chain.slice(0, j - 2), local);",
+        "replace": "const u = readsIn(chain.slice(0, 2), local);"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "fleet diff: the local is judged in its own block, not file-wide (copy.ts's safeHref fallback)"
+  },
+  {
+    "id": "r6-trim-not-emptiness",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "((n.callee as Node).property as Node).name === \"trim\"",
+        "replace": "((n.callee as Node).property as Node).name === \"trimmed\""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "finding 1: value.trim() is an emptiness test of value"
+  },
+  {
+    "id": "r6-computed-member-not-emptiness",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "if (!p && n.type === \"MemberExpression\" && n.computed) {",
+        "replace": "if (false) {"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "finding 1: data[key] is a value of data"
+  },
+  {
+    "id": "r6-typeof-guard-ignored",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "      ? valuePaths(a.argument as Node)\n      : undefined;",
+        "replace": "      ? undefined\n      : undefined;"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "finding 1: a typeof guard beside an emptiness test is not another question"
+  },
+  {
+    "id": "r6-typeof-alone-counts",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "      real.length > 0 &&\n",
+        "replace": "      true &&\n"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "fleet diff: espada SubHero, a typeof test alone chooses between two shapes"
+  },
+  {
+    "id": "r6-typeof-read-counts",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "    if (parent?.type === \"UnaryExpression\" && parent.operator === \"typeof\") return true;\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "finding 1: `typeof fallback` shows nothing"
+  },
+  {
+    "id": "r6-type-reads-count",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "    if (chain.some((a) => a.node.type.startsWith(\"TS\") && !TRANSPARENT.has(a.node.type))) {\n      return true;\n    }\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "finding 1: `type D = typeof DEFAULTS` shows nothing"
+  },
+  {
+    "id": "r6-glue-is-link",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "kind === \"link\" && !/[\\p{L}\\p{N}]/u.test(text) && valueHolder(chain).joined",
+        "replace": "false"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "finding 2: URL-joining punctuation is not a link"
+  },
+  {
+    "id": "r6-glue-whole",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "!/[\\p{L}\\p{N}]/u.test(text) && valueHolder(chain).joined",
+        "replace": "!/[\\p{L}\\p{N}]/u.test(text) && true"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "finding 2: a whole href=\"/\" is still the home page"
+  },
+  {
+    "id": "r6-glue-with-words",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "kind === \"link\" && !/[\\p{L}\\p{N}]/u.test(text) && valueHolder",
+        "replace": "kind === \"link\" && valueHolder"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "finding 2: a joined arm with words (`/about`) is still a link"
+  },
+  {
+    "id": "r6-kit-error-ignored",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "    if (isKitErrorMessage(chain)) {\n",
+        "replace": "    if (false) {\n"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "finding 4: error()'s message is reported"
+  },
+  {
+    "id": "r6-kit-error-any-module",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "i.imported === \"error\" && i.source === \"@sveltejs/kit\"",
+        "replace": "i.imported === \"error\""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "finding 4: only SvelteKit's error()"
+  },
+  {
+    "id": "r6-kit-error-page-ignored",
+    "edits": [
+      {
+        "file": "src/content-check/check.ts",
+        "find": "  const kitErrorShown =\n    errorPages.length === 0 ||",
+        "replace": "  const kitErrorShown =\n    true ||"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "finding 4: not where +error.svelte never shows the message (erp-industrial, roalson)"
+  },
+  {
+    "id": "r6-kit-error-no-page-hidden",
+    "edits": [
+      {
+        "file": "src/content-check/check.ts",
+        "find": "    errorPages.length === 0 ||",
+        "replace": "    false ||"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "finding 4: SvelteKit's default error page shows the message"
+  },
+  {
+    "id": "r6-style-block-ignored",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "  if (isSvelte && typeof css?.styles === \"string\") {",
+        "replace": "  if (false) {"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "finding 5: a <style> block's image is reported"
+  },
+  {
+    "id": "r6-mask-is-image",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "    .startsWith(\"mask\");",
+        "replace": "    .startsWith(\"never-a-property\");"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "fleet diff: vida's heart mask is a shape, not a picture"
+  },
+  {
+    "id": "r6-machine-url-shown",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": "  TRACKING.test(value.trim()) || ENDPOINT.test(value.trim());",
+        "replace": "  false;"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "finding 6: tracking pixels, tag managers and endpoints are not links"
+  },
+  {
+    "id": "r6-machine-element-attrs",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "      if (machine) return undefined;\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "finding 6: a tag-manager iframe's title is not read either"
+  },
+  {
+    "id": "r6-tracking-whole-facebook",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": "facebook\\.com\\/tr)(?:",
+        "replace": "facebook\\.com)(?:"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "finding 6: only the pixel path, never the Facebook page"
+  },
+  {
+    "id": "r6-aliases-unresolved",
+    "edits": [
+      {
+        "file": "src/content-check/check.ts",
+        "find": "  $components: \"src/lib/components\",\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "finding 7: createKitConfig's $components alias"
+  },
+  {
+    "id": "r6-exempt-no-retry",
+    "edits": [
+      {
+        "file": "src/content-check/check.ts",
+        "find": "    if (hits.length === 0) hits = await glob([escapeRouteChars(entry)], opts);\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "finding 3: an exempt entry written as the real route path"
+  },
+  {
+    "id": "r6-exempt-silent",
+    "edits": [
+      {
+        "file": "src/content-check/check.ts",
+        "find": "    if (hits.length === 0) result.unmatchedExempt.push(entry);\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "finding 3: an exempt entry that matches nothing is named"
+  },
+  {
+    "id": "r6-exempt-note-dropped",
+    "edits": [
+      {
+        "file": "src/cli/commands/content-check.ts",
+        "find": "      lines.push(`note: exempt entry ${JSON.stringify(e)} in ${CONFIG_FILE} matches no file`);\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "finding 3: the CLI prints the note"
+  },
+  {
+    "id": "r6-property-any-caps",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": "|TITLE|X-[A-Z0-9-]+)(?:;",
+        "replace": "|TITLE|X-[A-Z0-9-]+|[A-Z][A-Z0-9-]*)(?:;"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "finding 8: Q:, ADA: are copy"
+  },
+  {
+    "id": "r6-property-note",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": "|TITLE|X-[A-Z0-9-]+)(?:;",
+        "replace": "|TITLE|NOTE|X-[A-Z0-9-]+)(?:;"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "finding 8: NOTE:Closed on Sundays is copy"
+  },
+  {
+    "id": "r6-property-x-extension",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": "|TITLE|X-[A-Z0-9-]+)(?:;",
+        "replace": "|TITLE)(?:;"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "finding 8: an X- extension is a property"
+  },
+  {
+    "id": "js-colon",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": " || /^javascript:/i.test(v) || isMachineUrl(v)",
+        "replace": " || isMachineUrl(v)"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 6 nit: not equivalent, a javascript:310-555-1234 href would be a phone"
+  },
+  {
+    "id": "link-query",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": " || v.startsWith(\"?\")) return \"link\";",
+        "replace": ") return \"link\";"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 6 unpinned: a query-only href is a link"
+  },
+  {
+    "id": "phone-len",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": " && v.length <= 24) return \"phone\";",
+        "replace": ") return \"phone\";"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 6 unpinned: a long sentence with a phone in it is not a phone"
+  },
+  {
+    "id": "yelp",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": "|yelp\\.com",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 6 unpinned"
+  },
+  {
+    "id": "ident-colon",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": "/^[a-z0-9]+(?:[_.:/-][a-z0-9]+)*$/",
+        "replace": "/^[a-z0-9]+(?:[_./-][a-z0-9]+)*$/"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 6 unpinned: status:open is a code word"
+  },
+  {
+    "id": "threads",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": "|threads\\.net",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 6 unpinned"
+  },
+  {
+    "id": "video-shorts",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": "|shorts\\/[\\w-]+",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 6 unpinned"
+  },
+  {
+    "id": "hours-day",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": "(?![a-z])|\\b(?:mon|",
+        "replace": "(?![a-z])|\\bNEVER(?:mon|"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 6 unpinned: Mon–Fri is hours"
+  },
+  {
+    "id": "addr-suite",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": "|pl|place|suite|ste)",
+        "replace": "|pl|place)"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 6 unpinned: a suite number is an address"
+  },
+  {
+    "id": "legal-tos",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": "    \"tos\",\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 6 unpinned"
+  },
+  {
+    "id": "legal-cookie",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": "    \"cookies\",\n    \"cookie-policy\",\n",
+        "replace": "    \"cookies\",\n"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 6 unpinned"
+  },
+  {
+    "id": "idx-js",
+    "edits": [
+      {
+        "file": "src/content-check/check.ts",
+        "find": "    `${stem}/index.js`,\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 6 unpinned"
+  },
+  {
+    "id": "fixtures-plural",
+    "edits": [
+      {
+        "file": "src/content-check/check.ts",
+        "find": "  \"**/*{-,.}fixtures.{ts,js}\",\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 6 unpinned"
+  },
+  {
+    "id": "stories",
+    "edits": [
+      {
+        "file": "src/content-check/check.ts",
+        "find": "  \"**/*.stories.{svelte,ts,js}\",\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 6 unpinned"
+  },
+  {
+    "id": "quote-len",
+    "edits": [
+      {
+        "file": "src/cli/commands/content-check.ts",
+        "find": "text.length > 120 ? `${text.slice(0, 117)}…` : text",
+        "replace": "text"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 6 unpinned: the 120-character annotation cut"
   }
 ]

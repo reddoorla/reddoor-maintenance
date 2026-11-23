@@ -199,7 +199,29 @@ export type ScanResult = {
   files: number;
   exempt: Array<{ file: string; why: string }>;
   unparsed: string[];
+  /** `exempt` entries that matched no file, as written: a silent no-op
+   *  otherwise (review round 6). */
+  unmatchedExempt: string[];
 };
+
+/** The aliases `createKitConfig` gives every site (`src/configs/svelte.ts`),
+ *  beside SvelteKit's own `$lib` (review round 6). */
+const KIT_ALIASES: Record<string, string> = {
+  $lib: "src/lib",
+  $components: "src/lib/components",
+  $utils: "src/lib/utils",
+  $stores: "src/lib/stores",
+  $assets: "src/lib/assets",
+};
+
+/** A glob's `[ ] ( )` taken literally: `src/routes/[[preview=preview]]/(marketing)/**`
+ *  as a site's routes are written, not as a character class and a group. */
+const escapeRouteChars = (g: string): string => g.replace(/[[\]()]/g, "\\$&");
+
+/** Does a site's error page show `error()`'s message? SvelteKit's default
+ *  page does, so a site with no `+error.svelte` does too; erp-industrial's
+ *  and roalson's show only the status (review round 6). */
+const SHOWS_ERROR_MESSAGE = /\berror\??\.message\b|\$page\.error\b/;
 
 /** The repo-relative file an import specifier names, if it is one of ours:
  *  `./x`, `../x`, `$lib/x`, with or without an extension or `/index`. */
@@ -208,12 +230,13 @@ export function resolveImport(
   spec: string,
   known: ReadonlySet<string>,
 ): string | undefined {
-  let base: string;
-  if (spec.startsWith("$lib/")) base = `src/lib/${spec.slice(5)}`;
-  else if (spec === "$lib") base = "src/lib";
+  let base: string | undefined;
+  const alias = spec.split("/")[0]!;
+  if (KIT_ALIASES[alias] !== undefined) base = KIT_ALIASES[alias] + spec.slice(alias.length);
   else if (spec.startsWith("./") || spec.startsWith("../")) {
     base = posix.normalize(posix.join(posix.dirname(from), spec));
-  } else return undefined;
+  }
+  if (base === undefined) return undefined;
   const stem = base.replace(/\.js$/, "");
   for (const c of [
     base,
@@ -255,12 +278,23 @@ export async function scanSite(cwd: string, config: ContentCheckConfig): Promise
   const files = (
     await glob(SOURCE_GLOBS, { cwd, ignore: NEVER, onlyFiles: true, expandDirectories: false })
   ).sort();
-  const userExempt = new Set(
-    config.exempt.length
-      ? await glob(config.exempt, { cwd, onlyFiles: true, expandDirectories: false })
-      : [],
-  );
-  const result: ScanResult = { findings: [], files: 0, exempt: [], unparsed: [] };
+  const result: ScanResult = {
+    findings: [],
+    files: 0,
+    exempt: [],
+    unparsed: [],
+    unmatchedExempt: [],
+  };
+  // Each entry on its own, so one that matches nothing can be named; one
+  // that matches nothing as a glob is tried again with `[ ] ( )` literal.
+  const userExempt = new Set<string>();
+  for (const entry of config.exempt) {
+    const opts = { cwd, onlyFiles: true, expandDirectories: false };
+    let hits = await glob([entry], opts);
+    if (hits.length === 0) hits = await glob([escapeRouteChars(entry)], opts);
+    if (hits.length === 0) result.unmatchedExempt.push(entry);
+    for (const h of hits) userExempt.add(h);
+  }
 
   // Pass 1: parse every file, exempt ones included, so a call into a helper
   // defined anywhere can be resolved to its parameter names.
@@ -307,6 +341,13 @@ export async function scanSite(cwd: string, config: ContentCheckConfig): Promise
     }
   }
 
+  const errorPages = files.filter(
+    (f) => f.startsWith("src/routes/") && f.endsWith("/+error.svelte"),
+  );
+  const kitErrorShown =
+    errorPages.length === 0 ||
+    errorPages.some((f) => SHOWS_ERROR_MESSAGE.test(readFileSync(join(cwd, f), "utf8")));
+
   // Pass 2: scan the files a visitor can reach.
   const scans = new Map<string, FileScan>();
   for (const [file, p] of parsed) {
@@ -322,6 +363,7 @@ export async function scanSite(cwd: string, config: ContentCheckConfig): Promise
     const scan = scanParsed(p, {
       fallbackHelpers: config.fallbackHelpers,
       ignore: config.ignore,
+      kitErrorShown,
       paramsOf: (name) => {
         const local = p.functions.get(name);
         if (local) return local;

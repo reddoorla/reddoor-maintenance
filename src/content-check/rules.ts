@@ -218,7 +218,6 @@ export function kindForKey(name: string): Kind | undefined {
   if (words.length < 2) return undefined;
   let last = words.at(-1)!.toLowerCase();
   if (!LAST_WORD.has(last) && last.endsWith("s")) last = last.slice(0, -1);
-  if (last.endsWith("e") && !LAST_WORD.has(last)) return undefined;
   return LAST_WORD.has(last) ? KEY_KINDS[last] : undefined;
 }
 
@@ -247,6 +246,15 @@ const HOURS =
 const ADDRESS =
   /\b\d{2,6}\s+(?:[A-Z0-9][\w.'-]*\s+){1,4}(?:st|street|ave|avenue|blvd|boulevard|rd|road|dr|drive|ln|lane|way|ct|court|pkwy|parkway|hwy|highway|pl|place|suite|ste)\b\.?/i;
 
+// Requests a browser makes for a machine, never a page a visitor opens: a
+// tag manager or analytics beacon (`<noscript><iframe src=GTM…>`, the Meta
+// pixel's `facebook.com/tr`) and the site's own endpoints (review round 6).
+const TRACKING =
+  /^(?:https?:)?\/\/(?:[a-z0-9-]+\.)*(?:googletagmanager\.com|google-analytics\.com|facebook\.com\/tr)(?:[/?#]|$)/i;
+const ENDPOINT = /^\/(?:api|\.netlify\/functions)(?:[/?#]|$)/i;
+export const isMachineUrl = (value: string): boolean =>
+  TRACKING.test(value.trim()) || ENDPOINT.test(value.trim());
+
 /**
  * The kind a value is by its shape alone, whatever name it sits under: a
  * `tel:` or `mailto:` link, an email address, a phone number, a social or
@@ -255,6 +263,7 @@ const ADDRESS =
  */
 export function strongKind(value: string): Kind | undefined {
   const v = value.trim();
+  if (isMachineUrl(v)) return undefined;
   if (/^tel:/i.test(v)) return "phone";
   if (/^mailto:/i.test(v)) return "email";
   if (EMAIL.test(v)) return "email";
@@ -287,7 +296,7 @@ export function refineProse(kind: Kind, text: string): Kind {
  */
 export function linkKind(value: string): Kind | undefined {
   const v = value.trim();
-  if (v === "" || v.startsWith("#") || /^javascript:/i.test(v)) return undefined;
+  if (v === "" || v.startsWith("#") || /^javascript:/i.test(v) || isMachineUrl(v)) return undefined;
   const strong = strongKind(v);
   if (strong === "phone" || strong === "email" || strong === "social" || strong === "video") {
     return strong;
@@ -312,10 +321,14 @@ export function isDecorative(text: string): boolean {
 
 /** An iCalendar or vCard property line (`BEGIN:VCALENDAR`, `SUMMARY:${…}`,
  *  `DTSTART;TZID=…:…`): a file format a calendar reads, never copy. A value
- *  after a space (`FAQ: Ask us`) is words (review round 5). A parameter
- *  value stops at `;`, so the repeat cannot backtrack (CodeQL on #2231). */
-export const isPropertyLine = (text: string): boolean =>
-  /^[A-Z][A-Z0-9-]*(?:;[A-Z][A-Z0-9-]*=[^:;\s]*)*:(?=\S)/.test(text.trim());
+ *  after a space (`FAQ: Ask us`) is words (review round 5). Only the real
+ *  property names and `X-` extensions: `Q:What…` and `ADA:Accessible…` are
+ *  copy, and so is `NOTE:Closed on Sundays`, though NOTE is a vCard name
+ *  (review round 6). A parameter value stops at `;`, so the repeat cannot
+ *  backtrack (CodeQL on #2231). */
+const PROPERTY_LINE =
+  /^(?:BEGIN|END|VERSION|PRODID|CALSCALE|METHOD|UID|DTSTAMP|DTSTART|DTEND|DUE|SUMMARY|DESCRIPTION|LOCATION|STATUS|ORGANIZER|ATTENDEE|URL|RRULE|TZID|TZNAME|TZOFFSETFROM|TZOFFSETTO|SEQUENCE|TRANSP|CLASS|CATEGORIES|PRIORITY|CREATED|LAST-MODIFIED|ACTION|TRIGGER|FN|N|TEL|EMAIL|ADR|ORG|TITLE|X-[A-Z0-9-]+)(?:;[A-Z][A-Z0-9-]*=[^:;\s]*)*:(?=\S)/;
+export const isPropertyLine = (text: string): boolean => PROPERTY_LINE.test(text.trim());
 
 /** A lower-case code word (`"email"`, `"contact-form"`, `"hero_image"`): a key,
  *  a slug or an option value. Applied to script values and component props,

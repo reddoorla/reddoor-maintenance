@@ -630,3 +630,100 @@ describe("rules round 5 found unpinned", () => {
     ).toBe(1);
   });
 });
+
+describe("review round 6", () => {
+  const PAGE = "src/routes/[[preview=preview]]/(marketing)/promo/+page.svelte";
+
+  it("an exempt entry written as the real route path works, brackets and parens as written", async () => {
+    const dir = site({
+      [PAGE]: `<h1>Spring sale</h1>`,
+      "content-check.json": JSON.stringify({
+        exempt: ["src/routes/[[preview=preview]]/(marketing)/promo/**"],
+      }),
+    });
+    const r = await scan(dir);
+    expect(r.findings).toEqual([]);
+    expect(r.exempt).toEqual([{ file: PAGE, why: "content-check.json" }]);
+    expect(r.unmatchedExempt).toEqual([]);
+  });
+
+  it("names an exempt entry that matches no file", async () => {
+    const dir = site({
+      [PAGE]: `<h1>Spring sale</h1>`,
+      "content-check.json": JSON.stringify({ exempt: ["src/routes/promo/**"] }),
+    });
+    const r = await scan(dir);
+    expect(r.unmatchedExempt).toEqual(["src/routes/promo/**"]);
+    expect(r.findings.map((f) => f.text)).toEqual(["Spring sale"]);
+  });
+
+  it.each([
+    ["$components/Hero.svelte", "src/lib/components/Hero.svelte"],
+    ["$components", "src/lib/components/index.ts"],
+    ["$utils/copy", "src/lib/utils/copy.ts"],
+    ["$stores/app", "src/lib/stores/app.ts"],
+    ["$assets/data.json", "src/lib/assets/data.json"],
+  ])("resolves the kit alias %s", (spec, file) => {
+    expect(resolveImport("src/routes/+page.svelte", spec, new Set([file]))).toBe(file);
+  });
+
+  it("follows a $components import to the call sites of its prop defaults", async () => {
+    const r = await scan(
+      site({
+        "src/lib/components/Hero.svelte": `<script>let { heading = "Welcome to Acme" } = $props();</script><h1>{heading}</h1>`,
+        "src/routes/+page.svelte": `<script>import Hero from "$components/Hero.svelte"; let { data } = $props();</script><Hero heading={data.title} />`,
+      }),
+    );
+    expect(r.findings).toEqual([]);
+  });
+
+  const kitError = `import { error } from "@sveltejs/kit";\nexport function load() { error(404, "We could not find that page"); }\n`;
+  it("reports error() messages where +error.svelte shows them, or there is none", async () => {
+    const shown = await scan(
+      site({
+        "src/routes/x/+page.ts": kitError,
+        "src/routes/+error.svelte": `<script>import { page } from "$app/state";</script><h1>{page.status}</h1><p>{page.error?.message}</p>`,
+      }),
+    );
+    expect(shown.findings.map((f) => [f.kind, f.text])).toEqual([
+      ["copy", "We could not find that page"],
+    ]);
+    const none = await scan(site({ "src/routes/x/+page.ts": kitError }));
+    expect(none.findings.map((f) => f.text)).toEqual(["We could not find that page"]);
+  });
+
+  it("does not report them where the site's +error.svelte never shows the message", async () => {
+    const r = await scan(
+      site({
+        "src/routes/x/+page.ts": kitError,
+        "src/routes/+error.svelte": `<script>import { page } from "$app/state";</script><h1>{page.status}</h1>`,
+      }),
+    );
+    expect(r.findings).toEqual([]);
+  });
+});
+
+describe("rules round 6 found unpinned", () => {
+  it.each(["tos", "cookie-policy"])("/%s is a legal page", async (seg) => {
+    const r = await scan(site({ [`src/routes/${seg}/+page.svelte`]: `<h1>Our terms</h1>` }));
+    expect(r.exempt).toEqual([{ file: `src/routes/${seg}/+page.svelte`, why: "legal page" }]);
+  });
+
+  it("resolves a directory import to its index.js", () => {
+    expect(
+      resolveImport("src/routes/+page.svelte", "$lib/copy", new Set(["src/lib/copy/index.js"])),
+    ).toBe("src/lib/copy/index.js");
+  });
+
+  it("never scans a *-fixtures file or a story", async () => {
+    const r = await scan(
+      site({
+        "src/lib/home-fixtures.ts": `export const hero = { heading: "Fixture heading" };`,
+        "src/lib/Hero.stories.svelte": `<h1>Story heading</h1>`,
+        "src/routes/+page.svelte": `<h1>Page heading</h1>`,
+      }),
+    );
+    expect(r.files).toBe(1);
+    expect(r.findings.map((f) => f.text)).toEqual(["Page heading"]);
+  });
+});

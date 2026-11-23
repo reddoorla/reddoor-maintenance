@@ -15,6 +15,7 @@ import {
   FALLBACK_HELPER,
   assetKind,
   isDecorative,
+  isMachineUrl,
   isPropertyLine,
   isIdentifierLike,
   isProseKind,
@@ -36,6 +37,10 @@ export type ScanOptions = {
    *  is defined (`scanSite` resolves imports). An argument passed to a
    *  parameter named `fallback…` or `default…` is a fallback. */
   paramsOf?: (callee: string) => readonly string[] | undefined;
+  /** Does the site's error page show `error()`'s message? `scanSite` reads
+   *  its `+error.svelte`; on its own a file assumes SvelteKit's default
+   *  page, which does. */
+  kitErrorShown?: boolean;
 };
 
 /** A literal inside an exported constant: whether it is a fallback depends on
@@ -319,6 +324,24 @@ function isLeafSubstitute(fragment: Node | undefined): boolean {
     );
   }
   return isLeafSubstitute(el.fragment as Node);
+}
+
+const CSS_URL = /url\(\s*(['"]?)([^'")]+)\1\s*\)/g;
+
+/** Is the `url()` at `at` the value of a `mask` property (`mask-image`,
+ *  `-webkit-mask`)? A mask is a shape the page is cut by, never a picture
+ *  (review round 6: vida's heart mask). Read without a regex over the
+ *  declaration, so it stays linear on any input. */
+function isMask(css: string, at: number): boolean {
+  const before = css.slice(0, at);
+  const decl = before.slice(Math.max(before.lastIndexOf(";"), before.lastIndexOf("{")) + 1);
+  const colon = decl.lastIndexOf(":");
+  if (colon < 0) return false;
+  const prop = decl.slice(0, colon).trim().split(/\s+/).at(-1) ?? "";
+  return prop
+    .toLowerCase()
+    .replace(/^-webkit-/, "")
+    .startsWith("mask");
 }
 
 // --- the scanner --------------------------------------------------------------
@@ -712,6 +735,11 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
     const n = unwrap(test);
     if (n.type === "Identifier" || n.type === "MemberExpression") {
       const p = memberPath(n);
+      // `data[key]`, `data?.[key]`: a value of `data`, by a key read at run
+      // time (reddoor-website's funnel copy, review round 6).
+      if (!p && n.type === "MemberExpression" && n.computed) {
+        return emptiness(n.object as Node, depth);
+      }
       if (!p) return undefined;
 
       const out = new Set([p]);
@@ -735,6 +763,16 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
       // `video && playing === true` also asks something else (round 3).
       if (!l || !r) return undefined;
       return new Set([...l, ...r]);
+    }
+    // `value.trim()`: is the string blank?
+    if (
+      n.type === "CallExpression" &&
+      (n.callee as Node).type === "MemberExpression" &&
+      !(n.callee as Node).computed &&
+      ((n.callee as Node).property as Node).name === "trim" &&
+      (n.arguments as Node[]).length === 0
+    ) {
+      return emptiness((n.callee as Node).object as Node, depth);
     }
     if (n.type === "CallExpression") {
       const callee = calleePath(n) ?? "";
@@ -825,11 +863,36 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
    *  not: its branches are the file's own words about its own data. */
   const aboutField = (test: Node): boolean =>
     [...valuePaths(test)].some((p) => !isComputedLocal(p.split(".")[0]!));
+  /** `typeof x === "string"`: the paths of x. Only a guard beside an
+   *  emptiness test of the same value (`typeof v === "string" && v.trim()`);
+   *  alone, `{#if typeof src === "object"}<Img>{:else}<img>` chooses between
+   *  two shapes of one value (review round 6, espada's SubHero). */
+  const typeofGuard = (n: Node): Set<string> | undefined => {
+    const u = unwrap(n);
+    if (u.type !== "BinaryExpression" || (u.operator !== "===" && u.operator !== "==")) {
+      return undefined;
+    }
+    const [a, b] = [u.left as Node, u.right as Node];
+    return a.type === "UnaryExpression" &&
+      a.operator === "typeof" &&
+      b.type === "Literal" &&
+      typeof b.value === "string" &&
+      b.value !== "undefined"
+      ? valuePaths(a.argument as Node)
+      : undefined;
+  };
   /** Every `&&` conjunct of `test` asks whether something `shown` holds is
    *  empty: `{#if video && playing}{video}…` also waits on `playing`, which
    *  the branch does not show, so its else is a choice, not a fallback. */
-  const coveredBy = (test: Node, shown: Set<string>): boolean =>
-    conjuncts(unwrap(test)).every((c) => shares(emptiness(c), shown));
+  const coveredBy = (test: Node, shown: Set<string>): boolean => {
+    const all = conjuncts(unwrap(test));
+    const real = all.filter((c) => typeofGuard(c) === undefined);
+    return (
+      real.length > 0 &&
+      real.every((c) => shares(emptiness(c), shown)) &&
+      all.every((c) => typeofGuard(c) === undefined || shares(typeofGuard(c), shown))
+    );
+  };
 
   // SvelteKit's `dev` is true only under `vite dev`: a branch it guards never
   // reaches a visitor, so nothing in it is reported and no read in it counts.
@@ -838,6 +901,52 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
       .filter(([, i]) => i.imported === "dev" && /^\$app\/env(?:ironment)?$/.test(i.source))
       .map(([local]) => local),
   );
+  // `error(404, "Not found")` from SvelteKit: `+error.svelte` shows the
+  // message (review round 6).
+  const kitErrors = new Set(
+    [...parsed.imports]
+      .filter(([, i]) => i.imported === "error" && i.source === "@sveltejs/kit")
+      .map(([local]) => local),
+  );
+  /** Climb from a literal through what only builds a value from it (wrappers,
+   *  a ternary's arms, `||`/`??`, `+`, a template's holes) to the node that
+   *  takes the value. `joined` says whether it was built with something else. */
+  function valueHolder(chain: Ancestor[]): { at: number; joined: boolean } {
+    let joined = false;
+    for (let i = chain.length - 1; i > 0; i--) {
+      const parent = chain[i - 1]!.node;
+      const key = chain[i]!.key;
+      if (TRANSPARENT.has(parent.type) || parent.type === "LogicalExpression") continue;
+      if (
+        (parent.type === "ConditionalExpression" && key !== "test") ||
+        (parent.type === "BinaryExpression" && parent.operator === "+") ||
+        (parent.type === "TemplateLiteral" && key === "expressions")
+      ) {
+        joined = true;
+        continue;
+      }
+      return { at: i, joined };
+    }
+    return { at: 0, joined };
+  }
+  /** Is the literal `error()`'s message: its second argument? */
+  function isKitErrorMessage(chain: Ancestor[]): boolean {
+    if (kitErrors.size === 0) return false;
+    const { at } = valueHolder(chain);
+    const call = chain[at - 1]?.node;
+    if (call?.type !== "CallExpression" || chain[at]!.key !== "arguments") return false;
+    const callee = call.callee as Node;
+    return (
+      callee.type === "Identifier" &&
+      kitErrors.has(callee.name as string) &&
+      (call.arguments as Node[])[1] === chain[at]!.node
+    );
+  }
+  /** A link that is only punctuation (`"/"`, `"?"`, `"&"`) joined into a URL
+   *  (`${origin}${src.startsWith("/") ? "" : "/"}${src}`): glue, not a
+   *  destination. Whole, as `href="/"`, it is the home page (review round 6). */
+  const isUrlGlue = (kind: Kind, text: string, chain: Ancestor[]): boolean =>
+    kind === "link" && !/[\p{L}\p{N}]/u.test(text) && valueHolder(chain).joined;
   const conjuncts = (n: Node): Node[] =>
     n.type === "LogicalExpression" && n.operator === "&&"
       ? [...conjuncts(n.left as Node), ...conjuncts(n.right as Node)]
@@ -1416,6 +1525,14 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
     const isComponent = el.type === "Component" || el.type === "SvelteComponent";
     const name = attrName.toLowerCase();
     if (!isComponent) {
+      // A tag manager's `<noscript><iframe>` or a tracking pixel: its title
+      // and alt are no more read than its src (review round 6).
+      const machine = (el.attributes as Node[]).some((a) => {
+        if (a.type !== "Attribute" || !/^(?:src|href)$/i.test(String(a.name))) return false;
+        const v = staticValue(a);
+        return v !== undefined && isMachineUrl(v);
+      });
+      if (machine) return undefined;
       switch (name) {
         case "alt":
           return "alt";
@@ -1468,7 +1585,7 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
   /** Combine a name's kind with what the value looks like. */
   function valueKindForKey(byKey: Kind | undefined, value: string): Kind | undefined {
     // `script.src = "https://player.vimeo.com/api/player.js"` loads code.
-    if (CODE_URL.test(value.trim())) return undefined;
+    if (CODE_URL.test(value.trim()) || isMachineUrl(value)) return undefined;
     const strong = strongKind(value);
     if (byKey === undefined) return strong;
     switch (byKey) {
@@ -1559,12 +1676,18 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
       if (holes && !isProseKind(kind)) return;
       emit(p, kind, t);
     };
+    if (isKitErrorMessage(chain)) {
+      if (opts.kitErrorShown !== false && !isIdentifierLike(text)) {
+        emit(pos, refineProse("copy", text), text);
+      }
+      return;
+    }
     const slot = slotOf(chain);
     if (slot.attr) {
       const el = [...chain].reverse().find((a) => ELEMENTS.has(a.node.type))?.node;
       if (!el) return;
       const kind = attrKind(el, String(slot.attr.name), text);
-      if (kind) reportLiteral(pos, kind, text);
+      if (kind && !isUrlGlue(kind, text, chain)) reportLiteral(pos, kind, text);
       return;
     }
     if (slot.templateText) {
@@ -1585,7 +1708,7 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
     if (!kind && local && slot.name === local && !holes) {
       unnamed.push({ binding: local, pos, text });
     }
-    if (!kind || (holes && !isProseKind(kind))) return;
+    if (!kind || (holes && !isProseKind(kind)) || isUrlGlue(kind, text, chain)) return;
     const prop = propOf(chain) ?? (via.length ? via : undefined);
     if (prop) {
       const before = findings.length;
@@ -1615,8 +1738,9 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
     for (const p of parts) {
       if (p.type !== "Text") continue;
       const data = p.data as string;
-      for (const m of data.matchAll(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g)) {
+      for (const m of data.matchAll(CSS_URL)) {
         const url = m[2]!.trim();
+        if (isMask(data, m.index ?? 0)) continue;
         if (assetKind(url) || /^(?:https?:)?\/\//.test(url)) {
           report((p.start as number) + (m.index ?? 0), "image", url);
         }
@@ -1674,6 +1798,28 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
     if (parent.type === "MemberExpression" && key === "property" && !parent.computed) return;
     if (parent.type === "VariableDeclarator" && key === "id") return;
     if (isDevOnly(chain)) return;
+    if (showsNothing(chain)) return;
+    // `const fallback = DEFAULTS[key]`: this read of DEFAULTS is whatever
+    // the local's reads are (review round 6: reddoor-website's funnel copy).
+    if (parent.type === "MemberExpression" && key === "object" && parent.computed) {
+      let j = chain.length - 2;
+      while (j > 0 && TRANSPARENT.has(chain[j - 1]!.node.type)) j--;
+      const decl = chain[j - 1]?.node;
+      if (
+        decl?.type === "VariableDeclarator" &&
+        chain[j]!.key === "init" &&
+        (decl.id as Node).type === "Identifier" &&
+        !isFallback(chain)
+      ) {
+        const local = (decl.id as Node).name as string;
+        const u = readsIn(chain.slice(0, j - 2), local);
+        const use = uses.get(name) ?? { bare: 0, fallback: 0 };
+        if (onlyFallbackUses(u)) use.fallback++;
+        else use.bare++;
+        uses.set(name, use);
+        return;
+      }
+    }
     const use = uses.get(name) ?? { bare: 0, fallback: 0 };
     const fallback = isFallback(chain);
     if (fallback) use.fallback++;
@@ -1716,6 +1862,48 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
    * (Vineyard's testimonial sliders, review round 5). Every assignment must
    * be of that shape: one that sets anything else makes the literal a value.
    */
+  /** Reads that show nothing: a type (`type D = typeof X`), a `typeof x`
+   *  test, and `Object.keys(X)`, which reads the names, not the values. */
+  function showsNothing(chain: Ancestor[]): boolean {
+    const parent = chain.at(-2)?.node;
+    const key = chain.at(-1)!.key;
+    if (chain.some((a) => a.node.type.startsWith("TS") && !TRANSPARENT.has(a.node.type))) {
+      return true;
+    }
+    if (parent?.type === "UnaryExpression" && parent.operator === "typeof") return true;
+    return (
+      parent?.type === "CallExpression" &&
+      key === "arguments" &&
+      calleePath(parent) === "Object.keys"
+    );
+  }
+  /** How a local is read inside the block that declares it (`chain` ends at
+   *  the declaration's parent): the file-wide count would add an unrelated
+   *  `fallback` parameter elsewhere in the file. */
+  function readsIn(chain: Ancestor[], local: string): { bare: number; fallback: number } {
+    const u = { bare: 0, fallback: 0 };
+    (function walk(n: Node, ch: Ancestor[]): void {
+      if (n.type === "Identifier" && n.name === local) {
+        const parent = ch.at(-2)?.node;
+        const key = ch.at(-1)!.key;
+        if (
+          !parent ||
+          (parent.type === "Property" && key === "key" && !parent.shorthand) ||
+          (parent.type === "MemberExpression" && key === "property" && !parent.computed) ||
+          (parent.type === "VariableDeclarator" && key === "id") ||
+          isDevOnly(ch) ||
+          showsNothing(ch)
+        ) {
+          return;
+        }
+        if (isFallback(ch)) u.fallback++;
+        else u.bare++;
+        return;
+      }
+      for (const [key, c] of children(n)) walk(c, [...ch, { node: c, key }]);
+    })(chain.at(-1)!.node, chain);
+    return u;
+  }
   const reassigned = new Map<string, { all: number; byField: number }>();
   function onAssignment(node: Node, chain: Ancestor[]): void {
     const left = node.left as Node;
@@ -1813,6 +2001,21 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
     }
   }
   visit(ast, [{ node: ast, key: "" }]);
+  // `<style>.hero { background-image: url(/images/hero.jpg) }</style>`: an
+  // image like a `style=` attribute's (review round 6: 29-navy's hero photos).
+  // Only a file with an image extension: a font or a data: URI is not one.
+  const css = isNode(ast.css)
+    ? (ast.css.content as { start: number; styles: string } | undefined)
+    : undefined;
+  if (isSvelte && typeof css?.styles === "string") {
+    for (const m of css.styles.matchAll(CSS_URL)) {
+      const url = m[2]!.trim();
+      if (isMask(css.styles, m.index ?? 0)) continue;
+      if (!/^data:/i.test(url) && assetKind(url) === "image") {
+        report(css.start + (m.index ?? 0), "image", url);
+      }
+    }
+  }
   return finalize();
 
   function finalize(): FileScan {

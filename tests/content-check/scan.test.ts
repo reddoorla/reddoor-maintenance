@@ -1305,3 +1305,246 @@ describe("rules round 5 found unpinned", () => {
     },
   );
 });
+
+describe("review round 6", () => {
+  // Finding 1: reddoor-website's funnel-copy defaults, read through a loop (29 rows).
+  it("a defaults map read through a loop into a fallback local is a fallback", () => {
+    expect(
+      ts(`export const DEFAULTS = { heading: "Welcome to Acme" };
+export function resolve(data) {
+  const out = {};
+  for (const key of Object.keys(DEFAULTS)) {
+    const fallback = DEFAULTS[key];
+    out[key] = data[key]?.trim() ? data[key] : fallback;
+  }
+  return out;
+}`),
+    ).toEqual([]);
+  });
+
+  it("so is the real shape: a typeof guard, a trimmed value and the map's type", () => {
+    expect(
+      ts(`export const DEFAULTS = { heading: "Welcome to Acme" };
+type D = typeof DEFAULTS;
+export function resolve(data) {
+  const out = {};
+  for (const key of Object.keys(DEFAULTS)) {
+    const fallback = DEFAULTS[key];
+    const value = data?.[key];
+    if (typeof fallback === "string") {
+      out[key] = typeof value === "string" && value.trim() ? value.trim() : fallback;
+    } else {
+      out[key] = isFilled.richText(value) ? value : fallback;
+    }
+  }
+  return out;
+}`),
+    ).toEqual([]);
+  });
+
+  it("a computed read into a local that is shown, or a direct read, is still content", () => {
+    expect(
+      ts(`export const DEFAULTS = { heading: "Welcome to Acme" };
+export function resolve(out) {
+  for (const key of Object.keys(DEFAULTS)) {
+    const v = DEFAULTS[key];
+    out[key] = v;
+  }
+}`),
+    ).toEqual([["heading", "Welcome to Acme"]]);
+    expect(
+      ts(`export const DEFAULTS = { heading: "Welcome to Acme" };
+export const keys = Object.keys(DEFAULTS);
+export const h = DEFAULTS.heading;`),
+    ).toEqual([["heading", "Welcome to Acme"]]);
+  });
+
+  // Finding 2: punctuation that joins a URL (seo.ts on 6 sites, gallerysonder).
+  it("punctuation that joins a URL is not a link", () => {
+    expect(
+      ts('export const u = (o, src) => ({ url: `${o}${src.startsWith("/") ? "" : "/"}${src}` });'),
+    ).toEqual([]);
+    expect(ts('export const q = (b) => ({ url: b + (b.includes("?") ? "&" : "?") });')).toEqual([]);
+    expect(svelte(`<script>let { b } = $props();</script><a href={b + "/"}>Go</a>`)).toEqual([
+      ["copy", "Go"],
+    ]);
+  });
+
+  it("a whole link of punctuation is still a link, and a joined path with words is too", () => {
+    expect(ts(`export const nav = { href: "/" };`)).toEqual([["link", "/"]]);
+    expect(svelte(`<a href="/">Home</a>`)).toEqual([
+      ["link", "/"],
+      ["copy", "Home"],
+    ]);
+    expect(ts(`export const go = (b) => ({ url: b ? "/about" : "/contact" });`)).toEqual([
+      ["link", "/about"],
+      ["link", "/contact"],
+    ]);
+  });
+
+  // Finding 4: SvelteKit's error() message, shown by +error.svelte.
+  it("reports the message of error() from @sveltejs/kit", () => {
+    expect(
+      ts(
+        `import { error } from "@sveltejs/kit";
+export function load() { error(404, "We could not find that page"); }`,
+        "src/routes/+page.ts",
+      ),
+    ).toEqual([["copy", "We could not find that page"]]);
+    expect(
+      ts(
+        `import { error as fail } from "@sveltejs/kit";
+export function load({ params }) { throw fail(404, \`No service called \${params.slug}\`); }`,
+        "src/routes/+page.server.ts",
+      ),
+    ).toEqual([["copy", "No service called ${…}"]]);
+  });
+
+  it("not an error() of another module, nor when the site's error page does not show it", () => {
+    expect(
+      ts(`import { error } from "$lib/log";
+export function load() { error(404, "We could not find that page"); }`),
+    ).toEqual([]);
+    expect(
+      scanSource(
+        "src/routes/+page.ts",
+        `import { error } from "@sveltejs/kit";
+export function load() { error(404, "We could not find that page"); }`,
+        { kitErrorShown: false },
+      ),
+    ).toEqual([]);
+  });
+
+  // Finding 5: images in a <style> block (29-navy's hero photos).
+  it("reports an image url() in a <style> block, as in a style attribute", () => {
+    const found = scanSource(
+      "src/routes/+page.svelte",
+      `<div class="hero"></div>\n<style>\n  .hero { background-image: url("/images/hero.jpg"); }\n  .x { background: url(data:image/svg+xml;base64,AAAA); }\n  @font-face { src: url(/fonts/a.woff2); }\n</style>`,
+    );
+    expect(found).toEqual([
+      { file: "src/routes/+page.svelte", line: 3, kind: "image", text: "/images/hero.jpg" },
+    ]);
+  });
+
+  it("never a mask, in a <style> block or a style attribute", () => {
+    expect(
+      svelte(
+        `<div class="m" style="-webkit-mask-image: url(/heart-mask.png)"></div><style>\n  .m { mask-image: url("/heart-mask.png"); }\n  .n { /* ref css:1 */ -webkit-mask: url(/a.png) no-repeat; }\n</style>`,
+      ),
+    ).toEqual([]);
+  });
+
+  // Finding 6: tracking pixels, tag-manager embeds and the site's own endpoints.
+  it("skips tracking pixels, tag-manager embeds and endpoint paths", () => {
+    expect(
+      svelte(
+        `<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-ABC" title="gtm"></iframe></noscript><noscript><img src="https://www.facebook.com/tr?id=123&ev=PageView" alt="" /></noscript><img src="https://www.google-analytics.com/collect?v=1" alt="" />`,
+      ),
+    ).toEqual([]);
+    expect(
+      ts(
+        `export const url = "/api/subscribe";\nexport const fn = { href: "/.netlify/functions/send" };`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("still reports the Facebook page and an /apiary page", () => {
+    expect(
+      ts(
+        `export const s = { href: "https://www.facebook.com/acme" };\nexport const p = { href: "/apiary" };`,
+      ),
+    ).toEqual([
+      ["social", "https://www.facebook.com/acme"],
+      ["link", "/apiary"],
+    ]);
+  });
+
+  // Finding 8: only real iCalendar and vCard property names are a property line.
+  it("reports copy written CAPS:word", () => {
+    expect(
+      svelte(
+        `<p>Q:What does a remodel cost?</p><h2>ADA:Accessible entrances</h2><p>NOTE:Closed on Sundays</p>`,
+      ),
+    ).toEqual([
+      ["copy", "Q:What does a remodel cost?"],
+      ["heading", "ADA:Accessible entrances"],
+      ["copy", "NOTE:Closed on Sundays"],
+    ]);
+  });
+
+  it("still skips real property lines, an X- extension and a parameter", () => {
+    expect(
+      svelte(
+        `<p>BEGIN:VCALENDAR</p><p>X-WR-CALNAME:Acme events</p><p>DTSTART;TZID=America/Los_Angeles:20261123T090000</p><p>LOCATION:12 Main Street</p>`,
+      ),
+    ).toEqual([]);
+  });
+
+  // Finding 9's second nit: `javascript:` is not provably dead, so it stays.
+  it("a javascript: href is never a link or a phone", () => {
+    expect(svelte(`<a href="javascript:310-555-1234">Call</a>`)).toEqual([["copy", "Call"]]);
+  });
+});
+
+describe("rules round 6 found unpinned", () => {
+  it("a query-only href is a link", () => {
+    expect(ts(`export const tab = { href: "?tab=pricing" };`)).toEqual([["link", "?tab=pricing"]]);
+  });
+
+  it("a phone number inside a sentence longer than 24 characters does not make it a phone", () => {
+    expect(ts(`export const hero = { heading: "Call 310-555-1234 for a free quote" };`)).toEqual([
+      ["heading", "Call 310-555-1234 for a free quote"],
+    ]);
+  });
+
+  it.each([
+    ["https://www.yelp.com/biz/acme", "social"],
+    ["https://www.threads.net/@acme", "social"],
+    ["https://www.youtube.com/shorts/abc123DEF45", "video"],
+  ])("%s is %s", (url, kind) => {
+    expect(ts(`export const x = { href: "${url}" };`)).toEqual([[kind, url]]);
+  });
+
+  it("a code word with a colon is not copy", () => {
+    expect(ts(`export const x = { label: "status:open" };`)).toEqual([]);
+  });
+
+  it("a weekday range is hours, and a suite number an address", () => {
+    expect(svelte(`<p>Mon–Fri</p><p>400 Oak Plaza Suite 200</p>`)).toEqual([
+      ["hours", "Mon–Fri"],
+      ["address", "400 Oak Plaza Suite 200"],
+    ]);
+  });
+});
+
+describe("review round 6: what the fleet diff found in the first cut", () => {
+  // espada's SubHero: a typeof test alone chooses between two shapes of a value.
+  it("a typeof test alone is not an emptiness test", () => {
+    expect(
+      svelte(
+        `<script>let { src } = $props();</script>{#if typeof src === "object"}<Img {src} />{:else}<img {src} alt="hero background" />{/if}`,
+      ),
+    ).toEqual([["alt", "hero background"]]);
+  });
+});
+
+describe("review round 6: the funnel copy's own file", () => {
+  // reddoor-website's copy.ts also has `safeHref(url, fallback)`: another
+  // `fallback`, read plainly, in the same file.
+  it("judges the loop's local by its own block, not a same-named parameter elsewhere", () => {
+    expect(
+      ts(`export const DEFAULTS = { heading: "Welcome to Acme" };
+export function resolve(data) {
+  const out = {};
+  for (const key of Object.keys(DEFAULTS)) {
+    const fallback = DEFAULTS[key];
+    out[key] = data[key]?.trim() ? data[key] : fallback;
+  }
+  return out;
+}
+export function safeHref(url, fallback) {
+  return /^https:/.test(url) ? url : fallback;
+}`),
+    ).toEqual([]);
+  });
+});
