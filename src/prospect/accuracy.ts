@@ -711,8 +711,16 @@ function scanWords(text: string): ScannedWord[] {
  *  a false match only leaves the model's verdict alone. */
 const NEGATED = /\b(no|not|never|none|nobody|nothing|without|cannot|neither|nor)\b|n['\u2019]t\b/i;
 
+/** `text` as whole words, case as given by `flags`, regex characters escaped. */
+function wholeWords(text: string, flags: string): RegExp {
+  const escaped = text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![A-Za-z0-9])${escaped}(?![A-Za-z0-9])`, flags);
+}
+
 /** The business name a branded query asks about (`probes.ts`: "who is <name>",
  *  "<name> reviews"). */
+// Any other query shape (a competitor query, say) is returned whole, matches no
+// run in the claim, and so only ever makes the downgrade rarer.
 function businessNameOf(query: string): string {
   return query
     .trim()
@@ -762,11 +770,25 @@ function doubtingTerm(
       }
     }
   }
+  // Every capital but the claim's first word counts. `opensSentence` is
+  // fooled by "Dr." and "St.", and here a missed name loosens the guard: "Dr.
+  // Jane Smith" must not be put in doubt by a site saying "Dr. Smith". Erring
+  // strict only leaves the model's verdict alone.
   const asserted = words
-    .filter((w, i) => w.capitalised && !w.opensSentence && !own.has(i))
+    .filter((w, i) => w.capitalised && i > 0 && !own.has(i))
     .map((w) => w.lower);
   if (asserted.length === 0) return null;
   const quote = modelQuote === null ? "" : normalize(modelQuote);
+  // Where the business's own name sits on the page, so a term found only
+  // inside it does not count.
+  const nameSpans: [number, number][] = [];
+  const nameText = normalize(businessNameOf(query));
+  if (nameText !== "") {
+    const re = wholeWords(nameText, "gi");
+    for (let m = re.exec(flat); m !== null; m = re.exec(flat)) {
+      nameSpans.push([m.index, m.index + m[0].length]);
+    }
+  }
   for (const raw of distinctive(terms, claim)) {
     const term = normalize(raw);
     const carried = new Set(scanWords(term).map((w) => w.lower));
@@ -774,10 +796,12 @@ function doubtingTerm(
     if (quote.includes(term)) continue;
     // Searched in `flat` itself, case-insensitively, so `at` and the quoted
     // window are offsets into the page text as it is, never a lowercased copy.
-    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const m = new RegExp(`(?<![A-Za-z0-9])${escaped}(?![A-Za-z0-9])`, "i").exec(flat);
-    if (m === null) continue;
-    return { term, at: m.index, said: m[0] };
+    const re = wholeWords(term, "gi");
+    for (let m = re.exec(flat); m !== null; m = re.exec(flat)) {
+      const end = m.index + m[0].length;
+      if (nameSpans.some(([a, b]) => m!.index < b && end > a)) continue;
+      return { term, at: m.index, said: m[0] };
+    }
   }
   return null;
 }

@@ -831,6 +831,65 @@ describe("a downgrade needs the claim's own names, as words on the site", () => 
     );
   });
 
+  it("does not count the term where it is only part of our own name on the page", async () => {
+    const r = await run({
+      siteText: "Welcome to Austin Family Dental. Our office is at 12 Oak St, Round Rock.",
+      query: "who is Austin Family Dental",
+      fullAnswer: "Austin Family Dental is located in downtown Austin.",
+      claim: "Austin Family Dental is located in downtown Austin.",
+      engineQuote: "Austin Family Dental is located in downtown Austin.",
+      term: "Austin",
+    });
+    expect(r?.unverifiedReason ?? "").not.toMatch(/^Your site does say/);
+  });
+
+  it.each([
+    [
+      "Rosewood Market was founded by Dr. Jane Smith.",
+      "Dr. Smith",
+      "Founded by Dr. Robert Smith. Dr. Smith still sees patients.",
+    ],
+    [
+      "Rosewood Market is based in St. Paul, near the river.",
+      "St. Louis",
+      "Two shops, in St. Louis and in Kansas City.",
+    ],
+  ])("keeps a name after an abbreviation's period asserted: %s", async (claim, term, siteText) => {
+    const r = await run({
+      siteText,
+      query: "who is Rosewood Market",
+      fullAnswer: claim,
+      claim,
+      engineQuote: claim,
+      term,
+    });
+    expect(r?.unverifiedReason ?? "").not.toMatch(/^Your site does say/);
+  });
+
+  it("does not doubt a claim that asserts no name, on the model's own counter-evidence", async () => {
+    const r = await run({
+      siteText: "Fresh flowers arranged daily for weddings and events.",
+      query: "who is Rosewood Market",
+      fullAnswer: "The business is a bakery known for sourdough bread.",
+      claim: "The business is a bakery known for sourdough bread.",
+      engineQuote: "The business is a bakery known for sourdough bread.",
+      term: "fresh flowers",
+    });
+    expect(r?.unverifiedReason ?? "").not.toMatch(/^Your site does say/);
+  });
+
+  it("does not find a name at the start of a longer word", async () => {
+    const r = await run({
+      siteText: "Stay near Salemtown all week.",
+      query: "who is Rosewood Market",
+      fullAnswer: "Rosewood Market is based in Salem.",
+      claim: "Rosewood Market is based in Salem.",
+      engineQuote: "Rosewood Market is based in Salem.",
+      term: "Salem",
+    });
+    expect(r?.unverifiedReason ?? "").not.toMatch(/^Your site does say/);
+  });
+
   it("does not find a name inside another word", async () => {
     const r = await run({
       siteText: "Seasonal Jerusalem artichoke bouquets, all week.",
