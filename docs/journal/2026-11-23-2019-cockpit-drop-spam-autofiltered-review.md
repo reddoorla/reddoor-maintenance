@@ -1,0 +1,9 @@
+# 2026-11-23 — Review of the spam and auto-filtered removal
+
+Lands in reddoorla/reddoor-maintenance#2254, after the entry `2026-11-23-2008-cockpit-drop-spam-autofiltered.md`.
+
+One adversarial round (Opus, lenses wiring, tests, comments) came back clean: two minors and two nits, nothing above. It checked all 22 `buildCockpitModel` call sites against the new six-tail signature with the TypeScript AST and found none misaligned, and compared the `page-data-waves` snapshot line by line: the only changes are the two removed fields, the dropped `countAutoSpamSince` fault case, and the one notify-bounce alarm the new seed of 2 (equal to `NOTIFY_BOUNCE_THRESHOLD`) adds, which moves Acme from attention to broken.
+
+**The miss worth naming.** The PR left the `r2t-cfi-bounces` mutant in `tests/alerts/production-signals.mutations.json` with a `find` on `inputs.autoFilteredCount`, so it matched 0 times and the wiring test for notify bounces had no mutation behind it. `mutate --check` showed 7 refusals on the branch against 6 on `main`; this was the only new one. Its `find` now anchors on `inputs.recentEvents`, and the mutant goes red again (1 of 36 in `production-signals-wiring.test.ts`). The sidecar was not in the PR's files, so the minor rule would have filed it; it was folded instead because this PR broke it and the fix is one line.
+
+Also folded: the `cardless-lane` comment said the dead-letter argument is the 11th positional; it is the 9th now. The inbox fixture's name still mentions spam and auto-filtered, and keeps it because the snapshots are keyed on it; a comment now says so. Left as is: `no-submissions-lane`'s assertions that the page carries no "Spam (30d)" or auto-filtered line can no longer fail through the model, but they still pin the rendered page, and removing them would weaken an existing assertion.
