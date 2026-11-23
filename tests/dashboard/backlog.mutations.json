@@ -242,8 +242,8 @@
     "edits": [
       {
         "file": "src/dashboard/backlog.ts",
-        "find": "    const code = flat.kinds[i] === \"code\";",
-        "replace": "    const code = false;"
+        "find": "    out += code\n      ? part\n",
+        "replace": "    out += false\n      ? part\n"
       }
     ],
     "test": "tests/dashboard/backlog.test.ts",
