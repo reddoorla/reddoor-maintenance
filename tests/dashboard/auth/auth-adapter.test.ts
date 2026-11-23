@@ -119,7 +119,8 @@ describe("GET /auth/login on the old netlify.app host (P1-122)", () => {
   // to the redirect URI on DASHBOARD_BASE_URL's host. Started on the old host,
   // the callback would never see the cookie and fail with error=state, so the
   // login page hops to the canonical host first.
-  const OLD = "https://reddoor-maintenance.netlify.app";
+  const LEGACY = "reddoor-maintenance.netlify.app";
+  const OLD = `https://${LEGACY}`;
 
   it("hops to the canonical host, keeping the query, before any cookie is set", async () => {
     googleConfigured();
@@ -154,6 +155,54 @@ describe("GET /auth/login on the old netlify.app host (P1-122)", () => {
       get("https://deploy-preview-12--reddoor-maintenance.netlify.app/auth/login"),
       ctx,
     );
+    expect(res.status).toBe(200);
+  });
+
+  it("hops with DASHBOARD_BASE_URL unset, as on production today (the code default)", async () => {
+    googleConfigured();
+    delete process.env.DASHBOARD_BASE_URL;
+    const res = await authFn(get(`${OLD}/auth/login?start=1`), ctx);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("https://dashboard.reddoorla.com/auth/login?start=1");
+  });
+
+  it("hops the other way while the old host is still canonical", async () => {
+    googleConfigured();
+    process.env.DASHBOARD_BASE_URL = OLD;
+    const res = await authFn(get("https://dashboard.reddoorla.com/auth/login?start=1"), ctx);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe(`${OLD}/auth/login?start=1`);
+    expect(cookieFor(res, STATE_COOKIE)).toBeUndefined();
+  });
+
+  it("reads the host from the Host header, not req.url", async () => {
+    googleConfigured();
+    process.env.DASHBOARD_BASE_URL = "https://dashboard.reddoorla.com";
+    // Arrived on the custom domain although req.url names the netlify.app host:
+    // no hop, or the page would redirect to itself forever.
+    const here = await authFn(get(`${OLD}/auth/login`, { host: "dashboard.reddoorla.com" }), ctx);
+    expect(here.status).toBe(200);
+    // Arrived on the old host although req.url names the custom domain: hop.
+    const there = await authFn(
+      get("https://dashboard.reddoorla.com/auth/login", { host: LEGACY }),
+      ctx,
+    );
+    expect(there.status).toBe(302);
+  });
+
+  it("renders the page when DASHBOARD_BASE_URL does not parse, rather than a 502", async () => {
+    googleConfigured();
+    for (const bad of ["dashboard.reddoorla.com", "dashboard.reddoorla.com:443"]) {
+      process.env.DASHBOARD_BASE_URL = bad;
+      const res = await authFn(get(`${OLD}/auth/login`), ctx);
+      expect(res.status, bad).toBe(200);
+    }
+  });
+
+  it("never hops to a host outside the cockpit's two", async () => {
+    googleConfigured();
+    process.env.DASHBOARD_BASE_URL = "https://elsewhere.example.com";
+    const res = await authFn(get(`${OLD}/auth/login`), ctx);
     expect(res.status).toBe(200);
   });
 

@@ -23,11 +23,13 @@ import {
 import { isAllowedEmail } from "../../../../../src/dashboard/auth/allowlist.js";
 import { readCookie } from "../../../../../src/dashboard/auth/cookies.js";
 import { renderLoginPageHtml } from "../../../../../src/dashboard/auth/render.js";
+import { requestHost } from "../../../../../src/dashboard/csrf.js";
 import { verifyBasicAuth } from "../../../../../src/dashboard/basic-auth.js";
 import {
   resolveDashboardBaseUrl,
   handlerError,
   LEGACY_DASHBOARD_HOST,
+  DASHBOARD_HOST,
 } from "../../../../../src/dashboard/handler-helpers.js";
 
 /**
@@ -78,24 +80,37 @@ function plainText(body: string, status: number, extra: Record<string, string> =
   });
 }
 
+/** The two hosts the production cockpit answers on. */
+const COCKPIT_HOSTS = new Set([LEGACY_DASHBOARD_HOST, DASHBOARD_HOST]);
+
 /**
- * The canonical host's login URL when this request reached the old netlify.app
- * host while the canonical host is another, else null. The state cookie is set
- * on the host the flow starts on and Google returns to the canonical host's
- * callback, so a flow started on the old host would always end in error=state.
- * A deploy preview's own host is left alone: it signs in with the shared
- * password, and Google cannot redirect to it.
+ * The canonical host's login URL when this request reached the cockpit's other
+ * production host, else null. The state cookie is set on the host the flow
+ * starts on and Google returns to the canonical host's callback, so a flow
+ * started on the other host would always end in error=state (P1-122).
+ *
+ * The host comes from the Host header, which csrf.ts treats as authoritative
+ * behind Netlify, rather than from req.url. A deploy preview's own host is left
+ * alone: it signs in with the shared password, and Google cannot redirect to
+ * it. A base URL that does not parse hops nowhere, so the page still renders.
  */
-function canonicalLoginUrl(url: URL): string | null {
-  if (url.hostname !== LEGACY_DASHBOARD_HOST) return null;
+function canonicalLoginUrl(req: Request, url: URL): string | null {
+  const host = requestHost(req)?.replace(/:\d+$/, "");
+  if (!host || !COCKPIT_HOSTS.has(host)) return null;
   const base = resolveDashboardBaseUrl(process.env.DASHBOARD_BASE_URL);
-  if (new URL(base).hostname === LEGACY_DASHBOARD_HOST) return null;
+  let baseHost: string;
+  try {
+    baseHost = new URL(base).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+  if (!baseHost || baseHost === host || !COCKPIT_HOSTS.has(baseHost)) return null;
   return `${base}/auth/login${url.search}`;
 }
 
 /** GET /auth/login — render the page, or begin the Google flow. */
-function handleLogin(url: URL): Response {
-  const canonical = canonicalLoginUrl(url);
+function handleLogin(req: Request, url: URL): Response {
+  const canonical = canonicalLoginUrl(req, url);
   if (canonical) return redirect(canonical);
 
   const auth = readAuthConfig();
@@ -244,7 +259,7 @@ export default async (req: Request, _ctx: Context): Promise<Response> => {
   try {
     switch (url.pathname) {
       case "/auth/login":
-        return handleLogin(url);
+        return handleLogin(req, url);
       case "/auth/callback":
         return await handleCallback(req, url);
       case "/auth/logout":

@@ -6,6 +6,9 @@
 
 const DEFAULT_DASHBOARD_BASE_URL = "https://dashboard.reddoorla.com";
 
+/** The cockpit's own domain (P1-122): the default base URL's host. */
+export const DASHBOARD_HOST = "dashboard.reddoorla.com";
+
 /**
  * The cockpit's address before P1-122. It stays live with no redirect, because
  * every fleet site's FORMS_INGEST_URL and the Resend webhook registration POST

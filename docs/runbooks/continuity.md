@@ -499,7 +499,9 @@ value>'` after loading `credentials.env` and before `gpg` (loading the file afte
    `TURSO_DATABASE_URL` as present (presence only, never values; `README.md` §"Site
    deployment", step 3). The cockpit's host is `https://dashboard.reddoorla.com` — the code
    default in `src/dashboard/handler-helpers.ts`, overridable by `DASHBOARD_BASE_URL`, and
-   a CNAME to `reddoor-maintenance.netlify.app` at `reddoorla.com`'s DNS. The old host
+   a CNAME to `reddoor-maintenance.netlify.app` at `reddoorla.com`'s DNS. Moving it again
+   follows the order in the Google-auth spec's "Deploy-time" (domain and certificate, then
+   the Google redirect URI, then the base URL), or sign-in breaks. The old host
    `https://reddoor-maintenance.netlify.app` stays live with no redirect, and must: every
    fleet site's `FORMS_INGEST_URL` and the Resend webhook registration POST to it
    (maintenance#2238). Check both hosts:
