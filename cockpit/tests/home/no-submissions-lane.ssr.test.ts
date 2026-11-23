@@ -9,9 +9,9 @@ import { siteRow, NOW, BASE } from "./fixtures.js";
 /**
  * #2241: submissions have their own page (/submissions), so /triage carries no
  * submissions lane (the operator, 2026-11-23: "remove the submissions bit from
- * triage, it has its own page now"). A model full of submissions, spam and
- * auto-filtered rows renders the same /triage as one with none of them, and the
- * verdict and the Needs-you count never read them.
+ * triage, it has its own page now"). A model full of submissions renders the
+ * same /triage as one with none, and the verdict and the Needs-you count never
+ * read them.
  */
 
 const sub = (n: number) =>
@@ -28,15 +28,9 @@ const sub = (n: number) =>
 function model(withSubmissions: boolean): CockpitModel {
   const site = siteRow({ id: "recSITE", name: "Acme Co", securityVulnsCritical: 2 });
   const subs = withSubmissions ? Array.from({ length: 13 }, (_, i) => sub(i + 1)) : [];
-  const spam = withSubmissions ? { honeypot: 3, tooFast: 2, markedSpam: 1 } : null;
-  const built = buildCockpitModel([site], [], {}, BASE, NOW, subs, spam as never);
-  return withSubmissions
-    ? {
-        ...built,
-        spam: { caught: 5, through: 1, computedAt: "2026-06-11T06:07:00.000Z" },
-        autoFiltered: 4,
-      }
-    : built;
+  // The fleet spam totals and the auto-filtered count left the model with the
+  // lane (the follow-up to #2248), so submissions are all that is left to vary.
+  return buildCockpitModel([site], [], {}, BASE, NOW, subs);
 }
 
 const html = (m: CockpitModel) =>

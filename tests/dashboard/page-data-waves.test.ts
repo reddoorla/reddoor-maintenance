@@ -105,7 +105,6 @@ const COCKPIT_READS: Record<string, Matcher> = {
   listNewSubmissions: and(has('from "submissions"'), param("new"), not(has("count("))),
   readCockpitRollup: and(has('from "digest_state"'), param("cockpit_rollup")),
   listFleetEvents: has('from "fleet_events"'),
-  countAutoSpamSince: and(has('from "submissions"'), param("spam_auto")),
   countUnreplayedDeadLettersBySlug: and(has('from "submission_deadletter"'), has("count(")),
   oldestUnreplayedDeadLetterBySlug: and(has('from "submission_deadletter"'), has("min(")),
   readLatestDeps: has('from "fleet_daily"'),
@@ -195,7 +194,10 @@ async function seedEverything() {
   await writeDigestState(db, { "vuln:recA": { metric: 1, firstFlaggedAt: "2026-10-19" } });
   await writeCockpitRollup(db, {
     spamTotals: { honeypot: 3, tooFast: 2, markedSpam: 1 },
-    notifyBounces: { recA: { total: 1, permanent: 1 } },
+    // At NOTIFY_BOUNCE_THRESHOLD, so the roll-up raises an alarm on / and its failed
+    // read shows: since the spam totals left the model (the follow-up to #2248), the
+    // bounce counts are all the roll-up gives the cockpit.
+    notifyBounces: { recA: { total: 2, permanent: 2 } },
     windowDays: { screenOuts: 7, bounces: 14 },
     computedAt: "2026-10-20T06:00:00.000Z",
   });
@@ -264,7 +266,8 @@ describe("round trips per load", () => {
   it("/ reads everything in one wave", async () => {
     const w = waves();
     await loadCockpitModel(db.withPlugin(w.plugin), NOW, BASE);
-    expect(w.count()).toBe(10);
+    // 9 since the auto-filtered count left the model (the follow-up to #2248).
+    expect(w.count()).toBe(9);
     expect(w.depth()).toBe(1);
   });
 

@@ -670,8 +670,8 @@
     "edits": [
       {
         "file": "scripts/pm-cockpit.mts",
-        "find": "    inputs.autoFilteredCount,\n    inputs.notifyBounces,",
-        "replace": "    inputs.autoFilteredCount,\n    new Map(),"
+        "find": "    inputs.recentEvents,\n    inputs.notifyBounces,",
+        "replace": "    inputs.recentEvents,\n    new Map(),"
       }
     ],
     "test": "tests/alerts/production-signals-wiring.test.ts",

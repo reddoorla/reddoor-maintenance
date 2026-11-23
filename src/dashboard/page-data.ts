@@ -6,7 +6,6 @@ import {
 } from "../db/deadletter.js";
 import {
   listNewSubmissions,
-  countAutoSpamSince,
   listSubmissionsForSite,
   listSubmissionsFiltered,
   countSubmissionsFiltered,
@@ -69,7 +68,6 @@ export async function loadCockpitModel(db: Db, now: Date, baseUrl: string): Prom
     newSubmissions,
     rollup,
     recentEvents,
-    autoFilteredCount,
     deadLetters,
     deadLetterOldestRead,
     deps,
@@ -81,7 +79,8 @@ export async function loadCockpitModel(db: Db, now: Date, baseUrl: string): Prom
     orElse(() => readDigestState(db), {}),
     // the Sites cards' submission chips simply absent — the cockpit still renders
     orElse(() => listNewSubmissions(db), []),
-    // strip simply absent — never blank the cockpit (see the roll-up note below)
+    // the notify-bounce counts simply absent — never blank the cockpit. The nightly
+    // digest computes them into one row (MED-16), so they are up to 24h old.
     orElse(() => readCockpitRollup(db), null),
     // Recently lane simply absent — the cockpit still renders.
     orElse(() => {
@@ -93,9 +92,6 @@ export async function loadCockpitModel(db: Db, now: Date, baseUrl: string): Prom
         excludeTypes: RECENT_EXCLUDED_TYPES,
       });
     }, []),
-    // no page renders this since #2241 (the /triage inbox lane went); kept with
-    // the model's spam and submissions fields — never blank the cockpit
-    orElse(() => countAutoSpamSince(db, screenOutsSince(now, 7)), 0),
     // #645. Unreplayed dead-letter rows per slug — the dropped-lead alarm.
     // Defensive like every other libSQL read here: a blip drops the signal, it
     // never blanks the cockpit.
@@ -115,7 +111,6 @@ export async function loadCockpitModel(db: Db, now: Date, baseUrl: string): Prom
       newSubmissions,
       rollup,
       recentEvents,
-      autoFilteredCount,
       deadLetters,
       deadLetterOldestRead,
       deps,
