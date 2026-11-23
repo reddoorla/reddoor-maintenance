@@ -229,8 +229,15 @@ describe("topBacklogItems", () => {
       expect(item.status?.sentence).toBe("ran x.");
     });
 
-    it("an escaped backtick opens no code span", () => {
-      expect(one("| P1-931 | **Title** a \\` b | 🟢 | S | run `x` | done |").tier).toBe("🟢");
+    it("an escaped backtick opens no code span, so it pairs with no later lone one", () => {
+      expect(one("| P1-931 | **Title** a \\` b | 🟢 | S | it's a ` tick | done |").tier).toBe("🟢");
+    });
+
+    it("a sentence does not end inside a code span", () => {
+      expect(
+        one("| P1-936 | **Title** | 🟢 | S | Status 2026-11-22 ran `a. b` fine. More. | done |")
+          .status?.sentence,
+      ).toBe("ran a. b fine.");
     });
 
     it("a double-backtick code span holding a pipe stays one cell", () => {

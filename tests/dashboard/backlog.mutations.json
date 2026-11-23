@@ -251,12 +251,12 @@
   },
   {
     "id": "20-sentence-sees-code",
-    "why": "Round 7, major: the first sentence's search looks inside code spans and ignores the scanner, so it ends inside code.",
+    "why": "Round 7: the first sentence's search looks inside code spans, so a `. ` in code ends the sentence.",
     "edits": [
       {
         "file": "src/dashboard/backlog.ts",
         "find": "  const seen = masked(text);",
-        "replace": "  const seen = text.replace(/`[^`]*`/g, (c) => c.replace(/[.!?]/g, \"\\u0000\")).replace(/`/g, \"\\u0000\");"
+        "replace": "  const seen = text;"
       }
     ],
     "test": "tests/dashboard/backlog.test.ts",
