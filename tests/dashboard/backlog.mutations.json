@@ -199,11 +199,11 @@
   },
   {
     "id": "16-lone-backtick-opens-code",
-    "why": "Rounds 6 and 7, major: a backtick counts as paired whenever any later column holds one, so a lone backtick merges the columns between.",
+    "why": "Rounds 6 and 7, major: a backtick counts as paired whenever any later column holds one, so a lone backtick merges the columns between. Re-aimed at round 10's join loop.",
     "edits": [
       {
         "file": "src/dashboard/backlog.ts",
-        "find": "    if (open.length > 0) partner[i] = nearest.get(open[open.length - 1]!);",
+        "find": "    for (const n of open) {\n      partner[i] = nearest.get(n);\n      if (partner[i] !== undefined) break;\n    }",
         "replace": "    if (open.length > 0) partner[i] = ((j) => (j === -1 ? undefined : j))(pieces.findIndex((p, k) => k > i && p.includes(\"`\")));"
       }
     ],
@@ -238,12 +238,17 @@
   },
   {
     "id": "19-bold-inside-code",
-    "why": "Round 7, re-aimed: `**` inside a code span (`src/**`) is stripped from the sentence as if it were bold.",
+    "why": "Round 7, re-aimed: `**` inside a code span (`src/**`) is stripped from the sentence as if it were bold. Re-aimed at round 10's tidy, which groups by kind: code is stripped like text.",
     "edits": [
       {
         "file": "src/dashboard/backlog.ts",
-        "find": "    out += code\n      ? part\n",
-        "replace": "    out += false\n      ? part\n"
+        "find": "    if (g === \"code\") out += part;\n",
+        "replace": "    if (false) out += part;\n"
+      },
+      {
+        "file": "src/dashboard/backlog.ts",
+        "find": "    else if (g === \"text\") out += strip",
+        "replace": "    else if (g === \"text\" || g === \"code\") out += strip"
       }
     ],
     "test": "tests/dashboard/backlog.test.ts",
