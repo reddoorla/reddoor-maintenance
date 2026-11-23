@@ -539,7 +539,9 @@ function bareHost(hostname: string): string {
  * same question of "did we read that page?".
  */
 export function sitePathKey(u: URL): string {
-  const path = u.pathname.replace(/\/+$/, "") || "/";
+  // Percent-escapes are case-insensitive (`%C3%A9` is `%c3%a9`), so one case.
+  const path =
+    u.pathname.replace(/\/+$/, "").replace(/%[0-9a-f]{2}/gi, (m) => m.toUpperCase()) || "/";
   return `${bareHost(u.hostname)}${u.port ? `:${u.port}` : ""}${path}`;
 }
 
@@ -678,7 +680,7 @@ const CONSULTATION_OFFER =
  *  and "View schedule" are not contact links; "Book a demo" and "Get a free
  *  quote" are; "Contact lenses" is not "Contact". */
 const CONTACT_LABEL =
-  /^(?:contact(?: (?:us|me|sales|our team|support))?|get in touch|talk to us|let['’]?s talk|get started|enquire|inquire|schedule|(?:get|request) (?:a |an |your |my |free )*(?:quote|estimate|consultation|demo|appointment|call|started)|book(?: (?:a|an|your|my|now|online|the|free))*(?: (?:demo|call|appointment|consultation|visit|session|meeting|table|quote|estimate))?|schedule (?:a|an|your|my|now|online)(?: (?:call|demo|consultation|appointment|visit|meeting|session))?|make (?:an? )?(?:enquiry|inquiry|appointment|booking))(?: (?:today|now|online|here))?$/i;
+  /^(?:contact(?: (?:us|me|sales|our team|support))?|get in touch|talk to us|let['’]?s talk|get started|enquire|inquire|(?:get|request) (?:a |an |your |my |free )*(?:quote|estimate|consultation|demo|appointment|call|started)|book (?:now|online)|book (?:a|an|your|my|the) (?:free )?(?:demo|call|appointment|consultation|visit|session|meeting|table|quote|estimate)|schedule (?:a|an|your|my|now|online)(?: (?:call|demo|consultation|appointment|visit|meeting|session))?|make (?:an? )?(?:enquiry|inquiry|appointment|booking))(?: (?:today|now|online|here))?$/i;
 
 /**
  * Does this link lead to the way a visitor gets in touch: contact, quote, demo,
@@ -696,24 +698,38 @@ export function isContactLike(href: string, text = ""): boolean {
   } catch {
     return false;
   }
+  // A post, a listing or a dated archive is not an offer, whatever its words:
+  // the archive exclusion applies to every contact word, in the path or the link
+  // text (W3 review round 4; `/blog/why-you-should-request-a-demo` was contact-like).
+  if (isArchivePath(href)) return false;
   const segments = path.split("/").filter(Boolean);
-  const archived = segments.some((s) => ARCHIVE_SEGMENT.test(s));
   for (const [i, segment] of segments.entries()) {
     const bare = segment.replace(/\.[a-z0-9]+$/, "");
     if (CONTACT_PAGE_SEGMENT.test(bare)) return true;
     const words = bare.split(/[-_]+/);
-    // "consultation" in a blog or dated path is a post's title, never an offer.
-    const consultationTitle = archived && words.includes("consultation");
-    if (!consultationTitle && isContactSegment(words, segments.length === 1 && i === 0)) {
-      return true;
-    }
+    if (isContactSegment(words, segments.length === 1 && i === 0)) return true;
     if (words.join(" ").includes("get started")) return true;
   }
   const label = text.replace(/\s+/g, " ").trim();
   if (label.length === 0 || label.length > 40) return false;
-  // The whole-label verb phrases, or a consultation offered as one (not on a
-  // blog or dated path).
-  return CONTACT_LABEL.test(label) || (!archived && CONSULTATION_OFFER.test(label));
+  // The whole-label verb phrases, or a consultation offered as one.
+  return CONTACT_LABEL.test(label) || CONSULTATION_OFFER.test(label);
+}
+
+/** Is this address a blog, news, insights or resources page, or a dated archive:
+ *  a post or a listing. Exported for goals.ts, which keeps such links out of the
+ *  contact count for the same reason. */
+export function isArchivePath(href: string): boolean {
+  let path: string;
+  try {
+    path = new URL(href).pathname.toLowerCase();
+  } catch {
+    return false;
+  }
+  return path
+    .split("/")
+    .filter(Boolean)
+    .some((s) => ARCHIVE_SEGMENT.test(s));
 }
 
 /** A dated post (`/2019/04/…`, `/2019/…`), a page of a paginated list
@@ -819,8 +835,27 @@ export function navLinks(html: string, baseUrl: string): string[] {
     }
     return false;
   };
-  return anchorHrefs(html, baseUrl, "header, nav", () => true, inFooter);
+  // A `<header>` inside an article, main, section or aside is the header of that
+  // content (a WordPress `entry-header` on each post), not the site's menu. One
+  // stored home page put ten dated posts ahead of its service pages this way.
+  const inContent = (root: HTMLElement): boolean => {
+    if (root.tagName !== "HEADER") return false;
+    for (let node: HTMLElement | null = root.parentNode; node; node = node.parentNode) {
+      if (CONTENT_ELEMENTS.has(node.tagName)) return true;
+    }
+    return false;
+  };
+  return anchorHrefs(
+    html,
+    baseUrl,
+    "header, nav",
+    () => true,
+    (root) => inFooter(root) || inContent(root),
+  );
 }
+
+/** Elements whose own `<header>` is their heading, not the site's menu. */
+const CONTENT_ELEMENTS = new Set(["ARTICLE", "MAIN", "SECTION", "ASIDE"]);
 
 /** Same-origin links anywhere on the page whose path or words say "contact". */
 export function contactLinks(html: string, baseUrl: string): string[] {
@@ -856,10 +891,14 @@ export function rankCandidates(input: {
   bodyLinks: string[];
 }): string[] {
   const posts = input.postUrls ?? new Set<string>();
-  const pool = [...input.sitemap, ...input.bodyLinks].map((url, i) => ({
+  const isLate = (url: string): boolean => posts.has(url) || isDatedOrPaginated(url);
+  // A dated post or archive listing in the menu is not a menu page: it waits
+  // with the sitemap's late entries, as it would anywhere else.
+  const lateMenu = input.nav.filter((url) => isLate(url));
+  const pool = [...input.sitemap, ...input.bodyLinks, ...lateMenu].map((url, i) => ({
     url,
     i,
-    late: posts.has(url) || isDatedOrPaginated(url) ? 1 : 0,
+    late: isLate(url) ? 1 : 0,
     depth: pathDepth(url),
   }));
   pool.sort((a, b) => a.late - b.late || a.depth - b.depth || a.i - b.i);
@@ -870,7 +909,7 @@ export function rankCandidates(input: {
   // push the owner's own menu out of the budget.
   const contactLinks = input.contact.filter((url) => url !== input.home);
   const contact = new Set(contactLinks);
-  const menu = input.nav.filter((url) => !contact.has(url));
+  const menu = input.nav.filter((url) => !contact.has(url) && !isLate(url));
   return [
     input.home,
     ...contactLinks.slice(0, 3),
@@ -926,8 +965,7 @@ export function normalizeCandidates(
   max: number,
   robotsTxt: string | null,
 ): { chosen: string[]; considered: number } {
-  const firstOfPath: string[] = [];
-  const variants: string[] = [];
+  const pages: string[] = [];
   const seen = new Set<string>();
   const paths = new Set<string>();
   for (const raw of urls) {
@@ -943,15 +981,16 @@ export function normalizeCandidates(
     const key = samePageKey(u);
     if (seen.has(key)) continue;
     seen.add(key);
+    // One seat per page path. A query-string variant of a path already listed
+    // (`/shop/?orderby=price`) is the same page to a buyer, so it takes no seat
+    // and is not counted. A pagination variant (`?page=2`) is different content
+    // and keeps its seat (W3 review round 4, approved by the coordinator).
     const path = sitePathKey(u);
-    if (paths.has(path)) variants.push(u.toString());
-    else {
-      paths.add(path);
-      firstOfPath.push(u.toString());
-    }
+    if (paths.has(path) && !isDatedOrPaginated(u.toString())) continue;
+    paths.add(path);
+    pages.push(u.toString());
   }
-  const all = [...firstOfPath, ...variants];
-  return { chosen: all.slice(0, max), considered: all.length };
+  return { chosen: pages.slice(0, max), considered: pages.length };
 }
 
 type Sidecars = {
@@ -1025,11 +1064,18 @@ async function fetchSidecars(
   // gzipped ones skipped (this parser reads text, so a `.gz` is never a sitemap
   // it can use). The three CMS defaults follow.
   const candidates: string[] = [];
+  // A `.gz` the owner named is skipped, but it is still a sitemap they told us
+  // about: counted, so that finding nothing else is "not read", not "absent".
+  let namedGzipped = 0;
   for (const line of (robotsTxt ?? "").split(/\r?\n/)) {
     if (candidates.length >= MAX_ROBOTS_SITEMAPS) break;
     const m = /^\s*sitemap\s*:\s*(\S+)/i.exec(line);
-    if (!m?.[1] || /\.gz(?:[?#]|$)/i.test(m[1])) continue;
+    if (!m?.[1]) continue;
     const at = toSameOrigin(m[1], origin);
+    if (/\.gz(?:[?#]|$)/i.test(m[1])) {
+      if (at !== null) namedGzipped += 1;
+      continue;
+    }
     if (at !== null && !candidates.includes(at)) candidates.push(at);
   }
   const namedCount = candidates.length;
@@ -1060,7 +1106,10 @@ async function fetchSidecars(
   // the owner NAMED that answered 404 is the same kind of gap: they told us the
   // sitemap is there, and we could not read it, so it is not "no sitemap".
   if (sitemapSource === null) {
-    const namedUnread = namedCount > 0 ? "robots.txt names a sitemap that could not be read" : null;
+    const namedUnread =
+      namedCount > 0 || namedGzipped > 0
+        ? "robots.txt names a sitemap that could not be read"
+        : null;
     sitemap = { res: null, error: firstError ?? namedUnread };
   }
 

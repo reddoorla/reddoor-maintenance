@@ -1617,3 +1617,138 @@ describe("W3 review round 3 — contact-like means a contact page, not a prefix"
     expect(ranked[5]).toBe(contact[3]);
   });
 });
+
+// W3 review round 4. Each test names its finding.
+describe("W3 review round 4 — the menu is not a dated post (finding 3)", () => {
+  const services = Array.from({ length: 12 }, (_, i) => `https://acme.example/service-${i + 1}/`);
+  const posts = Array.from(
+    { length: 10 },
+    (_, i) =>
+      `<article><header><a href="/2024/0${(i % 9) + 1}/post-${i}/">Post ${i}</a></header></article>`,
+  ).join("");
+  const menu = `<header><nav><a href="/about">About</a><a href="/fees">Fees</a><a href="/team">Team</a></nav></header>`;
+  const homeWithPosts = `<html><body>${menu}<main><h1>Acme</h1>${posts}</main></body></html>`;
+
+  it("a header inside an article is not the menu, so 12 service pages outrank 10 dated posts", async () => {
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: { body: homeWithPosts },
+      "https://acme.example/sitemap.xml": {
+        body: `<urlset>${services.map((u) => `<url><loc>${u}</loc></url>`).join("")}</urlset>`,
+      },
+    };
+    for (const u of services) routes[u] = { body: NO_MENU_HOME };
+    const result = await crawlSite(HOME, stubDeps(routes));
+    const chosen = result.pages.map((p) => p.url);
+    expect(services.filter((u) => chosen.includes(u))).toHaveLength(12);
+    expect(chosen.filter((u) => u.includes("/2024/"))).toHaveLength(20 - 1 - 3 - 12);
+  });
+
+  it("navLinks does not read a header inside an article, and still reads the site's header and nav", () => {
+    const html = `<html><body>${menu}<article><header><a href="/2024/01/post-1/">Post</a></header></article></body></html>`;
+    expect(navLinks(html, HOME)).toEqual([
+      "https://acme.example/about",
+      "https://acme.example/fees",
+      "https://acme.example/team",
+    ]);
+  });
+
+  it("a dated or paginated link in the menu ranks after the sitemap's service pages", () => {
+    const ranked = rankCandidates({
+      home: HOME,
+      nav: ["https://acme.example/about", "https://acme.example/2024/01/post-1/"],
+      contact: [],
+      sitemap: services,
+      bodyLinks: [],
+    });
+    expect(ranked.indexOf("https://acme.example/2024/01/post-1/")).toBeGreaterThan(
+      ranked.indexOf(services[11]!),
+    );
+    expect(ranked.indexOf("https://acme.example/about")).toBeLessThan(ranked.indexOf(services[0]!));
+  });
+});
+
+describe("W3 review round 4 — a query-string variant takes no seat (finding 5)", () => {
+  it("/shop/ and 30 of its ?orderby variants: two pages considered, two chosen", () => {
+    const variants = Array.from(
+      { length: 30 },
+      (_, i) => `https://acme.example/shop/?orderby=price&v=${i}`,
+    );
+    const { chosen, considered } = normalizeCandidates(
+      [HOME, "https://acme.example/shop/", ...variants],
+      "https://acme.example",
+      20,
+      null,
+    );
+    expect(considered).toBe(2);
+    expect(chosen).toEqual([HOME, "https://acme.example/shop/"]);
+  });
+});
+
+describe("W3 review round 4 — a pagination variant keeps its seat (finding 5, approved)", () => {
+  it("/shop/ with ?orderby variants and ?page=2: three considered, three chosen", () => {
+    const variants = Array.from(
+      { length: 30 },
+      (_, i) => `https://acme.example/shop/?orderby=price&v=${i}`,
+    );
+    const { chosen, considered } = normalizeCandidates(
+      [HOME, "https://acme.example/shop/", ...variants, "https://acme.example/shop/?page=2"],
+      "https://acme.example",
+      20,
+      null,
+    );
+    expect(considered).toBe(3);
+    expect(chosen).toEqual([
+      HOME,
+      "https://acme.example/shop/",
+      "https://acme.example/shop/?page=2",
+    ]);
+  });
+});
+
+describe("W3 review round 4 — the named .gz sitemap is a sitemap we did not read (finding 6)", () => {
+  it("a robots-named sitemap.xml.gz that is skipped is recorded as unread, not as no sitemap", async () => {
+    const deps = stubDeps({
+      [HOME]: { body: NO_MENU_HOME },
+      "https://acme.example/robots.txt": {
+        body: "User-agent: *\nAllow: /\nSitemap: https://acme.example/sitemap.xml.gz",
+      },
+    });
+    const result = await crawlSite(HOME, deps);
+    expect(result.sitemap.present).toBe(false);
+    expect(result.sidecarErrors.sitemap).not.toBeNull();
+  });
+});
+
+describe("W3 review round 4 — contact words that are not contact pages (findings 7 and 8)", () => {
+  it.each([
+    ["https://acme.example/events", "Schedule"],
+    ["https://acme.example/books", "Book"],
+    ["https://acme.example/blog/why-you-should-request-a-demo", ""],
+    ["https://acme.example/news/book-a-demo", ""],
+    ["https://acme.example/insights/contact-us", ""],
+    ["https://acme.example/news/x", "Contact us"],
+  ])("%s %s is NOT contact-like", (href, text) => {
+    expect(isContactLike(href, text)).toBe(false);
+  });
+
+  it.each([
+    ["https://acme.example/x", "Book now"],
+    ["https://acme.example/x", "Book a call"],
+    ["https://acme.example/request-a-demo", ""],
+  ])("%s %s IS contact-like", (href, text) => {
+    expect(isContactLike(href, text)).toBe(true);
+  });
+});
+
+describe("W3 review round 4 — percent-escapes are one page (finding 9)", () => {
+  it("/caf%C3%A9 and /caf%c3%a9 are the same page: one seat", () => {
+    const { chosen, considered } = normalizeCandidates(
+      [HOME, "https://acme.example/caf%C3%A9", "https://acme.example/caf%c3%a9"],
+      "https://acme.example",
+      20,
+      null,
+    );
+    expect(considered).toBe(2);
+    expect(chosen).toHaveLength(2);
+  });
+});

@@ -1,5 +1,6 @@
 import type { ChecksResult, CrawlResult, JourneyMap, PageCapture, PageExtract } from "./types.js";
 import {
+  isArchivePath,
   isContactLike,
   isDatedOrPaginated,
   isFetchableCandidate,
@@ -570,7 +571,7 @@ function contactPageUnread(crawl: CrawlResult): string | null {
     // A link the crawl can never read is not a page we failed to read: a PDF, a
     // robots-disallowed path, infrastructure, a dated post or a blog entry.
     if (!isFetchableCandidate(onSite, crawl.robotsTxt)) continue;
-    if (isDatedOrPaginated(onSite) || new URL(onSite).pathname.startsWith("/blog/")) continue;
+    if (isDatedOrPaginated(onSite) || isArchivePath(onSite)) continue;
     if (!read.has(pageKey(onSite))) return onSite;
   }
   return null;

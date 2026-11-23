@@ -447,55 +447,72 @@ function verifyEvidence(result: AnalyzeResult, crawl: CrawlResult): AnalyzeResul
  * proves "your site does not answer this" is not ours to print, because the model
  * saw at most 12 pages and 1,500 characters of each.
  */
-const KEY_TERMS: Record<string, RegExp> = {
-  cost: /\b(pric(e|es|ing)|fees?|rates?|starting at|per (hour|month|visit|session))\b|\$\s?\d/i,
+export const KEY_TERMS: Record<string, RegExp> = {
+  cost: /\b(?:our|your|current|new|these|the) (?<term>pric(?:e|es|ing)|fees?|rates?)\b|starting at|per (hour|month|visit|session)|\$\s?\d/i,
   "who-for":
     /\b(we (work with|serve|help|specialize)|ideal for|designed for|who we serve|our clients|industries we (serve|work with))\b/i,
   proof:
-    /\b(testimonials?|case stud(y|ies)|customer reviews|client reviews|years of experience|accredited by|awards? (won|winning)|trusted by)\b/i,
+    /\b(client testimonials?|customer testimonials?|case stud(y|ies)|customer reviews|client reviews|years of experience|accredited by|awards? (won|winning)|trusted by)\b/i,
   "who-does-it":
     /\b(meet (the|our) (team|founders?)|founded by|led by|our (founders?|leadership))\b/i,
   where:
-    /\b(located (in|at)|based in|headquarter(s|ed)|offices? in|service areas?|(we are )?now serving [a-z ]+)\b/i,
+    /\b(located (in|at)|based in|headquarter(s|ed) (in|at)|offices? in|service areas?|(we are )?now serving [a-z ]+)\b/i,
   "next-step":
     /\b(next steps?|what happens next|what to expect|we('ll| will) (contact|respond|reply|call)|within \d+ (hours?|business days?)|free consultation)\b/i,
-  availability: /\b((accepting|taking) new|new (patients|clients) welcome|wait(ing)? ?list)\b/i,
+  availability:
+    /\b((accepting|taking) new|new (patients|clients) welcome|(join|on) (our |the )?wait(ing)? ?list)\b/i,
   "how-to-book":
     /\b(book (online|now|an appointment)|schedule (online|an appointment|a visit)|online booking|booking (form|page|system|request)|request an appointment)\b/i,
   "first-visit": /\b(first (visit|appointment|session)|new patients?|what to expect)\b/i,
-  payment: /\b(insurance|we accept|payment|financing|medicare|medicaid)\b/i,
+  payment:
+    /\b(we accept|accepts? (insurance|medicare|medicaid)|(payment|financing) (plans?|options?|terms)|(insurance|medicare|medicaid) (accepted|plans?))\b/i,
   timeline:
-    /\b(timelines?|turnaround|lead times?|how long|\d+\s*(-|to|–)\s*\d+\s*(days|weeks|months))\b/i,
-  process: /\b(our process|how we work|step \d|stages?|phases?|discovery)\b/i,
-  minimum: /\b(minimum|project size|(your|our|project) budgets?|starting at)\b/i,
-  "my-input": /\b(we('ll| will) need|you('ll| will) need|what we need|bring|provide us)\b/i,
+    /\b(project timelines?|our timelines?|turnaround (time|times)|lead times?|how long|\d+\s*(-|to|–)\s*\d+\s*(days|weeks|months))\b/i,
+  process:
+    /\b(our process|how we work|step \d|(project|our|the|these) (stages?|phases?)|discovery (phase|call|session|process))\b/i,
+  minimum:
+    /\b(minimum (order|spend|purchase|project|commitment)|project size|(your|our|project) budgets?|starting at)\b/i,
+  "my-input":
+    /\b(we('ll| will) need|you('ll| will) need|what we need|bring (your|any|the|a) (documents?|files?|photos?|materials?|id|identification|list|records?|notes?)|provide us)\b/i,
   "reachable-hours":
     /\b((business|opening|office|operating) hours|open (daily|from|mon\w*|24\/7)|mon(day)?\s*(-|–|to)\s*fri(day)?|24\/7 (service|support|cover\w*|availability|line))\b/i,
   "who-answers":
     /\b(answered by|speak (with|to) (a|an|our)|real person|live (person|agent|operator))\b/i,
-  "call-cost": /\b(free (consultation|call|estimate|assessment)|no[- ]obligation|complimentary)\b/i,
+  "call-cost":
+    /\b(free (consultation|call|estimate|assessment)|no[- ]obligation|complimentary (consultation|call|estimate|assessment|quote))\b/i,
   urgent:
-    /\b(emergenc(y|ies)|urgent|after[- ]hours|24\/7 (service|support|cover\w*|availability|line)|same[- ]day)\b/i,
+    /\b(emergency (service|care|repairs?|line|visits?)|urgent (care|repairs?|service|help|visits?)|after[- ]hours|24\/7 (service|support|cover\w*|availability|line)|same[- ]day)\b/i,
   "opening-hours":
     /\b((business|opening|office|operating) hours|open (daily|from|mon\w*)|closed on|mon(day)?\s*(-|–|to)\s*fri(day)?)\b/i,
   "getting-there":
-    /\b(parking|transit|(driving |travel |getting )?directions (to|from) us|bus|metro|subway|train station)\b/i,
-  "what-on-site": /\b(showroom|facility|tour|amenities|on[- ]site)\b/i,
-  accessibility: /\b(accessible|wheelchair|ada|step[- ]free|elevator)\b/i,
-  shipping: /\b(shipping|delivery|ships)\b/i,
-  returns: /\b(returns?|refunds?|exchanges?)\b/i,
-  stock: /\b(in stock|out of stock|availability|inventory)\b/i,
-  "payment-methods": /\b(visa|mastercard|paypal|apple pay|credit cards?|payment methods?)\b/i,
-  "demo-content": /\b(demo|walkthrough|product tour)\b/i,
-  integration: /\b(integrat\w*|api|works with|connects? (to|with))\b/i,
-  compliance: /\b(hipaa|soc ?2|gdpr|iso ?27001|compliance|compliant|encrypt\w*)\b/i,
+    /\b(free parking|parking (lot|garage|on[- ]site|available)|public transit|(driving |travel |getting )?directions (to|from) us|bus (stops?|routes?|lines?|stations?)|metro (stations?|stops?|lines?)|subway (stations?|stops?)|train station)\b/i,
+  "what-on-site":
+    /\b((our|the) (showroom|facilities|amenities)|(guided|private|on[- ]site) tours?|on[- ]site (amenities|parking|facilities))\b/i,
+  accessibility:
+    /\b(wheel-?chairs? (access|accessible|entrance)|step[- ]free|ada[- ](compliant|accessible)|accessible (entrances?|parking|restrooms?|toilets?)|elevators? (access|on[- ]site|available))\b/i,
+  shipping:
+    /\b((free |international |fast |standard )?shipping (costs?|options?|policy|times?|rates?|is)|ships (within|to|from|worldwide|free)|delivery (takes|times?|options?|fees?|within|is))\b/i,
+  returns: /\b((return|refund|exchange)s? (policy|window|period|are|accepted|within))\b/i,
+  stock:
+    /\b(in stock|out of stock|check (product |item )?availability|live inventory|current inventory)\b/i,
+  "payment-methods":
+    /\b(payment methods?|(visa|mastercard|paypal|apple pay)(,| and| or)? ?(accepted|payments?)|credit cards? (accepted|welcome)|we accept (visa|mastercard|paypal|apple pay|credit cards?))\b/i,
+  "demo-content":
+    /\b(live demo|product demo|demo (video|account|environment|mode)|product (walkthrough|tour))\b/i,
+  integration:
+    /\b(integrations? (with|options?|partners?|marketplace|available)|integrates? with|works with|connects? (to|with)|(public|open|developer) api)\b/i,
+  compliance:
+    /\b((hipaa|soc ?2|gdpr|iso ?27001)[- ](compliant|compliance|certified|certification)|compliant with [a-z0-9 ]+|compliance (with|certification|program)|end-to-end encrypt\w*|encrypted (at rest|in transit))\b/i,
   "who-else":
     /\b((our|happy|existing) customers|customer (stories|base|reviews)|clients include|trusted by|case stud(y|ies))\b/i,
   "partner-fit":
     /\b((our|new|become an?|join as an?) (partners?|resellers?|distributors?)|(partner|reseller|distributor) (programme|program|network|opportunities))\b/i,
-  "partner-terms": /\b((partner|reseller|dealer) terms|margins?|commissions?|discounts?)\b/i,
-  territory: /\b(territor(y|ies)|regions?|exclusive|markets?)\b/i,
-  "partner-support": /\b(partner (portal|program|support)|training|marketing materials)\b/i,
+  "partner-terms":
+    /\b((partner|reseller|dealer) terms|(partner|reseller|dealer|wholesale) margins?|(referral|partner|reseller) commissions?|(partner|reseller|dealer|volume|wholesale) discounts?)\b/i,
+  territory:
+    /\b((sales|protected) territor(y|ies)|exclusive (rights|territor(y|ies)|distributors?|dealers?)|(sales|service) regions?|(target|key|local) markets?)\b/i,
+  "partner-support":
+    /\b(partner (portal|program|support)|(partner|reseller|sales) training|marketing materials)\b/i,
 };
 
 /** Words too common to mean anything about a chosen question. */
@@ -521,19 +538,42 @@ function termsFor(q: BuyerQuestion): TermPattern | null {
   return { pattern: new RegExp(`\\b(${words.join("|")})\\b`, "i"), distinct: true };
 }
 
-/** The first hit in `text`, or null. For a chosen question, the first match at
- *  which two different words have appeared. */
-function firstTermHit(terms: TermPattern, text: string): string | null {
-  if (!terms.distinct) return terms.pattern.exec(text)?.[0] ?? null;
-  const seen = new Set<string>();
-  let first: string | null = null;
+/** One place a question's terms occur: what was matched, and where. The term
+ *  is the named group `term` when the pattern has one (a phrase that needs a
+ *  qualifying word before the key word reports only the key word), else the match. */
+type TermHit = { term: string; start: number; end: number };
+
+/** Every hit in `text`. For a chosen question, only the first match at which two
+ *  different words have appeared, as one hit. */
+function termHits(terms: TermPattern, text: string): TermHit[] {
+  const all: (TermHit & { word: string })[] = [];
   for (const m of text.matchAll(new RegExp(terms.pattern.source, "gi"))) {
-    first ??= m[0];
-    seen.add(m[0].toLowerCase());
-    if (seen.size >= 2) return first;
+    const start = m.index ?? 0;
+    all.push({
+      term: m.groups?.term ?? m[0],
+      start,
+      end: start + m[0].length,
+      word: m[0].toLowerCase(),
+    });
   }
-  return null;
+  if (!terms.distinct) return all.map(({ word: _word, ...hit }) => hit);
+  const seen = new Set<string>();
+  for (const hit of all) {
+    seen.add(hit.word);
+    if (seen.size >= 2) {
+      const { word: _word, ...first } = all[0]!;
+      return [first];
+    }
+  }
+  return [];
 }
+
+/** Whitespace-normalised, so a window of a page and a quote from another page
+ *  compare by their words. */
+const squash = (s: string): string => s.replace(/\s+/g, " ").trim();
+
+/** How many characters either side of a hit are compared with what the model read. */
+const CONTEXT_CHARS = 20;
 
 /**
  * The last check before "your site does not answer this" is allowed to stand:
@@ -546,18 +586,29 @@ function firstTermHit(terms: TermPattern, text: string): string | null {
  * asserting an absence. One stored report told a manufacturer that its site did
  * not say whether it makes its own products, when the home page said so in a
  * sentence past the point the model stopped reading.
+ *
+ * A hit does not count when the words around it (CONTEXT_CHARS either side)
+ * also appear in a window the model was sent. Navigation repeated on every page
+ * is the model's own evidence, not an unseen answer (W3 review round 4).
  */
 function checkAbsence(q: BuyerQuestion, crawl: CrawlResult): BuyerQuestion {
   const terms = termsFor(q);
   if (terms === null) return q;
   const sent = new Set(selectPages(crawl.pages).map((p) => p.url));
   const texts = crawl.pages.map((p) => (p.rendered ?? p.raw)?.text ?? "");
+  const sentWindows = crawl.pages.flatMap((p, i) =>
+    sent.has(p.url) ? [squash(texts[i]!.slice(0, MAX_TEXT_CHARS))] : [],
+  );
   for (const [i, p] of crawl.pages.entries()) {
     const full = texts[i]!;
-    const unseen = sent.has(p.url) ? full.slice(MAX_TEXT_CHARS) : full;
-    const hit = firstTermHit(terms, unseen);
-    if (hit !== null) {
-      return { ...q, answered: "unknown", notFound: { term: hit, page: p.url } };
+    const cut = sent.has(p.url) ? MAX_TEXT_CHARS : 0;
+    for (const hit of termHits(terms, full.slice(cut))) {
+      const at = cut + hit.start;
+      const around = squash(
+        full.slice(Math.max(0, at - CONTEXT_CHARS), at + (hit.end - hit.start) + CONTEXT_CHARS),
+      );
+      if (sentWindows.some((w) => w.includes(around))) continue;
+      return { ...q, answered: "unknown", notFound: { term: hit.term, page: p.url } };
     }
   }
   return q;

@@ -3251,7 +3251,10 @@ function namedForm(probe: FormProbe, how: string | null): string {
   return said ? `${probe.form}: ${said}` : probe.form;
 }
 
-function formInteractionChecks(probes: (FormProbe | null | undefined)[]): SiteCheck[] {
+function formInteractionChecks(
+  pages: { extract: PageExtract }[],
+  probes: (FormProbe | null | undefined)[],
+): SiteCheck[] {
   const WHY_EMPTY =
     "Somebody who taps send too early should be told what is missing. A form that submits anyway puts a blank enquiry in your inbox and tells them it worked, so they never follow up and you have nothing to follow up on.";
   const WHY_EMAIL =
@@ -3268,6 +3271,32 @@ function formInteractionChecks(probes: (FormProbe | null | undefined)[]): SiteCh
   const neverTried = probes.every((p) => p === undefined);
   if (neverTried) {
     const NOTE = "we did not try a form on this run";
+    return [
+      unknown(
+        "form-rejects-empty",
+        "A form that catches an empty submission",
+        WHY_EMPTY,
+        "quick",
+        NOTE,
+      ),
+      unknown(
+        "form-rejects-bad-email",
+        "A form that catches a mistyped email",
+        WHY_EMAIL,
+        "quick",
+        NOTE,
+      ),
+    ];
+  }
+
+  // A page with an enquiry form whose probe never ran (a timeout, a mismatch)
+  // is a form we did not try. A null on another page is no answer for it, so
+  // "no enquiry form to try" would be false (W3 review round 4).
+  const untried = pages.some(
+    (p, i) => probes[i] === undefined && (p.extract.forms ?? []).some((f) => f.kind === "enquiry"),
+  );
+  if (!probe && untried) {
+    const NOTE = "we could not try every form";
     return [
       unknown(
         "form-rejects-empty",
@@ -3530,7 +3559,10 @@ export function runSiteChecks(
     ...browserChecks(pages),
     ...dnsChecks(dns),
     ...httpChecks(http),
-    ...formInteractionChecks(crawl.pages.map((p) => p.formProbe)),
+    ...formInteractionChecks(
+      pages,
+      crawl.pages.map((p) => p.formProbe),
+    ),
     ...headerChecks(crawl.homeHeaders ?? {}, headersMeasured),
     ...sidecarChecks(crawl, linked, aliasOf),
     analyticsCheck(pages),
