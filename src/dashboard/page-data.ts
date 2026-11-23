@@ -79,7 +79,7 @@ export async function loadCockpitModel(db: Db, now: Date, baseUrl: string): Prom
     orElse(() => listAllReports(db), []),
     // everything badges as not-NEW (the {} initial); never crashes the page
     orElse(() => readDigestState(db), {}),
-    // submissions strip simply absent — triage still renders
+    // the Sites cards' submission chips simply absent — the cockpit still renders
     orElse(() => listNewSubmissions(db), []),
     // strip simply absent — never blank the cockpit (see the roll-up note below)
     orElse(() => readCockpitRollup(db), null),
@@ -93,7 +93,8 @@ export async function loadCockpitModel(db: Db, now: Date, baseUrl: string): Prom
         excludeTypes: RECENT_EXCLUDED_TYPES,
       });
     }, []),
-    // affordance simply absent — never blank the cockpit
+    // no page renders this since #2241 (the /triage inbox lane went); kept with
+    // the model's spam and submissions fields — never blank the cockpit
     orElse(() => countAutoSpamSince(db, screenOutsSince(now, 7)), 0),
     // #645. Unreplayed dead-letter rows per slug — the dropped-lead alarm.
     // Defensive like every other libSQL read here: a blip drops the signal, it
