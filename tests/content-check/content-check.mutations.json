@@ -1851,5 +1851,18 @@
     ],
     "expect": "red",
     "why": "round 5 unpinned: a file over its baseline does not cancel other stale entries"
+  },
+  {
+    "id": "r5-property-line-backtracks",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": "=[^:;\\s]*)*:(?=\\S)/",
+        "replace": "=[^:\\s]*)*:(?=\\S)/"
+      }
+    ],
+    "test": ["tests/content-check/scan.test.ts"],
+    "expect": "red",
+    "why": "CodeQL on #2231: a parameter value that can hold `;A=` backtracks exponentially"
   }
 ]

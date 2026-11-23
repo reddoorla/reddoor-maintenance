@@ -312,9 +312,10 @@ export function isDecorative(text: string): boolean {
 
 /** An iCalendar or vCard property line (`BEGIN:VCALENDAR`, `SUMMARY:${…}`,
  *  `DTSTART;TZID=…:…`): a file format a calendar reads, never copy. A value
- *  after a space (`FAQ: Ask us`) is words (review round 5). */
+ *  after a space (`FAQ: Ask us`) is words (review round 5). A parameter
+ *  value stops at `;`, so the repeat cannot backtrack (CodeQL on #2231). */
 export const isPropertyLine = (text: string): boolean =>
-  /^[A-Z][A-Z0-9-]*(?:;[A-Z][A-Z0-9-]*=[^:\s]*)*:(?=\S)/.test(text.trim());
+  /^[A-Z][A-Z0-9-]*(?:;[A-Z][A-Z0-9-]*=[^:;\s]*)*:(?=\S)/.test(text.trim());
 
 /** A lower-case code word (`"email"`, `"contact-form"`, `"hero_image"`): a key,
  *  a slug or an option value. Applied to script values and component props,

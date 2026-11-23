@@ -1231,6 +1231,13 @@ describe("review round 5 on #2231", () => {
     ]);
   });
 
+  it("reads a long run of iCalendar-like parameters in linear time (CodeQL on #2231)", () => {
+    const evil = "A" + ";A=".repeat(30) + " x";
+    const t0 = performance.now();
+    expect(ts(`export const label = ${JSON.stringify(evil)};`)).toEqual([["copy", evil]]);
+    expect(performance.now() - t0).toBeLessThan(500);
+  });
+
   // Finding 5: stats, prices and hours are content, not decoration.
   it("reports stats, prices and hours, and still drops arrows, step numbers and numerals", () => {
     expect(svelte(`<h2>1,000+</h2><span>$1,250</span><h3>98%</h3><p>9:00 – 5:00</p>`)).toEqual([
