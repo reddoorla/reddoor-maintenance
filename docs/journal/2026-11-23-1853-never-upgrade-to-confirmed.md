@@ -68,6 +68,7 @@ The term is searched for in the page text as it is, case-insensitively, so the q
   | Model-quote guard removed         | 1         |
   | Own-name mask on the page removed | 1         |
   | Abbreviation demotes a name       | 2         |
+  | Claim's first word skipped        | 2         |
   | Left word boundary dropped        | 1         |
   | Right word boundary dropped       | 1         |
   | Lowercased copy                   | 4         |
