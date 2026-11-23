@@ -621,43 +621,11 @@ describe("needs-you feed", () => {
   });
 });
 
-describe("inbox lane", () => {
-  it("renders submissions + spam inside one collapsed details", () => {
-    const m = buildCockpitModel(
-      [siteRow({ id: "recSITE", name: "Acme Co" })],
-      [],
-      {},
-      BASE,
-      NOW,
-      [
-        {
-          id: "s1",
-          siteId: "recSITE",
-          formType: "contact",
-          name: "Jane",
-          email: "jane@x.com",
-          submittedAt: "2026-06-10T12:00:00Z",
-        } as never,
-      ],
-      { honeypot: 3, tooFast: 2, markedSpam: 1 }, // caught 5 · through 1
-    );
-    const html = renderCockpitHtml(m);
-    expect(html).toContain('<details class="inbox">');
-    expect(html).toContain("Submissions (1 new)");
-    expect(html).toContain('href="/submissions"');
-    // "after the fleet panel": the panel moved to Sites (#672 step 3).
-  });
-
-  it("omits the inbox entirely with no submissions and no spam", () => {
-    const html = renderCockpitHtml(model([siteRow({ name: "Acme" })]));
-    expect(html).not.toContain('class="inbox"');
-  });
-});
-
 describe("renderCockpitHtml — region order", () => {
-  it("composes the regions in order: verdict → needs-you → inbox (the fleet panel moved to Sites, #672 step 3)", () => {
-    // A model that populates ALL four regions at once: a pending-approval report
-    // (→ needs-you feed, verdict warns) plus a new submission and spam (→ inbox).
+  it("composes the regions in order: verdict → needs-you (the fleet panel moved to Sites, #672 step 3; the inbox to /submissions, #2241)", () => {
+    // A model that populates both regions: a pending-approval report (→ needs-you
+    // feed, verdict warns). The submission and spam inputs fed the inbox lane,
+    // gone since #2241; they stay as noise that must not add a region.
     const m = buildCockpitModel(
       [siteRow({ id: "recSITE", name: "Acme Co" })],
       [
@@ -695,60 +663,8 @@ describe("renderCockpitHtml — region order", () => {
     const html = renderCockpitHtml(m);
     const iVerdict = html.indexOf('class="verdict');
     const iFeed = html.indexOf('class="needs-you');
-    const iInbox = html.indexOf('class="inbox');
     expect(iVerdict).toBeGreaterThan(-1);
     expect(iFeed).toBeGreaterThan(iVerdict);
-    expect(iInbox).toBeGreaterThan(iFeed);
-  });
-});
-
-describe("renderCockpitHtml — inbox lane submissions cap", () => {
-  /** Minimal new-submission row; buildCockpitModel only reads id/siteId/formType/name/email/submittedAt. */
-  function sub(siteId: string, n: number) {
-    return {
-      id: `sub${n}`,
-      siteId,
-      formType: "contact",
-      name: `Person ${n}`,
-      email: `p${n}@example.com`,
-      // Descending timestamps so n=1 is newest.
-      submittedAt: `2026-06-${String(20 - (n % 20)).padStart(2, "0")}T12:00:00Z`,
-    } as never;
-  }
-
-  it("caps the lane at 10 rows, keeps the true total in the summary, and links onward", () => {
-    const newSubs = Array.from({ length: 13 }, (_, i) => sub("recSITE", i + 1));
-    const m = buildCockpitModel(
-      [siteRow({ id: "recSITE", name: "Acme Co" })],
-      [],
-      {},
-      BASE,
-      NOW,
-      newSubs,
-    );
-    const html = renderCockpitHtml(m);
-    const rendered = (html.match(/data-signal="submissions"/g) ?? []).length;
-    expect(rendered).toBe(10);
-    expect(html).toContain("Submissions (13 new)"); // true total, not the capped count
-    expect(html).toContain("+3 more — view all submissions");
-    expect(html).toContain('href="/submissions"');
-  });
-
-  it("renders every row and a plain 'View all' link when at or under the cap", () => {
-    const newSubs = Array.from({ length: 4 }, (_, i) => sub("recSITE", i + 1));
-    const m = buildCockpitModel(
-      [siteRow({ id: "recSITE", name: "Acme Co" })],
-      [],
-      {},
-      BASE,
-      NOW,
-      newSubs,
-    );
-    const html = renderCockpitHtml(m);
-    expect((html.match(/data-signal="submissions"/g) ?? []).length).toBe(4);
-    expect(html).toContain("Submissions (4 new)");
-    expect(html).not.toMatch(/\+\d+ more/);
-    expect(html).toContain("View all submissions →");
   });
 });
 
@@ -1021,33 +937,6 @@ describe("renderCockpitHtml — GitHub-signal chips & filters (slice 2b)", () =>
     );
     expect(html).toMatch(/data-signals="[^"]*ci[^"]*"/);
     expect(html).toMatch(/Default-branch CI failing/);
-  });
-});
-
-describe("renderCockpitHtml — spam roll-up", () => {
-  it("shows fleet caught + through totals when spam data is present", () => {
-    const m = buildCockpitModel(
-      [siteRow({ id: "recSITE", name: "Acme Co" })],
-      [],
-      {},
-      BASE,
-      NOW,
-      [],
-      {
-        honeypot: 560,
-        tooFast: 52,
-        markedSpam: 24,
-      },
-    );
-    const html = renderCockpitHtml(m);
-    expect(html).toMatch(/spam/i);
-    expect(html).toContain("612"); // caught = honeypot + too-fast
-    expect(html).toContain("24"); // through = marked spam
-  });
-
-  it("omits the roll-up when there is no spam data", () => {
-    const html = renderCockpitHtml(model([siteRow()]));
-    expect(html).not.toMatch(/spam caught/i);
   });
 });
 

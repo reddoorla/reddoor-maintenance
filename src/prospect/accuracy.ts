@@ -786,11 +786,6 @@ function scanWords(text: string): ScannedWord[] {
   return out;
 }
 
-/** A claim that denies something. The site using the denied term refutes it
- *  rather than giving a reason to doubt the model's "contradicted". Errs wide:
- *  a false match only leaves the model's verdict alone. */
-const NEGATED = /\b(no|not|never|none|nobody|nothing|without|cannot|neither|nor)\b|n['\u2019]t\b/i;
-
 /** The business name a branded query asks about (`probes.ts`: "who is <name>",
  *  "<name> reviews"). */
 function businessNameOf(query: string): string {
@@ -798,68 +793,6 @@ function businessNameOf(query: string): string {
     .trim()
     .replace(/^who is\s+/i, "")
     .replace(/\s+reviews$/i, "");
-}
-
-/**
- * The one term, if any, that justifies taking a "contradicted" down to
- * unverified, and where the site says it: the site uses it as a whole word or
- * phrase, and it IS what the claim asserts.
- *
- * "Acme Design is based in Los Angeles", contradicted on a Texas mailing
- * address, while another page says "near the Los Angeles metro": the site says
- * both, so we cannot call the engine wrong. Every guard below is a way the same
- * shape lied on a real report or in review:
- *
- * - The claim must not deny anything. "No business has the name X" is refuted
- *   by the site saying X, not cast into doubt.
- * - The term must carry every name the claim asserts, other than the business's
- *   own name, removed only where it appears whole. "Based in Dallas, Texas" is
- *   not in doubt because the site says "Texas"; the business's name on its own
- *   site says nothing about a claim that opens with it; and "called Rosewood
- *   Bakery" is a different business, not "Bakery" next to our "Rosewood".
- * - The claim must assert at least one such name: a term that is only common
- *   words is a subject, not the claim.
- * - The model's own quote must not contain the term: then it saw the term and
- *   still judged the claim wrong.
- * - The site must use the term as words, not inside one: "Salem" is not in
- *   "Jerusalem".
- */
-function doubtingTerm(
-  claim: string,
-  terms: string[],
-  modelQuote: string | null,
-  query: string,
-  flat: string,
-): { term: string; at: number; said: string } | null {
-  if (NEGATED.test(claim)) return null;
-  const words = scanWords(claim);
-  const name = scanWords(businessNameOf(query)).map((w) => w.lower);
-  const own = new Set<number>();
-  if (name.length > 0) {
-    for (let i = 0; i + name.length <= words.length; i++) {
-      if (name.every((n, k) => words[i + k]?.lower === n)) {
-        for (let k = 0; k < name.length; k++) own.add(i + k);
-      }
-    }
-  }
-  const asserted = words
-    .filter((w, i) => w.capitalised && !w.opensSentence && !own.has(i))
-    .map((w) => w.lower);
-  if (asserted.length === 0) return null;
-  const quote = modelQuote === null ? "" : normalize(modelQuote);
-  for (const raw of distinctive(terms, claim)) {
-    const term = normalize(raw);
-    const carried = new Set(scanWords(term).map((w) => w.lower));
-    if (!asserted.every((n) => carried.has(n))) continue;
-    if (quote.includes(term)) continue;
-    // Searched in `flat` itself, case-insensitively, so `at` and the quoted
-    // window are offsets into the page text as it is, never a lowercased copy.
-    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const m = new RegExp(`(?<![A-Za-z0-9])${escaped}(?![A-Za-z0-9])`, "i").exec(flat);
-    if (m === null) continue;
-    return { term, at: m.index, said: m[0] };
-  }
-  return null;
 }
 
 /** `value` appears in `text` as whole words, ignoring case and spacing. */
@@ -900,42 +833,24 @@ function verifyQuotes(
   siteText: string,
   answerOf: Map<string, ProbeAnswer>,
   prospectDomain: string,
-  searchTermsByClaim: Map<string, string[]> = new Map(),
 ): Assertion[] {
   const answers = normalize(answerText);
   const site = normalize(siteText);
-  const flat = siteText.replace(/\s+/g, " ");
   const out: Assertion[] = [];
 
   for (const a of raw) {
     if (!answers.includes(normalize(a.engineQuote))) continue;
 
-    // Code may only take a verdict DOWN. This once set "confirmed" on a
-    // shared term, and on a real report it told a business its own site says it
-    // is a kind of business it is not: the matching terms were the model's
-    // evidence AGAINST the claim, and finding them on the site was read as the
-    // site agreeing. Only the model, with a quote that survives the checks
-    // below, makes a verdict "confirmed". See doubtingTerm for when a
-    // "contradicted" comes down to unverified instead.
-    let verdict: typeof a.verdict | "unverified" = a.verdict;
-    let siteQuote: string | null = a.siteQuote;
-    let downgradeReason: string | null = null;
-    if (a.verdict === "contradicted") {
-      const hit = doubtingTerm(
-        a.claim,
-        searchTermsByClaim.get(a.claim) ?? [],
-        a.siteQuote,
-        answerOf.get(normalize(a.engineQuote))?.query ?? "",
-        flat,
-      );
-      if (hit !== null) {
-        // No ellipses: they are not in the page and would fail the quote check.
-        verdict = "unverified";
-        siteQuote = flat.slice(Math.max(0, hit.at - 80), hit.at + hit.said.length + 80).trim();
-        // In the site's own spelling, not however the model typed the term.
-        downgradeReason = `Your site does say "${hit.said}", so we have not called this wrong.`;
-      }
-    }
+    // Code never changes the model's verdict; it only checks the quote below.
+    // It once set "confirmed" whenever the site used one of the claim's
+    // distinctive terms, and on a real report it told a business its own site
+    // says it is a kind of business it is not: the matching terms were the
+    // model's evidence AGAINST the claim, and finding them on the site was read
+    // as the site agreeing. A narrower rule that took "contradicted" down to
+    // unverified went through six review rounds, each finding a claim it
+    // excused wrongly, and was removed (the operator, 11-23).
+    const verdict = a.verdict;
+    const siteQuote: string | null = a.siteQuote;
 
     const from = answerOf.get(normalize(a.engineQuote));
     const sourceDomains = [
@@ -966,18 +881,13 @@ function verifyQuotes(
       // better position than being told we found nothing.
       siteQuote: quoteReal ? siteQuote : null,
       nearbyMention: null,
-      unverifiedReason:
-        downgradeReason && quoteReal
-          ? downgradeReason
-          : downgradeReason
-            ? "We could not find the passage this was based on, so we have not stated it either way."
-            : !unsupported
-              ? null
-              : !quoteReal
-                ? "We could not find the passage this was based on, so we have not stated it either way."
-                : verdict === "contradicted"
-                  ? "The passage we found does not show a different value for this, so we have not stated it either way."
-                  : "The passage we found is about the same subject but does not actually say this, so we have not stated it either way.",
+      unverifiedReason: !unsupported
+        ? null
+        : !quoteReal
+          ? "We could not find the passage this was based on, so we have not stated it either way."
+          : verdict === "contradicted"
+            ? "The passage we found does not show a different value for this, so we have not stated it either way."
+            : "The passage we found is about the same subject but does not actually say this, so we have not stated it either way.",
       sourceDomains,
       query: from?.query ?? "",
       engine: from?.engine ?? "",
@@ -1115,14 +1025,7 @@ export async function checkAccuracy(
 
   const siteText = fullSiteText(crawl);
   const answerText = branded.map((a) => a.fullAnswer ?? "").join("\n");
-  const verified = verifyQuotes(
-    parsed.assertions,
-    answerText,
-    siteText,
-    answerOf,
-    domainOf(url),
-    termsByClaim,
-  );
+  const verified = verifyQuotes(parsed.assertions, answerText, siteText, answerOf, domainOf(url));
 
   // Same rule as every quote: not in the answer, not trusted.
   const c = parsed.conflation;

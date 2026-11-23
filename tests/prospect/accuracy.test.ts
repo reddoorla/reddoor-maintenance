@@ -569,11 +569,15 @@ describe("quoteSupportsClaim — a related passage is not a supporting one", () 
   });
 });
 
-describe("a place the site itself names is never 'contradicted'", () => {
+const NO_SECOND_VALUE =
+  "The passage we found does not show a different value for this, so we have not stated it either way.";
+
+describe("a place the site itself names", () => {
   // The audited site listed a Texas mailing address on one page and "near the
   // Los Angeles metro" on another. The model called "Los Angeles-based"
-  // contradicted on the strength of the address alone. The site says both;
-  // the honest verdict quotes the site's own sentence.
+  // contradicted on the strength of the address alone. Code once overrode it
+  // on the site using "Los Angeles"; it no longer changes the model's verdict,
+  // so only the quote checks apply.
   const site = crawl([
     page(
       "https://acme.example/",
@@ -591,7 +595,7 @@ describe("a place the site itself names is never 'contradicted'", () => {
   });
   const offline = { fetchPage: async () => null };
 
-  it("downgrades contradicted to unverified, quoting the site, when the site uses the claim's own terms", async () => {
+  it("leaves the model's contradicted alone even when the site uses the claim's own terms", async () => {
     const r = await checkAccuracy("https://acme.example/", site, [answer], [], {
       run: async () => ({
         assertions: [
@@ -606,11 +610,13 @@ describe("a place the site itself names is never 'contradicted'", () => {
       }),
       ownership: offline,
     });
-    expect(r.assertions[0]).toMatchObject({
-      verdict: "unverified",
-      siteQuote: expect.stringContaining("Los Angeles"),
-      unverifiedReason: 'Your site does say "Los Angeles", so we have not called this wrong.',
-    });
+    const [a] = r.assertions;
+    expect(a?.verdict).not.toBe("confirmed");
+    expect(a?.siteQuote).toBe("HQ mailing address: 1 Main St, Fair Oaks Ranch, TX.");
+    // The model's verdict stands; only the quote check moves it: a
+    // contradiction must name the two values it rests on, and this one names
+    // none.
+    expect(a).toMatchObject({ verdict: "unverified", unverifiedReason: NO_SECOND_VALUE });
   });
 
   it("keeps contradicted when the site never uses the claim's terms", async () => {
@@ -630,27 +636,6 @@ describe("a place the site itself names is never 'contradicted'", () => {
     });
     expect(r.assertions[0]?.verdict).not.toBe("confirmed");
     expect(r.assertions[0]?.unverifiedReason ?? "").not.toMatch(/^Your site does say/);
-  });
-  it("downgrades on a term typed in lower case", async () => {
-    const r = await checkAccuracy("https://acme.example/", site, [answer], [], {
-      run: async () => ({
-        assertions: [
-          {
-            claim: "Acme Design is based in Los Angeles.",
-            engineQuote: "Acme Design (Los Angeles-based)",
-            verdict: "contradicted",
-            siteQuote: "HQ mailing address: 1 Main St, Fair Oaks Ranch, TX.",
-            searchTerms: ["los  angeles"],
-          },
-        ],
-      }),
-      ownership: offline,
-    });
-    expect(r.assertions[0]).toMatchObject({
-      verdict: "unverified",
-      siteQuote: expect.stringContaining("Los Angeles"),
-      unverifiedReason: 'Your site does say "Los Angeles", so we have not called this wrong.',
-    });
   });
 
   it("keeps a supported contradiction as contradicted, with no reason added", async () => {
@@ -677,6 +662,34 @@ describe("a place the site itself names is never 'contradicted'", () => {
       verdict: "contradicted",
       siteQuote: "HQ mailing address: 1 Main St, Fair Oaks Ranch, TX.",
       unverifiedReason: null,
+    });
+  });
+
+  it("holds a contradiction to two different values even when the site uses its search term", async () => {
+    const r = await checkAccuracy("https://acme.example/", site, [answer], [], {
+      run: async () => ({
+        assertions: [
+          {
+            claim: "Acme Design is located in the Portland metro area.",
+            engineQuote: "Acme Design (Los Angeles-based)",
+            verdict: "contradicted",
+            siteQuote: "We are conveniently located near the Los Angeles metro area.",
+            searchTerms: ["metro area"],
+            contradiction: {
+              attribute: "location",
+              engineValue: "Los Angeles",
+              siteValue: "Los Angeles metro area",
+            },
+          },
+        ],
+      }),
+      ownership: offline,
+    });
+    // The site's value holds the engine's, so the two do not differ: the
+    // search term on the site plays no part either way.
+    expect(r.assertions[0]).toMatchObject({
+      verdict: "unverified",
+      unverifiedReason: NO_SECOND_VALUE,
     });
   });
 });
@@ -717,6 +730,8 @@ describe("code never upgrades a verdict to 'confirmed'", () => {
   it.each([
     {
       why: "the term is the model's counter-evidence, not in the claim",
+      verdict: "unverified",
+      reason: NO_SECOND_VALUE,
       claim: "The business is a bakery known for sourdough bread.",
       engineQuote: "a bakery known for sourdough bread",
       searchTerms: ["fresh flowers"],
@@ -724,6 +739,8 @@ describe("code never upgrades a verdict to 'confirmed'", () => {
     },
     {
       why: "the claim denies the name the site uses",
+      verdict: "unverified",
+      reason: NO_SECOND_VALUE,
       claim: 'No business operates under the name "Rosewood Market".',
       engineQuote: 'I couldn\'t find a company called "Rosewood Market"',
       searchTerms: ["Rosewood Market"],
@@ -731,6 +748,8 @@ describe("code never upgrades a verdict to 'confirmed'", () => {
     },
     {
       why: "the term is only the business's own name",
+      verdict: "unverified",
+      reason: NO_SECOND_VALUE,
       claim: "Rosewood Market is a bakery known for sourdough bread.",
       engineQuote: "Rosewood Market is a bakery known for sourdough bread",
       searchTerms: ["Rosewood Market"],
@@ -738,17 +757,30 @@ describe("code never upgrades a verdict to 'confirmed'", () => {
     },
     {
       why: "the term carries only part of the place the claim asserts",
+      verdict: "unverified",
+      reason: NO_SECOND_VALUE,
       claim: "Rosewood Market is based in Lakeside, Oregon.",
       engineQuote: "based in Lakeside, Oregon",
       searchTerms: ["Oregon"],
       // Real on the site, and without the term, so only the place guard holds.
       siteQuote: "Find us in Riverside",
     },
-  ])("leaves the model's verdict alone when $why", async (a) => {
-    const [r] = await judge(a);
-    expect(r?.verdict).not.toBe("confirmed");
-    expect(r?.unverifiedReason ?? "").not.toMatch(/^Your site does say/);
-    expect(r?.siteQuote).toBe(a.siteQuote);
+    {
+      why: "the term is the claim's own opening words",
+      verdict: "unverified",
+      reason: NO_SECOND_VALUE,
+      claim: "The business is a bakery known for sourdough bread.",
+      engineQuote: "a bakery known for sourdough bread",
+      searchTerms: ["The business"],
+      siteQuote: "Our business is known for fresh flowers arranged daily for weddings and events.",
+    },
+  ] as const)("leaves the model's verdict alone when $why", async (c) => {
+    const { why: _why, verdict, reason, ...a } = c;
+    const [r] = await judge({ ...a, searchTerms: [...a.searchTerms] });
+    // Exactly what the quote checks give the model's "contradicted": none of
+    // these names its two values, so each is unverified, and none is ever
+    // confirmed.
+    expect(r).toMatchObject({ verdict, unverifiedReason: reason, siteQuote: a.siteQuote });
   });
 
   it("leaves it alone when the model's own quote already holds the term", async () => {
@@ -759,161 +791,6 @@ describe("code never upgrades a verdict to 'confirmed'", () => {
       siteQuote: "Find us in Riverside, Oregon.",
     });
     expect(r?.unverifiedReason ?? "").not.toMatch(/^Your site does say/);
-  });
-});
-
-describe("a downgrade needs the claim's own names, as words on the site", () => {
-  const offline = { fetchPage: async () => null };
-  const run = async (opts: {
-    siteText: string;
-    query: string;
-    fullAnswer: string;
-    claim: string;
-    engineQuote: string;
-    term: string;
-  }) =>
-    (
-      await checkAccuracy(
-        "https://rosewood.example/",
-        crawl([page("https://rosewood.example/", opts.siteText)]),
-        [branded({ query: opts.query, citedDomains: [], fullAnswer: opts.fullAnswer })],
-        [],
-        {
-          run: async () => ({
-            assertions: [
-              {
-                claim: opts.claim,
-                engineQuote: opts.engineQuote,
-                verdict: "contradicted",
-                siteQuote: null,
-                searchTerms: [opts.term],
-              },
-            ],
-          }),
-          ownership: offline,
-        },
-      )
-    ).assertions[0];
-
-  it("does not read another business that shares a word with ours as ours", async () => {
-    const r = await run({
-      siteText: "We sit beside the Lakeside Bakery on Main Street.",
-      query: "who is Rosewood Market",
-      fullAnswer: 'The business is called "Rosewood Bakery".',
-      claim: 'The business is called "Rosewood Bakery".',
-      engineQuote: 'The business is called "Rosewood Bakery".',
-      term: "Bakery",
-    });
-    expect(r?.unverifiedReason ?? "").not.toMatch(/^Your site does say/);
-  });
-
-  it("takes the name from a 'reviews' query too, and only as a whole", async () => {
-    const r = await run({
-      siteText: "Find us on Google any time.",
-      query: "Rosewood Market reviews",
-      fullAnswer: "Rosewood Market has 5-star Google Reviews.",
-      claim: "Rosewood Market has 5-star Google Reviews.",
-      engineQuote: "Rosewood Market has 5-star Google Reviews.",
-      term: "Google",
-    });
-    expect(r?.unverifiedReason ?? "").not.toMatch(/^Your site does say/);
-  });
-
-  it("does not strip part of a different business's name as if it were ours", async () => {
-    const r = await run({
-      siteText: "Stay near the Salem waterfront, all week.",
-      query: "who is Rosewood Market",
-      fullAnswer: "Rosewood Bakery is in Salem.",
-      claim: "Rosewood Bakery is in Salem.",
-      engineQuote: "Rosewood Bakery is in Salem.",
-      term: "Salem",
-    });
-    expect(r?.unverifiedReason ?? "").not.toMatch(/^Your site does say/);
-  });
-
-  it("knows our name from a 'reviews' query", async () => {
-    const r = await run({
-      siteText: "Stay near the Salem waterfront, all week.",
-      query: "Rosewood Market reviews",
-      fullAnswer: "Rosewood Market is based in Salem.",
-      claim: "Rosewood Market is based in Salem.",
-      engineQuote: "Rosewood Market is based in Salem.",
-      term: "Salem",
-    });
-    expect(r?.unverifiedReason).toBe(
-      'Your site does say "Salem", so we have not called this wrong.',
-    );
-  });
-
-  it("does not find a name inside another word", async () => {
-    const r = await run({
-      siteText: "Seasonal Jerusalem artichoke bouquets, all week.",
-      query: "who is Rosewood Market",
-      fullAnswer: "Rosewood Market is based in Salem.",
-      claim: "Rosewood Market is based in Salem.",
-      engineQuote: "Rosewood Market is based in Salem.",
-      term: "Salem",
-    });
-    expect(r?.unverifiedReason ?? "").not.toMatch(/^Your site does say/);
-  });
-
-  it("downgrades when the claim's only other name is the term, quoting the site's own text", async () => {
-    const r = await run({
-      siteText: "\u0130\u0130\u0130\u0130 Stay near the Salem waterfront, all week.",
-      query: "who is Rosewood Market",
-      fullAnswer: "Rosewood Market is based in Salem.",
-      claim: "Rosewood Market is based in Salem.",
-      engineQuote: "Rosewood Market is based in Salem.",
-      term: "salem",
-    });
-    expect(r).toMatchObject({
-      verdict: "unverified",
-      siteQuote: expect.stringContaining("Salem waterfront"),
-      unverifiedReason: 'Your site does say "Salem", so we have not called this wrong.',
-    });
-  });
-});
-
-describe("a negated claim is never downgraded on the site using its term", () => {
-  const site = crawl([
-    page("https://acme.example/", "HQ mailing address: 1 Main St, Fair Oaks Ranch, TX."),
-    page("https://acme.example/about", "We are near the Los Angeles metro area."),
-  ]);
-  const answer = branded({
-    query: "who is Acme Design",
-    citedDomains: [],
-    fullAnswer: "Acme Design (Los Angeles-based) is a studio.",
-  });
-  it.each([
-    "Acme Design is not in Los Angeles.",
-    "Acme Design isn\u2019t in Los Angeles.",
-    "Acme Design isn't in Los Angeles.",
-    "Acme Design cannot be found in Los Angeles.",
-    "Acme Design has never been in Los Angeles.",
-    "Acme Design has no office in Los Angeles.",
-    "None of Acme Design's staff are in Los Angeles.",
-    "Nobody at Acme Design works in Los Angeles.",
-    "Nothing ties Acme Design to Los Angeles.",
-    "Acme Design operates without a Los Angeles office.",
-    "Acme Design is neither in Los Angeles nor nearby.",
-    "Acme Design is in Los Angeles nor nearby.",
-  ])("%s", async (claim) => {
-    const r = await checkAccuracy("https://acme.example/", site, [answer], [], {
-      run: async () => ({
-        assertions: [
-          {
-            claim,
-            engineQuote: "Acme Design (Los Angeles-based)",
-            verdict: "contradicted",
-            // Without the term, so only the negation guard holds.
-            siteQuote: "HQ mailing address: 1 Main St, Fair Oaks Ranch, TX.",
-            searchTerms: ["Los Angeles"],
-          },
-        ],
-      }),
-      ownership: { fetchPage: async () => null },
-    });
-    expect(r.assertions[0]?.unverifiedReason ?? "").not.toMatch(/^Your site does say/);
   });
 });
 
