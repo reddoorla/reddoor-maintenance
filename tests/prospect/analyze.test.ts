@@ -646,10 +646,75 @@ describe("checkAbsence — a `no` is checked against everything we crawled", () 
       })
     ).buyerQuestions.find((q) => q.id === id)!;
 
-  it("makes a `no` unknown when the question's words are on a crawled page, and names them", async () => {
-    const q = await askNo(withPages(["Welcome.", "Our pricing starts with a free call."]));
+  it("makes a `no` unknown when the question's words are on a crawled page the model did not read, and names them", async () => {
+    // W3 review round 1: only text past what the model was shown can overturn
+    // its `no`, so the term sits past the 1,500 characters of page q1 that
+    // were sent. The assertion is the one it always was.
+    const after = `${"Filler sentence. ".repeat(120)}Our pricing starts with a free call.`;
+    const q = await askNo(withPages(["Welcome.", after]));
     expect(q.answered).toBe("unknown");
     expect(q.notFound).toEqual({ term: "pricing", page: "https://acme.example/q1" });
+  });
+
+  it("leaves a `no` standing when the term is inside the text the model read (W3 review round 1)", async () => {
+    const q = await askNo(withPages(["Welcome.", "Our pricing starts with a free call."]));
+    expect(q.answered).toBe("no");
+    expect(q.notFound).toBeUndefined();
+  });
+
+  it("leaves a `no` standing when only footer boilerplate matches (W3 review round 1)", async () => {
+    // Words that every footer and form carries, past the window the model read.
+    // None is a phrase the question's answer would use, so none may flip it.
+    const footer = `${"Filler sentence. ".repeat(120)}Terms apply. Our address is listed. Reviews from our staff and owner. Cash welcome. Open hours on the sign. Free quote form. We'll get back to you.`;
+    const q = await askNo(withPages([footer]), "where");
+    expect(q.answered).toBe("no");
+    expect(q.notFound).toBeUndefined();
+    const who = await askNo(withPages([footer]), "who-does-it");
+    expect(who.answered).toBe("no");
+  });
+
+  it("a chosen question needs two different words to flip a `no` (W3 review round 1)", async () => {
+    // "Do you assemble your trellises in-house?" has the words assemble, trellises, house.
+    const chosenNo = (c: CrawlResult) =>
+      analyzeSite(
+        "https://acme.example/",
+        c,
+        runChecks(c),
+        {
+          run: async () => ({
+            ...validOutput,
+            buyerQuestions: validOutput.buyerQuestions.map((q, i) =>
+              i === 0
+                ? { ...q, id: "chosen-1", answered: "no" as const, page: null, evidence: null }
+                : q,
+            ),
+          }),
+        },
+        "unknown",
+        null,
+        { questions: ["Do you assemble your trellises in-house?"] },
+      );
+    const after = (text: string) => `${"Filler sentence. ".repeat(120)}${text}`;
+
+    const one = await chosenNo(withPages(["Welcome.", after("Tenant house rules apply.")]));
+    const oneQ = one.buyerQuestions.find((q) => q.id === "chosen-1")!;
+    expect(oneQ.answered).toBe("no");
+    expect(oneQ.notFound).toBeUndefined();
+
+    const two = await chosenNo(withPages(["Welcome.", after("We assemble trellises here.")]));
+    const twoQ = two.buyerQuestions.find((q) => q.id === "chosen-1")!;
+    expect(twoQ.answered).toBe("unknown");
+    expect(twoQ.notFound?.page).toBe("https://acme.example/q1");
+  });
+
+  it("flips a `no` on a page the model was never sent (W3 review round 1)", async () => {
+    // Twelve pages go to the model; the thirteenth is not sent, so its text is
+    // unseen and may overturn the `no`.
+    const pages = Array.from({ length: 12 }, () => "Welcome.");
+    pages.push("Our fees are listed below.");
+    const q = await askNo(withPages(pages));
+    expect(q.answered).toBe("unknown");
+    expect(q.notFound).toEqual({ term: "fees", page: "https://acme.example/q12" });
   });
 
   it("leaves a `no` standing when none of the words is anywhere we read", async () => {

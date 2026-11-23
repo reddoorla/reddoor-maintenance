@@ -1,5 +1,5 @@
 import type { ChecksResult, CrawlResult, JourneyMap, PageCapture, PageExtract } from "./types.js";
-import { isContactLike, toSameOrigin } from "./crawl.js";
+import { isContactLike, isDatedOrPaginated, isFetchableCandidate, toSameOrigin } from "./crawl.js";
 
 /**
  * Can a visitor do the one thing this site needs them to do?
@@ -520,11 +520,12 @@ function priceSignal(text: string): string | null {
 }
 
 /** The address of a page, for "did we read it?": no fragment, no trailing
- *  slash, the query kept. */
+ *  slash, and no query. A link to `/contact?service=x` is the contact page we
+ *  read when `/contact` was read; the query selects content on it, it does not
+ *  make it another page to be unread. */
 function pageKey(url: string): string {
   const u = new URL(url);
-  u.hash = "";
-  return `${u.origin}${u.pathname.replace(/\/+$/, "") || "/"}${u.search}`;
+  return `${u.origin}${u.pathname.replace(/\/+$/, "") || "/"}`;
 }
 
 /**
@@ -547,17 +548,24 @@ function contactPageUnread(crawl: CrawlResult): string | null {
       // A stored URL that does not parse cannot be compared; skip it.
     }
   }
-  for (const p of crawl.pages) {
-    for (const a of extractOf(p)?.anchors ?? []) {
-      let onSite: string | null;
-      try {
-        onSite = toSameOrigin(new URL(a.href, p.url).toString(), crawl.origin);
-      } catch {
-        continue;
-      }
-      if (onSite === null || !isContactLike(onSite, a.text)) continue;
-      if (!read.has(pageKey(onSite))) return onSite;
+  // Only the links a visitor is shown first, which are the home page's own (its
+  // menu included). A link deep in a post is not what the site asks us to read,
+  // and counting it made "unread" a claim about the whole site.
+  const home = crawl.pages[0];
+  const anchors = home ? (extractOf(home)?.anchors ?? []) : [];
+  for (const a of anchors) {
+    let onSite: string | null;
+    try {
+      onSite = toSameOrigin(new URL(a.href, home!.url).toString(), crawl.origin);
+    } catch {
+      continue;
     }
+    if (onSite === null || !isContactLike(onSite, a.text)) continue;
+    // A link the crawl can never read is not a page we failed to read: a PDF, a
+    // robots-disallowed path, infrastructure, a dated post or a blog entry.
+    if (!isFetchableCandidate(onSite, crawl.robotsTxt)) continue;
+    if (isDatedOrPaginated(onSite) || new URL(onSite).pathname.startsWith("/blog/")) continue;
+    if (!read.has(pageKey(onSite))) return onSite;
   }
   return null;
 }

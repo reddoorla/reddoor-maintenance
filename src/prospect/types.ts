@@ -314,6 +314,11 @@ export type CrawlResult = {
      *  (older reports dropped them, uncounted); the mismatch is a finding. */
     sitemapOffOrigin: number;
     sitemapOffOriginExample: string | null;
+    /** Listed URLs on another scheme or `www.` host where nothing says which one
+     *  the site answers on (the entry we read was http, say, and the sitemap is
+     *  https). Not counted as a fault; the check that reads them is unmeasured.
+     *  Absent on reports stored before it existed. */
+    sitemapAmbiguousOrigin?: number;
   };
   llmsTxt: { present: boolean; firstLine: string | null };
   /** Per sidecar, the error that stopped us fetching it, or null. A fetch that

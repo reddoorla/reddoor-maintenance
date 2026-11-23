@@ -292,6 +292,18 @@ describe("the Tier 4 abort harness, against a real browser", () => {
     await page.close();
   }, 90_000);
 
+  it("says it could not try, not that there is no form, when the classifier's forms do not line up", async () => {
+    // W3 review round 1: the classifier read two forms, the page has one. Pressing
+    // nothing is then our gap (absent, unmeasured), never a `null` that reads as
+    // "this page has no enquiry form".
+    const page = await browser.newPage();
+    const url = `${base}newsletter-only`;
+    await page.goto(url, { waitUntil: "load" });
+    const probe = await probeForms(pageInteractionDeps(page, url, [true, false]));
+    expect(probe).toBeUndefined();
+    await page.close();
+  }, 90_000);
+
   it("puts the page back: the marker is gone and navigation works again", async () => {
     // An interceptor left armed aborts every navigation for the rest of the
     // crawl — silently emptying the remaining pages, which is worse than the

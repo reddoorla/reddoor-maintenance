@@ -770,3 +770,65 @@ describe("qualifying-form waits for the contact page", () => {
     expect(status(checkGoal("enquire", "inferred", home, null), "qualifying-form")).toBe("missing");
   });
 });
+
+describe("qualifying-form — which unread contact links count (W3 review round 1)", () => {
+  const link = (href: string, text: string): PageAnchor => ({ href, text, rel: "" });
+  const newsletter = [
+    {
+      kind: "subscribe" as const,
+      action: null,
+      method: "post",
+      fieldCount: 1,
+      hasContactField: true,
+      hasSubmit: true,
+    },
+  ];
+  /** The home page and one read page at `url`, which holds no form of its own. */
+  const withReadPage = (anchors: PageAnchor[], url: string): CrawlResult => {
+    const c = crawl("", anchors, newsletter);
+    c.pages.push({
+      url,
+      status: 200,
+      raw: extract({ text: "Call us.", forms: newsletter }),
+      rendered: null,
+      error: null,
+    });
+    return c;
+  };
+
+  it("reads a query-string link as the page it points at, when that page was read", () => {
+    const c = withReadPage([link("/contact?service=x", "CONTACT")], "https://example.com/contact");
+    expect(status(checkGoal("enquire", "inferred", c, null), "qualifying-form")).toBe("missing");
+  });
+
+  it("does not count a PDF, however contact-like its words", () => {
+    const c = crawl("", [link("/enquiry-form.pdf", "Contact")], newsletter);
+    expect(status(checkGoal("enquire", "inferred", c, null), "qualifying-form")).toBe("missing");
+  });
+
+  it("does not count a blog entry or a dated post as a contact page we failed to read", () => {
+    const blog = crawl("", [link("/blog/contact-tips", "Contact")], newsletter);
+    expect(status(checkGoal("enquire", "inferred", blog, null), "qualifying-form")).toBe("missing");
+    const dated = crawl("", [link("/2019/contact", "Contact")], newsletter);
+    expect(status(checkGoal("enquire", "inferred", dated, null), "qualifying-form")).toBe(
+      "missing",
+    );
+  });
+
+  it("counts only the home page's links, not a contact link deep in a page we read", () => {
+    const c = withReadPage([link("/contact", "CONTACT")], "https://example.com/deep/post");
+    // The link sits on the read page, not the home page.
+    c.pages[0]!.raw = extract({ text: "", anchors: [], forms: newsletter });
+    c.pages[1]!.raw = extract({
+      text: "Call us.",
+      anchors: [link("/contact", "CONTACT")],
+      forms: newsletter,
+    });
+    expect(status(checkGoal("enquire", "inferred", c, null), "qualifying-form")).toBe("missing");
+  });
+
+  it("still reports unmeasured for a home-page contact link that was never read", () => {
+    const c = crawl("", [link("/contact", "CONTACT")], newsletter);
+    expect(status(checkGoal("enquire", "inferred", c, null), "qualifying-form")).toBe("unmeasured");
+  });
+});

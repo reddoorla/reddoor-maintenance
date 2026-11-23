@@ -386,6 +386,17 @@ export class ResponseTooLargeError extends Error {
  *  with the same `pacedEach`) doesn't need its own identical copy. */
 export const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
+/** Returns a gate that waits `delayMs` before every call but the first. Used for
+ *  the sitemap requests, which are made at the same stranger's server as the
+ *  pages and were fired back to back until now. */
+function pacer(delayMs: number): () => Promise<void> {
+  let first = true;
+  return async () => {
+    if (!first && delayMs > 0) await sleep(delayMs);
+    first = false;
+  };
+}
+
 /** How many sitemap URLs are carried forward for probing. Ten times the number
  *  Tier 2 samples, so the sample is drawn from a spread of the sitemap rather
  *  than its first twelve entries — which on most CMSes are the newest posts. */
@@ -432,9 +443,18 @@ type SidecarFetch = { res: FetchResponse | null; error: string | null };
  *  unrestricted when we simply never looked. A `ResponseTooLargeError` is
  *  neither: we DO know the file exists, we simply decline to read all of it —
  *  so it reads as absent, exactly like a 404, rather than as a sidecar error. */
-async function optional(deps: CrawlDeps, url: string): Promise<SidecarFetch> {
+async function optional(
+  deps: CrawlDeps,
+  url: string,
+  serverErrorIsError = false,
+): Promise<SidecarFetch> {
   try {
     const res = await deps.fetchUrl(url);
+    // A 5xx from an address the owner named is a server that did not answer, not
+    // a file that is absent: `serverErrorIsError` says so for those addresses.
+    if (serverErrorIsError && res.status >= 500) {
+      return { res: null, error: `HTTP ${res.status}` };
+    }
     return res.status >= 400 ? { res: null, error: null } : { res, error: null };
   } catch (err) {
     if (err instanceof ResponseTooLargeError) return { res: null, error: null };
@@ -511,22 +531,48 @@ export function toSameOrigin(raw: string, origin: string): string | null {
     return null;
   }
   if (u.protocol !== "http:" && u.protocol !== "https:") return null;
-  if (u.port !== "" || bareHost(u.hostname) !== bareHost(o.hostname)) return null;
+  if (bareHost(u.hostname) !== bareHost(o.hostname)) return null;
+  // Already this origin, port and all. A site on a non-default port is its own
+  // origin, and refusing every explicit port crawled 0 pages of it.
   if (u.origin === o.origin) return u.toString();
-  u.protocol = o.protocol;
+  // Moved onto our origin only when the ports agree: `:8443` against the default
+  // port is a different server, not a spelling of this one.
+  if (u.port !== o.port) return null;
   u.hostname = o.hostname;
-  u.port = o.port;
+  // Never downgraded: an https address on an http origin keeps its https scheme,
+  // so the crawl never asks for plain http when the sitemap says https.
+  if (!(u.protocol === "https:" && o.protocol === "http:")) u.protocol = o.protocol;
   return u.toString();
 }
 
-/** True when `raw` is on this site but written on another scheme or the other
- *  side of `www.`: the sitemap mismatch recorded as a finding of its own. */
-function isOffOriginSameSite(raw: string, origin: string): boolean {
+/** How a sitemap's address compares with the origin the crawl read.
+ *  `off`: a fault we can name (listed on http for an https site, or on the host
+ *  the entry redirected away from). `unsettled`: another scheme or www. host
+ *  with nothing to say which one the site answers on, so the check cannot be
+ *  measured. `null`: the same address, or not this site at all. */
+export type SitemapAddressVerdict = "off" | "unsettled" | null;
+
+/** Classifies one listed address. `redirectedFrom` is the host the entry URL
+ *  was requested on when the homepage redirected away from it, else null. */
+export function sitemapAddressVerdict(
+  raw: string,
+  origin: string,
+  redirectedFrom: string | null,
+): SitemapAddressVerdict {
+  let u: URL;
+  let o: URL;
   try {
-    return new URL(raw).origin !== origin && toSameOrigin(raw, origin) !== null;
+    u = new URL(raw);
+    o = new URL(origin);
   } catch {
-    return false;
+    return null;
   }
+  if (toSameOrigin(raw, origin) === null || u.origin === o.origin) return null;
+  if (u.protocol === "http:" && o.protocol === "https:") return "off";
+  if (redirectedFrom !== null && u.hostname.toLowerCase() === redirectedFrom.toLowerCase()) {
+    return "off";
+  }
+  return "unsettled";
 }
 
 /** Path words that mean "this is how you reach them", matched against whole
@@ -549,10 +595,40 @@ const CONTACT_PATH_WORDS = new Set([
   "appointments",
 ]);
 
-/** Link text that means the same. Short text only: a paragraph that happens to
- *  be a link and mentions "contact" is not a contact link. */
-const CONTACT_TEXT =
-  /\b(contact|quote|demo|book|booking|get started|let['’]?s talk|talk to us|enquir\w*|inquir\w*|schedule|consultation|appointment)\b/i;
+/** The words that make a path segment a booking page on their own only at the
+ *  top of the site: `/book` and `/schedule`, but not `/events/schedule` (an
+ *  events calendar) or `/book/my-novel` (a title). */
+const BOOKING_PATH_WORDS = new Set(["book", "schedule"]);
+
+/** What may follow a contact word and still make a segment a contact page:
+ *  `contact-us`, `book-now`, `schedule-a-call`. */
+const CONTACT_QUALIFIERS = new Set(["us", "now", "online", "a"]);
+
+/**
+ * Is one hyphen-separated path segment a contact page? A segment counts when it
+ * is a contact word on its own, starts with one and is qualified (`contact-us`),
+ * or ends with one (`request-demo`, `get-a-quote`). A contact word in the middle
+ * of a title does not (`demo-reel`, `how-to-book-a-trip`), and `book` or
+ * `schedule` count only at the top of the site.
+ */
+function isContactSegment(words: string[], topLevel: boolean): boolean {
+  const [first, second] = words;
+  if (first === undefined) return false;
+  const last = words[words.length - 1] ?? first;
+  if (BOOKING_PATH_WORDS.has(first) && !topLevel) return false;
+  if (words.length === 1) return CONTACT_PATH_WORDS.has(first);
+  if (CONTACT_PATH_WORDS.has(first) && second !== undefined && CONTACT_QUALIFIERS.has(second)) {
+    return true;
+  }
+  return CONTACT_PATH_WORDS.has(last) && !BOOKING_PATH_WORDS.has(last);
+}
+
+/** Link text that means the same, as a whole short label: a verb phrase that
+ *  asks for contact, not a noun that happens to contain the word. "Book review"
+ *  and "View schedule" are not contact links; "Book a demo" and "Get a free
+ *  quote" are. */
+const CONTACT_LABEL =
+  /^(?:contact(?: us)?|talk to us|let['’]?s talk|get started|enquire|inquire|schedule|(?:get|request) (?:a |an |your |my |free )*(?:quote|estimate|consultation|demo|appointment|call|started)|book(?: (?:a|an|your|my|now|online|the|free))*(?: (?:demo|call|appointment|consultation|visit|session|meeting|table|quote|estimate))?|schedule (?:a|an|your|my|now|online)(?: (?:call|demo|consultation|appointment|visit|meeting|session))?|make (?:an? )?(?:enquiry|inquiry|appointment|booking))(?: (?:today|now|online|here))?$/i;
 
 /**
  * Does this link lead to the way a visitor gets in touch: contact, quote, demo,
@@ -570,13 +646,14 @@ export function isContactLike(href: string, text = ""): boolean {
   } catch {
     return false;
   }
-  for (const segment of path.split("/").filter(Boolean)) {
+  const segments = path.split("/").filter(Boolean);
+  for (const [i, segment] of segments.entries()) {
     const words = segment.replace(/\.[a-z0-9]+$/, "").split(/[-_]+/);
-    if (words.some((w) => CONTACT_PATH_WORDS.has(w))) return true;
+    if (isContactSegment(words, segments.length === 1 && i === 0)) return true;
     if (words.join(" ").includes("get started")) return true;
   }
   const label = text.replace(/\s+/g, " ").trim();
-  return label.length > 0 && label.length <= 40 && CONTACT_TEXT.test(label);
+  return label.length > 0 && label.length <= 40 && CONTACT_LABEL.test(label);
 }
 
 /** A dated post (`/2019/04/…`, `/2019/…`), a page of a paginated list
@@ -585,7 +662,7 @@ export function isContactLike(href: string, text = ""): boolean {
  *  pages, and these are what a CMS sitemap lists first. The archives were
  *  found by the replay over stored rows: with posts ranked last, four of one
  *  site's 20 seats went to `/category/` and `/tag/` lists. */
-function isDatedOrPaginated(raw: string): boolean {
+export function isDatedOrPaginated(raw: string): boolean {
   let u: URL;
   try {
     u = new URL(raw);
@@ -593,9 +670,11 @@ function isDatedOrPaginated(raw: string): boolean {
     return false;
   }
   const path = u.pathname.toLowerCase();
-  if (/\/(19|20)\d{2}\/[^/]+/.test(path)) return true;
+  // A year anywhere in the path, as a whole segment: `/2019/`, `/2019/04/x/`.
+  if (/\/(19|20)\d{2}(\/|$)/.test(path)) return true;
   if (/\/page\/\d+\/?$/.test(path)) return true;
-  if (/^\/(tag|tags|category|categories|author)\//.test(path)) return true;
+  // An archive listing wherever it sits: `/tag/x/`, `/blog/tag/x/`.
+  if (/\/(tag|tags|category|categories|author)\//.test(path)) return true;
   return /[?&](page|paged|p)=\d+/i.test(u.search);
 }
 
@@ -603,7 +682,12 @@ function isDatedOrPaginated(raw: string): boolean {
  *  `post-sitemap.xml`, WordPress core's `wp-sitemap-posts-post-1.xml`, and the
  *  blog and news equivalents. Yoast lists it BEFORE `page-sitemap.xml`, which
  *  is how one stored crawl came to be the home page, `/blog/` and 18 posts
- *  whose own paths carry no date. */
+ *  whose own paths carry no date.
+ *
+ *  WordPress core names every sitemap `wp-sitemap-<type>-<n>.xml`, and the type
+ *  is `posts-post` for posts, `posts-page` for pages and `posts-product` for a
+ *  shop's products. Only the first is posts; the word `posts` in the other two
+ *  is the name of a type of record, not of a blog. */
 export function isPostSitemap(url: string): boolean {
   let file: string;
   try {
@@ -611,6 +695,8 @@ export function isPostSitemap(url: string): boolean {
   } catch {
     return false;
   }
+  const core = /^wp-sitemap-(.+)-\d+\.xml$/.exec(file);
+  if (core) return core[1] === "posts-post";
   return /(^|[-_])(post|posts|blog|news|article|articles|press)([-_.]|$)/.test(file);
 }
 
@@ -621,6 +707,7 @@ function anchorHrefs(
   baseUrl: string,
   selector: string | null,
   keep: (href: string, text: string) => boolean,
+  skipRoot: (root: HTMLElement) => boolean = () => false,
 ): string[] {
   const site = new URL(baseUrl);
   const doc = parse(html);
@@ -637,6 +724,7 @@ function anchorHrefs(
   const out: string[] = [];
   const seen = new Set<string>();
   for (const root of roots) {
+    if (skipRoot(root)) continue;
     for (const a of root.querySelectorAll("a")) {
       const href = a.getAttribute("href");
       if (!href) continue;
@@ -662,7 +750,16 @@ function anchorHrefs(
 /** Same-origin links inside the home page's `<header>` and `<nav>`: the menu,
  *  which is the owner's own list of what matters. */
 export function navLinks(html: string, baseUrl: string): string[] {
-  return anchorHrefs(html, baseUrl, "header, nav", () => true);
+  // A footer's own `<nav>` is a list of legal pages and sitemaps, not the menu a
+  // visitor is shown first, and it came ahead of the contact links on one stored
+  // site. Skipped by walking up from the region to any enclosing footer.
+  const inFooter = (root: HTMLElement): boolean => {
+    for (let node: HTMLElement | null = root; node; node = node.parentNode) {
+      if (node.tagName === "FOOTER") return true;
+    }
+    return false;
+  };
+  return anchorHrefs(html, baseUrl, "header, nav", () => true, inFooter);
 }
 
 /** Same-origin links anywhere on the page whose path or words say "contact". */
@@ -724,6 +821,29 @@ export function rankCandidates(input: {
  *
  * Exported for the offline replay of page selection over stored rows.
  */
+/**
+ * Could the crawl ever read this URL as a page? The same three refusals the
+ * page budget applies, exported so anything that counts links a visitor could
+ * follow (goals.ts) refuses the same ones: a PDF, a piece of CMS infrastructure,
+ * or a path the site's own robots.txt disallows is a link we can never read.
+ */
+export function isFetchableCandidate(url: string, robotsTxt: string | null): boolean {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return false;
+  }
+  if (ASSET_EXT.test(u.pathname)) return false;
+  // Infrastructure a crawler can follow but a visitor never lands on — see
+  // pages.ts. Following them costs a page of the budget and then invites a
+  // finding about a URL the prospect never chose to publish.
+  if (isInfraPath(u.toString())) return false;
+  // The site's own Disallow, obeyed. Not the AI-crawler matrix — that reports
+  // what OTHER crawlers may do. This is us.
+  return robotsAllowsUs(robotsTxt, u.toString(), USER_AGENT);
+}
+
 export function normalizeCandidates(
   urls: string[],
   origin: string,
@@ -741,15 +861,8 @@ export function normalizeCandidates(
     // landed on, so every page is fetched from one address.
     const onOrigin = toSameOrigin(raw, origin);
     if (onOrigin === null) continue;
+    if (!isFetchableCandidate(onOrigin, robotsTxt)) continue;
     const u = new URL(onOrigin);
-    if (ASSET_EXT.test(u.pathname)) continue;
-    // Infrastructure a crawler can follow but a visitor never lands on — see
-    // pages.ts. Following them costs a page of the budget and then invites a
-    // finding about a URL the prospect never chose to publish.
-    if (isInfraPath(u.toString())) continue;
-    // The site's own Disallow, obeyed. Not the AI-crawler matrix — that reports
-    // what OTHER crawlers may do. This is us.
-    if (!robotsAllowsUs(robotsTxt, u.toString(), USER_AGENT)) continue;
     u.hash = "";
     const key = samePageKey(u);
     if (seen.has(key)) continue;
@@ -776,11 +889,20 @@ type Sidecars = {
   sitemapTruncated: boolean;
   /** The address the sitemap was read from, or null when none was found. */
   sitemapSource: string | null;
-  /** How many listed URLs were written on another scheme or `www.` host. */
+  /** How many listed URLs are a fault we can name (see `sitemapAddressVerdict`). */
   sitemapOffOrigin: number;
   sitemapOffOriginExample: string | null;
+  /** How many listed URLs are on another scheme or `www.` host with no way to
+   *  tell which one the site answers on. */
+  sitemapAmbiguousOrigin: number;
   sidecarErrors: { robots: string | null; llms: string | null; sitemap: string | null };
 };
+
+/** How many `Sitemap:` lines in robots.txt we follow. An owner names one or two;
+ *  a file naming hundreds (one held 500) was 503 requests from one crawl, all
+ *  unpaced, against a stranger's server. Each named address is still checked
+ *  for being this site before it counts toward the cap. */
+export const MAX_ROBOTS_SITEMAPS = 5;
 
 /** Kept as a function so the field is written from one place, and so a future
  *  sidecar shape that cannot answer the question returns `true` rather than
@@ -793,7 +915,11 @@ function sitemapTruncatedOf(s: Sidecars): boolean {
  *  failing the crawl, but a transport failure must stay visible in the result
  *  (see `optional`/`optionalRobots` above) rather than reading as "file
  *  absent". */
-async function fetchSidecars(origin: string, deps: CrawlDeps): Promise<Sidecars> {
+async function fetchSidecars(
+  origin: string,
+  deps: CrawlDeps,
+  redirectedFrom: string | null,
+): Promise<Sidecars> {
   const robots = await optionalRobots(deps, `${origin}/robots.txt`);
   const robotsTxt = textSidecar(robots.res);
   const agentAccess = evaluateAgentAccess(
@@ -819,22 +945,33 @@ async function fetchSidecars(origin: string, deps: CrawlDeps): Promise<Sidecars>
   // `/sitemap.php`, or whose WordPress serves only `/wp-sitemap.xml`, was told
   // it has no sitemap. Each candidate must be this site (give or take `www.`
   // and the scheme) and is fetched at this origin, like every other URL here.
+  // The owner's own addresses come first and are capped: `MAX_ROBOTS_SITEMAPS`,
+  // gzipped ones skipped (this parser reads text, so a `.gz` is never a sitemap
+  // it can use). The three CMS defaults follow.
   const candidates: string[] = [];
   for (const line of (robotsTxt ?? "").split(/\r?\n/)) {
+    if (candidates.length >= MAX_ROBOTS_SITEMAPS) break;
     const m = /^\s*sitemap\s*:\s*(\S+)/i.exec(line);
-    const at = m?.[1] ? toSameOrigin(m[1], origin) : null;
+    if (!m?.[1] || /\.gz(?:[?#]|$)/i.test(m[1])) continue;
+    const at = toSameOrigin(m[1], origin);
     if (at !== null && !candidates.includes(at)) candidates.push(at);
   }
+  const namedCount = candidates.length;
   for (const path of ["/sitemap.xml", "/sitemap_index.xml", "/wp-sitemap.xml"]) {
     const at = `${origin}${path}`;
     if (!candidates.includes(at)) candidates.push(at);
   }
+  // Every request at a stranger's server waits `delayMs` after the first, as the
+  // page fetches do.
+  const pace = pacer(deps.delayMs);
   let sitemap: SidecarFetch = { res: null, error: null };
   let sitemapSource: string | null = null;
   let firstError: string | null = null;
-  for (const at of candidates) {
+  for (const [i, at] of candidates.entries()) {
     if (!isSafeNestedSitemap(at, origin)) continue;
-    const tried = await optional(deps, at);
+    await pace();
+    // An address the owner named that answers 5xx is a sitemap we did not read.
+    const tried = await optional(deps, at, i < namedCount);
     if (tried.error !== null && firstError === null) firstError = tried.error;
     if (tried.res && /<(?:[\w-]+:)?(urlset|sitemapindex)[\s>]/i.test(tried.res.body)) {
       sitemap = tried;
@@ -875,6 +1012,7 @@ async function fetchSidecars(origin: string, deps: CrawlDeps): Promise<Sidecars>
       const children = safe.slice(0, MAX_SITEMAP_CHILDREN);
       sitemapTruncated = safe.length > children.length;
       for (const child of children) {
+        await pace();
         const nested = await optional(deps, child);
         // A child we could not fetch is a piece of their sitemap we did not
         // read, and the count that comes out is short by however much it held.
@@ -895,10 +1033,14 @@ async function fetchSidecars(origin: string, deps: CrawlDeps): Promise<Sidecars>
   // addresses for an https:// site" is a finding in its own right.
   let sitemapOffOrigin = 0;
   let sitemapOffOriginExample: string | null = null;
+  let sitemapAmbiguousOrigin = 0;
   const sitemapUrls = listed.map((loc) => {
-    if (isOffOriginSameSite(loc, origin)) {
+    const verdict = sitemapAddressVerdict(loc, origin, redirectedFrom);
+    if (verdict === "off") {
       sitemapOffOrigin += 1;
       sitemapOffOriginExample ??= loc;
+    } else if (verdict === "unsettled") {
+      sitemapAmbiguousOrigin += 1;
     }
     return toSameOrigin(loc, origin) ?? loc;
   });
@@ -914,6 +1056,7 @@ async function fetchSidecars(origin: string, deps: CrawlDeps): Promise<Sidecars>
     sitemapSource,
     sitemapOffOrigin,
     sitemapOffOriginExample,
+    sitemapAmbiguousOrigin,
     sidecarErrors: { robots: robots.error, llms: llms.error, sitemap: sitemap.error },
   };
 }
@@ -993,8 +1136,11 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
   }
   const resolvedUrl = resolved.toString();
   const origin = resolved.origin;
+  // The host the entry was requested on, when the homepage redirected away from
+  // it: a sitemap still listing that host is a fault we can name.
+  const redirectedFrom = start.hostname !== resolved.hostname ? start.hostname : null;
 
-  const sidecars = await fetchSidecars(origin, deps);
+  const sidecars = await fetchSidecars(origin, deps, redirectedFrom);
 
   const { chosen: pageUrls, considered: pagesConsidered } = normalizeCandidates(
     rankCandidates({
@@ -1092,6 +1238,7 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
       sitemapSource: sidecars.sitemapSource,
       sitemapOffOrigin: sidecars.sitemapOffOrigin,
       sitemapOffOriginExample: sidecars.sitemapOffOriginExample,
+      sitemapAmbiguousOrigin: sidecars.sitemapAmbiguousOrigin,
     },
     llmsTxt: sidecars.llmsTxt,
     sidecarErrors: sidecars.sidecarErrors,
@@ -1509,15 +1656,28 @@ export function defaultCrawlDeps(
             if (!pressForms) {
               out.set(url, { html, axe, vitals });
             } else {
-              let formProbe: FormProbe | null = null;
+              // Three answers, and each must stay distinct: a FormProbe (pressed),
+              // null (tried, no enquiry form on this page) and absent (we could not
+              // try: the probe ran out of time, or the forms did not line up with
+              // the classifier's). Absent reads as "not measured"; null reads as a
+              // fact about the site. So a timeout or mismatch never becomes null.
+              let formProbe: FormProbe | null | undefined;
               if (!formProbed) {
-                formProbe = await withTimeout(
-                  probeForms(pageInteractionDeps(page, url, enquiryFormsIn(html))),
+                const probed = await withTimeout(
+                  probeForms(pageInteractionDeps(page, url, enquiryFormsIn(html))).then(
+                    (value) => ({ value }),
+                  ),
                   PROBE_BUDGET_MS,
                 );
+                formProbe = probed === null ? undefined : probed.value;
                 if (formProbe) formProbed = true;
               }
-              out.set(url, { html, axe, vitals, formProbe });
+              out.set(url, {
+                html,
+                axe,
+                vitals,
+                ...(formProbe === undefined ? {} : { formProbe }),
+              });
             }
           } catch {
             // A page that won't render simply has no rendered extract.

@@ -439,43 +439,44 @@ function verifyEvidence(result: AnalyzeResult, crawl: CrawlResult): AnalyzeResul
 }
 
 /**
- * The words that would be on the page if it answered the question. Keyed by
+ * The phrases that would be on the page if it answered the question. Keyed by
  * the fixed set's ids (questions.ts); a chosen question falls back to its own
- * longer words. A hit does not prove the site answers the question. It proves
- * "your site does not answer this" is not ours to print, because the model saw
- * at most 12 pages and 1,500 characters of each, and the words are on a page we
- * crawled.
+ * longer words. Phrases, not bare words: a bare word such as "address", "staff"
+ * or "hours" is on every footer and form, and a footer hit is not evidence that
+ * the site has an answer. A hit does not prove the site answers the question. It
+ * proves "your site does not answer this" is not ours to print, because the model
+ * saw at most 12 pages and 1,500 characters of each.
  */
 const KEY_TERMS: Record<string, RegExp> = {
   cost: /\b(pric(e|es|ing)|fees?|rates?|starting at|per (hour|month|visit|session))\b|\$\s?\d/i,
   "who-for":
     /\b(we (work with|serve|help|specialize)|ideal for|designed for|who we serve|our clients|industries)\b/i,
   proof:
-    /\b(testimonials?|case stud(y|ies)|reviews?|years of experience|certified|accredited|awards?|trusted by)\b/i,
+    /\b(testimonials?|case stud(y|ies)|customer reviews|client reviews|years of experience|accredited|awards? (won|winning)|trusted by)\b/i,
   "who-does-it":
-    /\b(our team|founders?|founded by|meet the|owner|director|led by|ceo|president|staff)\b/i,
+    /\b(meet (the|our) (team|founders?)|founded by|led by|our (founders?|leadership))\b/i,
   where:
-    /\b(located (in|at)|based in|headquarter(s|ed)|offices? in|service areas?|serving|address)\b/i,
+    /\b(located (in|at)|based in|headquarter(s|ed)|offices? in|service areas?|(we are )?now serving [a-z ]+)\b/i,
   "next-step":
-    /\b(next steps?|what happens next|what to expect|we('ll| will) (contact|respond|get back|reply|call)|within \d+ (hours?|business days?)|free consultation)\b/i,
+    /\b(next steps?|what happens next|what to expect|we('ll| will) (contact|respond|reply|call)|within \d+ (hours?|business days?)|free consultation)\b/i,
   availability: /\b((accepting|taking) new|new (patients|clients) welcome|wait(ing)? ?list)\b/i,
   "how-to-book":
     /\b(book (online|now|an appointment)|schedule (online|an appointment|a visit)|booking|request an appointment)\b/i,
   "first-visit": /\b(first (visit|appointment|session)|new patients?|what to expect)\b/i,
-  payment: /\b(insurance|we accept|payment|financing|medicare|medicaid|cash)\b/i,
+  payment: /\b(insurance|we accept|payment|financing|medicare|medicaid)\b/i,
   timeline:
     /\b(timelines?|turnaround|lead times?|how long|\d+\s*(-|to|–)\s*\d+\s*(days|weeks|months))\b/i,
   process: /\b(our process|how we work|step \d|stages?|phases?|discovery)\b/i,
   minimum: /\b(minimum|project size|budgets?|starting at)\b/i,
   "my-input": /\b(we('ll| will) need|you('ll| will) need|what we need|bring|provide us)\b/i,
-  "reachable-hours": /\b(hours|open (daily|from|mon\w*)|mon(day)?\s*(-|–|to)\s*fri(day)?|24\/7)\b/i,
+  "reachable-hours":
+    /\b((business|opening|office|operating) hours|open (daily|from|mon\w*)|mon(day)?\s*(-|–|to)\s*fri(day)?|24\/7)\b/i,
   "who-answers":
     /\b(answered by|speak (with|to) (a|an|our)|real person|live (person|agent|operator))\b/i,
-  "call-cost":
-    /\b(free (consultation|call|quote|estimate|assessment)|no[- ]obligation|complimentary)\b/i,
+  "call-cost": /\b(free (consultation|call|estimate|assessment)|no[- ]obligation|complimentary)\b/i,
   urgent: /\b(emergenc(y|ies)|urgent|after[- ]hours|24\/7|same[- ]day)\b/i,
   "opening-hours":
-    /\b(hours|open (daily|from|mon\w*)|closed on|mon(day)?\s*(-|–|to)\s*fri(day)?)\b/i,
+    /\b((business|opening|office|operating) hours|open (daily|from|mon\w*)|closed on|mon(day)?\s*(-|–|to)\s*fri(day)?)\b/i,
   "getting-there": /\b(parking|transit|directions|bus|metro|subway|train station)\b/i,
   "what-on-site": /\b(showroom|facility|tour|amenities|on[- ]site)\b/i,
   accessibility: /\b(accessible|wheelchair|ada|step[- ]free|elevator)\b/i,
@@ -488,7 +489,7 @@ const KEY_TERMS: Record<string, RegExp> = {
   compliance: /\b(hipaa|soc ?2|gdpr|iso ?27001|compliance|compliant|encrypt\w*)\b/i,
   "who-else": /\b(customers|clients include|trusted by|case stud(y|ies))\b/i,
   "partner-fit": /\b(partners?|resellers?|distributors?)\b/i,
-  "partner-terms": /\b(margins?|commissions?|discounts?|terms)\b/i,
+  "partner-terms": /\b((partner|reseller|dealer) terms|margins?|commissions?|discounts?)\b/i,
   territory: /\b(territor(y|ies)|regions?|exclusive|markets?)\b/i,
   "partner-support": /\b(partner (portal|program|support)|training|marketing materials)\b/i,
 };
@@ -500,34 +501,58 @@ const STOPWORDS = new Set(
   ),
 );
 
+/** What to look for in the text, for one question. `distinct` is set for a
+ *  chosen question, whose words are generic: one word on a page proves nothing,
+ *  so a hit needs two different ones. */
+type TermPattern = { pattern: RegExp; distinct: boolean };
+
 /** The pattern for a question: its fixed key terms, or, for a chosen question,
  *  its own words of five letters or more. Null when there is nothing to look for. */
-function termsFor(q: BuyerQuestion): RegExp | null {
-  if (q.id && KEY_TERMS[q.id]) return KEY_TERMS[q.id]!;
+function termsFor(q: BuyerQuestion): TermPattern | null {
+  if (q.id && KEY_TERMS[q.id]) return { pattern: KEY_TERMS[q.id]!, distinct: false };
   const words = (q.question.toLowerCase().match(/[a-z]{5,}/g) ?? []).filter(
     (w) => !STOPWORDS.has(w),
   );
   if (words.length === 0) return null;
-  return new RegExp(`\\b(${words.join("|")})\\b`, "i");
+  return { pattern: new RegExp(`\\b(${words.join("|")})\\b`, "i"), distinct: true };
+}
+
+/** The first hit in `text`, or null. For a chosen question, the first match at
+ *  which two different words have appeared. */
+function firstTermHit(terms: TermPattern, text: string): string | null {
+  if (!terms.distinct) return terms.pattern.exec(text)?.[0] ?? null;
+  const seen = new Set<string>();
+  let first: string | null = null;
+  for (const m of text.matchAll(new RegExp(terms.pattern.source, "gi"))) {
+    first ??= m[0];
+    seen.add(m[0].toLowerCase());
+    if (seen.size >= 2) return first;
+  }
+  return null;
 }
 
 /**
  * The last check before "your site does not answer this" is allowed to stand:
- * do the question's key words appear anywhere in what we crawled? On a hit the
- * verdict becomes `unknown`, carrying the word and the page, so the report
+ * do the question's key terms appear in what we crawled and the model did NOT
+ * read? Only text outside what the model saw can overturn its `no`: the part of
+ * a page past the characters it was sent, or a page it was never sent. A term
+ * inside what it read is the model's own judgement, and stands. On a hit the
+ * verdict becomes `unknown`, carrying the term and the page, so the report
  * says "we did not find a direct answer in the N pages we read" instead of
- * asserting an absence. One stored report told a furniture maker it does not
- * say whether it manufactures, while its home page said "we manufacture all of
- * our own case goods" at character 1,848 of a page the model saw 1,500 of.
+ * asserting an absence. One stored report told a manufacturer that its site did
+ * not say whether it makes its own products, when the home page said so in a
+ * sentence past the point the model stopped reading.
  */
 function checkAbsence(q: BuyerQuestion, crawl: CrawlResult): BuyerQuestion {
   const terms = termsFor(q);
   if (terms === null) return q;
+  const sent = new Set(selectPages(crawl.pages).map((p) => p.url));
   for (const p of crawl.pages) {
-    const text = (p.rendered ?? p.raw)?.text ?? "";
-    const hit = terms.exec(text);
-    if (hit) {
-      return { ...q, answered: "unknown", notFound: { term: hit[0], page: p.url } };
+    const full = (p.rendered ?? p.raw)?.text ?? "";
+    const unseen = sent.has(p.url) ? full.slice(MAX_TEXT_CHARS) : full;
+    const hit = firstTermHit(terms, unseen);
+    if (hit !== null) {
+      return { ...q, answered: "unknown", notFound: { term: hit, page: p.url } };
     }
   }
   return q;

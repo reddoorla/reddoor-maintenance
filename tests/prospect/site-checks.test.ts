@@ -1980,3 +1980,86 @@ describe("form probe evidence names the form", () => {
     );
   });
 });
+
+describe("W3 review round 1 — sitemap-same-host and the form probe's evidence", () => {
+  const SEL = (over: Record<string, unknown> = {}) => ({
+    pagesConsidered: 3,
+    sitemapSource: "https://acme.example/sitemap.xml",
+    sitemapOffOrigin: 0,
+    sitemapOffOriginExample: null,
+    sitemapAmbiguousOrigin: 0,
+    ...over,
+  });
+  const SAME_HOST = (crawl: CrawlResult) =>
+    byKey(runSiteChecks(crawl, exemplaryChecks(), "Acme Roofing"), "sitemap-same-host");
+
+  it("a sitemap we could not read is unmeasured, not not-applicable", () => {
+    const c = SAME_HOST(
+      exemplary({
+        sitemap: { present: false, urlCount: 0, truncated: false },
+        sidecarErrors: { robots: null, llms: null, sitemap: "socket hang up" },
+      }),
+    );
+    expect(c?.status).toBe("unmeasured");
+    expect(c?.evidence).toMatch(/could not read the sitemap/);
+  });
+
+  it("a site with no sitemap at all is not-applicable", () => {
+    const c = SAME_HOST(exemplary({ sitemap: { present: false, urlCount: 0, truncated: false } }));
+    expect(c?.status).toBe("not-applicable");
+  });
+
+  it("a truncated read is unmeasured, even when the part it read has a fault", () => {
+    const c = SAME_HOST(
+      exemplary({
+        sitemap: { present: true, urlCount: 40, truncated: true },
+        selection: SEL({
+          sitemapOffOrigin: 2,
+          sitemapOffOriginExample: "http://www.acme.example/",
+        }),
+      }),
+    );
+    expect(c?.status).toBe("unmeasured");
+  });
+
+  it("another scheme or www. host with nothing to say which the site uses is unmeasured, not a pass", () => {
+    const c = SAME_HOST(
+      exemplary({
+        sitemap: { present: true, urlCount: 3, truncated: false },
+        selection: SEL({ sitemapAmbiguousOrigin: 3 }),
+      }),
+    );
+    expect(c?.status).toBe("unmeasured");
+  });
+
+  it("passes in the words the check is now worded in", () => {
+    const c = SAME_HOST(
+      exemplary({ sitemap: { present: true, urlCount: 3, truncated: false }, selection: SEL() }),
+    );
+    expect(c?.status).toBe("pass");
+    expect(c?.evidence).toBe("no address it lists is written on another scheme or www. host");
+  });
+
+  it("names the form alone when the probe recorded no reason", () => {
+    const crawl = exemplary({
+      pages: exemplary().pages.map((p, i) =>
+        i === 0
+          ? {
+              ...p,
+              formProbe: {
+                url: "https://acme.example/contact",
+                form: "the 8-field form on /contact",
+                emptyRefused: true,
+                emptyHow: null,
+                invalidEmailRefused: null,
+                invalidEmailHow: null,
+                blocked: 0,
+              },
+            }
+          : p,
+      ),
+    });
+    const checks = runSiteChecks(crawl, exemplaryChecks(), "Acme Roofing");
+    expect(byKey(checks, "form-rejects-empty")?.evidence).toBe("the 8-field form on /contact");
+  });
+});

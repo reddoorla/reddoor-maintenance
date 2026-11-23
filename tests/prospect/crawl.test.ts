@@ -13,6 +13,10 @@ import {
   MAX_RESPONSE_BYTES,
   ResponseTooLargeError,
   isContactLike,
+  isPostSitemap,
+  navLinks,
+  rankCandidates,
+  toSameOrigin,
   type CrawlDeps,
   type FetchResponse,
 } from "../../src/prospect/crawl.js";
@@ -1086,5 +1090,280 @@ describe("isContactLike", () => {
     ],
   ])("%s %s is not", (href, text) => {
     expect(isContactLike(href, text)).toBe(false);
+  });
+});
+
+// W3 review round 1 (maintenance findings). Each block names the finding it pins.
+describe("W3 review round 1 — the crawl's address and sitemap rules", () => {
+  const BARE = "<html><head><title>Acme</title></head><body><h1>Acme</h1></body></html>";
+  const page = { body: BARE };
+  const urlset = (urls: string[]): string =>
+    `<urlset>${urls.map((u) => `<url><loc>${u}</loc></url>`).join("")}</urlset>`;
+
+  it("MAJOR port: a site on a non-default port is crawled, and its own pages are its own", async () => {
+    const PORTED = "https://acme.example:8443/";
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [PORTED]: { body: fixture("rich.html") },
+      "https://acme.example:8443/services": { body: fixture("rich.html") },
+      "https://acme.example:8443/about": { body: fixture("rich.html") },
+    };
+    const result = await crawlSite(PORTED, stubDeps(routes));
+    expect(result.pages.map((p) => p.url)).toEqual([
+      PORTED,
+      "https://acme.example:8443/services",
+      "https://acme.example:8443/about",
+    ]);
+    expect(toSameOrigin("https://acme.example:8443/x", "https://acme.example:8443")).toBe(
+      "https://acme.example:8443/x",
+    );
+    // A different port is a different server, not a spelling of this one.
+    expect(toSameOrigin("https://acme.example/x", "https://acme.example:8443")).toBeNull();
+    expect(toSameOrigin("https://acme.example:9000/x", "https://acme.example")).toBeNull();
+  });
+
+  it("MAJOR port: a sitemap on http://www. for an https://host:8443 site is read onto that port", () => {
+    expect(toSameOrigin("http://www.acme.example:8443/about", "https://acme.example:8443")).toBe(
+      "https://acme.example:8443/about",
+    );
+  });
+
+  it("MAJOR WP core: wp-sitemap-posts-page and -product are not post sitemaps; posts-post is", () => {
+    expect(isPostSitemap("https://acme.example/wp-sitemap-posts-page-1.xml")).toBe(false);
+    expect(isPostSitemap("https://acme.example/wp-sitemap-posts-product-1.xml")).toBe(false);
+    expect(isPostSitemap("https://acme.example/wp-sitemap-posts-post-1.xml")).toBe(true);
+    // Yoast and the blog patterns still hold.
+    expect(isPostSitemap("https://acme.example/post-sitemap.xml")).toBe(true);
+    expect(isPostSitemap("https://acme.example/blog-sitemap2.xml")).toBe(true);
+    expect(isPostSitemap("https://acme.example/page-sitemap.xml")).toBe(false);
+  });
+
+  it("MAJOR WP core: WordPress core pages are read before its posts", async () => {
+    const posts = Array.from({ length: 30 }, (_, i) => `https://acme.example/wp-post-${i}/`);
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: page,
+      "https://acme.example/wp-sitemap.xml": {
+        body: `<sitemapindex><sitemap><loc>https://acme.example/wp-sitemap-posts-post-1.xml</loc></sitemap><sitemap><loc>https://acme.example/wp-sitemap-posts-page-1.xml</loc></sitemap></sitemapindex>`,
+      },
+      "https://acme.example/wp-sitemap-posts-post-1.xml": { body: urlset(posts) },
+      "https://acme.example/wp-sitemap-posts-page-1.xml": {
+        body: urlset(["https://acme.example/services/", "https://acme.example/contact/"]),
+      },
+    };
+    const result = await crawlSite(HOME, stubDeps(routes, { maxPages: 3 }));
+    expect(result.pages.map((p) => p.url)).toEqual([
+      HOME,
+      "https://acme.example/services/",
+      "https://acme.example/contact/",
+    ]);
+  });
+
+  it("MAJOR sitemap fetches: robots.txt names 12 sitemaps, and at most 5 of them plus the 3 defaults are requested", async () => {
+    const lines = Array.from({ length: 12 }, (_, i) => `Sitemap: https://acme.example/s${i}.xml`);
+    const requested: string[] = [];
+    const deps = stubDeps({
+      [HOME]: page,
+      "https://acme.example/robots.txt": { body: `User-agent: *\n${lines.join("\n")}\n` },
+    });
+    const fetchUrl = deps.fetchUrl;
+    deps.fetchUrl = async (url) => {
+      requested.push(url);
+      return fetchUrl(url);
+    };
+    await crawlSite(HOME, deps);
+    const sitemapRequests = requested.filter((u) => /\.xml/.test(u));
+    expect(sitemapRequests.length).toBeLessThanOrEqual(8);
+    expect(sitemapRequests.filter((u) => /\/s\d+\.xml$/.test(u)).length).toBeLessThanOrEqual(5);
+  });
+
+  it("MAJOR sitemap fetches: a gzipped sitemap a robots line names is never requested", async () => {
+    const requested: string[] = [];
+    const deps = stubDeps({
+      [HOME]: page,
+      "https://acme.example/robots.txt": {
+        body: "User-agent: *\nSitemap: https://acme.example/sitemap.xml.gz\n",
+      },
+    });
+    const fetchUrl = deps.fetchUrl;
+    deps.fetchUrl = async (url) => {
+      requested.push(url);
+      return fetchUrl(url);
+    };
+    await crawlSite(HOME, deps);
+    expect(requested.some((u) => u.endsWith(".gz"))).toBe(false);
+  });
+
+  it("MAJOR sitemap fetches: the sitemap requests wait delayMs between them, as the page fetches do", async () => {
+    const lines = Array.from({ length: 4 }, (_, i) => `Sitemap: https://acme.example/g${i}.xml`);
+    const deps = stubDeps(
+      {
+        [HOME]: page,
+        "https://acme.example/robots.txt": { body: `User-agent: *\n${lines.join("\n")}\n` },
+      },
+      { delayMs: 40 },
+    );
+    const started = Date.now();
+    await crawlSite(HOME, deps);
+    // Four named addresses and three defaults: seven requests, six gaps.
+    expect(Date.now() - started).toBeGreaterThanOrEqual(200);
+  });
+
+  it("MAJOR sitemap-same-host: a sitemap that answers 503 at an address the owner named is an error, not absence", async () => {
+    const result = await crawlSite(
+      HOME,
+      stubDeps({
+        [HOME]: page,
+        "https://acme.example/robots.txt": {
+          body: "User-agent: *\nSitemap: https://acme.example/custom-map.xml\n",
+        },
+        "https://acme.example/custom-map.xml": { status: 503, body: "" },
+      }),
+    );
+    expect(result.sitemap.present).toBe(false);
+    expect(result.sidecarErrors.sitemap).not.toBeNull();
+  });
+
+  it("MAJOR sitemap-same-host: an entry that redirected away from a host is judged on that host, and the https address on an http entry is not a fault", async () => {
+    // The entry is http://acme.example, the site serves both schemes, and its
+    // sitemap lists https. Nothing says which the owner uses: not counted as a fault.
+    const httpEntry = await crawlSite(
+      "http://acme.example/",
+      stubDeps({
+        "http://acme.example/": page,
+        "http://acme.example/sitemap.xml": {
+          body: urlset(["https://acme.example/", "https://acme.example/about"]),
+        },
+        "https://acme.example/about": page,
+      }),
+    );
+    expect(httpEntry.origin).toBe("http://acme.example");
+    expect(httpEntry.selection?.sitemapOffOrigin).toBe(0);
+    expect(httpEntry.selection?.sitemapAmbiguousOrigin).toBe(2);
+    // And the https address is kept, never rewritten down to http.
+    expect(httpEntry.pages.map((p) => p.url)).toContain("https://acme.example/about");
+
+    // Entry on www., homepage redirected to the apex: a sitemap still listing the
+    // www. host is a fault the site can be shown to have.
+    const redirected = await crawlSite(
+      "https://www.acme.example/",
+      stubDeps({
+        "https://www.acme.example/": { body: BARE, url: "https://acme.example/" },
+        "https://acme.example/sitemap.xml": {
+          body: urlset(["https://www.acme.example/a", "https://acme.example/b"]),
+        },
+        "https://acme.example/b": page,
+      }),
+    );
+    expect(redirected.selection?.sitemapOffOrigin).toBe(1);
+    expect(redirected.selection?.sitemapAmbiguousOrigin).toBe(0);
+  });
+
+  it("MINOR tests: robots.txt names a sitemap and /sitemap.xml also exists, so the named one is read", async () => {
+    const result = await crawlSite(
+      HOME,
+      stubDeps({
+        [HOME]: page,
+        "https://acme.example/robots.txt": {
+          body: "User-agent: *\nSitemap: https://acme.example/custom.xml\n",
+        },
+        "https://acme.example/custom.xml": { body: urlset(["https://acme.example/one"]) },
+        "https://acme.example/sitemap.xml": { body: urlset(["https://acme.example/two"]) },
+      }),
+    );
+    expect(result.selection?.sitemapSource).toBe("https://acme.example/custom.xml");
+    expect(result.sitemap.urlCount).toBe(1);
+  });
+
+  it("MINOR tests: /sitemap_index.xml alone is found", async () => {
+    const result = await crawlSite(
+      HOME,
+      stubDeps({
+        [HOME]: page,
+        "https://acme.example/sitemap_index.xml": {
+          body: urlset(["https://acme.example/team"]),
+        },
+      }),
+    );
+    expect(result.selection?.sitemapSource).toBe("https://acme.example/sitemap_index.xml");
+    expect(result.sitemap.present).toBe(true);
+  });
+
+  it("MINOR tests: a transport error on one candidate does not hide a sitemap found at another", async () => {
+    const deps = stubDeps({
+      [HOME]: page,
+      "https://acme.example/robots.txt": {
+        body: "User-agent: *\nSitemap: https://acme.example/broken.xml\n",
+      },
+      "https://acme.example/sitemap.xml": { body: urlset(["https://acme.example/one"]) },
+    });
+    const fetchUrl = deps.fetchUrl;
+    deps.fetchUrl = async (url) => {
+      if (url === "https://acme.example/broken.xml") throw new Error("socket hang up");
+      return fetchUrl(url);
+    };
+    const result = await crawlSite(HOME, deps);
+    expect(result.sitemap.present).toBe(true);
+    expect(result.selection?.sitemapSource).toBe("https://acme.example/sitemap.xml");
+    expect(result.sidecarErrors.sitemap).toBeNull();
+  });
+
+  it("MINOR tests: when every candidate fails in transport, the sitemap error is recorded", async () => {
+    const deps = stubDeps({ [HOME]: page });
+    const fetchUrl = deps.fetchUrl;
+    deps.fetchUrl = async (url) => {
+      if (url.includes("sitemap")) throw new Error("socket hang up");
+      return fetchUrl(url);
+    };
+    const result = await crawlSite(HOME, deps);
+    expect(result.sitemap.present).toBe(false);
+    expect(result.sidecarErrors.sitemap).toBe("socket hang up");
+  });
+
+  it("MINOR footer navs: a footer's own <nav> is not the menu and does not rank ahead of the page's links", () => {
+    const html = `<html><body><header><nav><a href="/services">Services</a></nav></header>
+      <footer><nav><a href="/legal">Legal</a><a href="/sitemap-page">Sitemap</a></nav></footer></body></html>`;
+    expect(navLinks(html, HOME)).toEqual(["https://acme.example/services"]);
+  });
+
+  it("NIT: a year as a whole path segment, and an archive anywhere in the path, rank last", () => {
+    const ranked = rankCandidates({
+      home: HOME,
+      nav: [],
+      contact: [],
+      sitemap: [
+        "https://acme.example/2019/",
+        "https://acme.example/blog/tag/x/",
+        "https://acme.example/a/b/c/d/",
+      ],
+      bodyLinks: [],
+    });
+    expect(ranked.slice(1)).toEqual([
+      "https://acme.example/a/b/c/d/",
+      "https://acme.example/2019/",
+      "https://acme.example/blog/tag/x/",
+    ]);
+  });
+});
+
+describe("W3 review round 1 — isContactLike false positives and verb phrases", () => {
+  it.each([
+    ["https://acme.example/events/schedule", ""],
+    ["https://acme.example/book/my-novel", ""],
+    ["https://acme.example/work/demo-reel", ""],
+    ["https://acme.example/blog/how-to-book-a-trip", ""],
+    ["https://acme.example/reviews", "Book review"],
+    ["https://acme.example/calendar", "View schedule"],
+  ])("%s %s is not a contact link", (href, text) => {
+    expect(isContactLike(href, text)).toBe(false);
+  });
+
+  it.each([
+    ["https://acme.example/book", ""],
+    ["https://acme.example/schedule-a-call", ""],
+    ["https://acme.example/services/quote", ""],
+    ["https://acme.example/request-demo", ""],
+    ["https://acme.example/x", "Book a demo"],
+    ["https://acme.example/x", "Get a free quote"],
+  ])("%s %s is a contact link", (href, text) => {
+    expect(isContactLike(href, text)).toBe(true);
   });
 });

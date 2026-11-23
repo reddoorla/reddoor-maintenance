@@ -1601,39 +1601,73 @@ function sidecarChecks(
   const WHY_SAME_HOST =
     "A sitemap should list each page at the address it answers on. Listing another scheme or the other side of www. sends every crawler that reads it through a redirect for every page.";
   const sel = crawl.selection;
-  if (!sitemapMeasured || !crawl.sitemap.present) {
-    out.push(
-      skip(
-        "sitemap-same-host",
-        "A sitemap on the address your site answers on",
-        WHY_SAME_HOST,
-        "quick",
-        sitemapMeasured ? "this site has no sitemap" : "we could not read the sitemap on this run",
-      ),
-    );
-  } else if (sel === undefined) {
+  const SAME_HOST = "A sitemap on the address your site answers on";
+  if (!sitemapMeasured) {
+    // A sitemap we could not read is our gap, never a finding and never "none".
     out.push(
       unknown(
         "sitemap-same-host",
-        "A sitemap on the address your site answers on",
+        SAME_HOST,
         WHY_SAME_HOST,
         "quick",
+        "we could not read the sitemap on this run",
+      ),
+    );
+  } else if (!crawl.sitemap.present) {
+    out.push(
+      skip("sitemap-same-host", SAME_HOST, WHY_SAME_HOST, "quick", "this site has no sitemap"),
+    );
+  } else if (sel === undefined || crawl.sitemap.truncated !== false) {
+    // Without the stored selection, or from a sitemap we read only in part, a
+    // mismatch may be in the part we did not read: a truncated read may not
+    // become a finding.
+    out.push(
+      unknown(
+        "sitemap-same-host",
+        SAME_HOST,
+        WHY_SAME_HOST,
+        "quick",
+        sel === undefined ? undefined : "we did not read every sitemap the site lists",
       ),
     );
   } else {
     const off = sel.sitemapOffOrigin;
-    out.push(
-      check(
-        "sitemap-same-host",
-        "A sitemap on the address your site answers on",
-        WHY_SAME_HOST,
-        "quick",
-        off === 0,
-        off === 0
-          ? `every address it lists is on ${crawl.origin}`
-          : `${off} of the ${crawl.sitemap.urlCount} addresses it lists are written like ${sel.sitemapOffOriginExample ?? "another host"}, not on ${crawl.origin}`,
-      ),
-    );
+    const ambiguous = sel.sitemapAmbiguousOrigin ?? 0;
+    if (off > 0) {
+      out.push(
+        check(
+          "sitemap-same-host",
+          SAME_HOST,
+          WHY_SAME_HOST,
+          "quick",
+          false,
+          `${off} of the ${crawl.sitemap.urlCount} addresses it lists are written like ${sel.sitemapOffOriginExample ?? "another host"}, not on ${crawl.origin}`,
+        ),
+      );
+    } else if (ambiguous > 0) {
+      // Another scheme or www. host, and nothing says which one the site uses:
+      // neither a pass nor a fault.
+      out.push(
+        unknown(
+          "sitemap-same-host",
+          SAME_HOST,
+          WHY_SAME_HOST,
+          "quick",
+          "we could not tell which address the site answers on",
+        ),
+      );
+    } else {
+      out.push(
+        check(
+          "sitemap-same-host",
+          SAME_HOST,
+          WHY_SAME_HOST,
+          "quick",
+          true,
+          "no address it lists is written on another scheme or www. host",
+        ),
+      );
+    }
   }
 
   // REPORTED, NEVER FAILED — and this is a reconciliation, not a softening.

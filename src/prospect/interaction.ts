@@ -108,10 +108,11 @@ const CHOOSE_FORM = `(args) => {
   const forms = Array.from(document.querySelectorAll("form"));
   // Which forms the static classifier (extract.ts formShape) calls an enquiry
   // form, by document position. When it was read off a document that does
-  // not line up with this one, choose nothing: a probe we skip reads as "not
-  // measured", and pressing the wrong form reads as a verdict.
+  // not line up with this one, choose nothing and say so: pressing the wrong
+  // form reads as a verdict, and "no form" is a fact about the site that this
+  // is not in a position to state. The caller reads a mismatch as not measured.
   const allowed = args && Array.isArray(args.enquiry) ? args.enquiry : null;
-  if (allowed && allowed.length !== forms.length) return null;
+  if (allowed && allowed.length !== forms.length) return { mismatch: true };
   let best = null;
   let bestScore = 0;
   for (const [index, form] of forms.entries()) {
@@ -276,11 +277,15 @@ export function withTimeout<T>(work: Promise<T>, ms: number): Promise<T | null> 
   ]).finally(() => clearTimeout(timer));
 }
 
-export async function probeForms(deps: InteractionDeps): Promise<FormProbe | null> {
-  const chosen = await deps.evaluate<Chosen | null>(
+export async function probeForms(deps: InteractionDeps): Promise<FormProbe | null | undefined> {
+  const chosen = await deps.evaluate<Chosen | { mismatch: true } | null>(
     CHOOSE_FORM,
     deps.enquiryForms ? { enquiry: deps.enquiryForms } : null,
   );
+  // `undefined`: we could not try (the page's forms did not line up with the
+  // classifier's). Distinct from `null`, which is a page we tried and found no
+  // enquiry form on, a fact about the site.
+  if (chosen && "mismatch" in chosen) return undefined;
   if (!chosen) return null;
 
   const guard = await deps.intercept();
@@ -638,7 +643,8 @@ export function pageInteractionDeps(
               `(${CHOOSE_FORM})(${JSON.stringify(enquiryForms ? { enquiry: enquiryForms } : null)})`,
             )
             .catch(() => null);
-          return again !== null;
+          // A mismatch is a form that did not come back the way it was read.
+          return again !== null && !(typeof again === "object" && "mismatch" in again);
         },
         release: async () => {
           armed = false;
