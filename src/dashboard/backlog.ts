@@ -119,8 +119,10 @@ export function splitRow(line: string): string[] {
   let cur = "";
   for (let i = 0; i < line.length; i++) {
     const ch = line[i]!;
-    if (ch === "\\" && line[i + 1] === "|") {
-      cur += "\\|";
+    // A backslash escapes the next character, so `\\|` is an escaped
+    // backslash and then a pipe that splits (P1-111 round 10).
+    if (ch === "\\" && i + 1 < line.length) {
+      cur += ch + line[i + 1]!;
       i++;
     } else if (ch === "|") {
       pieces.push(cur);
@@ -136,7 +138,12 @@ export function splitRow(line: string): string[] {
   const nearest = new Map<number, number>();
   for (let i = pieces.length - 1; i >= 0; i--) {
     const open = opens[i]!;
-    if (open.length > 0) partner[i] = nearest.get(open[open.length - 1]!);
+    // The earliest unclosed run that a later piece can close is the one
+    // CommonMark pairs: its span swallows every run after it (round 10).
+    for (const n of open) {
+      partner[i] = nearest.get(n);
+      if (partner[i] !== undefined) break;
+    }
     if (open[0] !== undefined) nearest.set(open[0], i);
   }
   const cells: string[] = [];
@@ -151,7 +158,8 @@ export function splitRow(line: string): string[] {
   // A row is `| a | b |`: drop the empty edges outside the first and last pipe.
   if (cells.length > 0 && cells[0]!.trim() === "") cells.shift();
   if (cells.length > 0 && cells[cells.length - 1]!.trim() === "") cells.pop();
-  return cells.map((c) => c.replace(/\\\|/g, "|").trim());
+  // Unescape `\|` pair by pair from the left, so `\\` stays an escaped backslash.
+  return cells.map((c) => c.replace(/\\(.)/g, (m, x: string) => (x === "|" ? "|" : m)).trim());
 }
 
 /** The one well-formed shape: `Status YYYY-MM-DD`, then a space, `[`, `:` or the end. */
@@ -234,9 +242,15 @@ function flatten(
   return out;
 }
 
-/** Visible text: HTML tags dropped, whitespace collapsed. */
+/** Whitespace in flattened text: a space, or an HTML tag, which separates
+ *  words as `<br>` does rather than gluing them (P1-111 round 10). */
+function blank(flat: Flat, i: number): boolean {
+  return flat.kinds[i] === "html" || /\s/.test(flat.text[i]!);
+}
+
+/** Visible text: HTML tags read as spaces, whitespace collapsed. */
 function visible(flat: Flat): string {
-  return flat.text.replaceAll(HTML_MARK, "").replace(/\s+/g, " ").trim();
+  return tidy(flat, 0, flat.text.length, false);
 }
 
 /** The index just past the first sentence of `flat.text` from `from`: the first
@@ -257,11 +271,10 @@ function findSentenceEnd(flat: Flat, from = 0, to = flat.text.length): number {
     if (ch === "(" || ch === "[") depth++;
     else if ((ch === ")" || ch === "]") && depth > 0) depth--;
     else if (depth === 0 && (ch === "." || ch === "!" || ch === "?")) {
-      const prev = t[i - 1];
       let j = i + 1;
-      while (j < to && /["'’”)*_~]/.test(t[j]!)) j++;
+      while (j < to && flat.kinds[j] !== "html" && /["'’”)*_~]/.test(t[j]!)) j++;
       // Not a decimal point, a version or a domain (`4.2.0`, `reddoorla.com`).
-      if ((j >= to || /\s/.test(t[j]!)) && i > from && prev !== undefined && !/\s/.test(prev)) {
+      if ((j >= to || blank(flat, j)) && i > from && !blank(flat, i - 1)) {
         return i + 1;
       }
     }
@@ -275,22 +288,23 @@ export function firstSentence(md: string): string {
   return tidy(flat, 0, sentenceEnd(flat));
 }
 
-/** Plain text for display from a span of flattened text: tag and title marks
- *  dropped, stray `**` and `~~` dropped outside code, whitespace collapsed. */
-function tidy(flat: Flat, from = 0, to = flat.text.length): string {
+/** Plain text for display from a span of flattened text: a tag mark reads as
+ *  a space and the title mark as nothing, both found by kind so the same
+ *  characters written in the text stay (round 10); stray `**` and `~~`
+ *  dropped outside code unless `strip` is false; whitespace collapsed. */
+function tidy(flat: Flat, from = 0, to = flat.text.length, strip = true): string {
   let out = "";
   let i = from;
+  const group = (k: Kind | undefined) =>
+    k === "code" || k === "html" || k === "title" ? k : "text";
   while (i < to) {
-    const code = flat.kinds[i] === "code";
+    const g = group(flat.kinds[i]);
     let j = i;
-    while (j < to && (flat.kinds[j] === "code") === code) j++;
+    while (j < to && group(flat.kinds[j]) === g) j++;
     const part = flat.text.slice(i, j);
-    out += code
-      ? part
-      : part
-          .replaceAll(HTML_MARK, "")
-          .replaceAll(TITLE_MARK, "")
-          .replace(/\*\*|~~/g, "");
+    if (g === "code") out += part;
+    else if (g === "html") out += " ";
+    else if (g === "text") out += strip ? part.replace(/\*\*|~~/g, "") : part;
     i = j;
   }
   return out.replace(/\s+/g, " ").trim();
@@ -350,7 +364,8 @@ function statusesIn(id: string, column: number, flat: Flat): BacklogStatus[] {
   }
   return found.map((s, k) => {
     let stop = found[k + 1]?.start ?? t.length;
-    const title = t.indexOf(TITLE_MARK, s.end);
+    // The title by its kind, not its character: a literal U+FFFD is text (round 10).
+    const title = flat.kinds.indexOf("title", s.end);
     if (title !== -1 && title < stop) stop = title;
     // Drop the provenance tag (`[M, merge commits]`) and a `:` or dash after the date.
     let from = s.end;
@@ -362,7 +377,8 @@ function statusesIn(id: string, column: number, flat: Flat): BacklogStatus[] {
         `${id}: its status line dated ${s.date} has no text after the date`,
       );
     }
-    return { date: s.date, sentence, refs: refsIn(tidy(flat, from, stop)) };
+    // Refs from the whole line, its `[tag]` included (round 10).
+    return { date: s.date, sentence, refs: refsIn(tidy(flat, s.end, stop)) };
   });
 }
 

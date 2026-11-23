@@ -316,6 +316,51 @@ describe("topBacklogItems", () => {
     });
   });
 
+  describe("reads cells as GitHub does, round 10", () => {
+    const one = (row: string) => topBacklogItems(backlog([row])).items[0]!;
+    const status = (cell: string) => one(`| P1-960 | **T** | 🟢 | S | ${cell} | d |`).status!;
+
+    it("an HTML tag such as <br> separates words rather than gluing them", () => {
+      expect(status("Status 2026-11-22: done<br>next thing.").sentence).toBe("done next thing.");
+      expect(status("Status 2026-11-22: done.<br>Next thing.").sentence).toBe("done.");
+      expect(status("Status 2026-11-22: done #12<br>#13.").refs.map((r) => r.label)).toEqual([
+        "#12",
+        "#13",
+      ]);
+      const item = one("| P1-960 | **Fix<br>gate** | 🟢<br>S | x |");
+      expect([item.title, item.tier]).toEqual(["Fix gate", "🟢 S"]);
+    });
+
+    it("an escaped backslash before a pipe leaves the pipe free to split", () => {
+      const item = one("| P1-961 | **T** a\\\\| 🟢 | S | x | d |");
+      expect([item.title, item.tier]).toEqual(["T", "🟢"]);
+      expect(splitRow("| a\\\\| b \\| c |")).toEqual(["a\\\\", "b | c"]);
+    });
+
+    it("a code span joins pieces on the earliest unclosed run a later piece closes", () => {
+      const item = one("| P1-962 | **T** `a ``b | c` d | 🟢 | S | x | d |");
+      expect([item.title, item.tier]).toEqual(["T", "🟢"]);
+    });
+
+    it("refs inside the status's [tag] are kept, while the tag stays out of the sentence", () => {
+      const s = status("Status 2026-11-22 [#2239]: merged.");
+      expect([s.sentence, s.refs.map((r) => r.label)]).toEqual(["merged.", ["#2239"]]);
+    });
+
+    it("a literal U+FFFD, a NUL or a U+FFFC in the text is text, not a title or tag mark", () => {
+      for (const ch of ["�", "\u0000"]) {
+        const s = status(`Status 2026-11-22: done ${ch} #5.`);
+        expect([s.sentence, s.refs.map((r) => r.label)], JSON.stringify(ch)).toEqual([
+          "done � #5.",
+          ["#5"],
+        ]);
+      }
+      expect(status("Status 2026-11-22: done ￼ here.").sentence).toBe("done ￼ here.");
+      const inItem = one("| P1-963 | **T** Status 2026-11-22: a � b. | 🟢 |");
+      expect(inItem.status?.sentence).toBe("a � b.");
+    });
+  });
+
   describe("reads markdown code and emphasis the way GitHub shows them (round 7)", () => {
     const one = (row: string) => topBacklogItems(backlog([row])).items[0]!;
 

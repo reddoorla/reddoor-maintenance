@@ -326,5 +326,83 @@
     ],
     "test": "tests/dashboard/backlog.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "26-html-tag-glues",
+    "why": "Round 10, major: an HTML tag reads as nothing, so `done<br>next` glues into one word and `#12<br>#13` into one ref.",
+    "edits": [
+      {
+        "file": "src/dashboard/backlog.ts",
+        "find": "    else if (g === \"html\") out += \" \";",
+        "replace": "    else if (g === \"html\") out += \"\";"
+      }
+    ],
+    "test": "tests/dashboard/backlog.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "27-escaped-backslash-escapes-pipe",
+    "why": "Round 10, major: a backslash escapes only a pipe, so `\\\\|` (an escaped backslash, then a pipe) does not split.",
+    "edits": [
+      {
+        "file": "src/dashboard/backlog.ts",
+        "find": "    if (ch === \"\\\\\" && i + 1 < line.length) {",
+        "replace": "    if (ch === \"\\\\\" && line[i + 1] === \"|\") {"
+      }
+    ],
+    "test": "tests/dashboard/backlog.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "28-join-on-last-open-run",
+    "why": "Round 10, major: the code-span join pairs on a piece's last unclosed run, not the earliest one a later piece closes.",
+    "edits": [
+      {
+        "file": "src/dashboard/backlog.ts",
+        "find": "    for (const n of open) {\n      partner[i] = nearest.get(n);\n      if (partner[i] !== undefined) break;\n    }",
+        "replace": "    if (open.length > 0) partner[i] = nearest.get(open[open.length - 1]!);"
+      }
+    ],
+    "test": "tests/dashboard/backlog.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "29-refs-skip-the-tag",
+    "why": "Round 10, major: refs are read from after the `[tag]`, so a ref written only in the tag is dropped.",
+    "edits": [
+      {
+        "file": "src/dashboard/backlog.ts",
+        "find": "refs: refsIn(tidy(flat, s.end, stop))",
+        "replace": "refs: refsIn(tidy(flat, from, stop))"
+      }
+    ],
+    "test": "tests/dashboard/backlog.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "30-title-found-by-character",
+    "why": "Round 10, major: the title is found by its mark character, so a literal U+FFFD (or a NUL, which micromark turns into one) ends the status line.",
+    "edits": [
+      {
+        "file": "src/dashboard/backlog.ts",
+        "find": "const title = flat.kinds.indexOf(\"title\", s.end);",
+        "replace": "const title = flat.text.indexOf(TITLE_MARK, s.end);"
+      }
+    ],
+    "test": "tests/dashboard/backlog.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "31-sentence-end-ignores-tags",
+    "why": "Round 10, major: a full stop followed by an HTML tag ends no sentence, so `done.<br>Next thing.` reads as one sentence.",
+    "edits": [
+      {
+        "file": "src/dashboard/backlog.ts",
+        "find": "if ((j >= to || blank(flat, j)) && i > from",
+        "replace": "if ((j >= to || /\\s/.test(t[j]!)) && i > from"
+      }
+    ],
+    "test": "tests/dashboard/backlog.test.ts",
+    "expect": "red"
   }
 ]
