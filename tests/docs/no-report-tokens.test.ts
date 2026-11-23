@@ -9,9 +9,12 @@ import { readFileSync, statSync } from "node:fs";
  * report, and each visit overwrote its read receipt. The token was rotated on
  * 2026-11-23; git history still holds the old one, which now opens nothing.
  *
- * This fails on any tracked file holding `/audit/` followed by exactly 22
- * token characters. Write `/audit/<token>` in prose, and keep real tokens in
- * the private workspace.
+ * This fails on any tracked file holding exactly 22 token characters after a
+ * report route (`/audit/`, `/r/`, `/api/audit-report/`, slashes optionally
+ * JSON-escaped) or a stored row's `"token": "`. It does not see a bare token, a
+ * percent-encoded route, a `token=` query parameter, or commit messages and PR
+ * bodies. Write `/audit/<token>` in prose, and keep real tokens in the private
+ * workspace.
  */
 
 // Built from parts, so this file never matches itself.
@@ -33,6 +36,11 @@ export function reportTokenHits(text: string): string[] {
   return [...text.matchAll(REPORT_URL)].map((m) => m[0]).filter((hit) => !isFake(hit.slice(-22)));
 }
 
+/** The route and six token characters, never more: CI logs are public. */
+export function shown(hit: string): string {
+  return `${hit.slice(0, -22)}${hit.slice(-22, -16)}…`;
+}
+
 describe("reportTokenHits", () => {
   const fake = "/audit/" + "Ab0_-".repeat(4) + "Zz";
 
@@ -48,8 +56,17 @@ describe("reportTokenHits", () => {
       `/api/audit-report/${t}`,
       `\\/audit\\/${t}`,
       `"token": "${t}"`,
+      `{"token":"${t}"}`,
+      `\\/api\\/audit-report\\/${t}`,
     ]) {
       expect(reportTokenHits(`x ${shape} y`), shape).toHaveLength(1);
+    }
+  });
+
+  it("prints the route and only six token characters", () => {
+    const t = fake.slice("/audit/".length);
+    for (const hit of reportTokenHits(`/r/${t} /api/audit-report/${t} "token": "${t}"`)) {
+      expect(shown(hit)).toBe(`${hit.slice(0, -22)}${t.slice(0, 6)}…`);
     }
   });
 
@@ -79,7 +96,7 @@ describe("tracked files", () => {
       if (buf.includes(0)) continue; // binary
       const lines = buf.toString("utf8").split("\n");
       lines.forEach((line, i) => {
-        for (const hit of reportTokenHits(line)) hits.push(`${f}:${i + 1} ${hit.slice(0, 13)}…`);
+        for (const hit of reportTokenHits(line)) hits.push(`${f}:${i + 1} ${shown(hit)}`);
       });
     }
     expect(
