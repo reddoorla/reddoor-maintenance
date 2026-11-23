@@ -45,6 +45,8 @@ function fail(status: number, error: string): Response {
     headers: {
       "content-type": "application/json; charset=utf-8",
       "x-robots-tag": "noindex",
+      // Review round 3: a draft's 404 must not outlive its approval in a cache.
+      "cache-control": "private, no-store",
     },
   });
 }

@@ -12,9 +12,10 @@ import { offlineNetworkDeps } from "../_helpers/offline-prospect.js";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { runProspectAuditCommand } from "../../src/cli/commands/prospect-audit.js";
+import { reviewLine, runProspectAuditCommand } from "../../src/cli/commands/prospect-audit.js";
 import { finishProspectAudit } from "../../src/db/prospect-audits.js";
 import type { PipelineDeps } from "../../src/prospect/pipeline.js";
+import type { ProspectAuditResult } from "../../src/prospect/types.js";
 
 let forcePersistFailure = false;
 
@@ -149,6 +150,25 @@ describe("prospect-audit CLI — Turso persistence", () => {
     const last = output.trim().split("\n").at(-1)!;
     expect(last).toMatch(/^DO NOT SEND:/);
     expect(last).toContain("draft, not approved");
+  });
+
+  it("W1 (review round 3): a complete run's verdict says draft and names the approve command with --token=", () => {
+    const ok = { ok: true };
+    const complete = {
+      checks: ok,
+      lighthouse: ok,
+      analyze: ok,
+      probes: ok,
+    } as unknown as ProspectAuditResult;
+    const token = "abcdefghijklmnopqrstuv";
+    const line = reviewLine(complete, token)!;
+    expect(line).toMatch(/^Draft, not approved/);
+    expect(line).toContain(`prospect-audit-review --token=${token} --approve`);
+    // A failed stage turns the same verdict into DO NOT SEND.
+    expect(
+      reviewLine({ ...complete, probes: { ok: false } } as unknown as ProspectAuditResult, token),
+    ).toMatch(/^DO NOT SEND:/);
+    expect(reviewLine(complete, null)).toBeNull();
   });
 
   it("--json still persists to Turso and includes the link in the JSON payload", async () => {
