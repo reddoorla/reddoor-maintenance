@@ -110,6 +110,17 @@ export type ProbeInput = {
    *  as cold searches they have no antecedent. */
   categoryQueries: string[];
   competitors: string[];
+  /**
+   * Also ask "<name> reviews". Off by default, an operator option for a brand
+   * and reputation report a person reads before it goes out.
+   *
+   * It asks for reputational material on purpose, and what comes back is
+   * whatever review surface exists: for a B2B firm that is employee ratings,
+   * and one assistant failing to find reviews in four searches came back as
+   * "there just isn't a public review footprint". Neither is something a
+   * sales document should carry unread.
+   */
+  reviews?: boolean;
 };
 
 export type ProbeQuery = { query: string; kind: ProbeAnswer["kind"] };
@@ -122,7 +133,7 @@ export function buildQueries(input: ProbeInput): ProbeQuery[] {
   const name = resolveBusinessName(input.business, input.url);
   const candidates: ProbeQuery[] = [
     { query: `who is ${name}`, kind: "branded" },
-    { query: `${name} reviews`, kind: "branded" },
+    ...(input.reviews === true ? [{ query: `${name} reviews`, kind: "branded" } as const] : []),
     // All five, not three. The schema asks the model for up to five and we were
     // paying to generate them, then discarding two — which also pinned the
     // denominator at 3, making visibilityScore a four-valued {0,33,67,100}

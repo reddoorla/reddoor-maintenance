@@ -25,6 +25,20 @@ const engine = (
 });
 
 describe("buildQueries", () => {
+  it('asks "<name> reviews" only when the operator turns it on', () => {
+    const base = {
+      business: "Acme Roofing",
+      url: "https://acme.example/",
+      categoryQueries: ["flat roof contractors Boise"],
+      competitors: [],
+    };
+    expect(buildQueries(base).map((q) => q.query)).not.toContain("Acme Roofing reviews");
+    expect(buildQueries({ ...base, reviews: true })[1]).toEqual({
+      query: "Acme Roofing reviews",
+      kind: "branded",
+    });
+  });
+
   it("asks the branded queries, then the category searches", () => {
     const queries = buildQueries({
       business: "Acme Roofing",
@@ -38,7 +52,9 @@ describe("buildQueries", () => {
       competitors: [],
     });
     expect(queries[0]).toEqual({ query: "who is Acme Roofing", kind: "branded" });
-    expect(queries[1]).toEqual({ query: "Acme Roofing reviews", kind: "branded" });
+    // Not asked by default: it returns reputational material nobody has checked.
+    expect(queries.map((q) => q.query)).not.toContain("Acme Roofing reviews");
+    expect(queries[1]?.kind).toBe("category");
     const byQuery = queries.map((q) => q.query);
     expect(byQuery).toContain("how much does a roof repair cost");
     expect(queries.find((q) => q.query === "how much does a roof repair cost")!.kind).toBe(
@@ -176,11 +192,14 @@ describe("isDistinctiveName", () => {
 });
 
 describe("runVisibilityProbes", () => {
+  // The operator option is on here: these tests are about how the runner asks
+  // and scores two branded queries and a category one, not about the default set.
   const args = {
     url: "https://acme.example/",
     business: "Acme Roofing",
     categoryQueries: ["how much does a roof repair cost"],
     competitors: [],
+    reviews: true,
   };
 
   it("scores a category answer, but treats a branded echo as a different signal (brandedRecognized)", async () => {

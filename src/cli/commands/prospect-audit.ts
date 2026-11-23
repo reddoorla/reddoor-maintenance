@@ -44,6 +44,8 @@ export type ProspectAuditCliOptions = {
   competitors?: string;
   /** cac sets this false for `--no-probes`. */
   probes?: boolean;
+  /** `--reviews`: also ask "<name> reviews". Off by default. */
+  reviews?: boolean;
   out?: string;
   json?: boolean;
   /**
@@ -410,6 +412,7 @@ export async function runProspectAuditCommand(
             }
           : {}),
         ...(opts.probes === false ? { probes: false } : {}),
+        ...(opts.reviews === true ? { reviews: true } : {}),
         ...(chosenTerms.length > 0 ? { terms: chosenTerms } : {}),
         ...(chosenQuestions.length > 0 ? { questions: chosenQuestions } : {}),
       },

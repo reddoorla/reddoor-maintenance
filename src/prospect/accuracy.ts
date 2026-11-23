@@ -72,6 +72,36 @@ const MAX_ASSERTIONS = 12;
 
 export type AssertionVerdict = "confirmed" | "contradicted" | "absent" | "unverified";
 
+/** Who a statement is about. An answer that hedges "most likely match: <another
+ *  firm>" and then lists that firm's rating is describing the other firm; a
+ *  paraphrase that starts "The business…" moved the rating onto ours. */
+export const SUBJECTS = ["prospect", "other", "unclear"] as const;
+export type AssertionSubject = (typeof SUBJECTS)[number];
+
+/**
+ * What kind of fact a statement is. The report withholds every topic but
+ * `other` and prints only a count: these are the statements that harm a
+ * business when they are wrong (a rating, a complaint, who owns it, a named
+ * person), and nobody has checked them. The website also matches the text, so
+ * a model that files a rating under `other` does not get it printed.
+ */
+export const TOPICS = [
+  "ratings_reviews",
+  "complaints",
+  "accreditation",
+  "legal_entity",
+  "ownership",
+  "named_person",
+  "revenue_headcount",
+  "street_address",
+  "other",
+] as const;
+export type AssertionTopic = (typeof TOPICS)[number];
+
+/** The one attribute a `contradicted` statement disagrees on, and the two
+ *  values, each verbatim from its own quote. Null on every other verdict. */
+export type Contradiction = { attribute: string; engineValue: string; siteValue: string };
+
 export type Assertion = {
   /** The statement, in plain words. */
   claim: string;
@@ -101,6 +131,15 @@ export type Assertion = {
   /** Which branded query produced it. */
   query: string;
   engine: string;
+  /** Who the statement is about. Only `prospect` rows are printed as being
+   *  about the prospect. Absent on rows stored before 2026-11-23. */
+  subject?: AssertionSubject;
+  /** For `other`: the name the answer gave the other business, verbatim. */
+  otherName?: string | null;
+  /** Absent on rows stored before 2026-11-23. */
+  topic?: AssertionTopic;
+  /** Set only on a `contradicted` verdict that survived the value check. */
+  contradiction?: Contradiction | null;
 };
 
 export type AccuracyResult = {
@@ -190,6 +229,17 @@ export const AccuracySchema = z.object({
          * ones that never reached the prompt.
          */
         searchTerms: z.array(z.string()).min(1).max(6),
+        /** Defaulted to the most cautious reading, so a model that omits it
+         *  gets its statement withheld rather than printed as about them. */
+        subject: z.enum(SUBJECTS).default("unclear"),
+        otherName: z.string().nullable().default(null),
+        topic: z.enum(TOPICS).default("other"),
+        /** Required for a "contradicted" to stand: code checks each value is in
+         *  its own quote and that they differ. */
+        contradiction: z
+          .object({ attribute: z.string(), engineValue: z.string(), siteValue: z.string() })
+          .nullable()
+          .default(null),
       }),
     )
     .max(MAX_ASSERTIONS),
@@ -246,6 +296,24 @@ For each assertion return:
   the word "design" does not support "this is a graphic design company"; a sentence saying what the
   company does supports it. If the only passage you can find is on-topic but does not actually say the
   thing, the verdict is "absent" with that passage left out — not "confirmed" with it attached.
+- contradiction: for "contradicted" only, the one attribute the two disagree on and both values:
+  attribute ("founding year", "city"), engineValue (copied verbatim from engineQuote) and siteValue (copied
+  verbatim from siteQuote), e.g. "founding year", "2001", "2022". Code checks each value is in its own
+  quote and that they differ; a "contradicted" without them is not reported. Null for other verdicts.
+- subject: who the statement is about, judged from the answer's own words around engineQuote.
+    "prospect" — this business.
+    "other"    — a different business or person the answer describes, including one it offers as a
+                 "most likely match", "possibly the same as", or an alternate name it is unsure of.
+    "unclear"  — the answer does not make clear which one it means.
+  Write the claim with the real subject. Never write "the business" for a statement the answer made
+  about someone else.
+- otherName: for "other", the name the answer gives that business or person, verbatim. Null otherwise.
+- topic: what kind of fact it is. One of "ratings_reviews" (a rating, a review count or score, from
+  customers or employees), "complaints" (complaints, alerts, lawsuits), "accreditation" (any
+  accreditation, licence or certification status), "legal_entity" (registration, DBA, entity
+  type, alternate names), "ownership" (who owns or acquired it, franchise or parent), "named_person"
+  (any statement naming an individual: founder, owner, CEO, staff), "revenue_headcount" (revenue,
+  funding, number of employees), "street_address" (a street address), or "other".
 - searchTerms: 1-6 distinctive words or short phrases you would search the site for to find this fact —
   proper nouns, numbers, street names. These are used to re-check "absent" verdicts across pages you were
   not shown, so choose terms that would actually appear if the fact were stated somewhere else on the site.
@@ -481,6 +549,8 @@ export function backstopAbsent(
   siteText: string,
   searchTermsByClaim: Map<string, string[]>,
   siteFullyRead: boolean,
+  /** What to tell the reader when `siteFullyRead` is false. */
+  partialReason = "The site was larger than we read in one pass, so we cannot say this is absent from it.",
 ): Assertion[] {
   const haystack = normalize(siteText);
   return assertions.map((a) => {
@@ -517,8 +587,7 @@ export function backstopAbsent(
         ...a,
         verdict: "unverified" as const,
         nearbyMention: scattered,
-        unverifiedReason:
-          "The site was larger than we read in one pass, so we cannot say this is absent from it.",
+        unverifiedReason: partialReason,
       };
     }
 
@@ -600,7 +669,18 @@ const WEAK_WORDS = new Set([
  * A failing pair becomes `unverified`, never `absent`. The site may well say
  * this somewhere; we just have not been shown the passage that says it.
  */
-export function quoteSupportsClaim(claim: string, quote: string): boolean {
+export function quoteSupportsClaim(
+  claim: string,
+  quote: string,
+  /** The business's own name. Its words are in every passage on its own site
+   *  and in most claims about it, so they are never evidence that the passage
+   *  says the claim: a passage saying only that the firm "provides custom
+   *  solutions" for one of its trades shared the firm's name and that trade
+   *  word with a list of services the passage never names, and was marked
+   *  confirmed. */
+  ownName = "",
+): boolean {
+  const own = new Set(scanWords(ownName).map((w) => w.lower));
   // Two kinds of token count, and the second is why this is not a plain word
   // filter. "Reddoor Creative is led by Tim Holmes" against "owner, Tim Holmes,
   // found himself stuck in LA" shares exactly the two words that matter, and a
@@ -637,7 +717,7 @@ export function quoteSupportsClaim(claim: string, quote: string): boolean {
       run.length = 0;
     };
     for (const w of scanWords(t)) {
-      if (WEAK_WORDS.has(w.lower)) {
+      if (WEAK_WORDS.has(w.lower) || own.has(w.lower)) {
         flushRun();
         continue;
       }
@@ -782,6 +862,38 @@ function doubtingTerm(
   return null;
 }
 
+/** `value` appears in `text` as whole words, ignoring case and spacing. */
+function holdsValue(text: string, value: string): boolean {
+  const v = normalize(value);
+  if (v === "") return false;
+  const escaped = v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![a-z0-9])${escaped}(?![a-z0-9])`).test(normalize(text));
+}
+
+/**
+ * Does a "contradicted" verdict show its work: the engine's value in the
+ * engine's quote, the site's value in the site's quote, and two values that
+ * are not the same?
+ *
+ * This replaces the shared-word bar for contradictions. A passage that
+ * contradicts a claim differs from it in exactly the word that matters, so
+ * asking it to RESEMBLE the claim threw away the true ones: "founded in 2001"
+ * against the site's "founded … in 2022" shared too few words and was stored as
+ * "does not actually say this", the one finding in the section with a receipt
+ * on both sides.
+ */
+function contradictionHolds(
+  c: Contradiction | null,
+  engineQuote: string,
+  siteQuote: string | null,
+): boolean {
+  if (c === null || siteQuote === null) return false;
+  if (!holdsValue(engineQuote, c.engineValue) || !holdsValue(siteQuote, c.siteValue)) return false;
+  const e = normalize(c.engineValue);
+  const s = normalize(c.siteValue);
+  return e !== s && !e.includes(s) && !s.includes(e);
+}
+
 function verifyQuotes(
   raw: z.infer<typeof AccuracySchema>["assertions"],
   answerText: string,
@@ -832,14 +944,22 @@ function verifyQuotes(
 
     const quoteReal = siteQuote !== null && site.includes(normalize(siteQuote));
     const needsQuote = verdict === "confirmed" || verdict === "contradicted";
-    // A real quote is not automatically a supporting one — see
-    // quoteSupportsClaim. Only checked where the verdict rests on the quote.
-    const quoteSupports = quoteReal && siteQuote !== null && quoteSupportsClaim(a.claim, siteQuote);
+    // A real quote is not automatically a supporting one. A "confirmed" must
+    // share the claim's substance (quoteSupportsClaim, without the business's
+    // own name); a "contradicted" must show two different values, one in each
+    // quote (contradictionHolds), and is never held to the shared-word bar.
+    const quoteSupports =
+      quoteReal &&
+      siteQuote !== null &&
+      (verdict === "contradicted"
+        ? contradictionHolds(a.contradiction, a.engineQuote, siteQuote)
+        : quoteSupportsClaim(a.claim, siteQuote, businessNameOf(from?.query ?? "")));
     const unsupported = needsQuote && (!quoteReal || !quoteSupports);
+    const finalVerdict = unsupported ? "unverified" : verdict;
 
     out.push({
       claim: a.claim,
-      verdict: unsupported ? "unverified" : verdict,
+      verdict: finalVerdict,
       engineQuote: a.engineQuote,
       // Kept when it is real, even where it does not carry the claim: the
       // reader can see what we looked at and judge it themselves, which is a
@@ -855,13 +975,59 @@ function verifyQuotes(
               ? null
               : !quoteReal
                 ? "We could not find the passage this was based on, so we have not stated it either way."
-                : "The passage we found is about the same subject but does not actually say this, so we have not stated it either way.",
+                : verdict === "contradicted"
+                  ? "The passage we found does not show a different value for this, so we have not stated it either way."
+                  : "The passage we found is about the same subject but does not actually say this, so we have not stated it either way.",
       sourceDomains,
       query: from?.query ?? "",
       engine: from?.engine ?? "",
+      subject: a.subject,
+      otherName: a.subject === "other" ? a.otherName : null,
+      topic: a.topic,
+      contradiction: finalVerdict === "contradicted" ? a.contradiction : null,
     });
   }
   return out;
+}
+
+/**
+ * Did we read the whole SITE, or only the whole crawl?
+ *
+ * `fullyRead` from `selectPages` means every page the crawl took reached the
+ * prompt. The crawl stops at 20 pages, so on a site whose sitemap lists 95 it
+ * was "read whole" at 20, and "your site does not say this" went out about 75
+ * pages nobody opened. Now the site counts as read only when its own sitemap
+ * gives a size and the pages we read reach it. With no sitemap, or a sitemap we
+ * stopped reading part way, we never learned the size, and `absent` cannot be
+ * claimed.
+ */
+export function siteCoverage(
+  crawlFullyRead: boolean,
+  pagesRead: number,
+  siteUrlCount: number | null,
+  crawl: Pick<CrawlResult, "sitemap">,
+): { full: boolean; reason: string } {
+  const truncated = (crawl.sitemap as CrawlResult["sitemap"] | undefined)?.truncated === true;
+  if (!crawlFullyRead) {
+    return {
+      full: false,
+      reason:
+        "The site was larger than we read in one pass, so we cannot say this is absent from it.",
+    };
+  }
+  if (siteUrlCount === null || siteUrlCount <= 0 || truncated) {
+    return {
+      full: false,
+      reason: `We read ${pagesRead} of your pages and could not learn how many your site has, so we cannot say this is absent from it.`,
+    };
+  }
+  if (pagesRead < siteUrlCount) {
+    return {
+      full: false,
+      reason: `We read ${pagesRead} of your ${siteUrlCount} pages, so we cannot say this is absent from your site.`,
+    };
+  }
+  return { full: true, reason: "" };
 }
 
 export type AccuracyDeps = {
@@ -972,13 +1138,15 @@ export async function checkAccuracy(
     deps.ownership,
   );
 
+  const siteUrlCount = siteUrlCountOf(crawl);
+  const coverage = siteCoverage(input.fullyRead, input.pagesRead, siteUrlCount, crawl);
   return {
-    assertions: backstopAbsent(verified, siteText, termsByClaim, input.fullyRead),
+    assertions: backstopAbsent(verified, siteText, termsByClaim, coverage.full, coverage.reason),
     sources,
-    siteFullyRead: input.fullyRead,
+    siteFullyRead: coverage.full,
     pagesRead: input.pagesRead,
     pagesTotal: crawl.pages.length,
-    siteUrlCount: siteUrlCountOf(crawl),
+    siteUrlCount,
     answersRead: branded.length,
     conflation,
   };

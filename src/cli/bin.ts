@@ -856,6 +856,10 @@ cli
     "What the site should get a visitor to do: book, enquire, call, visit, buy, demo or partner. Defaults to what the model reads off the site.",
   )
   .option("--no-probes", "Skip the live AI-visibility probes (tier 3).")
+  .option(
+    "--reviews",
+    'Also ask "<name> reviews". Off by default: what comes back is reputational material nobody has checked, so use it only for a report a person reads before it goes out.',
+  )
   .option("--out <file>", "Also write the rendered report to this file.")
   .option("--json", "Print the raw result JSON instead of the report summary.")
   .option(

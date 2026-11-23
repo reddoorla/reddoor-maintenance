@@ -236,6 +236,8 @@ export type ProspectAuditOptions = {
   competitors?: string[];
   /** false → tier 3 is skipped deliberately (`--no-probes`). */
   probes?: boolean;
+  /** Also ask "<name> reviews" (`--reviews`). Off by default: see `ProbeInput`. */
+  reviews?: boolean;
   /** What this site is for, when we already know. Overrides the analyze stage's
    *  inference — supply it when the prospect has told us, leave it out for a
    *  cold audit and let the site speak for itself. */
@@ -457,6 +459,7 @@ export async function runProspectAudit(
           business: businessName ?? "",
           categoryQueries: analyze.ok ? analyze.data.categoryQueries : [],
           competitors: opts.competitors ?? [],
+          ...(opts.reviews === true ? { reviews: true } : {}),
         },
         deps.engines ?? envEngines(),
         probeOpts,

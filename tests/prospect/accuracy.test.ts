@@ -34,12 +34,17 @@ function page(url: string, text: string): PageCapture {
   return { url, status: 200, raw: extract({ text }), rendered: null, error: null };
 }
 
-function crawl(pages: PageCapture[]): CrawlResult {
+/** `sitemapUrls` is the site's own size. Pass the page count for a site we read
+ *  whole; leave it out for a site with no sitemap, whose size we never learn. */
+function crawl(pages: PageCapture[], sitemapUrls?: number): CrawlResult {
   return {
     origin: "https://example.com",
     robotsTxt: null,
     agentAccess: [],
-    sitemap: { present: false, urlCount: 0 },
+    sitemap:
+      sitemapUrls === undefined
+        ? { present: false, urlCount: 0 }
+        : { present: true, urlCount: sitemapUrls },
     llmsTxt: { present: false, firstLine: null },
     sidecarErrors: { robots: null, llms: null, sitemap: null },
     homeHeaders: {},
@@ -206,16 +211,20 @@ describe("backstopAbsent — never accuse an engine of inventing what the site p
 });
 
 describe("checkAccuracy — quotes are verified, not trusted", () => {
-  const site = crawl([
-    page(
-      "https://seaviewdental.example/",
-      "Beachfront Dentistry in Riviera Village, Redondo Beach.",
-    ),
-    page(
-      "https://seaviewdental.example/team",
-      "Meet Your Team Dr. Priya Raman Dr. Marcus Whitfield",
-    ),
-  ]);
+  // A two-page site whose sitemap lists two pages: read whole, so `absent` can stand.
+  const site = crawl(
+    [
+      page(
+        "https://seaviewdental.example/",
+        "Beachfront Dentistry in Riviera Village, Redondo Beach.",
+      ),
+      page(
+        "https://seaviewdental.example/team",
+        "Meet Your Team Dr. Priya Raman Dr. Marcus Whitfield",
+      ),
+    ],
+    2,
+  );
   const answer = branded({
     fullAnswer:
       "Beachfront Dentistry is a dental practice in the Riviera Village neighborhood of Redondo Beach. " +
@@ -652,8 +661,13 @@ describe("a place the site itself names is never 'contradicted'", () => {
             claim: "Acme Design is located in the Portland metro area.",
             engineQuote: "Acme Design (Los Angeles-based)",
             verdict: "contradicted",
-            siteQuote: "We are conveniently located near the Los Angeles metro area.",
+            siteQuote: "HQ mailing address: 1 Main St, Fair Oaks Ranch, TX.",
             searchTerms: ["Portland"],
+            contradiction: {
+              attribute: "location",
+              engineValue: "Los Angeles",
+              siteValue: "Fair Oaks Ranch",
+            },
           },
         ],
       }),
@@ -661,7 +675,7 @@ describe("a place the site itself names is never 'contradicted'", () => {
     });
     expect(r.assertions[0]).toMatchObject({
       verdict: "contradicted",
-      siteQuote: "We are conveniently located near the Los Angeles metro area.",
+      siteQuote: "HQ mailing address: 1 Main St, Fair Oaks Ranch, TX.",
       unverifiedReason: null,
     });
   });
@@ -1101,5 +1115,302 @@ describe("a crawl stored before sitemap was tracked", () => {
       { run: async () => ({ assertions: [] }), ownership: { fetchPage: async () => null } },
     );
     expect(r.siteUrlCount).toBeNull();
+  });
+});
+
+describe("W2: what the assistant said, about the right company", () => {
+  const offline = { fetchPage: async () => null };
+  const run = (assertions: unknown[]) => ({
+    run: async () => ({ assertions }),
+    ownership: offline,
+  });
+
+  // The stored shape, renamed: the site says it was founded in 2022, the answer
+  // says 2001. The passage contradicts the claim in exactly the word that
+  // matters, so it shares too few words with it to pass a resemblance test.
+  describe("a contradiction is checked on its two values, not on shared words", () => {
+    const site = crawl(
+      [page("https://north.example/", "Northwind Supply opened its first warehouse in 2022.")],
+      1,
+    );
+    const answer = branded({
+      query: "who is Northwind Supply",
+      fullAnswer: "Northwind Supply was established in 2001 and serves contractors.",
+    });
+    const base = {
+      claim: "The business was founded in 2001.",
+      engineQuote: "Northwind Supply was established in 2001",
+      verdict: "contradicted",
+      siteQuote: "opened its first warehouse in 2022",
+      searchTerms: ["2001"],
+    };
+
+    it("keeps 2001 against 2022 as contradicted, with both values", async () => {
+      const r = await checkAccuracy(
+        "https://north.example/",
+        site,
+        [answer],
+        [],
+        run([
+          {
+            ...base,
+            contradiction: { attribute: "founding year", engineValue: "2001", siteValue: "2022" },
+          },
+        ]),
+      );
+      expect(r.assertions[0]).toMatchObject({
+        verdict: "contradicted",
+        unverifiedReason: null,
+        contradiction: { attribute: "founding year", engineValue: "2001", siteValue: "2022" },
+      });
+    });
+
+    it("does not stand without the two values", async () => {
+      const r = await checkAccuracy("https://north.example/", site, [answer], [], run([base]));
+      expect(r.assertions[0]?.verdict).toBe("unverified");
+      expect(r.assertions[0]?.contradiction).toBeNull();
+    });
+
+    it("does not stand when a value is not in its own quote", async () => {
+      const r = await checkAccuracy(
+        "https://north.example/",
+        site,
+        [answer],
+        [],
+        run([
+          {
+            ...base,
+            contradiction: { attribute: "founding year", engineValue: "2001", siteValue: "2019" },
+          },
+        ]),
+      );
+      expect(r.assertions[0]?.verdict).toBe("unverified");
+    });
+
+    it("does not stand when the two values are the same", async () => {
+      const r = await checkAccuracy(
+        "https://north.example/",
+        crawl([page("https://north.example/", "Founded in 2001 in Ohio.")], 1),
+        [answer],
+        [],
+        run([
+          {
+            ...base,
+            siteQuote: "Founded in 2001 in Ohio.",
+            contradiction: { attribute: "founding year", engineValue: "2001", siteValue: "2001" },
+          },
+        ]),
+      );
+      expect(r.assertions[0]?.verdict).toBe("unverified");
+    });
+
+    it("matches a value as whole words: 20 is not in 2022", async () => {
+      const r = await checkAccuracy(
+        "https://north.example/",
+        site,
+        [answer],
+        [],
+        run([
+          {
+            ...base,
+            contradiction: { attribute: "founding year", engineValue: "2001", siteValue: "20" },
+          },
+        ]),
+      );
+      expect(r.assertions[0]?.verdict).toBe("unverified");
+    });
+  });
+
+  describe("absent needs the whole site, by its own sitemap", () => {
+    const pages = Array.from({ length: 20 }, (_, i) =>
+      page(`https://north.example/${i === 0 ? "" : `p${i}`}`, `Page ${i} of Northwind Supply.`),
+    );
+    const answer = branded({
+      query: "who is Northwind Supply",
+      fullAnswer: "Northwind Supply is based at 12 Harbor Road.",
+    });
+    const absent = {
+      claim: "The business is based at 12 Harbor Road.",
+      engineQuote: "based at 12 Harbor Road",
+      verdict: "absent",
+      siteQuote: null,
+      searchTerms: ["12 Harbor Road"],
+    };
+
+    it("makes an absent on a partly read site unverified: 20 of 95 pages", async () => {
+      const r = await checkAccuracy(
+        "https://north.example/",
+        crawl(pages, 95),
+        [answer],
+        [],
+        run([absent]),
+      );
+      expect(r.siteFullyRead).toBe(false);
+      expect(r.assertions[0]).toMatchObject({
+        verdict: "unverified",
+        unverifiedReason:
+          "We read 20 of your 95 pages, so we cannot say this is absent from your site.",
+      });
+    });
+
+    it("makes it unverified when there is no sitemap to give the site's size", async () => {
+      const r = await checkAccuracy(
+        "https://north.example/",
+        crawl(pages),
+        [answer],
+        [],
+        run([absent]),
+      );
+      expect(r.siteFullyRead).toBe(false);
+      expect(r.assertions[0]?.verdict).toBe("unverified");
+      expect(r.assertions[0]?.unverifiedReason).toMatch(/could not learn how many/);
+    });
+
+    it("makes it unverified when we stopped reading the sitemap part way", async () => {
+      const c = crawl(pages, 20);
+      c.sitemap = { present: true, urlCount: 20, truncated: true };
+      const r = await checkAccuracy("https://north.example/", c, [answer], [], run([absent]));
+      expect(r.siteFullyRead).toBe(false);
+    });
+
+    it("keeps absent when the pages read cover the sitemap", async () => {
+      const r = await checkAccuracy(
+        "https://north.example/",
+        crawl(pages, 20),
+        [answer],
+        [],
+        run([absent]),
+      );
+      expect(r.siteFullyRead).toBe(true);
+      expect(r.assertions[0]?.verdict).toBe("absent");
+    });
+  });
+
+  describe("the business's own name is not evidence", () => {
+    it("does not confirm a claim whose only shared words are the client's name and one more", () => {
+      const claim =
+        "Calder's services include gutter repair, skylight installation and roof inspections for homeowners.";
+      const quote = "Calder provides custom solutions for the skylight needs of any client.";
+      expect(quoteSupportsClaim(claim, quote)).toBe(true); // the false pass, without the name
+      expect(quoteSupportsClaim(claim, quote, "Calder")).toBe(false);
+    });
+
+    it("still confirms a passage that says the claim in other words", () => {
+      expect(
+        quoteSupportsClaim(
+          "Calder offers gutter repair for homeowners.",
+          "Calder handles gutter repair for homeowners citywide.",
+          "NORV",
+        ),
+      ).toBe(true);
+    });
+
+    it("drops a confirmed whose quote shares only the name, through checkAccuracy", async () => {
+      const site = crawl(
+        [
+          page(
+            "https://calder.example/",
+            "Calder provides custom solutions for the skylight needs of any client.",
+          ),
+        ],
+        1,
+      );
+      const answer = branded({
+        query: "who is Calder",
+        fullAnswer: "Calder offers gutter repair and skylight installation for homeowners.",
+      });
+      const r = await checkAccuracy(
+        "https://calder.example/",
+        site,
+        [answer],
+        [],
+        run([
+          {
+            claim:
+              "Calder's services include gutter repair and skylight installation for homeowners.",
+            engineQuote: "Calder offers gutter repair and skylight installation for homeowners",
+            verdict: "confirmed",
+            siteQuote: "Calder provides custom solutions for the skylight needs of any client.",
+            searchTerms: ["skylight installation"],
+          },
+        ]),
+      );
+      expect(r.assertions[0]?.verdict).toBe("unverified");
+    });
+  });
+
+  describe("who a statement is about is recorded", () => {
+    // The stored shape, renamed: the answer hedges a "most likely match" to
+    // another firm, then gives that firm's rating.
+    const site = crawl([page("https://north.example/", "Northwind Supply serves contractors.")], 1);
+    const answer = branded({
+      query: "who is Northwind Supply",
+      fullAnswer:
+        "Most likely match: Southgate Outfitters (Riverton) — lists Northwind Supply as an alternate name. It holds a 2.1 out of 5 rating.",
+    });
+
+    it("carries subject, the other name and the topic", async () => {
+      const r = await checkAccuracy(
+        "https://north.example/",
+        site,
+        [answer],
+        [],
+        run([
+          {
+            claim: "Southgate Outfitters holds a 2.1 out of 5 rating.",
+            engineQuote: "It holds a 2.1 out of 5 rating.",
+            verdict: "absent",
+            siteQuote: null,
+            searchTerms: ["2.1 out of 5"],
+            subject: "other",
+            otherName: "Southgate Outfitters",
+            topic: "ratings_reviews",
+          },
+        ]),
+      );
+      expect(r.assertions[0]).toMatchObject({
+        subject: "other",
+        otherName: "Southgate Outfitters",
+        topic: "ratings_reviews",
+      });
+    });
+
+    it("reads an omitted subject as unclear, never as about the prospect", async () => {
+      const r = await checkAccuracy(
+        "https://north.example/",
+        site,
+        [answer],
+        [],
+        run([
+          {
+            claim: "It holds a 2.1 out of 5 rating.",
+            engineQuote: "It holds a 2.1 out of 5 rating.",
+            verdict: "absent",
+            siteQuote: null,
+            searchTerms: ["2.1 out of 5"],
+          },
+        ]),
+      );
+      expect(r.assertions[0]?.subject).toBe("unclear");
+      expect(r.assertions[0]?.otherName).toBeNull();
+    });
+  });
+
+  describe("the prompt asks for subject, topic and both values", () => {
+    it("names each field", () => {
+      const { system } = buildAccuracyInput(crawl([page("https://x.example/", "x")], 1), [
+        branded({ fullAnswer: "x" }),
+      ]);
+      for (const field of [
+        "subject:",
+        "otherName:",
+        "topic:",
+        "contradiction:",
+        "engineValue",
+        "siteValue",
+      ]) {
+        expect(system).toContain(field);
+      }
+    });
   });
 });
