@@ -243,7 +243,8 @@ export const AccuracySchema = z.object({
         contradiction: z
           .object({ attribute: z.string(), engineValue: z.string(), siteValue: z.string() })
           .nullable()
-          .default(null),
+          .default(null)
+          .catch(null),
       }),
     )
     .max(MAX_ASSERTIONS),
@@ -660,6 +661,34 @@ const WEAK_WORDS = new Set([
   "based",
 ]);
 
+/** Trailing words that belong to a business name ("Acme Design Group", "Acme Dental Care"),
+ *  mirroring the legal suffixes in `probes.ts` plus the organisational words an
+ *  agency uses in its own name. A run of these after the name is part of the name. */
+const SUFFIX_WORDS = new Set([
+  "group",
+  "groups",
+  "studio",
+  "studios",
+  "co",
+  "company",
+  "llc",
+  "inc",
+  "incorporated",
+  "ltd",
+  "limited",
+  "corp",
+  "corporation",
+  "plc",
+  "llp",
+  "lp",
+  "pllc",
+  "pc",
+  "partners",
+  "agency",
+  "dental",
+  "design",
+]);
+
 /**
  * Does this passage actually STATE the claim, or merely touch the same subject?
  *
@@ -690,7 +719,31 @@ export function quoteSupportsClaim(
    *  confirmed. */
   ownName = "",
 ): boolean {
-  const own = new Set(scanWords(ownName).map((w) => w.lower));
+  const ownWords = scanWords(ownName).map((w) => w.lower);
+  const runsOn = (w: ScannedWord | undefined): boolean =>
+    w !== undefined && (SUFFIX_WORDS.has(w.lower) || (w.capitalised && !w.opensSentence));
+  // The words of a passage with the business's own name taken out where it
+  // stands AS the name, with the capitalised or suffix words that run on from it
+  // ("Acme Design Group"). The name is not excluded anywhere else: "Acme Dental
+  // places dental implants" still shares "dental" with "We place dental implants".
+  const wordsOf = (t: string): ScannedWord[] => {
+    const all = scanWords(t);
+    const kept: ScannedWord[] = [];
+    let i = 0;
+    while (i < all.length) {
+      const w = all[i];
+      if (w === undefined) break;
+      const nameHere = ownWords.length > 0 && ownWords.every((o, k) => all[i + k]?.lower === o);
+      if (!nameHere) {
+        kept.push(w);
+        i += 1;
+        continue;
+      }
+      i += ownWords.length;
+      while (i < all.length && runsOn(all[i])) i += 1;
+    }
+    return kept;
+  };
   // Two kinds of token count, and the second is why this is not a plain word
   // filter. "Reddoor Creative is led by Tim Holmes" against "owner, Tim Holmes,
   // found himself stuck in LA" shares exactly the two words that matter, and a
@@ -726,8 +779,8 @@ export function quoteSupportsClaim(
       if (run.length > 0) names.add(run.join(" "));
       run.length = 0;
     };
-    for (const w of scanWords(t)) {
-      if (WEAK_WORDS.has(w.lower) || own.has(w.lower)) {
+    for (const w of wordsOf(t)) {
+      if (WEAK_WORDS.has(w.lower)) {
         flushRun();
         continue;
       }
@@ -835,36 +888,69 @@ function contradictionHolds(
   // The site quote also says the engine's value, so the site does not disagree
   // with it: "Founded in 2001. Copyright 2022." is not a contradiction of 2001.
   if (holdsValue(siteQuote, c.engineValue)) return false;
-  const e = normalize(c.engineValue);
-  const s = normalize(c.siteValue);
-  return !sameValue(c.engineValue, c.siteValue) && !e.includes(s) && !s.includes(e);
+  // Two numbers are compared as numbers: "10" and "100" differ, "twelve" and
+  // "12" do not. Comparing their text would call "100" and "10" related by
+  // containment.
+  const en = numberOf(c.engineValue);
+  const sn = numberOf(c.siteValue);
+  if (en !== null && sn !== null) return en !== sn;
+  // Otherwise the values must differ, and neither may be the other with words
+  // around it: "5 years" and "5" are one value, not two.
+  return (
+    !sameValue(c.engineValue, c.siteValue) &&
+    !holdsValue(c.engineValue, c.siteValue) &&
+    !holdsValue(c.siteValue, c.engineValue)
+  );
 }
 
-/** Spelled-out numbers, zero to twenty, and "a dozen". */
-const WORD_NUMBERS = new Map<string, number>([
-  ["zero", 0],
-  ["one", 1],
-  ["two", 2],
-  ["three", 3],
-  ["four", 4],
-  ["five", 5],
-  ["six", 6],
-  ["seven", 7],
-  ["eight", 8],
-  ["nine", 9],
-  ["ten", 10],
-  ["eleven", 11],
-  ["twelve", 12],
-  ["thirteen", 13],
-  ["fourteen", 14],
-  ["fifteen", 15],
-  ["sixteen", 16],
-  ["seventeen", 17],
-  ["eighteen", 18],
-  ["nineteen", 19],
-  ["twenty", 20],
-  ["a dozen", 12],
-]);
+const UNIT_WORDS = [
+  "zero",
+  "one",
+  "two",
+  "three",
+  "four",
+  "five",
+  "six",
+  "seven",
+  "eight",
+  "nine",
+  "ten",
+  "eleven",
+  "twelve",
+  "thirteen",
+  "fourteen",
+  "fifteen",
+  "sixteen",
+  "seventeen",
+  "eighteen",
+  "nineteen",
+];
+const TENS_WORDS = [
+  "",
+  "",
+  "twenty",
+  "thirty",
+  "forty",
+  "fifty",
+  "sixty",
+  "seventy",
+  "eighty",
+  "ninety",
+];
+
+/** Spelled-out numbers, zero to ninety-nine, hyphenated or spaced ("twenty-five"),
+ *  and "a dozen". */
+const WORD_NUMBERS = new Map<string, number>([["a dozen", 12]]);
+UNIT_WORDS.forEach((word, n) => WORD_NUMBERS.set(word, n));
+for (let tens = 2; tens <= 9; tens += 1) {
+  const tensWord = TENS_WORDS[tens] ?? "";
+  WORD_NUMBERS.set(tensWord, tens * 10);
+  for (let unit = 1; unit <= 9; unit += 1) {
+    const unitWord = UNIT_WORDS[unit] ?? "";
+    WORD_NUMBERS.set(`${tensWord}-${unitWord}`, tens * 10 + unit);
+    WORD_NUMBERS.set(`${tensWord} ${unitWord}`, tens * 10 + unit);
+  }
+}
 
 /** The suffixes a money or count figure carries, and what each multiplies by. */
 const SCALE = new Map<string, number>([
@@ -888,42 +974,179 @@ function numberOf(value: string): number | null {
   return Number(m[1]) * (m[2] === undefined ? 1 : (SCALE.get(m[2]) ?? 1));
 }
 
-/** `short` is two to four capitals that are the first letters of `long`'s
- *  words: "LA" and "Los Angeles", "NYC" and "New York City". */
+/** A time of day in minutes past midnight: "9am", "9:00 AM", "9 a.m.", "14:30".
+ *  Null for anything else; a bare number is not a time. */
+function timeOf(value: string): number | null {
+  const m = /^(\d{1,2})(?::(\d{2}))?(am|pm)?$/.exec(normalize(value).replace(/[.\s]/g, ""));
+  if (!m) return null;
+  const hour = Number(m[1]);
+  const minute = m[2] === undefined ? 0 : Number(m[2]);
+  const meridiem = m[3];
+  if (meridiem === undefined && m[2] === undefined) return null;
+  if (minute > 59) return null;
+  if (meridiem !== undefined) {
+    if (hour < 1 || hour > 12) return null;
+    return ((hour % 12) + (meridiem === "pm" ? 12 : 0)) * 60 + minute;
+  }
+  return hour > 23 ? null : hour * 60 + minute;
+}
+
+/** The digits of a value written as figures, when it has no letters but am/pm:
+ *  "(555) 010-0100" and "555-010-0100" have the same digits. Null otherwise. */
+function digitsOf(value: string): string | null {
+  const letters = normalize(value).replace(/[^a-z]/g, "");
+  if (!/^(am|pm)?$/.test(letters)) return null;
+  const digits = value.replace(/\D/g, "");
+  return digits === "" ? null : digits;
+}
+
+/** A value reduced to its lowercase letters and digits, with the abbreviations
+ *  spelled out, so "St. Louis" and "Saint Louis" are the same. */
+function canonical(value: string): string {
+  return normalize(value)
+    .replace(/\./g, "")
+    .replace(/\bst\b/g, "saint")
+    .replace(/\bste\b/g, "suite")
+    .replace(/\bmt\b/g, "mount")
+    .replace(/\bft\b/g, "fort")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+/** The 50 states and DC, by name and by postal code. */
+const US_STATES: ReadonlyArray<readonly [string, string]> = [
+  ["alabama", "AL"],
+  ["alaska", "AK"],
+  ["arizona", "AZ"],
+  ["arkansas", "AR"],
+  ["california", "CA"],
+  ["colorado", "CO"],
+  ["connecticut", "CT"],
+  ["delaware", "DE"],
+  ["district of columbia", "DC"],
+  ["florida", "FL"],
+  ["georgia", "GA"],
+  ["hawaii", "HI"],
+  ["idaho", "ID"],
+  ["illinois", "IL"],
+  ["indiana", "IN"],
+  ["iowa", "IA"],
+  ["kansas", "KS"],
+  ["kentucky", "KY"],
+  ["louisiana", "LA"],
+  ["maine", "ME"],
+  ["maryland", "MD"],
+  ["massachusetts", "MA"],
+  ["michigan", "MI"],
+  ["minnesota", "MN"],
+  ["mississippi", "MS"],
+  ["missouri", "MO"],
+  ["montana", "MT"],
+  ["nebraska", "NE"],
+  ["nevada", "NV"],
+  ["new hampshire", "NH"],
+  ["new jersey", "NJ"],
+  ["new mexico", "NM"],
+  ["new york", "NY"],
+  ["north carolina", "NC"],
+  ["north dakota", "ND"],
+  ["ohio", "OH"],
+  ["oklahoma", "OK"],
+  ["oregon", "OR"],
+  ["pennsylvania", "PA"],
+  ["rhode island", "RI"],
+  ["south carolina", "SC"],
+  ["south dakota", "SD"],
+  ["tennessee", "TN"],
+  ["texas", "TX"],
+  ["utah", "UT"],
+  ["vermont", "VT"],
+  ["virginia", "VA"],
+  ["washington", "WA"],
+  ["west virginia", "WV"],
+  ["wisconsin", "WI"],
+  ["wyoming", "WY"],
+];
+const STATE_CODE = new Map<string, string>();
+for (const [name, code] of US_STATES) {
+  STATE_CODE.set(name, code.toLowerCase());
+  STATE_CODE.set(code.toLowerCase(), code.toLowerCase());
+}
+
+/** The postal code a value names, when it names a state: "Texas" and "TX" are
+ *  both "tx". Null otherwise. */
+function stateCodeOf(value: string): string | null {
+  return STATE_CODE.get(normalize(value).replace(/\./g, "")) ?? null;
+}
+
+/** `short` is two to four capitals written as the first letters of `long`'s
+ *  words: "LA" and "Los Angeles", "NYC" and "New York City". Dots in `short`
+ *  are not letters, and a trailing ", XX" region on `long` is not a word. The
+ *  longer value needs at least two words: "CA" is not the initials of "Texas". */
 function isInitialsOf(short: string, long: string): boolean {
-  const s = short.trim();
+  const s = short.trim().replace(/\./g, "");
   if (!/^[A-Z]{2,4}$/.test(s)) return false;
-  const initials = long
+  const words = long
     .trim()
+    .replace(/,\s*[A-Za-z]{2}$/, "")
     .split(/[\s-]+/)
-    .filter((w) => w.length > 0)
-    .map((w) => w.charAt(0))
-    .join("");
-  return initials.toLowerCase() === s.toLowerCase();
+    .filter((w) => w.length > 0);
+  if (words.length < 2) return false;
+  return (
+    words
+      .map((w) => w.charAt(0))
+      .join("")
+      .toLowerCase() === s.toLowerCase()
+  );
 }
 
 /** Two values name the same thing, written two ways. */
 function sameValue(a: string, b: string): boolean {
   if (normalize(a) === normalize(b)) return true;
+  // Times compare as times: "9am" is "9:00 AM", and 9am is not 10am.
+  const ta = timeOf(a);
+  const tb = timeOf(b);
+  if (ta !== null && tb !== null) return ta === tb;
+  if (canonical(a) === canonical(b)) return true;
+  // Figures compare by their digits, however they are punctuated.
+  const da = digitsOf(a);
+  const db = digitsOf(b);
+  if (da !== null && db !== null) return da === db;
   const na = numberOf(a);
   const nb = numberOf(b);
   if (na !== null && nb !== null && na === nb) return true;
+  const sa = stateCodeOf(a);
+  if (sa !== null && sa === stateCodeOf(b)) return true;
   return isInitialsOf(a, b) || isInitialsOf(b, a);
+}
+
+/** Why a "contradicted" verdict cannot be stated, or null when it can. A
+ *  statement about another business, or on a topic we do not check, is stored
+ *  as unverified with its two values kept, so the reader can see what the answer
+ *  said without the site being set against it. */
+function outOfScopeReason(a: { subject: AssertionSubject; topic: AssertionTopic }): string | null {
+  if (a.subject !== "prospect") {
+    return "The answer may be describing another business, so we have not set it against your site.";
+  }
+  if (a.topic !== "other") {
+    return "This is a topic we do not check, so we have not set it against your site.";
+  }
+  return null;
 }
 
 function verifyQuotes(
   raw: z.infer<typeof AccuracySchema>["assertions"],
-  answerText: string,
   siteText: string,
   answerOf: Map<string, ProbeAnswer>,
   prospectDomain: string,
 ): Assertion[] {
-  const answers = normalize(answerText);
   const site = normalize(siteText);
   const out: Assertion[] = [];
 
   for (const a of raw) {
-    if (!answers.includes(normalize(a.engineQuote))) continue;
+    // A quote is real only when it sits inside ONE answer. The answers used to be
+    // joined before this check, so two answers made a quote that neither had
+    // said, and it was stored with no source.
+    if (!answerOf.has(normalize(a.engineQuote))) continue;
 
     // Code never changes the model's verdict; it only checks the quote below.
     // It once set "confirmed" whenever the site used one of the claim's
@@ -954,7 +1177,11 @@ function verifyQuotes(
         ? contradictionHolds(a.contradiction, a.engineQuote, siteQuote)
         : quoteSupportsClaim(a.claim, siteQuote, businessNameOf(from?.query ?? "")));
     const unsupported = needsQuote && (!quoteReal || !quoteSupports);
-    const finalVerdict = unsupported ? "unverified" : verdict;
+    // A contradiction that stands on its quotes can still be out of scope: about
+    // another business, or on a topic we do not check. It is then stored as
+    // unverified, with its values kept.
+    const scope = verdict === "contradicted" && !unsupported ? outOfScopeReason(a) : null;
+    const finalVerdict = unsupported || scope !== null ? "unverified" : verdict;
 
     out.push({
       claim: a.claim,
@@ -965,20 +1192,22 @@ function verifyQuotes(
       // better position than being told we found nothing.
       siteQuote: quoteReal ? siteQuote : null,
       nearbyMention: null,
-      unverifiedReason: !unsupported
-        ? null
-        : !quoteReal
+      unverifiedReason: unsupported
+        ? !quoteReal
           ? "We could not find the passage this was based on, so we have not stated it either way."
           : verdict === "contradicted"
             ? "The passage we found does not show a different value for this, so we have not stated it either way."
-            : "The passage we found is about the same subject but does not actually say this, so we have not stated it either way.",
+            : "The passage we found is about the same subject but does not actually say this, so we have not stated it either way."
+        : scope,
       sourceDomains,
       query: from?.query ?? "",
       engine: from?.engine ?? "",
       subject: a.subject,
       otherName: a.subject === "other" ? a.otherName : null,
       topic: a.topic,
-      contradiction: finalVerdict === "contradicted" ? a.contradiction : null,
+      // The values stay on the row for a contradiction that stands, and for one
+      // downgraded for its scope. Only a quote that does not hold drops them.
+      contradiction: verdict === "contradicted" && !unsupported ? a.contradiction : null,
     });
   }
   return out;
@@ -988,12 +1217,12 @@ function verifyQuotes(
  * Did we read the whole SITE, or only the whole crawl?
  *
  * `fullyRead` from `selectPages` means every page the crawl took reached the
- * prompt. The crawl stops at 20 pages, so on a site whose sitemap lists 95 it
- * was "read whole" at 20, and "your site does not say this" went out about 75
- * pages nobody opened. Now the site counts as read only when its own sitemap
- * gives a size and the pages we read reach it. With no sitemap, or a sitemap we
- * stopped reading part way, we never learned the size, and `absent` cannot be
- * claimed.
+ * prompt. The crawl stops at its page cap, so a site whose sitemap lists far
+ * more pages than that was "read whole" at the cap, and "your site does not say
+ * this" went out about the pages nobody opened. Now the site counts as read only
+ * when its own sitemap gives a size and the pages we read reach it. With no
+ * sitemap, or a sitemap we stopped reading part way, we never learned the size,
+ * and `absent` cannot be claimed.
  */
 export function siteCoverage(
   read: { crawlFullyRead: boolean; pagesRead: number; readUrls: string[] },
@@ -1008,19 +1237,22 @@ export function siteCoverage(
   const generic =
     "The site was larger than we read in one pass, so we cannot say this is absent from it.";
 
-  // (d) Known size and not every page read: say how many of theirs we read.
-  if (!read.crawlFullyRead) {
-    return notFull(
-      siteUrlCount !== null && siteUrlCount > 0
-        ? readOfSite(read.pagesRead, siteUrlCount)
-        : generic,
-    );
-  }
+  // "We read P of your S pages" is said only when S is the site's complete
+  // count (not truncated) and we read fewer pages than it. A truncated count is
+  // a floor, not the site's size, so it is never printed as one.
+  const countIsWhole = siteUrlCount !== null && siteUrlCount > 0 && sitemap?.truncated === false;
+  const reasonFor = (pagesRead: number): string =>
+    siteUrlCount !== null && countIsWhole && pagesRead < siteUrlCount
+      ? readOfSite(pagesRead, siteUrlCount)
+      : generic;
+
+  // (d) Not every page read: say how many of theirs we read, when that is known.
+  if (!read.crawlFullyRead) return notFull(reasonFor(read.pagesRead));
 
   // A known size we did not reach is the reason to give, whatever the sitemap's
   // `truncated` flag says: the count is at least what we were told.
   if (siteUrlCount !== null && siteUrlCount > 0 && read.pagesRead < siteUrlCount) {
-    return notFull(readOfSite(read.pagesRead, siteUrlCount));
+    return notFull(reasonFor(read.pagesRead));
   }
 
   // (b) A missing `truncated` is "we do not know", not "complete".
@@ -1046,11 +1278,8 @@ export function siteCoverage(
   return { full: true, reason: "" };
 }
 
-/** "We read P of your S pages", with the one-page case written as English. */
+/** "We read P of your S pages". Only called when P is fewer than S. */
 function readOfSite(pagesRead: number, siteUrlCount: number): string {
-  if (pagesRead === 1 && siteUrlCount === 1) {
-    return "We read your one page, so we cannot say this is absent from your site.";
-  }
   const noun = siteUrlCount === 1 ? "page" : "pages";
   return `We read ${pagesRead} of your ${siteUrlCount} ${noun}, so we cannot say this is absent from your site.`;
 }
@@ -1148,13 +1377,14 @@ export async function checkAccuracy(
   }
 
   const siteText = fullSiteText(crawl);
-  const answerText = branded.map((a) => a.fullAnswer ?? "").join("\n");
-  const verified = verifyQuotes(parsed.assertions, answerText, siteText, answerOf, domainOf(url));
+  const verified = verifyQuotes(parsed.assertions, siteText, answerOf, domainOf(url));
 
-  // Same rule as every quote: not in the answer, not trusted.
+  // Same rule as every quote: it must sit inside ONE answer, or it is not trusted.
   const c = parsed.conflation;
+  const inOneAnswer = (q: string): boolean =>
+    branded.some((a) => normalize(a.fullAnswer ?? "").includes(normalize(q)));
   const conflation: Conflation =
-    c.detected && c.engineQuote !== null && normalize(answerText).includes(normalize(c.engineQuote))
+    c.detected && c.engineQuote !== null && inOneAnswer(c.engineQuote)
       ? { detected: true, settled: c.settled, otherNames: c.otherNames, engineQuote: c.engineQuote }
       : NO_CONFLATION;
 
