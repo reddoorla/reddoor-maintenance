@@ -344,10 +344,13 @@ time-dependent takes an injected clock.
 ## Deploy-time
 
 **1. Google Cloud OAuth client.** Create a Web application client. Authorized
-redirect URI: `https://reddoor-maintenance.netlify.app/auth/callback`, derived
+redirect URI: `https://dashboard.reddoorla.com/auth/callback`, derived
 in code from `resolveDashboardBaseUrl` so it cannot drift from the registered
 value. Google permits no wildcards, which is why deploy previews cannot use
-Google sign-in and keep the shared password instead.
+Google sign-in and keep the shared password instead. (Until P1-122,
+maintenance#2238, the host was `https://reddoor-maintenance.netlify.app`; that
+host still serves the site, and its `/auth/login` hops to the canonical host,
+because the state cookie must be set on the host Google returns to.)
 
 **2. Netlify environment variables.** Link the checkout to the site first, and
 read every variable back: `netlify env:set` accepts `--site <id>` as a global

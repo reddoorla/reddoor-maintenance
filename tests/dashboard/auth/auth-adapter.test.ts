@@ -114,6 +114,57 @@ describe("GET /auth/login — the page", () => {
   });
 });
 
+describe("GET /auth/login on the old netlify.app host (P1-122)", () => {
+  // The state cookie is set on the host the flow starts on, and Google returns
+  // to the redirect URI on DASHBOARD_BASE_URL's host. Started on the old host,
+  // the callback would never see the cookie and fail with error=state, so the
+  // login page hops to the canonical host first.
+  const OLD = "https://reddoor-maintenance.netlify.app";
+
+  it("hops to the canonical host, keeping the query, before any cookie is set", async () => {
+    googleConfigured();
+    process.env.DASHBOARD_BASE_URL = "https://dashboard.reddoorla.com";
+    const res = await authFn(get(`${OLD}/auth/login?start=1&returnTo=%2Ffleet`), ctx);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe(
+      "https://dashboard.reddoorla.com/auth/login?start=1&returnTo=%2Ffleet",
+    );
+    expect(cookieFor(res, STATE_COOKIE)).toBeUndefined();
+  });
+
+  it("hops the plain login page too", async () => {
+    googleConfigured();
+    process.env.DASHBOARD_BASE_URL = "https://dashboard.reddoorla.com";
+    const res = await authFn(get(`${OLD}/auth/login`), ctx);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("https://dashboard.reddoorla.com/auth/login");
+  });
+
+  it("serves the page in place while the old host is still the canonical one", async () => {
+    googleConfigured();
+    process.env.DASHBOARD_BASE_URL = OLD;
+    const res = await authFn(get(`${OLD}/auth/login`), ctx);
+    expect(res.status).toBe(200);
+  });
+
+  it("leaves a deploy preview's own host alone (it signs in with the shared password)", async () => {
+    googleConfigured();
+    process.env.DASHBOARD_BASE_URL = "https://dashboard.reddoorla.com";
+    const res = await authFn(
+      get("https://deploy-preview-12--reddoor-maintenance.netlify.app/auth/login"),
+      ctx,
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("does not hop the callback, which must answer where Google sends it", async () => {
+    googleConfigured();
+    process.env.DASHBOARD_BASE_URL = "https://dashboard.reddoorla.com";
+    const res = await authFn(get(`${OLD}/auth/callback?state=x&code=y`), ctx);
+    expect(res.headers.get("location")).toBe("/auth/login?error=state");
+  });
+});
+
 describe("GET /auth/login?start=1 — beginning the flow", () => {
   it("redirects to Google with PKCE and sets the state cookie", async () => {
     googleConfigured();

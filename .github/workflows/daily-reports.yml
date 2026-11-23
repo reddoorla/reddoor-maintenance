@@ -310,7 +310,7 @@ jobs:
           # fields (collectRenovateAlerts/collectCiAlerts), so no live GitHub sweep
           # runs here — no GitHub token is needed for this step.
           # Both optional — the CLI falls back to the operator inbox
-          # (src/util/operator.ts) and https://reddoor-maintenance.netlify.app
+          # (src/util/operator.ts) and https://dashboard.reddoorla.com
           # when unset/empty. Set the repo Actions *variables* (not secrets) to
           # override. Keep OPERATOR_EMAIL mirrored into a local
           # ~/.config/reddoor-maint/credentials.env too: this variable covers CI

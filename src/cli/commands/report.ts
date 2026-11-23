@@ -27,6 +27,7 @@ import type { RerenderDeps } from "../../reports/send/rerender.js";
 import { operatorEmail } from "../../util/operator.js";
 import { lazyFleetDb } from "../../db/lazy-fleet-db.js";
 import { ymd } from "../../util/date.js";
+import { resolveDashboardBaseUrl } from "../../dashboard/handler-helpers.js";
 
 export type ReportCommandOptions = {
   due?: boolean;
@@ -103,10 +104,10 @@ export function parseSingleSiteReportType(raw: string | undefined): ReportType {
   );
 }
 
-/** Dashboard origin for digest /s/<slug> links. DASHBOARD_BASE_URL overrides the
- *  production default; the trailing slash (if any) is trimmed by runDigest. */
+/** Dashboard origin for digest /s/<slug> links: the same resolver the cockpit
+ *  and its sign-in use, so the two cannot name different hosts. */
 function dashboardBaseUrl(): string {
-  return process.env.DASHBOARD_BASE_URL?.trim() || "https://reddoor-maintenance.netlify.app";
+  return resolveDashboardBaseUrl(process.env.DASHBOARD_BASE_URL);
 }
 
 export async function runReportCommand(

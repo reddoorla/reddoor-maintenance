@@ -765,7 +765,7 @@ export async function collectAttention(deps: CollectAttentionDeps): Promise<Atte
 
 export type DigestRunOptions = {
   resend?: ResendClient;
-  /** Dashboard origin for the /s/<slug> links, e.g. "https://reddoor-maintenance.netlify.app". */
+  /** Dashboard origin for the /s/<slug> links, e.g. "https://dashboard.reddoorla.com". */
   baseUrl: string;
   /**
    * The run's two datasets. Since #646 step 4 they come from TURSO, read by the

@@ -27,6 +27,7 @@ import { verifyBasicAuth } from "../../../../../src/dashboard/basic-auth.js";
 import {
   resolveDashboardBaseUrl,
   handlerError,
+  LEGACY_DASHBOARD_HOST,
 } from "../../../../../src/dashboard/handler-helpers.js";
 
 /**
@@ -77,8 +78,26 @@ function plainText(body: string, status: number, extra: Record<string, string> =
   });
 }
 
+/**
+ * The canonical host's login URL when this request reached the old netlify.app
+ * host while the canonical host is another, else null. The state cookie is set
+ * on the host the flow starts on and Google returns to the canonical host's
+ * callback, so a flow started on the old host would always end in error=state.
+ * A deploy preview's own host is left alone: it signs in with the shared
+ * password, and Google cannot redirect to it.
+ */
+function canonicalLoginUrl(url: URL): string | null {
+  if (url.hostname !== LEGACY_DASHBOARD_HOST) return null;
+  const base = resolveDashboardBaseUrl(process.env.DASHBOARD_BASE_URL);
+  if (new URL(base).hostname === LEGACY_DASHBOARD_HOST) return null;
+  return `${base}/auth/login${url.search}`;
+}
+
 /** GET /auth/login — render the page, or begin the Google flow. */
 function handleLogin(url: URL): Response {
+  const canonical = canonicalLoginUrl(url);
+  if (canonical) return redirect(canonical);
+
   const auth = readAuthConfig();
   const returnTo = safeReturnTo(url.searchParams.get("returnTo"));
   const start = url.searchParams.get("start") === "1";

@@ -4,11 +4,19 @@
  * non-glue logic is unit-testable without booting either.
  */
 
-const DEFAULT_DASHBOARD_BASE_URL = "https://reddoor-maintenance.netlify.app";
+const DEFAULT_DASHBOARD_BASE_URL = "https://dashboard.reddoorla.com";
+
+/**
+ * The cockpit's address before P1-122. It stays live with no redirect, because
+ * every fleet site's FORMS_INGEST_URL and the Resend webhook registration POST
+ * to it (Netlify does not redirect a site's netlify.app host to its custom
+ * domain; measured on four fleet sites, maintenance#2238).
+ */
+export const LEGACY_DASHBOARD_HOST = "reddoor-maintenance.netlify.app";
 
 /**
  * Resolve the dashboard's public base URL from the optional DASHBOARD_BASE_URL
- * env var: trim it, fall back to the canonical Netlify URL when unset/blank,
+ * env var: trim it, fall back to the cockpit's own domain when unset/blank,
  * and strip a trailing slash so callers can append `/s/:slug` cleanly.
  */
 export function resolveDashboardBaseUrl(raw: string | undefined): string {

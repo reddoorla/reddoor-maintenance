@@ -2,11 +2,11 @@ import { describe, it, expect, vi } from "vitest";
 import { resolveDashboardBaseUrl, handlerError } from "../../src/dashboard/handler-helpers.js";
 
 describe("resolveDashboardBaseUrl", () => {
-  it("falls back to the canonical Netlify URL when unset", () => {
-    expect(resolveDashboardBaseUrl(undefined)).toBe("https://reddoor-maintenance.netlify.app");
+  it("falls back to the cockpit's own domain when unset (P1-122)", () => {
+    expect(resolveDashboardBaseUrl(undefined)).toBe("https://dashboard.reddoorla.com");
   });
   it("falls back when the value is blank/whitespace", () => {
-    expect(resolveDashboardBaseUrl("   ")).toBe("https://reddoor-maintenance.netlify.app");
+    expect(resolveDashboardBaseUrl("   ")).toBe("https://dashboard.reddoorla.com");
   });
   it("trims and strips a single trailing slash from a custom value", () => {
     expect(resolveDashboardBaseUrl("  https://ops.reddoor.test/  ")).toBe(
