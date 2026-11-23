@@ -88,20 +88,24 @@ export function plain(md: string): string {
 }
 
 /**
- * Whether a segment is meant as a status. Leading emphasis markers (`_`, `*`,
- * `~`) are ignored, then: the word in any case, not followed by a letter, then
- * either a colon, or any run of non-letters (one `[tag]` allowed) and a digit.
- * So `Status 2026-…`, `status 2026-…`, `Status2026-…`, `Status-2026-…`,
- * `Status    2026-…`, `Status_2026-…`, `Status (2026-…)`, `Status [M] 2026-…`,
- * `Status: …`, `~~Status 2026-…~~` and `_Status 2026-…_` are all statuses, and
- * any that is not exactly `Status YYYY-MM-DD` fails loudly. A title that only
- * begins with the word (`Status page for clients`) is a title; `Status 404
- * pages` reads as a malformed status and fails loudly, the safe way to be wrong.
+ * A title that begins with the word Status, in any case, followed by anything
+ * but a letter. Only an exact `Status YYYY-MM-DD` is peeled off as a status
+ * (`leadingParts`), so every other way of writing one (`status 2026-…`,
+ * `Status-2026-…`, `Status [M]: …`, `Status Nov 12: …`, `~~Status 2026-…~~`,
+ * `` `Status 2026-…` ``, `<s>Status …</s>`) arrives here as the title, and is
+ * refused rather than shown as one. Telling those apart from a real title such
+ * as "Status page for clients" is a guess that four review rounds kept finding
+ * holes in, so a title may not begin with the word at all: such a row fails
+ * loudly, naming its ID, until it is reworded.
  */
-function isStatusAttempt(segment: string): boolean {
-  const s = segment.replace(/^[\s_*~]+/, "");
-  return /^status(?![a-z])[^a-z]*(?:\[[^\]]*\][^a-z]*)?\d/i.test(s) || /^status[^a-z\d]*:/i.test(s);
+const STATUS_TITLE = /^status(?!\p{L})/iu;
+
+/** A title as a reader sees it: HTML tags dropped, then leading symbols,
+ *  spaces and invisible characters (anything not a letter or digit). */
+function visibleText(title: string): string {
+  return title.replace(/<[^>]*>/g, "").replace(/^[^\p{L}\p{N}]+/u, "");
 }
+
 /** The one well-formed shape: `Status YYYY-MM-DD`, then a space, `[`, `:` or the end. */
 const STATUS_DATED = /^Status (\d{4}-\d{2}-\d{2})(?=[\s[:]|$)\s*(.*)$/s;
 
@@ -171,7 +175,7 @@ function leadingParts(cell: string): { statuses: string[]; title: string | null 
     rest = rest.replace(/^\s*(?:\*\*\s*)?/, "");
     const close = rest.indexOf("**");
     const segment = close === -1 ? rest : rest.slice(0, close);
-    if (isStatusAttempt(segment)) {
+    if (STATUS_DATED.test(segment.trim())) {
       statuses.push(segment.trim());
       rest = close === -1 ? "" : rest.slice(close + 2);
       continue;
@@ -209,6 +213,11 @@ function parseItem(rank: number, cells: string[], lineNo: number): BacklogItem {
   const title = lead === null ? "" : plain(lead);
   if (title === "") {
     throw new BacklogParseError(`${id}: its item cell has no bold title`);
+  }
+  if (STATUS_TITLE.test(visibleText(title))) {
+    throw new BacklogParseError(
+      `${id}: its title begins with the word Status; a status line must read "Status YYYY-MM-DD"`,
+    );
   }
   const newest = statuses.reduce<BacklogStatus | null>(
     (best, s) => (best === null || s.date > best.date ? s : best),

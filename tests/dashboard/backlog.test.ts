@@ -146,11 +146,12 @@ describe("topBacklogItems", () => {
     expect(topBacklogItems(backlog([dash])).items[0]!.status?.sentence).toBe("merged #5.");
   });
 
-  it("reads a title that only begins with the word Status as a title", () => {
-    const row = "| P1-909 | **Status page for clients** | 🟢 |";
-    const it9 = topBacklogItems(backlog([row])).items[0]!;
-    expect(it9.title).toBe("Status page for clients");
-    expect(it9.status).toBeNull();
+  it("refuses a title that begins with the word Status, but not one that only contains it", () => {
+    expect(() =>
+      topBacklogItems(backlog(["| P1-909 | **Status page for clients** | 🟢 |"])),
+    ).toThrow(/^P1-909: its title begins with the word Status/);
+    const ok = topBacklogItems(backlog(["| P1-909 | **Statuses and a status page** | 🟢 |"]));
+    expect(ok.items[0]!.title).toBe("Statuses and a status page");
   });
 
   it("gives a one-cell row a null tier rather than failing", () => {
@@ -161,6 +162,86 @@ describe("topBacklogItems", () => {
 
   describe("fails loudly, naming the row and never quoting it", () => {
     const cases: Array<[string, string, RegExp]> = [
+      [
+        "a lower-case status",
+        "| P1-908 | **status 2026-11-11: shipped.** **Title** | 🟢 |",
+        /^P1-908: .*Status/,
+      ],
+      [
+        "a status with no space before its date",
+        "| P1-908 | **Status2026-11-11: shipped.** **Title** | 🟢 |",
+        /^P1-908: .*Status/,
+      ],
+      [
+        "a status with a dash before its date",
+        "| P1-908 | **Status-2026-11-20: shipped.** **Title** | 🟢 |",
+        /^P1-908: .*Status/,
+      ],
+      [
+        "a status with its date in parentheses",
+        "| P1-908 | **Status (2026-11-20): shipped.** **Title** | 🟢 |",
+        /^P1-908: .*Status/,
+      ],
+      [
+        "a status with four spaces before its date",
+        "| P1-908 | **Status    2026-11-20: shipped.** **Title** | 🟢 |",
+        /^P1-908: .*Status/,
+      ],
+      [
+        "a status with an underscore before its date",
+        "| P1-908 | **Status_2026-11-20: shipped.** **Title** | 🟢 |",
+        /^P1-908: .*Status/,
+      ],
+      [
+        "a status with its tag before its date",
+        "| P1-908 | **Status [M] 2026-11-20: shipped.** **Title** | 🟢 |",
+        /^P1-908: .*Status/,
+      ],
+      [
+        "a status with a tag and no date",
+        "| P1-908 | **Status [M]: shipped.** **Title** | 🟢 |",
+        /^P1-908: .*Status/,
+      ],
+      [
+        "a status with a month name",
+        "| P1-908 | **Status Nov 12: shipped.** **Title** | 🟢 |",
+        /^P1-908: .*Status/,
+      ],
+      [
+        "a struck-through status",
+        "| P1-908 | **~~Status 2026-11-19: shipped.~~** **Title** | 🟢 |",
+        /^P1-908: .*Status/,
+      ],
+      [
+        "an italic status",
+        "| P1-908 | **_Status 2026-11-20_: shipped.** **Title** | 🟢 |",
+        /^P1-908: .*Status/,
+      ],
+      [
+        "a status in a code span",
+        "| P1-908 | **`Status 2026-11-01`: shipped.** **Title** | 🟢 |",
+        /^P1-908: .*Status/,
+      ],
+      [
+        "a status as a link",
+        "| P1-908 | **[Status 2026-11-01](http://x.example): shipped.** **Title** | 🟢 |",
+        /^P1-908: .*Status/,
+      ],
+      [
+        "a status in an HTML tag",
+        "| P1-908 | **<s>Status 2026-11-01: shipped.</s>** **Title** | 🟢 |",
+        /^P1-908: .*Status/,
+      ],
+      [
+        "a status behind a zero-width space",
+        "| P1-908 | **\u200bStatus 2026-11-01: shipped.** **Title** | 🟢 |",
+        /^P1-908: .*Status/,
+      ],
+      [
+        "a status with junk after its date",
+        "| P1-908 | **Status 2026-11-11-x: shipped.** **Title** | 🟢 |",
+        /^P1-908: .*Status/,
+      ],
       [
         "a status with no date",
         "| P1-908 | **Status: shipped.** **Title** | 🟢 |",

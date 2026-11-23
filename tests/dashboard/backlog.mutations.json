@@ -30,12 +30,12 @@
   },
   {
     "id": "3-malformed-status-read-as-title",
-    "why": "The brief's mutation 3: a status prefix without a valid date is no longer recognised as a status, so `**Status: shipped.**` would show as the row's title instead of failing loudly.",
+    "why": "The brief's mutation 3: the check on a title that begins with Status is gone, so a malformed status prefix (`**Status: shipped.**`, `**Status Nov 12: …**`) shows as the row's title instead of failing loudly.",
     "edits": [
       {
         "file": "src/dashboard/backlog.ts",
-        "find": "    if (isStatusAttempt(segment)) {",
-        "replace": "    if (STATUS_DATED.test(segment)) {"
+        "find": "  if (STATUS_TITLE.test(visibleText(title))) {",
+        "replace": "  if (false && STATUS_TITLE.test(visibleText(title))) {"
       }
     ],
     "test": "tests/dashboard/backlog.test.ts",
@@ -95,38 +95,38 @@
   },
   {
     "id": "8-lower-case-status-as-title",
-    "why": "Round 1, major: a status prefix is recognised only in its exact case, so `**status 2026-11-11: …**` shows as the title instead of failing loudly.",
+    "why": "Round 1, major: the check matches only `Status` in its exact case, so `**status 2026-11-11: …**` shows as the title.",
     "edits": [
       {
         "file": "src/dashboard/backlog.ts",
-        "find": "/^status(?![a-z])[^a-z]*(?:\\[[^\\]]*\\][^a-z]*)?\\d/i.test(s)",
-        "replace": "/^Status(?![a-z])[^a-z]*(?:\\[[^\\]]*\\][^a-z]*)?\\d/.test(s)"
+        "find": "const STATUS_TITLE = /^status(?!\\p{L})/iu;",
+        "replace": "const STATUS_TITLE = /^Status(?!\\p{L})/u;"
       }
     ],
     "test": "tests/dashboard/backlog.test.ts",
     "expect": "red"
   },
   {
-    "id": "9-spaced-status-as-title",
-    "why": "Rounds 2 and 3, major: only a few characters are allowed between the word and the date, so `**Status    2026-11-20: …**` or `**Status (2026-…)**` shows as the title.",
+    "id": "9-leading-symbols-kept",
+    "why": "Rounds 3 and 4: leading symbols are not stripped before the check, so `~~Status …~~`, `_Status …_` or a zero-width space shows as the title.",
     "edits": [
       {
         "file": "src/dashboard/backlog.ts",
-        "find": "/^status(?![a-z])[^a-z]*(?:\\[[^\\]]*\\][^a-z]*)?\\d/i.test(s)",
-        "replace": "/^status\\W{0,3}\\d/i.test(s)"
+        "find": ".replace(/^[^\\p{L}\\p{N}]+/u, \"\")",
+        "replace": ""
       }
     ],
     "test": "tests/dashboard/backlog.test.ts",
     "expect": "red"
   },
   {
-    "id": "10-emphasis-not-stripped",
-    "why": "Round 3, minor folded with the major's fix: a struck-through or italic status is not recognised, so `**~~Status 2026-11-19: …~~**` shows as the title.",
+    "id": "10-html-tags-kept",
+    "why": "Round 4: HTML tags are not dropped before the check, so `<s>Status 2026-…</s>` shows as the title.",
     "edits": [
       {
         "file": "src/dashboard/backlog.ts",
-        "find": "  const s = segment.replace(/^[\\s_*~]+/, \"\");",
-        "replace": "  const s = segment.trim();"
+        "find": "title.replace(/<[^>]*>/g, \"\")",
+        "replace": "title"
       }
     ],
     "test": "tests/dashboard/backlog.test.ts",
