@@ -1153,6 +1153,28 @@ cli
       ),
   );
 
+cli
+  .command(
+    "content-check",
+    "Warn on NEW hard-coded visitor-facing content in src/routes and src/lib (P1-120).",
+  )
+  .option("--write-baseline", "Record today's literals in content-check.baseline.json")
+  .option("--all", "List every literal, ignoring the baseline (never fails)")
+  .option("--init", "Write the CI workflow, content-check.json and the baseline into a site")
+  .action(
+    async (opts: {
+      cwd?: string;
+      writeBaseline?: boolean;
+      all?: boolean;
+      init?: boolean;
+      verbose?: boolean;
+    }) =>
+      runOrExit(
+        async () => (await import("./commands/content-check.js")).runContentCheckCommand(opts),
+        opts,
+      ),
+  );
+
 cli.help();
 cli.version(version);
 

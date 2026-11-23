@@ -9,8 +9,9 @@
   import BacklogSection from "../../lib/backlog/BacklogSection.svelte";
 
   // The fleet cockpit, a start page: verdict bar, the per-site Needs-you feed,
-  // the Setup count, and the quiet lanes (Cardless, Inbox). The per-site cards
-  // and the Recently and Archived lanes moved to Sites (/fleet, #672 step 3).
+  // the Setup count, and the Cardless lane. The per-site cards and the
+  // Recently and Archived lanes moved to Sites (/fleet, #672 step 3);
+  // submissions live on their own page, /submissions (#2241).
   // Every string comes decided from the server (lib/cockpit/view.ts).
   // `backlogSource` names where the backlog is fetched from once the page is on
   // screen (P1-111); without it the page shows no backlog section. The page's
@@ -93,34 +94,5 @@
           </span>{/if}
       </div>
     {/each}
-  </details>
-{/if}
-
-<!-- Submissions are a separate work stream: they never raise the verdict. -->
-{#if v.inbox}
-  <details class="inbox">
-    <summary>{v.inbox.summary}</summary>
-    {#each v.inbox.rows as sub (sub.key)}
-      <div class="approve-row" data-signal="submissions">
-        <strong>{sub.siteName}</strong>
-        <span class="muted">{sub.what}</span>
-        <span class="muted">{sub.when}</span>
-        <a href={sub.href}>open →</a>
-      </div>
-    {/each}
-    {#if v.inbox.more}
-      <div class="approve-row subm-more muted">
-        <a href="/submissions">{v.inbox.more.text}</a>
-      </div>
-    {/if}
-    {#if v.inbox.spamLine}
-      <div class="spam-rollup muted">{v.inbox.spamLine}</div>
-    {/if}
-    {#if v.inbox.autoFiltered !== null}
-      <div class="spam-rollup muted">
-        {v.inbox.autoFiltered} auto-filtered this week —
-        <a href="/submissions?status=spam_auto">review</a>
-      </div>
-    {/if}
   </details>
 {/if}

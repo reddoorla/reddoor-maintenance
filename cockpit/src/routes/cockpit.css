@@ -11,10 +11,6 @@ body {
   text-align: center;
   border: 1px dashed var(--rule);
 }
-.spam-rollup {
-  font-size: 0.9rem;
-  margin-bottom: 1rem;
-}
 .fleet-actions {
   margin-bottom: 1.25rem;
 }
@@ -62,12 +58,10 @@ body {
     transform: rotate(360deg);
   }
 }
-details.setup-lane,
-details.inbox {
+details.setup-lane {
   margin: 0.75rem 0;
 }
-details.setup-lane > summary,
-details.inbox > summary {
+details.setup-lane > summary {
   cursor: pointer;
   font-weight: 700;
   font-size: 1.05rem;
