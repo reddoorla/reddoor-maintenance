@@ -215,8 +215,9 @@ const KIT_ALIASES: Record<string, string> = {
 };
 
 /** A glob's `[ ] ( )` taken literally: `src/routes/[[preview=preview]]/(marketing)/**`
- *  as a site's routes are written, not as a character class and a group. */
-const escapeRouteChars = (g: string): string => g.replace(/[[\]()]/g, "\\$&");
+ *  as a site's routes are written, not as a character class and a group. A
+ *  backslash is escaped too, so the result is the entry, literally (CodeQL). */
+const escapeRouteChars = (g: string): string => g.replace(/[\\[\]()]/g, "\\$&");
 
 /** Does a site's error page show `error()`'s message? SvelteKit's default
  *  page does, so a site with no `+error.svelte` does too; erp-industrial's
