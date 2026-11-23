@@ -12,8 +12,8 @@ import { readFileSync, statSync } from "node:fs";
  * This fails on any tracked file holding exactly 22 token characters after a
  * report route (`/audit/`, `/r/`, `/api/audit-report/`, slashes optionally
  * JSON-escaped) or a stored row's `"token": "`. It does not see a bare token, a
- * percent-encoded route, a `token=` query parameter, or commit messages and PR
- * bodies. Write `/audit/<token>` in prose, and keep real tokens in the private
+ * percent-encoded route, a `token=` query parameter, a row nested in a JSON
+ * string (`{\"token\":…`), or commit messages and PR bodies. Write `/audit/<token>` in prose, and keep real tokens in the private
  * workspace.
  */
 
