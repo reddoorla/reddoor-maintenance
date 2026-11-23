@@ -361,7 +361,9 @@ default is itself the switch.** Move the host in this order, or sign-in breaks:
    DNS-only), it is added to the Netlify site, and it serves with a valid
    certificate.
 2. The new `…/auth/callback` is an authorized redirect URI on the OAuth
-   client, beside the old one.
+   client, beside the old one. If Google refuses it as an invalid redirect,
+   add the domain (`reddoorla.com`) under the consent screen's Authorized
+   domains first; `netlify.app` never needed that.
 3. Only then deploy the new default (or set `DASHBOARD_BASE_URL` in the
    production context and redeploy: functions read env at deploy). Set the
    repo's Actions variable `DASHBOARD_BASE_URL` to the same value for the

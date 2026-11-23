@@ -6,8 +6,9 @@
 
 const DEFAULT_DASHBOARD_BASE_URL = "https://dashboard.reddoorla.com";
 
-/** The cockpit's own domain (P1-122): the default base URL's host. */
-export const DASHBOARD_HOST = "dashboard.reddoorla.com";
+/** The cockpit's own domain (P1-122): the default base URL's host, derived so
+ *  the two cannot drift. */
+export const DASHBOARD_HOST = new URL(DEFAULT_DASHBOARD_BASE_URL).hostname;
 
 /**
  * The cockpit's address before P1-122. It stays live with no redirect, because
