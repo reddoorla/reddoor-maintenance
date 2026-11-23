@@ -778,9 +778,7 @@ describe("buildCockpitModel", () => {
       BASE,
       NOW,
       [],
-      null,
       [],
-      0,
       new Map([["a", { total: 4, permanent: 4 }]]),
     );
     const espada = m.cards.find((c) => c.site.name === "Espada")!;
@@ -807,9 +805,7 @@ describe("buildCockpitModel", () => {
       BASE,
       NOW,
       [],
-      null,
       [],
-      0,
       new Map(),
       new Map([["espada", 2]]),
     );
@@ -830,9 +826,7 @@ describe("buildCockpitModel", () => {
         BASE,
         NOW,
         [],
-        null,
         [],
-        0,
         new Map(),
         new Map([["espada", 2]]),
         new Map([["espada", oldest]]),
@@ -859,9 +853,7 @@ describe("buildCockpitModel", () => {
           BASE,
           NOW,
           [],
-          null,
           [],
-          0,
           new Map(),
           new Map([["gone-co", 1]]),
           new Map([["gone-co", oldest]]),
@@ -877,9 +869,7 @@ describe("buildCockpitModel", () => {
         BASE,
         NOW,
         [],
-        null,
         [],
-        0,
         new Map(),
         new Map([
           ["gone-co", 1],
@@ -930,9 +920,7 @@ describe("buildCockpitModel", () => {
         BASE,
         NOW,
         [],
-        null,
         [],
-        0,
         new Map(),
         new Map([["new-co", 1]]),
         new Map([["new-co", "2026-06-11T00:01:00.000Z"]]),
@@ -948,9 +936,7 @@ describe("buildCockpitModel", () => {
         BASE,
         NOW,
         [],
-        null,
         [],
-        0,
         new Map(),
         new Map([["espada", 2]]),
         new Map([["espada", "2026-06-10T08:00:00.000Z"]]),
@@ -987,9 +973,7 @@ describe("buildCockpitModel", () => {
       BASE,
       NOW,
       [],
-      null,
       [],
-      0,
       new Map(),
       new Map([["pre-launch", 1]]),
     );
@@ -1417,7 +1401,7 @@ const ZERO_SUMMARY: CockpitSummary = {
 };
 
 function feedModel(over: Partial<CockpitModel>): CockpitModel {
-  return { summary: ZERO_SUMMARY, cards: [], pending: [], submissions: [], spam: null, ...over };
+  return { summary: ZERO_SUMMARY, cards: [], pending: [], submissions: [], ...over };
 }
 function attnCard(name: string, items: AttentionItem[]): SiteCard {
   return {

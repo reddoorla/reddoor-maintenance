@@ -282,19 +282,6 @@ export async function countSubmissionsFiltered(db: Db, filter: SubmissionFilter)
   return Number(res.n);
 }
 
-/** Fleet-wide count of auto-filtered spam (`status = 'spam_auto'`) submitted on/after
- *  `sinceDate` (ISO). Powers the cockpit "N auto-filtered this week — review" affordance;
- *  the caller picks the window (like `listScreenOutsSince`), keeping this query pure. */
-export async function countAutoSpamSince(db: Db, sinceDate: string): Promise<number> {
-  const res = await db
-    .selectFrom("submissions")
-    .select((eb) => eb.fn.countAll<number>().as("n"))
-    .where("status", "=", "spam_auto")
-    .where("submitted_at", ">=", sinceDate)
-    .executeTakeFirstOrThrow();
-  return Number(res.n);
-}
-
 export type SiteSubmissionCounts = { leads: number; signups: number; spamAuto: number };
 
 /** Per-site submission counts on/after `sinceIso` (full ISO timestamp) for the
@@ -695,7 +682,7 @@ export type NotifyBounceCounts = {
 
 /** Per-site counts of bounced lead notifications on/after `sinceDate` (ISO), keyed by
  *  the Websites record id (`site_id`). Powers the notify-bounce attention collector —
- *  the caller picks the window (like `countAutoSpamSince`), keeping this query pure.
+ *  the caller picks the window (like `listScreenOutsSince`), keeping this query pure.
  *  Windowed on `submitted_at`: the bounce lands minutes after the submission, and
  *  submissions carry no bounce timestamp column (append-only schema, 2026-07-16).
  *

@@ -60,9 +60,7 @@ export function built(
   extra: {
     prior?: Parameters<typeof buildCockpitModel>[2];
     submissions?: Parameters<typeof buildCockpitModel>[5];
-    spam?: Parameters<typeof buildCockpitModel>[6];
     events?: FleetEvent[];
-    autoFiltered?: number;
     deadLetters?: Map<string, number>;
   } = {},
 ): CockpitModel {
@@ -73,9 +71,7 @@ export function built(
     BASE,
     NOW,
     extra.submissions ?? [],
-    extra.spam ?? null,
     extra.events ?? [],
-    extra.autoFiltered ?? 0,
     new Map(),
     extra.deadLetters ?? new Map(),
   );
@@ -224,13 +220,14 @@ export function cases(): Array<[string, CockpitModel]> {
       "inbox with overflow, spam and auto-filtered, and the Recently lane",
       built([siteRow({ id: "recSITE", name: "Acme Co" })], [], {
         submissions: subs,
-        spam: { caught: 5, through: 1, computedAt: "2026-06-11T06:07:00.000Z" } as never,
         events,
-        autoFiltered: 4,
       }),
     ],
-    ["spam only, no submissions", handModel({ spam: { caught: 3, through: 0 } })],
-    ["auto-filtered only", handModel({ autoFiltered: 2 })],
+    // These two fed the fleet spam totals and the auto-filtered count, which left
+    // the model after #2248. Kept as empty models in their places: the DOM tests
+    // pick cases by index, and the snapshots are keyed on these names.
+    ["spam only, no submissions", handModel({})],
+    ["auto-filtered only", handModel({})],
     [
       "hand-built cards: badges, stuck, accept keys, deploys, submissions, hostile strings",
       handModel({

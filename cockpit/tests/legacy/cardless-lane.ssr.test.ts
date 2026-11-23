@@ -25,7 +25,7 @@ const acme = makeWebsiteRow({ id: "recACME", name: "Acme Co", status: "maintaine
 
 /** buildCockpitModel's dead-letter argument is the 11th positional. */
 function modelWithDeadLetters(deadLetters: Map<string, number>) {
-  return buildCockpitModel([acme], [], {}, BASE, NOW, [], null, [], 0, new Map(), deadLetters);
+  return buildCockpitModel([acme], [], {}, BASE, NOW, [], [], new Map(), deadLetters);
 }
 
 describe("card-less attention items reach the cockpit", () => {

@@ -62,7 +62,6 @@ export const RECENT_AUDITS_LIMIT = 25;
  *  page derived the day after the snapshot was taken still has its whole window. */
 export const SNAPSHOT_SCREENOUT_DAYS = 31;
 const SITE_SPAM_WINDOW_DAYS = 30;
-const AUTO_SPAM_WINDOW_DAYS = 7;
 
 /** The deploys the overview's feed lists (P1-87 PR 9), newest first, at most
  *  `RECENT_EVENTS_LIMIT`. A deploy is left out when a `pr_automerged` event on the same
@@ -152,7 +151,6 @@ export function assembleCockpitModel(
     newSubmissions: SubmissionRow[];
     rollup: CockpitRollup | null;
     recentEvents: FleetEvent[];
-    autoFilteredCount: number;
     deadLetters: ReadonlyMap<string, number>;
     deadLetterOldestRead: ReadonlyMap<string, string>;
     /** P1-78c. The latest `fleet_daily` dependency readings. */
@@ -163,18 +161,6 @@ export function assembleCockpitModel(
 ): CockpitModel {
   const deadLetterOldest: ReadonlyMap<string, string> =
     i.deadLetters.size > 0 ? i.deadLetterOldestRead : new Map();
-  // Both of the fleet-wide "since a window" numbers now come from ONE row read
-  // by primary key, computed by the nightly digest (MED-16). They used to be
-  // recomputed on every page load — aggregates over the whole `submissions`
-  // table, which is the one unbounded-growth table in the schema, on the
-  // operator's most-loaded page, against a store that meters row scans.
-  //
-  // They are consequently up to 24h old. `null` when the digest has not written
-  // one yet, which the cockpit renders as ABSENT rather than as zeros: every
-  // one of these numbers has a legitimate zero, so a confident 0 for an
-  // unmeasured window is a lie the strip cannot walk back.
-  const spamTotals =
-    i.rollup !== null ? { ...i.rollup.spamTotals, computedAt: i.rollup.computedAt } : null;
   // #783: the roll-up's per-site value is a {total, permanent} breakdown now.
   // `readCockpitRollup` normalizes an older numeric payload into it, so this
   // stays a plain Object.entries and the cockpit keeps rendering after a
@@ -189,9 +175,7 @@ export function assembleCockpitModel(
     baseUrl,
     now,
     i.newSubmissions,
-    spamTotals,
     i.recentEvents,
-    i.autoFilteredCount,
     notifyBounces,
     i.deadLetters,
     deadLetterOldest,
@@ -260,7 +244,6 @@ export function matchesSubmissionFilter(
 export function cockpitModelFromSnapshot(s: CockpitSnapshot, now: Date): CockpitModel {
   const subs = s.submissions;
   const eventsSince = new Date(now.getTime() - RECENT_EVENTS_DAYS * 86_400_000).toISOString();
-  const autoSince = screenOutsSince(now, AUTO_SPAM_WINDOW_DAYS);
   return assembleCockpitModel(
     {
       websites: sitesOf(s),
@@ -272,11 +255,6 @@ export function cockpitModelFromSnapshot(s: CockpitSnapshot, now: Date): Cockpit
           : subs.filter((r) => storedStatus(s, r) === "new").slice(0, NEW_SUBMISSIONS_MAX),
       rollup: s.rollup,
       recentEvents: s.recentEvents.filter((e) => e.ts >= eventsSince),
-      autoFilteredCount:
-        subs === null
-          ? 0
-          : subs.filter((r) => storedStatus(s, r) === "spam_auto" && submittedSince(r, autoSince))
-              .length,
       deadLetters: s.deadLetters,
       deadLetterOldestRead: s.deadLetterOldest,
       deps: s.deps,
