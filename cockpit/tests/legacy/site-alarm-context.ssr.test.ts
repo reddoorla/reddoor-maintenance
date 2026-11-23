@@ -48,7 +48,7 @@ function cockpitItemKeys(
   notify = new Map<string, NotifyBounceCounts>(),
   prior: DigestSnapshot = {},
 ): string[] {
-  const m = buildCockpitModel([s], [], prior, BASE, NOW, [], null, [], 0, notify);
+  const m = buildCockpitModel([s], [], prior, BASE, NOW, [], [], notify);
   const card = m.cards.find((c) => c.site.id === s.id)!;
   return card.items.map((i) => i.key).sort();
 }
