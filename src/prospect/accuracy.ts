@@ -707,8 +707,53 @@ function scanWords(text: string): ScannedWord[] {
 }
 
 /** A claim that denies something. The site using the denied term refutes it
- *  rather than giving a reason to doubt the model's "contradicted". */
-const NEGATED = /\b(no|not|never|none|nobody|without)\b|n't\b/i;
+ *  rather than giving a reason to doubt the model's "contradicted". Errs wide:
+ *  a false match only leaves the model's verdict alone. */
+const NEGATED = /\b(no|not|never|none|nobody|nothing|without|cannot|neither|nor)\b|n['\u2019]t\b/i;
+
+/**
+ * The one term, if any, that justifies taking a "contradicted" down to
+ * unverified: the site uses it exactly, and it IS what the claim asserts.
+ *
+ * "Acme Design is based in Los Angeles", contradicted on a Texas mailing
+ * address, while another page says "near the Los Angeles metro": the site says
+ * both, so we cannot call the engine wrong. Every guard below is a way the same
+ * shape lied on a real report or in review:
+ *
+ * - The claim must not deny anything. "No business has the name X" is refuted
+ *   by the site saying X, not cast into doubt.
+ * - The term must carry every name the claim asserts, other than the
+ *   business's own (taken from the query that produced the answer). "Based in
+ *   Dallas, Texas" is not in doubt because the site says "Texas", and the
+ *   business's name on its own site says nothing about the claim.
+ * - The claim must assert at least one such name: a term that is only common
+ *   words is a subject, not the claim.
+ * - The model's own quote must not contain the term: then it saw the term and
+ *   still judged the claim wrong.
+ */
+function doubtingTerm(
+  claim: string,
+  terms: string[],
+  modelQuote: string | null,
+  query: string,
+  site: string,
+): string | null {
+  if (NEGATED.test(claim)) return null;
+  const own = new Set(scanWords(query).map((w) => w.lower));
+  const asserted = scanWords(claim)
+    .filter((w) => w.capitalised && !w.opensSentence && !own.has(w.lower))
+    .map((w) => w.lower);
+  if (asserted.length === 0) return null;
+  const quote = modelQuote === null ? "" : normalize(modelQuote);
+  for (const term of distinctive(terms, claim)) {
+    const words = new Set(scanWords(term).map((w) => w.lower));
+    if (!asserted.every((n) => words.has(n))) continue;
+    if (quote.includes(normalize(term))) continue;
+    if (findTerm(site, term) !== "exact") continue;
+    return term.trim();
+  }
+  return null;
+}
 
 function verifyQuotes(
   raw: z.infer<typeof AccuracySchema>["assertions"],
@@ -726,40 +771,34 @@ function verifyQuotes(
   for (const a of raw) {
     if (!answers.includes(normalize(a.engineQuote))) continue;
 
-    // A place or a name the site itself uses, anywhere, is not safe to call
-    // "contradicted": a Texas mailing address on one page and "near the Los
-    // Angeles metro" on another is the site saying both, not the engine getting
-    // it wrong. So when the site uses, exactly, a distinctive term that is part
-    // of the claim's own wording, the verdict comes DOWN to unverified, quoting
-    // the site around the term so the reader can judge it.
-    //
-    // Never up. This once set "confirmed", and on a real report it told a
-    // business its own site says it is a kind of business it is not. The terms
-    // that matched were the model's evidence AGAINST the claim (what the site
-    // says the business actually does, and its own name under a claim that no
-    // business has that name), and finding them on the site was read as the
-    // site agreeing. Sharing a term is not saying the thing. Only the model,
-    // with a quote that survives the checks below, makes a verdict "confirmed";
-    // code may only take one away.
-    //
-    // Two cases stay with the model, because "your site does say <term>" is no
-    // reason to doubt them: a term that is not in the claim (it is the model's
-    // evidence, not the claim's subject), and a negated claim ("no business
-    // operates under the name X"), which the site saying X refutes.
+    // Code may only take a verdict DOWN. This once set "confirmed" on a
+    // shared term, and on a real report it told a business its own site says it
+    // is a kind of business it is not: the matching terms were the model's
+    // evidence AGAINST the claim, and finding them on the site was read as the
+    // site agreeing. Only the model, with a quote that survives the checks
+    // below, makes a verdict "confirmed". See doubtingTerm for when a
+    // "contradicted" comes down to unverified instead.
     let verdict: typeof a.verdict | "unverified" = a.verdict;
     let siteQuote: string | null = a.siteQuote;
     let downgradeReason: string | null = null;
-    if (a.verdict === "contradicted" && !NEGATED.test(a.claim)) {
-      for (const term of distinctive(searchTermsByClaim.get(a.claim) ?? [], a.claim)) {
-        if (!normalize(a.claim).includes(normalize(term))) continue;
-        if (findTerm(site, term) !== "exact") continue;
-        // The quote must survive the same substring check as a model quote, so
-        // no ellipses: they are not in the page and would fail it.
-        const at = site.indexOf(normalize(term));
+    if (a.verdict === "contradicted") {
+      const term = doubtingTerm(
+        a.claim,
+        searchTermsByClaim.get(a.claim) ?? [],
+        a.siteQuote,
+        answerOf.get(normalize(a.engineQuote))?.query ?? "",
+        site,
+      );
+      if (term !== null) {
+        // Located in `flat` itself, so the window is a real substring of the
+        // page; no ellipses, which are not in the page and would fail the
+        // quote check.
+        const at = flat.toLowerCase().indexOf(normalize(term));
         verdict = "unverified";
-        siteQuote = flat.slice(Math.max(0, at - 80), at + term.length + 80).trim();
-        downgradeReason = `Your site does say "${term.trim()}", so we have not called this wrong.`;
-        break;
+        siteQuote = at < 0 ? null : flat.slice(Math.max(0, at - 80), at + term.length + 80).trim();
+        // In the site's own spelling, not however the model typed the term.
+        const said = at < 0 ? term : flat.slice(at, at + normalize(term).length);
+        downgradeReason = `Your site does say "${said}", so we have not called this wrong.`;
       }
     }
 
@@ -784,13 +823,16 @@ function verifyQuotes(
       // better position than being told we found nothing.
       siteQuote: quoteReal ? siteQuote : null,
       nearbyMention: null,
-      unverifiedReason: downgradeReason
-        ? downgradeReason
-        : !unsupported
-          ? null
-          : !quoteReal
+      unverifiedReason:
+        downgradeReason && quoteReal
+          ? downgradeReason
+          : downgradeReason
             ? "We could not find the passage this was based on, so we have not stated it either way."
-            : "The passage we found is about the same subject but does not actually say this, so we have not stated it either way.",
+            : !unsupported
+              ? null
+              : !quoteReal
+                ? "We could not find the passage this was based on, so we have not stated it either way."
+                : "The passage we found is about the same subject but does not actually say this, so we have not stated it either way.",
       sourceDomains,
       query: from?.query ?? "",
       engine: from?.engine ?? "",
