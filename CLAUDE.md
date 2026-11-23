@@ -81,6 +81,15 @@ follows these rules. Why each exists: the workspace's `directives/sessions.md`.
   PR goes to a decision file with each round's findings, unless the next
   paragraph's one exception sends it to a sixth round first; a PR held under
   the old two-round stop stays with the operator unless he says to resume.
+  The decision file written at the stop, after round five or after a dirty
+  unasked sixth round, states the measured list-price cost of the rounds so
+  far (from `get_session` or the usage ledger, summed across the sessions
+  that ran them; where those sessions did other work, it names that work
+  and marks the per-round figure inferred) and an estimate for one more
+  round (the operator, 2026-11-22, the workspace's
+  `decisions/2026-11-22-1922-p1-118-token-saving-picks.md`). P1-118 put a
+  round at $9 to $13 all in on #2216, inferred from its sessions' totals,
+  and none of the stop questions on #2216 or #2082 said what a round cost.
 
   **The one sixth round a worker may run unasked** (the operator,
   2026-11-10, the "narrow rule"). At the fifth dirty round, when the
