@@ -98,6 +98,8 @@ const PURE_EXPORTS = new Set([
   "siteKey",
   // Pure membership test on NO_REPORT_STATUSES.
   "hasNoReport",
+  // W1: pure, reads two columns of a row it is handed.
+  "reviewState",
 ]);
 
 /** Raw scans accepted with a written justification. Empty today — the 0008
@@ -1011,6 +1013,42 @@ function scenarios(state: { createdId: string; reservedId: string }): Scenario[]
         await prospectAudits.setProspectAuditOverrides(db, prospectToken, {
           "composed:headlineFinding": { original: "a", text: "b" },
         });
+      },
+    },
+    {
+      // W1: approve makes a draft live. Reads the row, then a token-keyed UPDATE.
+      name: "approveProspectAudit (operator approves a draft)",
+      covers: ["approveProspectAudit"],
+      run: async (db) => {
+        await prospectAudits.approveProspectAudit(db, prospectToken, "tester");
+      },
+    },
+    {
+      // W1: withdraw a report of its own, so prospectToken stays live for the
+      // scenarios after this one.
+      name: "withdrawProspectAudit (operator takes a report down)",
+      covers: ["withdrawProspectAudit"],
+      run: async (db) => {
+        const { token } = await prospectAudits.createProspectAudit(db, {
+          url: "https://prospect.example.com",
+          business: "Prospect Co",
+          resultJson: "{}",
+        });
+        await prospectAudits.withdrawProspectAudit(db, token, "tester");
+      },
+    },
+    {
+      // W1: an older report of the same site pointed at prospectToken.
+      name: "supersedeProspectAudit (old link points at the newer report)",
+      covers: ["supersedeProspectAudit"],
+      run: async (db) => {
+        const { token } = await prospectAudits.createProspectAudit(db, {
+          url: "https://prospect.example.com",
+          business: "Prospect Co",
+          resultJson: "{}",
+        });
+        const res = await prospectAudits.supersedeProspectAudit(db, token, prospectToken, "tester");
+        if (res.status !== "superseded") throw new Error(`supersede scenario: ${res.status}`);
       },
     },
     {

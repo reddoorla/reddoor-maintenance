@@ -19,7 +19,10 @@ vi.mock("../../src/db/client.js", async (importOriginal) => {
 
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import {
+  approveProspectAudit,
   createProspectAudit,
+  supersedeProspectAudit,
+  withdrawProspectAudit,
   getProspectAuditByToken,
   failProspectAudit,
   reserveProspectAudit,
@@ -41,6 +44,19 @@ function ctxFor(token: string): Context {
 const req = (method = "GET"): Request =>
   new Request("https://ops.reddoor.test/api/audit-report/x", { method });
 
+/** W1: a finished run is a draft that 404s to the public, so every test that
+ *  is about SERVING a report serves an approved one. The draft rules have their
+ *  own describe block below. */
+async function createApproved(
+  db: Awaited<ReturnType<typeof openDb>>,
+  audit: Parameters<typeof createProspectAudit>[1],
+): Promise<{ id: string; token: string }> {
+  const created = await createProspectAudit(db, audit);
+  const res = await approveProspectAudit(db, created.token, "tester");
+  if (res.status !== "approved") throw new Error(`positive control: ${res.status}`);
+  return created;
+}
+
 /** Shape-valid but not present in the database. */
 const ABSENT_TOKEN = "aB3-_xY9zQ1rS2tU4vW6xY";
 
@@ -48,7 +64,7 @@ describe("audit-report-json — serving a report", () => {
   it("returns the stored result_json for a valid token", async () => {
     process.env.TURSO_DATABASE_URL = ":memory:";
     const db = await openDb(readDbConfig());
-    const { token } = await createProspectAudit(db, {
+    const { token } = await createApproved(db, {
       url: "https://acme.example/",
       business: "Acme Roofing",
       resultJson: JSON.stringify({
@@ -88,16 +104,18 @@ describe("audit-report-json — serving a report", () => {
     process.env.TURSO_DATABASE_URL = ":memory:";
     const db = await openDb(readDbConfig());
     const stored = '{"url": "https://acme.example/", "score": 1.50, "nested": {"deep": [1, 2, 3]}}';
-    const { token } = await createProspectAudit(db, {
+    const { token } = await createApproved(db, {
       url: "https://acme.example/",
       business: "Acme Roofing",
       resultJson: stored,
       status: "complete",
     });
 
+    const approvedAt = (await getProspectAuditByToken(db, token))!.approved_at;
     const res = await auditReportJson(req(), ctxFor(token));
     expect(await res.text()).toBe(
-      `{"report":${stored},"overrides":null,"editedAt":null,"openedAt":null}`,
+      `{"report":${stored},"overrides":null,"editedAt":null,` +
+        `"approvedAt":${JSON.stringify(approvedAt)},"openedAt":null}`,
     );
   });
 });
@@ -210,7 +228,7 @@ describe("audit-report-json — overrides", () => {
   it("wraps the stored report and its overrides in one body", async () => {
     process.env.TURSO_DATABASE_URL = ":memory:";
     const db = await openDb(readDbConfig());
-    const { token } = await createProspectAudit(db, {
+    const { token } = await createApproved(db, {
       url: "https://acme.example/",
       business: "Acme Roofing",
       resultJson: JSON.stringify({ url: "https://acme.example/", businessName: "Acme Roofing" }),
@@ -235,7 +253,7 @@ describe("audit-report-json — overrides", () => {
   it("serves overrides as null when the report has never been edited", async () => {
     process.env.TURSO_DATABASE_URL = ":memory:";
     const db = await openDb(readDbConfig());
-    const { token } = await createProspectAudit(db, {
+    const { token } = await createApproved(db, {
       url: "https://acme.example/",
       business: null,
       resultJson: JSON.stringify({ url: "https://acme.example/" }),
@@ -252,7 +270,7 @@ describe("audit-report-json — overrides", () => {
   it("never caches: an edit must not wait out a max-age", async () => {
     process.env.TURSO_DATABASE_URL = ":memory:";
     const db = await openDb(readDbConfig());
-    const { token } = await createProspectAudit(db, {
+    const { token } = await createApproved(db, {
       url: "https://acme.example/",
       business: null,
       resultJson: JSON.stringify({ url: "https://acme.example/" }),
@@ -265,7 +283,7 @@ describe("audit-report-json — overrides", () => {
   it("stamps opened_at on a plain fetch", async () => {
     process.env.TURSO_DATABASE_URL = ":memory:";
     const db = await openDb(readDbConfig());
-    const { token } = await createProspectAudit(db, {
+    const { token } = await createApproved(db, {
       url: "https://acme.example/",
       business: null,
       resultJson: JSON.stringify({ url: "https://acme.example/" }),
@@ -279,7 +297,7 @@ describe("audit-report-json — overrides", () => {
   it("does NOT stamp opened_at when the caller declares an edit session", async () => {
     process.env.TURSO_DATABASE_URL = ":memory:";
     const db = await openDb(readDbConfig());
-    const { token } = await createProspectAudit(db, {
+    const { token } = await createApproved(db, {
       url: "https://acme.example/",
       business: null,
       resultJson: JSON.stringify({ url: "https://acme.example/" }),
@@ -311,7 +329,7 @@ describe("audit-report-json — overrides", () => {
   it("reports the open time a previous fetch wrote", async () => {
     process.env.TURSO_DATABASE_URL = ":memory:";
     const db = await openDb(readDbConfig());
-    const { token } = await createProspectAudit(db, {
+    const { token } = await createApproved(db, {
       url: "https://acme.example/",
       business: null,
       resultJson: JSON.stringify({ url: "https://acme.example/" }),
@@ -337,5 +355,103 @@ describe("audit-report-json — overrides", () => {
     expect(second.status).toBe(200);
     expect(body.openedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(body.openedAt).toBe(stamped);
+  });
+});
+
+describe("audit-report-json — W1 drafts, withdrawn and superseded reports", () => {
+  const EDIT_TOKEN = "s3cret-edit-token";
+  const asEditor = (): Request =>
+    new Request("https://ops.reddoor.test/api/audit-report/x", {
+      method: "GET",
+      headers: { authorization: `Bearer ${EDIT_TOKEN}`, "x-reddoor-edit-session": "1" },
+    });
+  const draft = (db: Awaited<ReturnType<typeof openDb>>, url = "https://acme.example/") =>
+    createProspectAudit(db, { url, business: null, resultJson: JSON.stringify({ url }) });
+
+  it("a draft token returns 404 without the edit session", async () => {
+    process.env.TURSO_DATABASE_URL = ":memory:";
+    process.env.PROSPECT_EDIT_TOKEN = EDIT_TOKEN;
+    const db = await openDb(readDbConfig());
+    const { token } = await draft(db);
+    const res = await auditReportJson(req(), ctxFor(token));
+    expect(res.status).toBe(404);
+    // The same body as a missing token: a draft link says nothing.
+    expect(await res.json()).toEqual({ error: "not-found" });
+    // And a draft is never "opened".
+    expect((await getProspectAuditByToken(db, token))!.opened_at).toBeNull();
+  });
+
+  it("the edit-session header alone does not open a draft: it is spoofable", async () => {
+    process.env.TURSO_DATABASE_URL = ":memory:";
+    process.env.PROSPECT_EDIT_TOKEN = EDIT_TOKEN;
+    const db = await openDb(readDbConfig());
+    const { token } = await draft(db);
+    const spoof = new Request("https://ops.reddoor.test/api/audit-report/x", {
+      headers: { "x-reddoor-edit-session": "1", authorization: "Bearer wrong" },
+    });
+    expect((await auditReportJson(spoof, ctxFor(token))).status).toBe(404);
+  });
+
+  it("serves a draft to the editor, marked not approved", async () => {
+    process.env.TURSO_DATABASE_URL = ":memory:";
+    process.env.PROSPECT_EDIT_TOKEN = EDIT_TOKEN;
+    const db = await openDb(readDbConfig());
+    const { token } = await draft(db);
+    const res = await auditReportJson(asEditor(), ctxFor(token));
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { approvedAt: unknown }).approvedAt).toBeNull();
+  });
+
+  it("refuses the editor too when PROSPECT_EDIT_TOKEN is unset: fails closed", async () => {
+    process.env.TURSO_DATABASE_URL = ":memory:";
+    delete process.env.PROSPECT_EDIT_TOKEN;
+    const db = await openDb(readDbConfig());
+    const { token } = await draft(db);
+    expect((await auditReportJson(asEditor(), ctxFor(token))).status).toBe(404);
+  });
+
+  it("an approved token is served to anyone, with when it was approved", async () => {
+    process.env.TURSO_DATABASE_URL = ":memory:";
+    const db = await openDb(readDbConfig());
+    const { token } = await draft(db);
+    await approveProspectAudit(db, token, "tester");
+    const res = await auditReportJson(req(), ctxFor(token));
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { approvedAt: unknown }).approvedAt).toMatch(/^\d{4}-/);
+  });
+
+  it("a withdrawn token returns 404, to the editor as well", async () => {
+    process.env.TURSO_DATABASE_URL = ":memory:";
+    process.env.PROSPECT_EDIT_TOKEN = EDIT_TOKEN;
+    const db = await openDb(readDbConfig());
+    const { token } = await draft(db);
+    await approveProspectAudit(db, token, "tester");
+    // Positive control: live before it is withdrawn.
+    expect((await auditReportJson(req(), ctxFor(token))).status).toBe(200);
+    await withdrawProspectAudit(db, token, "tester");
+    expect((await auditReportJson(req(), ctxFor(token))).status).toBe(404);
+    expect((await auditReportJson(asEditor(), ctxFor(token))).status).toBe(404);
+  });
+
+  it("a superseded token answers 410 with the newer token while that one is live, else 404", async () => {
+    process.env.TURSO_DATABASE_URL = ":memory:";
+    const db = await openDb(readDbConfig());
+    const old = await draft(db);
+    await approveProspectAudit(db, old.token, "tester");
+    const next = await draft(db, "https://www.acme.example");
+    expect((await supersedeProspectAudit(db, old.token, next.token, "tester")).status).toBe(
+      "superseded",
+    );
+
+    // The newer one is still a draft: the old link must not point into it.
+    expect((await auditReportJson(req(), ctxFor(old.token))).status).toBe(404);
+
+    await approveProspectAudit(db, next.token, "tester");
+    const res = await auditReportJson(req(), ctxFor(old.token));
+    expect(res.status).toBe(410);
+    expect(await res.json()).toEqual({ error: "superseded", supersededBy: next.token });
+
+    await withdrawProspectAudit(db, next.token, "tester");
+    expect((await auditReportJson(req(), ctxFor(old.token))).status).toBe(404);
   });
 });

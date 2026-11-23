@@ -135,7 +135,20 @@ describe("prospect-audit CLI — Turso persistence", () => {
       deps: stubDeps(),
     });
     expect(code).toBe(0);
-    expect(output).toMatch(/\/audit\/[A-Za-z0-9_-]{22}$/);
+    // W1: the link is no longer the last line — the review verdict is.
+    expect(output).toMatch(/\/audit\/[A-Za-z0-9_-]{22}$/m);
+  });
+
+  it("W1: the last line says the saved report is a draft, and 'do not send' for a partial run", async () => {
+    process.env.TURSO_DATABASE_URL = ":memory:";
+    // --no-probes leaves probes not measured, so the run is partial.
+    const { output } = await runProspectAuditCommand("https://acme.example/", {
+      probes: false,
+      deps: stubDeps(),
+    });
+    const last = output.trim().split("\n").at(-1)!;
+    expect(last).toMatch(/^DO NOT SEND:/);
+    expect(last).toContain("draft, not approved");
   });
 
   it("--json still persists to Turso and includes the link in the JSON payload", async () => {

@@ -41,6 +41,7 @@
         <div class="audit-url">
           {#if a.urlHref}<a href={a.urlHref}>{a.url}</a>{:else}{a.url}{/if}
         </div>
+        {#if a.review}<div class="audit-review review-{a.review.cls}">{a.review.label}</div>{/if}
         {#if a.chosenTerms}<div class="audit-chosen muted">
             searches chosen by hand
           </div>{/if}{#if a.edited || a.opened}<div class="edit-state">

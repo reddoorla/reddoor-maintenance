@@ -893,6 +893,40 @@ cli
   );
 
 cli
+  .command(
+    "prospect-audit-review <token>",
+    "Approve a prospect audit report (its link goes live), withdraw one (it 404s), or point it at a newer one.",
+  )
+  .option("--approve", "Make the report's link live. Read it first.")
+  .option("--withdraw", "Take the report down: its link 404s for everyone.")
+  .option(
+    "--supersede-by <token>",
+    "The newer report for the same site. The old link points there while it is live.",
+  )
+  .option("--by <name>", "Who is doing this. Recorded on the row.")
+  .action(
+    async (
+      token: string,
+      opts: {
+        approve?: boolean;
+        withdraw?: boolean;
+        supersedeBy?: string;
+        by?: string;
+        cwd?: string;
+        verbose?: boolean;
+      },
+    ) =>
+      runOrExit(
+        async () =>
+          (await import("./commands/prospect-audit-review.js")).runProspectAuditReviewCommand(
+            token,
+            opts,
+          ),
+        opts,
+      ),
+  );
+
+cli
   .command("report [site]", "Draft or send maintenance/testing reports.")
   .option("--due", "Scan all Websites and draft overdue reports.")
   .option("--type <type>", "Single-site draft report type: Maintenance (default) or Testing.")

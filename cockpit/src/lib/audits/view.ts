@@ -1,7 +1,7 @@
 import { safeUrl } from "../../../../src/util/html.js";
 import { relativeTimeFromNow } from "../../../../src/dashboard/relative-time.js";
 import type { ProspectAuditListItem } from "../../../../src/db/prospect-audits.js";
-import { hasNoReport, isValidToken } from "../../../../src/prospect/audit-status.js";
+import { hasNoReport, isValidToken, reviewState } from "../../../../src/prospect/audit-status.js";
 import { isStaleRunning } from "../../../../src/prospect/daily-cap.js";
 
 /**
@@ -25,7 +25,22 @@ export type AuditRowView = {
   /** The one edit state worth flagging: the prospect read it after the last edit. */
   readSinceEdit: boolean;
   report: { kind: "link"; href: string } | { kind: "note"; text: string };
+  /** W1. Whether a prospect can open it: a draft nobody approved, a live
+   *  report, or one taken down. Null for a row with no report behind it. */
+  review: { cls: string; label: string } | null;
 };
+
+/** W1. A partial draft says "do not send", because it should never be approved. */
+function review(a: ProspectAuditListItem): AuditRowView["review"] {
+  if (hasNoReport(a.status)) return null;
+  if (a.superseded_by) return { cls: "withdrawn", label: "Superseded by a newer report" };
+  const state = reviewState(a);
+  if (state === "withdrawn") return { cls: "withdrawn", label: "Withdrawn: the link 404s" };
+  if (state === "live") return { cls: "live", label: "Approved: the link is live" };
+  return a.status === "partial"
+    ? { cls: "do-not-send", label: "Draft, partial run: do not send" }
+    : { cls: "draft", label: "Draft, not approved: the link 404s" };
+}
 
 /** #907: a `running` row past the stale window is a run that never will finish;
  *  P1-16: a `failed` row threw after it paid. */
@@ -65,6 +80,7 @@ function auditRowView(a: ProspectAuditListItem, now: Date): AuditRowView {
     // ISO-8601 UTC from toISOString(): fixed width, so string order is time order.
     readSinceEdit: !!(a.edited_at && a.opened_at && a.opened_at > a.edited_at),
     report: report(a),
+    review: review(a),
   };
 }
 
