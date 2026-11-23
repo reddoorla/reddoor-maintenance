@@ -1,0 +1,1563 @@
+// P1-120 phase 2: the per-file rules. Each case is a literal a visitor sees
+// (reported) or a fallback / non-content string (not reported), one rule each.
+import { describe, expect, it } from "vitest";
+import { scanSource, type Finding } from "../../src/content-check/scan.js";
+
+const svelte = (src: string, file = "src/routes/+page.svelte"): Array<[string, string]> =>
+  scanSource(file, src).map((f: Finding) => [f.kind, f.text]);
+const ts = (src: string, file = "src/lib/copy.ts"): Array<[string, string]> =>
+  scanSource(file, src).map((f: Finding) => [f.kind, f.text]);
+
+describe("template text", () => {
+  it("reports words by the element they sit in", () => {
+    expect(
+      svelte(
+        `<h2>Our process</h2><p>We build homes.</p><button>Send it</button><blockquote>Great work.</blockquote>`,
+      ),
+    ).toEqual([
+      ["heading", "Our process"],
+      ["copy", "We build homes."],
+      ["button", "Send it"],
+      ["testimonial", "Great work."],
+    ]);
+  });
+
+  it("reports the page title and meta description as seo", () => {
+    expect(
+      svelte(
+        `<svelte:head><title>About us</title><meta name="description" content="Who we are." /><meta name="robots" content="noindex" /></svelte:head>`,
+      ),
+    ).toEqual([
+      ["seo", "About us"],
+      ["seo", "Who we are."],
+    ]);
+  });
+
+  it("narrows copy to phone, email, address and hours by what it says", () => {
+    expect(
+      svelte(
+        `<p>(208) 724-4034</p><p>info@example.com</p><p>12 N. Echohawk Lane, Suite 102</p><p>Open 9am to 5pm</p>`,
+      ),
+    ).toEqual([
+      ["phone", "(208) 724-4034"],
+      ["email", "info@example.com"],
+      ["address", "12 N. Echohawk Lane, Suite 102"],
+      ["hours", "Open 9am to 5pm"],
+    ]);
+  });
+
+  it("skips decorative labels: fewer than two letters, or a roman numeral", () => {
+    expect(svelte(`<div>01</div><div>V</div><span>•</span><div>3/5</div><div>XII</div>`)).toEqual(
+      [],
+    );
+  });
+
+  it("reports a string literal in an expression tag, but not a code word", () => {
+    expect(svelte(`<p>{"Hello there"}</p><p>{"script"}</p>`)).toEqual([["copy", "Hello there"]]);
+  });
+
+  it("reports the line the literal starts on", () => {
+    const [f] = scanSource(
+      "src/routes/+page.svelte",
+      `<div>\n\n  <p>\n    Hello there\n  </p></div>`,
+    );
+    expect(f?.line).toBe(4);
+  });
+});
+
+describe("attributes", () => {
+  it("reports alt, title, placeholder and aria-label on elements", () => {
+    expect(
+      svelte(
+        `<img alt="A kitchen" /><input placeholder="Your name" /><a title="Read more" aria-label="Open menu">x</a>`,
+      ),
+    ).toEqual([
+      ["alt", "A kitchen"],
+      ["copy", "Your name"],
+      ["copy", "Read more"],
+      ["copy", "Open menu"],
+    ]);
+  });
+
+  it("classifies links: internal, external, tel, mailto, social", () => {
+    expect(
+      svelte(
+        `<a href="/contact">x</a><a href="https://example.org">x</a><a href="tel:+12087244034">x</a><a href="mailto:a@b.co">x</a><a href="https://instagram.com/x">x</a><a href="#top">x</a>`,
+      ),
+    ).toEqual([
+      ["link", "/contact"],
+      ["link", "https://example.org"],
+      ["phone", "tel:+12087244034"],
+      ["email", "mailto:a@b.co"],
+      ["social", "https://instagram.com/x"],
+    ]);
+  });
+
+  it("reports image and video sources, and a video embed", () => {
+    expect(
+      svelte(
+        `<img src="/img/a.webp" /><video src="/v/a.mp4" poster="/v/a.jpg"></video><iframe src="https://player.vimeo.com/video/123456"></iframe>`,
+      ),
+    ).toEqual([
+      ["image", "/img/a.webp"],
+      ["video", "/v/a.mp4"],
+      ["video", "/v/a.jpg"],
+      ["video", "https://player.vimeo.com/video/123456"],
+    ]);
+  });
+
+  it("reports component props by their name, and ignores names that are not content", () => {
+    expect(
+      svelte(
+        `<Hero heading="Built to last" vimeoId={1092190178} ctaText="Call us" variant="dark" class="mt-4 flex" />`,
+      ),
+    ).toEqual([
+      ["heading", "Built to last"],
+      ["video", "1092190178"],
+      ["button", "Call us"],
+    ]);
+  });
+
+  it("reports words with a hole in them, but not a link built from data", () => {
+    expect(svelte(`<img alt="Photo of {name}" /><a href="/projects/{slug}">x</a>`)).toEqual([
+      ["alt", "Photo of ${…}"],
+    ]);
+  });
+
+  it("ignores class, style, ids and other attributes no visitor reads", () => {
+    expect(
+      svelte(
+        `<div class="Hero Big" id="Main Hero" style="color: red" data-name="Big Thing"></div>`,
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("script values", () => {
+  it("reports a literal under a content name", () => {
+    expect(
+      ts(
+        `export const items = [{ label: "About us", href: "/about" }, { title: "Our work", bio: "Twenty years." }];`,
+      ),
+    ).toEqual([
+      ["copy", "About us"],
+      ["link", "/about"],
+      ["heading", "Our work"],
+      ["team", "Twenty years."],
+    ]);
+  });
+
+  it("reads the last word of a longer name: DEFAULT_TITLE, heroHeading", () => {
+    expect(
+      ts(`export const DEFAULT_TITLE = "Home"; export const heroHeading = "Hello there";`),
+    ).toEqual([
+      ["heading", "Home"],
+      ["heading", "Hello there"],
+    ]);
+  });
+
+  it("reports a value by its shape under any name", () => {
+    expect(
+      ts(
+        `export const a = { x: "tel:+12087244034", y: "hi@example.com", z: "https://www.facebook.com/acme", w: "/images/a.png" };`,
+      ),
+    ).toEqual([
+      ["phone", "tel:+12087244034"],
+      ["email", "hi@example.com"],
+      ["social", "https://www.facebook.com/acme"],
+      ["image", "/images/a.png"],
+    ]);
+  });
+
+  it("does not report code words, types, comparisons, keys or call arguments", () => {
+    expect(
+      ts(
+        `type T = { label: "About us" };
+         export const a = { label: "contact-form", name: "email" };
+         export function f(x: string) { if (x === "Hello there") throw new Error("Something went wrong"); return x; }
+         export const m = { "About us": 1 };`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("follows a value through a Svelte rune", () => {
+    expect(
+      svelte(
+        `<script>const headline = $derived(status === 404 ? "Page not found" : "Something broke");</script><h1>{headline}</h1>`,
+      ),
+    ).toEqual([
+      ["heading", "Page not found"],
+      ["heading", "Something broke"],
+    ]);
+  });
+});
+
+describe("asset imports", () => {
+  it("reports an image or video import at the import, when it is shown", () => {
+    expect(
+      svelte(
+        `<script>import hero from "$lib/assets/hero.jpg?as=run"; import clip from "$lib/v/a.mp4";</script><img src={hero} alt="" /><video src={clip}></video>`,
+      ),
+    ).toEqual([
+      ["image", "hero.jpg"],
+      ["video", "a.mp4"],
+    ]);
+  });
+});
+
+describe("fallbacks are never reported (decision 2026-11-21-1841, fork 1)", () => {
+  const cases: Array<[string, string]> = [
+    ["field || literal", `<h1>{doc.title || "Welcome home"}</h1>`],
+    ["field ?? literal", `<h1>{doc.title ?? "Welcome home"}</h1>`],
+    ["ternary on the same field", `<h1>{doc.title ? doc.title : "Welcome home"}</h1>`],
+    [
+      "ternary on isFilled of the field",
+      `<h1>{isFilled.keyText(doc.title) ? doc.title : "Welcome home"}</h1>`,
+    ],
+    ["a fallback-named helper", `<V vimeoId={vimeoIdOr(doc.vimeo, "1092190178")} />`],
+    [
+      "media beside a field prop",
+      `<script>import img from "$lib/a.jpg";</script><Media field={doc.image} src={img} fallbackAlt="A home" />`,
+    ],
+    [
+      "an else branch for the same field",
+      `{#if doc.intro}<PrismicRichText field={doc.intro} />{:else}<p>We build homes.</p>{/if}`,
+    ],
+    [
+      "a constant read only as a fallback",
+      `<script>const DEFAULT_DESCRIPTION = "Custom homes since 1998."; const d = doc.meta || DEFAULT_DESCRIPTION;</script>`,
+    ],
+    [
+      "an argument to a parameter named fallback",
+      `<script>function text(value, fallback) { return value || fallback; }</script><h1>{text(doc.title, "Welcome home")}</h1>`,
+    ],
+    [
+      "a ternary on a value derived from the other branch",
+      `<script>const quoted = named(d?.name); const pair = isFilled.image(d?.logo) && quoted;</script><p>{pair ? quoted : "Revogen"}</p>`,
+    ],
+  ];
+  for (const [name, src] of cases) {
+    it(name, () => {
+      expect(svelte(src)).toEqual([]);
+    });
+  }
+
+  it("a choice between two literals is not a fallback", () => {
+    expect(svelte(`<p>{open ? "Close menu" : "Open menu"}</p>`)).toEqual([
+      ["copy", "Close menu"],
+      ["copy", "Open menu"],
+    ]);
+  });
+
+  it("a ternary on another value is not a fallback for this one", () => {
+    expect(
+      svelte(`<h1>{page.status === 404 ? "Page not found" : (page.error?.message ?? "Oops")}</h1>`),
+    ).toEqual([["heading", "Page not found"]]);
+  });
+
+  it("a component's own words beside a field prop are not fallbacks", () => {
+    expect(
+      svelte(`<PrismicLink field={doc.link} aria-label="Instagram photo">Learn more</PrismicLink>`),
+    ).toEqual([
+      ["copy", "Instagram photo"],
+      ["copy", "Learn more"],
+    ]);
+  });
+
+  it("a constant read plainly anywhere is reported", () => {
+    expect(
+      svelte(
+        `<script>const DEFAULT_TITLE = "Fixture Co."; const t = doc.meta || DEFAULT_TITLE;</script><h1>{DEFAULT_TITLE}</h1>`,
+      ),
+    ).toEqual([["heading", "Fixture Co."]]);
+  });
+
+  it("an extra helper named in the site's settings", () => {
+    expect(
+      scanSource("src/routes/+page.svelte", `<h1>{buildTitle(doc.t, "Welcome home")}</h1>`, {
+        fallbackHelpers: ["buildTitle"],
+      }),
+    ).toEqual([]);
+  });
+});
+
+describe("dev-only code (SvelteKit's `dev`) is not a visitor's", () => {
+  it("is not reported, and its reads do not count", () => {
+    expect(
+      ts(
+        `import { dev } from "$app/environment";
+         const COPY = { heading: "Homes built to last" };
+         export const load = () => (dev && cookie ? fixture(COPY) : { heading: doc.heading || COPY.heading, label: dev ? "Dev only label" : null });`,
+        "src/routes/+page.ts",
+      ),
+    ).toEqual([]);
+  });
+
+  it("needs the real `dev`: a local variable of that name is not it", () => {
+    expect(
+      ts(`const dev = true; export const a = dev ? { label: "Shown to visitors" } : null;`),
+    ).toEqual([["copy", "Shown to visitors"]]);
+  });
+});
+
+describe("ignore list", () => {
+  it("drops exact literals and /regex/ matches", () => {
+    expect(
+      scanSource(
+        "src/routes/+page.svelte",
+        `<p>Reddoor</p><p>© 2026 Fixture Co.</p><p>Keep me</p>`,
+        {
+          ignore: ["Reddoor", "/^©/"],
+        },
+      ).map((f) => f.text),
+    ).toEqual(["Keep me"]);
+  });
+});
+
+describe("TypeScript files", () => {
+  it("parses a file holding a </script> string, at the file's own line numbers", () => {
+    const src = `export const jsonLd = (d: object) => \`<script type="application/ld+json">\${JSON.stringify(d)}</script>\`;\nexport const SITE = { phone: "(208) 724-4034" };`;
+    expect(scanSource("src/lib/seo.ts", src)).toEqual([
+      { file: "src/lib/seo.ts", line: 2, kind: "phone", text: "(208) 724-4034" },
+    ]);
+  });
+});
+
+describe("code is not content", () => {
+  it("a script or stylesheet URL under a media name is not reported", () => {
+    expect(
+      ts(
+        `export const load = () => { const s = { src: "https://player.vimeo.com/api/player.js", href: "/app.css" }; return s; };`,
+      ),
+    ).toEqual([]);
+  });
+});
+
+// Review round 1 on #2231: each case is a reproduced miss or false report.
+describe("a fallback needs the SAME field, not a shared helper (round 1, critical)", () => {
+  it("two runes do not share a field through `$state`", () => {
+    expect(
+      svelte(
+        `<script>let submitted = $state(false); let email = $state("");</script>{#if !submitted}<input bind:value={email} />{:else}<h2>Thank you for joining our list!</h2>{/if}<p>{submitted ? email : "We never share your address."}</p>`,
+      ),
+    ).toEqual([
+      ["heading", "Thank you for joining our list!"],
+      ["copy", "We never share your address."],
+    ]);
+  });
+
+  it("two calls to one function do not share a field through its name", () => {
+    expect(
+      svelte(
+        `<script>const app = getAppState(); const menu = getAppState();</script><p>{app.open ? menu.label : "Browse the menu"}</p>`,
+      ),
+    ).toEqual([["copy", "Browse the menu"]]);
+  });
+
+  it("a function's body is not what its name reads", () => {
+    expect(
+      svelte(
+        `<script>let sent = $state(false); const handleSubmit = async () => { sent = true; };</script>{#if !sent}<form onsubmit={handleSubmit}></form>{:else}<p>Thanks, we will call you back.</p>{/if}`,
+      ),
+    ).toEqual([["copy", "Thanks, we will call you back."]]);
+  });
+
+  it("a member of an alias is not the alias's whole source", () => {
+    expect(
+      svelte(
+        `<script>const page = $derived(data.page.data);</script>{#if page.layout === "wide"}{page.title}{:else}<h2>Our story began in 1901</h2>{/if}`,
+      ),
+    ).toEqual([["heading", "Our story began in 1901"]]);
+  });
+
+  it("a branch's alias is not followed back to the test (a layout switch)", () => {
+    expect(
+      svelte(
+        `<script>const isMobile = $derived(w < 768); const brands = $derived(isMobile ? few : all);</script>{#if !isMobile}<h4>Join these brands</h4>{:else}{#each brands as b}{b.name}{/each}{/if}`,
+      ),
+    ).toEqual([["heading", "Join these brands"]]);
+  });
+
+  it("a test on a member of an alias is not about the alias's whole source", () => {
+    expect(
+      svelte(
+        `<script>const page = $derived(data.page.data);</script>{#if page.layout === "wide"}<h1>{data.page.data.title}</h1>{:else}<h2>Our story began in 1901</h2>{/if}`,
+      ),
+    ).toEqual([["heading", "Our story began in 1901"]]);
+  });
+
+  it("an alias read itself still reaches its source", () => {
+    expect(
+      svelte(
+        `<script>const title = $derived(data.page.title);</script>{#if title}<h1>{data.page.title}</h1>{:else}<h1>Welcome home</h1>{/if}`,
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("fallbacks written other ways (round 1)", () => {
+  it("a negated #if whose else shows the field", () => {
+    expect(svelte(`{#if !doc.title}<h1>Welcome</h1>{:else}<h1>{doc.title}</h1>{/if}`)).toEqual([]);
+  });
+
+  it("a negated #if whose else shows something else is reported", () => {
+    expect(svelte(`{#if !doc.title}<h1>Welcome</h1>{:else}<h1>{doc.name}</h1>{/if}`)).toEqual([
+      ["heading", "Welcome"],
+    ]);
+  });
+
+  it("`if (!x) x = literal` and `x ||= literal`", () => {
+    expect(
+      svelte(
+        `<script>let heading = doc.title; if (!heading) heading = "Welcome"; let sub = doc.sub; if (!sub) { sub = "Since 1901"; } let cta = doc.cta; cta ||= "Book a tour";</script><h1>{heading}</h1><p>{sub}{cta}</p>`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("an assignment under some other test is reported", () => {
+    expect(
+      svelte(
+        `<script>let heading = doc.title; if (!other) heading = "Welcome back";</script><h1>{heading}</h1>`,
+      ),
+    ).toEqual([["heading", "Welcome back"]]);
+  });
+
+  it('`cond && "A" || "B"` is a choice of two literals, not a fallback', () => {
+    expect(svelte(`<p>{open && "Close menu" || "Open menu"}</p>`)).toEqual([
+      ["copy", "Close menu"],
+      ["copy", "Open menu"],
+    ]);
+  });
+
+  it("alt beside a field prop is the component's own words", () => {
+    expect(svelte(`<Img field={doc.image} alt="A sunlit tasting room" />`)).toEqual([
+      ["alt", "A sunlit tasting room"],
+    ]);
+  });
+
+  it("fallbackAlt beside a field prop is a fallback", () => {
+    expect(svelte(`<Img field={doc.image} fallbackAlt="A sunlit tasting room" />`)).toEqual([]);
+  });
+});
+
+describe("constants that are not prop defaults (round 1)", () => {
+  it("an `export const` in a .svelte module is reported", () => {
+    expect(
+      svelte(
+        `<script module>export const HERO_TITLE = "Welcome to Acme Winery";</script><h1>{HERO_TITLE}</h1>`,
+      ),
+    ).toEqual([["heading", "Welcome to Acme Winery"]]);
+  });
+
+  it("an `export const` in the instance script is reported", () => {
+    expect(svelte(`<script>export const HERO_TITLE = "Welcome to Acme Winery";</script>`)).toEqual([
+      ["heading", "Welcome to Acme Winery"],
+    ]);
+  });
+});
+
+describe("roman numerals are only the small ones a list numbers with (round 1)", () => {
+  it("keeps real words and abbreviations", () => {
+    expect(
+      svelte(
+        `<p>ID</p><p>VIVID</p><p>MIX</p><p>CIVIC</p><p>MD</p><p>DC</p><p>IL</p><p>MI</p><p>LLC</p>`,
+      ).map(([, t]) => t),
+    ).toEqual(["ID", "VIVID", "MIX", "CIVIC", "MD", "DC", "IL", "MI", "LLC"]);
+  });
+
+  it("still skips II to XXXIX", () => {
+    expect(svelte(`<p>II</p><p>IV</p><p>IX.</p><p>XIV</p><p>XXXIX</p>`)).toEqual([]);
+  });
+});
+
+describe("literals with no slot of their own (round 1)", () => {
+  it("an #each over literal words", () => {
+    expect(
+      svelte(`<ul>{#each ["Weddings", "Private events"] as s}<li>{s}</li>{/each}</ul>`),
+    ).toEqual([
+      ["copy", "Weddings"],
+      ["copy", "Private events"],
+    ]);
+  });
+
+  it("a call or method on words shown in the template", () => {
+    expect(
+      svelte(`<h1>{upper("Welcome to the vineyard")}</h1><p>{"Open daily".toUpperCase()}</p>`),
+    ).toEqual([
+      ["heading", "Welcome to the vineyard"],
+      ["copy", "Open daily"],
+    ]);
+  });
+
+  it("a local constant shown in the template", () => {
+    expect(
+      svelte(`<script>const greeting = "Welcome to the vineyard";</script><h1>{greeting}</h1>`),
+    ).toEqual([["heading", "Welcome to the vineyard"]]);
+  });
+
+  it("a local constant used only as a fallback is not", () => {
+    expect(
+      svelte(
+        `<script>const greeting = "Welcome to the vineyard";</script><h1>{doc.title || greeting}</h1>`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("a code word in a constant shown in the template is not", () => {
+    expect(svelte(`<script>const variant = "hero-dark";</script><p>{variant}</p>`)).toEqual([]);
+  });
+
+  it("FAQ, stat and price keys", () => {
+    expect(
+      ts(
+        `export const items = [{ question: "Do you host weddings?", answer: "Yes, year round." }]; export const s = { stat: "Since 1901", price: "From $40 a person" };`,
+      ),
+    ).toEqual([
+      ["copy", "Do you host weddings?"],
+      ["copy", "Yes, year round."],
+      ["copy", "Since 1901"],
+      ["copy", "From $40 a person"],
+    ]);
+  });
+});
+
+describe("a string a method matches against is not content (found after round 1)", () => {
+  it("startsWith, includes, get and querySelector arguments", () => {
+    expect(
+      svelte(
+        `<script>const phone = $derived.by(() => { for (const item of items) if (item.href?.startsWith("tel:")) return item; }); const topic = $derived(page.url.searchParams.get("Topic Name")); const el = document.querySelector("Main Menu");</script><a href={phone.href}>{phone.text}</a><p>{topic}</p>`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("replace's replacement is still words", () => {
+    expect(
+      svelte(
+        `<p>{name.replace("_", " ") || "Unnamed listing"}</p><p>{"Call us today".replace("us", "Acme")}</p>`,
+      ),
+    ).toEqual([["copy", "Call us today"]]);
+  });
+});
+
+describe("a constant read only for styling is not content (found after round 1)", () => {
+  it("is not reported under a content name", () => {
+    expect(
+      svelte(
+        `<script>const lines = $derived(on ? STEPS.map(() => "translate-y-0 opacity-100") : []);</script><p class="t-h4 {active ? lines[0] : out}">{doc.text}</p>`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("is reported once anything else reads it", () => {
+    expect(
+      svelte(
+        `<script>const lines = ["Rooted in the valley", "Built to last"];</script><p class={lines[0]}>{lines[1]}</p>`,
+      ),
+    ).toEqual([
+      ["copy", "Rooted in the valley"],
+      ["copy", "Built to last"],
+    ]);
+  });
+});
+
+describe("video URLs need a video in them (found after round 1)", () => {
+  it("a bare player origin is not a video", () => {
+    expect(ts(`export const ORIGIN = { video: "https://player.vimeo.com" };`)).toEqual([]);
+  });
+
+  it("a player, watch, embed or short link with an ID is", () => {
+    expect(
+      ts(
+        `export const v = { a: "https://player.vimeo.com/video/1092190178", b: "https://vimeo.com/1092190178", c: "https://www.youtube.com/embed/dQw4w9WgXcQ", d: "https://youtu.be/dQw4w9WgXcQ", e: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" };`,
+      ).map(([k]) => k),
+    ).toEqual(["video", "video", "video", "video", "video"]);
+  });
+});
+
+describe("ignore list, round 1", () => {
+  it("a /g or /y regex matches every literal, not every other one", () => {
+    expect(
+      scanSource(
+        "src/routes/+page.svelte",
+        `<p>Acme one</p><p>Acme two</p><p>Acme three</p><p>Acme four</p>`,
+        { ignore: ["/Acme/g"] },
+      ),
+    ).toEqual([]);
+  });
+});
+
+// Review round 2 on #2231.
+describe("a branch is a fallback only behind an emptiness test it renders (round 2, blocker)", () => {
+  it("a menu toggle's other branch is not a fallback", () => {
+    expect(
+      svelte(
+        `{#if menuOpen}<button aria-expanded={menuOpen} onclick={() => (menuOpen = false)}>x</button>{:else}<nav><a href="/about">About Us</a></nav>{/if}`,
+      ),
+    ).toEqual([
+      ["link", "/about"],
+      ["copy", "About Us"],
+    ]);
+  });
+
+  it("a form whose done state styles itself is not a fallback", () => {
+    expect(
+      svelte(
+        `{#if !submitted}<form><h2>Get a free quote</h2><button>Send it</button></form>{:else}<p class:done={submitted}>Thanks, we got it</p>{/if}`,
+      ),
+    ).toEqual([
+      ["heading", "Get a free quote"],
+      ["button", "Send it"],
+      ["copy", "Thanks, we got it"],
+    ]);
+  });
+
+  it("a comparison with a literal is a switch, not an emptiness test", () => {
+    expect(
+      svelte(
+        `{#if theme === "dark"}<div class="bg-{theme}">{theme}</div>{:else}<h2>Our Services</h2>{/if}`,
+      ),
+    ).toEqual([["heading", "Our Services"]]);
+    expect(
+      svelte(`<p>{status.code === 404 ? "Page not found, sorry" : status.message}</p>`),
+    ).toEqual([["copy", "Page not found, sorry"]]);
+  });
+
+  it("a layout switch whose branch reads the switch only in a class is not a fallback", () => {
+    expect(
+      svelte(
+        `<script>const isMobile = $derived(w > 0 && w < 768);</script>{#if !isMobile}<h4>Join these brands</h4>{:else}<div class="w-{isMobile ? 1 : 2}">x</div>{/if}`,
+      ),
+    ).toEqual([["heading", "Join these brands"]]);
+  });
+
+  it("a local holding a comparison is a switch, not the field it compares", () => {
+    expect(
+      svelte(
+        `<script>const isWide = $derived(doc.layout === "wide");</script>{#if isWide}<h1>{doc.layout}</h1>{:else}<h2>Our story began in 1901</h2>{/if}`,
+      ),
+    ).toEqual([["heading", "Our story began in 1901"]]);
+  });
+
+  it("emptiness tests that do make a fallback", () => {
+    const cases = [
+      `{#if doc.links.length > 0}{#each doc.links as l}{l.text}{/each}{:else}<p>Links coming soon</p>{/if}`,
+      `{#if doc.title != null}{doc.title}{:else}<h1>Welcome home</h1>{/if}`,
+      `{#if doc.items.length === 0}<p>No listings right now</p>{:else}{#each doc.items as i}{i.name}{/each}{/if}`,
+      `{#if doc.title == null}<h1>Welcome home</h1>{:else}{doc.title}{/if}`,
+      `<p>{!doc.tagline ? "Built to last" : doc.tagline}</p>`,
+      `<script>const has = $derived(isFilled.keyText(doc.title));</script>{#if has}<h1>{doc.title}</h1>{:else}<h1>Welcome home</h1>{/if}`,
+      `<script>const quoted = named(d?.name); const pair = isFilled.image(d?.logo) && quoted ? d.logo : null;</script><p>{pair ? quoted : "Revogen"}</p><img src={pair ? src(pair) : "/logo.png"} alt="" />`,
+    ];
+    for (const src of cases) expect(svelte(src), src).toEqual([]);
+  });
+});
+
+describe("style values are not copy, but their images are images (round 2)", () => {
+  it("a style: directive value is not reported as copy", () => {
+    expect(
+      svelte(`<div style:height="600px" style:font-family={"Open Sans, serif"}></div>`),
+    ).toEqual([]);
+  });
+
+  it("a background image in a style attribute or directive is an image", () => {
+    expect(
+      svelte(
+        `<div style="background-image: url('/images/hero.jpg')"></div><div style:background-image="url(/images/two.webp)"></div>`,
+      ),
+    ).toEqual([
+      ["image", "/images/hero.jpg"],
+      ["image", "/images/two.webp"],
+    ]);
+  });
+
+  it("an image constant read only in a style is still an image", () => {
+    expect(
+      svelte(
+        `<script>const heroImage = "/images/hero.jpg";</script><div style="background-image: url({heroImage})"></div>`,
+      ),
+    ).toEqual([["image", "/images/hero.jpg"]]);
+  });
+});
+
+describe("prop defaults (round 2, critical)", () => {
+  it("are reported on their own: a default is what shows when no caller passes the prop", () => {
+    expect(
+      svelte(
+        `<script>let { label = "Request Appointment", phone = "(310) 555-1234" } = $props();</script><p>{label} {phone}</p>`,
+        "src/lib/components/CtaBand.svelte",
+      ),
+    ).toEqual([
+      ["copy", "Request Appointment"],
+      ["phone", "(310) 555-1234"],
+    ]);
+  });
+
+  it("a destructuring default outside $props() is still a fallback", () => {
+    expect(
+      svelte(`<script>const { title = "Welcome home" } = data.page;</script><h1>{title}</h1>`),
+    ).toEqual([]);
+  });
+});
+
+describe("built-in fallback helpers (round 2)", () => {
+  it("a call named …Or, withFallback or orDefault", () => {
+    expect(
+      svelte(
+        `<p>{textOr(doc.a, "Built to last")}</p><p>{withFallback(doc.b, "Since 1901")}</p><p>{orDefault(doc.c, "Call us today")}</p>`,
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("an else is a fallback only when it is a leaf substitute (round 3, blocker)", () => {
+  it("a whole alternate template behind an emptiness test is reported (the starter Nav)", () => {
+    expect(
+      svelte(
+        `<script>let { navLinks = [] } = $props(); const useNavLinks = $derived(navLinks.length > 0);</script>
+{#if useNavLinks}{#each navLinks as l}<a href={l.href}>{l.text}</a>{/each}{:else}<nav><a href="/">Home</a><a href="/services">Services</a><a href="tel:+12105550100">(210) 555-0100</a><button>Request Appointment</button></nav>{/if}`,
+      ),
+    ).toEqual([
+      ["link", "/"],
+      ["copy", "Home"],
+      ["link", "/services"],
+      ["copy", "Services"],
+      ["phone", "tel:+12105550100"],
+      ["phone", "(210) 555-0100"],
+      ["button", "Request Appointment"],
+    ]);
+  });
+
+  it("a link, a button or a component in the else makes it an alternate", () => {
+    expect(
+      svelte(
+        `{#if href}<a {href}>{label}</a>{:else}<button><img src="/arrow.svg" alt="link arrow" /></button>{/if}`,
+      ),
+    ).toEqual([
+      ["image", "/arrow.svg"],
+      ["alt", "link arrow"],
+    ]);
+    expect(
+      svelte(`{#if doc.title}<h1>{doc.title}</h1>{:else}<Hero heading="Welcome home" />{/if}`),
+    ).toEqual([["heading", "Welcome home"]]);
+    expect(
+      svelte(
+        `{#if !doc.title}<p>Call <a href="/contact">our office</a></p>{:else}<h1>{doc.title}</h1>{/if}`,
+      ),
+    ).toEqual([
+      ["copy", "Call"],
+      ["link", "/contact"],
+      ["copy", "our office"],
+    ]);
+  });
+
+  it("two elements in the else make it an alternate", () => {
+    expect(
+      svelte(
+        `{#if doc.title}<h1>{doc.title}</h1>{:else}<h1>Welcome home</h1><p>Since 1998</p>{/if}`,
+      ),
+    ).toEqual([
+      ["heading", "Welcome home"],
+      ["copy", "Since 1998"],
+    ]);
+  });
+
+  it("one text, one heading, one image or one picture is still a fallback", () => {
+    const cases = [
+      `{#if doc.title}{doc.title}{:else}Welcome home{/if}`,
+      `{#if doc.title}<h1>{doc.title}</h1>{:else}<h1>Welcome <em>home</em></h1>{/if}`,
+      `{#if doc.image.url}<img src={doc.image.url} alt="" />{:else}<div class="ph"><img src="/hero.jpg" alt="Our team" /></div>{/if}`,
+      `{#if doc.image.url}<img src={doc.image.url} alt="" />{:else}<picture><source srcset="/hero.webp" /><img src="/hero.jpg" alt="Our team" /></picture>{/if}`,
+      `{#if !doc.title}<h1>Welcome home</h1>{:else}<h1>{doc.title}</h1>{/if}`,
+    ];
+    for (const src of cases) expect(svelte(src), src).toEqual([]);
+  });
+});
+
+describe("&& is an emptiness test only when every conjunct is one (round 3, critical)", () => {
+  it("a comparison beside a field makes the else a choice", () => {
+    expect(
+      svelte(
+        `{#if slice.variation === "default" && slice.primary.vimeo_id}<iframe src={slice.primary.vimeo_id} title=""></iframe>{:else}<h2>Our latest project</h2>{/if}`,
+      ),
+    ).toEqual([["heading", "Our latest project"]]);
+  });
+
+  it("a toggle the branch does not show makes the else a choice", () => {
+    expect(
+      svelte(
+        `<script>let playing = $state(false);</script>{#if video && playing}<iframe src={video} title=""></iframe>{:else}<p>Watch the film</p>{/if}`,
+      ),
+    ).toEqual([["copy", "Watch the film"]]);
+  });
+
+  it("the same holds for a ternary", () => {
+    expect(
+      svelte(
+        `<script>const t = theme === "dark" && doc.title ? doc.title : "Welcome to Vineyard Homes";</script><h1>{t}</h1>`,
+      ),
+    ).toEqual([["heading", "Welcome to Vineyard Homes"]]);
+    expect(
+      svelte(
+        `<script>let open = $state(false);</script><h1>{doc.title && open ? doc.title : "Welcome home"}</h1>`,
+      ),
+    ).toEqual([["heading", "Welcome home"]]);
+  });
+
+  it("two fields the branch shows still make a fallback", () => {
+    expect(
+      svelte(
+        `{#if doc.title && doc.subtitle}<h1>{doc.title}</h1><p>{doc.subtitle}</p>{:else}<h1>Welcome home</h1>{/if}`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("an {:else if} arm is judged by its own test", () => {
+    expect(
+      svelte(
+        `{#if slice.primary.image.url}<img src={slice.primary.image.url} alt="" />{:else if slice.variation === "video"}<iframe src="https://player.vimeo.com/video/123456789" title=""></iframe>{:else}<p>Call us today for a free estimate</p>{/if}`,
+      ),
+    ).toEqual([
+      ["video", "https://player.vimeo.com/video/123456789"],
+      ["copy", "Call us today for a free estimate"],
+    ]);
+    expect(
+      svelte(
+        `{#if doc.image.url}<img src={doc.image.url} alt="" />{:else if doc.title}<h1>{doc.title}</h1>{:else}<h1>Welcome home</h1>{/if}`,
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("words reached another way (round 3, majors)", () => {
+  it("a {@render} argument is shown", () => {
+    expect(
+      svelte(`{#snippet card(t)}<h3>{t}</h3>{/snippet}{@render card("Rendered arg words")}`),
+    ).toEqual([["copy", "Rendered arg words"]]);
+  });
+
+  it("a returned literal sits under its function's name", () => {
+    expect(
+      ts(
+        `class Report { get title() { return "Getter title text"; } }\nfunction heading() { return "Plain function heading"; }\nconst subtitle = () => "Arrow subtitle words";\nexport { Report, heading, subtitle };`,
+      ),
+    ).toEqual([
+      ["heading", "Getter title text"],
+      ["heading", "Plain function heading"],
+      ["heading", "Arrow subtitle words"],
+    ]);
+  });
+
+  it("a private field is named like a public one", () => {
+    expect(ts(`export class Standing { #title = "Private words here"; }`)).toEqual([
+      ["heading", "Private words here"],
+    ]);
+  });
+
+  it("a returned call or an unnamed callback is still behaviour", () => {
+    expect(
+      ts(
+        `export function title(d) { return d.toLocaleDateString("en-US", { month: "long" }); }\nexport const list = (xs) => xs.map((x) => "translate-y-0 opacity-100");`,
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("round 3's fleet diff", () => {
+  it("a {@render} argument the snippet only styles with is not words", () => {
+    expect(
+      svelte(
+        `{#snippet heading(cls)}<h1 class={cls}>{doc.title}</h1>{/snippet}{@render heading("mt-16 max-w-[450px] px-8")}`,
+      ),
+    ).toEqual([]);
+    expect(
+      svelte(
+        `{#snippet card(cls, t)}<h3 class={cls}>{t}</h3>{/snippet}{@render card("mt-16 px-8", "Shown words here")}`,
+      ),
+    ).toEqual([["copy", "Shown words here"]]);
+  });
+
+  it("an image import read only in a class is compared against, not shown", () => {
+    expect(
+      svelte(
+        `<script>import placeholder from "$lib/assets/ph.svg";</script><img {src} alt="" class="w-full {src === placeholder ? 'lg:w-1/2' : ''}" />`,
+      ),
+    ).toEqual([]);
+    expect(
+      svelte(
+        `<script>import hero from "$lib/assets/hero.jpg";</script><div class="{hero ? 'a' : 'b'}" style="background-image: url({hero})"></div>`,
+      ),
+    ).toEqual([["image", "hero.jpg"]]);
+  });
+});
+
+describe("a renamed prop default sits under the prop's name (round 3 hand-off)", () => {
+  it("names it by the key, not the local", () => {
+    expect(
+      svelte(
+        `<script>let { heading: h = "Welcome home" } = $props();</script><h1>{h}</h1>`,
+        "src/lib/Hero.svelte",
+      ),
+    ).toEqual([["heading", "Welcome home"]]);
+  });
+});
+
+describe("round 3's mutation sweep", () => {
+  it("a local whose initialiser ANDs a comparison is not an emptiness test", () => {
+    expect(
+      svelte(
+        `<script>const show = $derived(slice.variation === "default" && slice.primary.vimeo_id);</script>{#if show}<iframe src={slice.primary.vimeo_id} title=""></iframe>{:else}<h2>Our latest project</h2>{/if}`,
+      ),
+    ).toEqual([["heading", "Our latest project"]]);
+  });
+
+  it("an attribute no visitor reads does not show the field", () => {
+    expect(
+      svelte(`{#if doc.title}<h1 id={doc.title}>Hi there</h1>{:else}<h1>Welcome home</h1>{/if}`),
+    ).toEqual([
+      ["heading", "Hi there"],
+      ["heading", "Welcome home"],
+    ]);
+  });
+});
+
+describe("a test of the file's own data is a choice, not a fallback (round 4, major 1)", () => {
+  it("reports the else of a test on $state", () => {
+    expect(
+      svelte(
+        `<script>let error = $state(null);</script>{#if error}<p>{error}</p>{:else}<p>Sign up for our newsletter today</p>{/if}`,
+      ),
+    ).toEqual([["copy", "Sign up for our newsletter today"]]);
+  });
+
+  it("reports the else of a test on a local with no initialiser (Svelte 4 state)", () => {
+    expect(
+      svelte(
+        `<script>let error;</script>{#if error}<p>{error}</p>{:else}<p>Sign up for our newsletter today</p>{/if}`,
+      ),
+    ).toEqual([["copy", "Sign up for our newsletter today"]]);
+  });
+
+  it("keeps an exported let a prop: its else is still a fallback", () => {
+    expect(
+      svelte(
+        `<script>export let title;</script>{#if title}<h1>{title}</h1>{:else}<h1>Welcome to Acme</h1>{/if}`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("reports a negated if on a list the file computes (reddoor-website SiteHealth)", () => {
+    expect(
+      svelte(
+        `<script>let { view } = $props(); const rows = $derived(healthRows(view));</script>{#if rows.length === 0}<p>Every check came back clean.</p>{:else}{#each rows as r}<p>{r.label}</p>{/each}{/if}`,
+      ),
+    ).toEqual([["copy", "Every check came back clean."]]);
+  });
+
+  it("reports a template ternary on $state", () => {
+    expect(
+      svelte(
+        `<script>let user = $state(null);</script><span>{user ? user.name : "Sign in to your account"}</span>`,
+      ),
+    ).toEqual([["copy", "Sign in to your account"]]);
+  });
+
+  it("still hides a fallback whose test is a prop, an alias of one, or an emptiness test", () => {
+    expect(
+      svelte(
+        `<script>let { slice } = $props(); const title = $derived(slice.primary.title); const pair = isFilled.image(slice.primary.logo) && title;</script>{#if title}<h1>{title}</h1>{:else}<h1>Welcome to Acme</h1>{/if}{#if pair}<p>{pair}</p>{:else}<p>Our partner since 1990</p>{/if}`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("counts a test that reads one field beside a computed local as a field test (MSOT partners)", () => {
+    expect(
+      ts(
+        `const d = doc?.data; const quoted = named(d?.name, d?.logo); const pair = isFilled.image(d?.logo) && quoted ? d.logo : null; export const copy = { name: pair ? quoted : "Revogen" };`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("keeps the script idiom: a computed list or its default (reddoor-website booked.ts)", () => {
+    expect(
+      ts(
+        `export function resolve(data) { const steps = (data?.steps ?? []).map((s) => s.text); return { steps: steps.length ? steps : ["Pick a time that suits you"] }; }`,
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("words around holes are a literal in a ternary (round 4, major 1)", () => {
+  it("reports both branches of a choice between a template and a literal", () => {
+    expect(
+      svelte(
+        '<script>let { count } = $props();</script><p>{count ? `${count} homes built` : "Building our first home soon"}</p>',
+      ),
+    ).toEqual([
+      ["copy", "${…} homes built"],
+      ["copy", "Building our first home soon"],
+    ]);
+  });
+
+  it("reports both of two templates (MSOT team.ts:36)", () => {
+    expect(
+      ts(
+        "export const teamAlt = (name, title) => title ? `${name}, ${title}, Medical Solutions of Texas.` : `${name}, Medical Solutions of Texas.`;",
+      ).map(([, t]) => t),
+    ).toEqual(["${…}, ${…}, Medical Solutions of Texas.", "${…}, Medical Solutions of Texas."]);
+  });
+
+  it("still hides a literal beside a hole-only template (`${a}${b}`)", () => {
+    expect(
+      svelte('<script>let { a } = $props();</script><p>{a ? `${a}` : "Welcome to Acme"}</p>'),
+    ).toEqual([]);
+  });
+});
+
+describe("a default outside $props() (round 4, major 3)", () => {
+  it("reports a parameter's destructuring default", () => {
+    expect(
+      ts(
+        `export function seo({ title = "Acme Plumbing | Home", description = "Licensed plumbers in Austin" } = {}) { return { title, description }; }`,
+      ),
+    ).toEqual([
+      ["heading", "Acme Plumbing | Home"],
+      ["copy", "Licensed plumbers in Austin"],
+    ]);
+  });
+
+  it("reports a default over an object written right there", () => {
+    expect(ts(`const { heading = "Welcome to Acme Plumbing" } = {};`)).toEqual([
+      ["heading", "Welcome to Acme Plumbing"],
+    ]);
+  });
+
+  it("reports a plain parameter default", () => {
+    expect(ts(`export const label = (text = "Our Services") => text;`)).toEqual([
+      ["copy", "Our Services"],
+    ]);
+  });
+
+  it("hides a parameter named fallback… or default…", () => {
+    expect(
+      ts(
+        `export const label = (v, fallback = "Our Services", defaultText = "Call us") => v || fallback;`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("hides a destructuring default over a field", () => {
+    expect(ts(`const { heading = "Welcome to Acme Plumbing" } = slice.primary;`)).toEqual([]);
+  });
+});
+
+describe("words reached through a list, a prop or a key (round 4, major 6)", () => {
+  it("reports a list an {#each} shows", () => {
+    expect(
+      svelte(
+        `<script>const services = ["Weddings and Events", "Corporate retreats"];</script><ul>{#each services as s}<li>{s}</li>{/each}</ul>`,
+      ),
+    ).toEqual([
+      ["copy", "Weddings and Events"],
+      ["copy", "Corporate retreats"],
+    ]);
+  });
+
+  it("does not report a list an {#each} only keys or styles with", () => {
+    expect(
+      svelte(
+        `<script>const tones = ["Bright and airy", "Dark and moody"];</script>{#each tones as t}<div class={t}></div>{/each}`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("reports a local handed to a content-named prop or a shown attribute", () => {
+    expect(
+      svelte(
+        `<script>import Hero from "$lib/Hero.svelte"; const msg = "Serving Austin since 1990"; const pic = "Our crew on site";</script><Hero subtitle={msg} /><img src={x} alt={pic} />`,
+      ),
+    ).toEqual([
+      ["heading", "Serving Austin since 1990"],
+      ["alt", "Our crew on site"],
+    ]);
+  });
+
+  it("does not report a local handed to a prop no visitor reads", () => {
+    expect(
+      svelte(
+        `<script>import Hero from "$lib/Hero.svelte"; const mode = "Full width hero";</script><Hero variant={mode} />`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("reports desc, author, aria and info, but not note or status", () => {
+    expect(
+      ts(
+        `export const items = [{ desc: "We build custom homes", author: "Jane Doe", aria: "Go to Revogen project", info: "Open on weekends", note: "Routed to the not-a-fit page", status: "Under contract" }];`,
+      ).map(([, t]) => t),
+    ).toEqual(["We build custom homes", "Jane Doe", "Go to Revogen project", "Open on weekends"]);
+  });
+});
+
+describe("rules round 4 found unpinned (minor 9)", () => {
+  it("a literal on the left of || is not a field: the right is reported", () => {
+    expect(svelte(`<p>{"" || "Welcome to Acme Plumbing"}</p>`)).toEqual([
+      ["copy", "Welcome to Acme Plumbing"],
+    ]);
+    // In script too: since round 5 the template case is also caught by the
+    // file's-own-data rule, so only this one pins the literal-left guard.
+    expect(ts(`export const hero = { heading: "" || "Welcome to Acme Plumbing" };`)).toEqual([
+      ["heading", "Welcome to Acme Plumbing"],
+    ]);
+  });
+
+  it("a helper whose name ends in Or is a fallback helper", () => {
+    expect(svelte(`<h1>{titleOr(doc.data.title, "Welcome to Acme Plumbing")}</h1>`)).toEqual([]);
+    expect(svelte(`<h1>{titled(doc.data.title, "Welcome to Acme Plumbing")}</h1>`)).toEqual([
+      ["heading", "Welcome to Acme Plumbing"],
+    ]);
+  });
+});
+
+describe("review round 5 on #2231", () => {
+  // Finding 1: a literal assigned later to a local the template shows.
+  it("reports a literal assigned to a shown local, Svelte 5 and Svelte 4", () => {
+    expect(
+      svelte(
+        `<script>let error = $state(""); function go() { error = "Please provide a valid email address."; }</script>{#if error}<p role="alert">{error}</p>{/if}`,
+      ),
+    ).toEqual([["copy", "Please provide a valid email address."]]);
+    expect(
+      svelte(
+        `<script>let msg = ""; msg = "Thanks, we will be in touch soon.";</script><p>{msg}</p>`,
+      ),
+    ).toEqual([["copy", "Thanks, we will be in touch soon."]]);
+    expect(
+      svelte(
+        `<script>let errorMsg = $state(""); const go = async () => { errorMsg = "Network error. Please try again."; };</script>{#if errorMsg}<p role="alert">{errorMsg}</p>{/if}`,
+      ),
+    ).toEqual([["copy", "Network error. Please try again."]]);
+  });
+
+  it("does not report an assigned literal the template never shows, or one under if (!x)", () => {
+    expect(
+      svelte(
+        `<script>let error = $state(""); function go() { error = "Please provide a valid email address."; }</script><button disabled={!!error}>Send it</button>`,
+      ),
+    ).toEqual([["button", "Send it"]]);
+    expect(
+      svelte(
+        `<script>let { data } = $props(); let title = data.title; if (!title) title = "Welcome to Acme Plumbing";</script><h1>{title}</h1>`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("reports the words behind ?? on a fetch response's body, not on a Prismic read", () => {
+    expect(
+      svelte(
+        `<script>let error = $state(""); async function go() { const res = await fetch("/api/x"); const data = await res.json().catch(() => ({})); error = data?.error ?? "Something went wrong. Please try again."; }</script><p>{error}</p>`,
+      ),
+    ).toEqual([["copy", "Something went wrong. Please try again."]]);
+    expect(
+      svelte(
+        `<script>let title = $state(""); async function go() { const doc = await client.getSingle("home"); title = doc.data.title ?? "Welcome to Acme Plumbing"; }</script><h1>{title}</h1>`,
+      ),
+    ).toEqual([]);
+  });
+
+  // Finding 2: template || / ?? on the file's own data.
+  it("reports a template || or ?? whose left is the file's own state", () => {
+    expect(
+      svelte(
+        `<script>let selected = $state("");</script><p>{selected || "Choose a plan today"}</p>`,
+      ),
+    ).toEqual([["copy", "Choose a plan today"]]);
+    expect(
+      svelte(
+        `<script>let q = $state("");</script><input placeholder={q ?? "Search our listings"} />`,
+      ),
+    ).toEqual([["copy", "Search our listings"]]);
+    expect(
+      svelte(
+        `<script>let { data } = $props();</script><h1>{data.page.title || "Our homes, built to last"}</h1>`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("a context getter's state is not the file's own: its || is a fallback", () => {
+    expect(
+      svelte(
+        `<script>const app = getAppState();</script><img src={app.url} alt={app.alt || "Enlarged image"} />`,
+      ),
+    ).toEqual([]);
+    expect(
+      svelte(
+        `<script>let { view } = $props(); const rows = healthRows(view);</script><p>{rows.note || "Nothing to report this month"}</p>`,
+      ),
+    ).toEqual([["copy", "Nothing to report this month"]]);
+  });
+
+  // Finding 3: a placeholder list replaced by the field when the field has items.
+  const slider = (guard: string) =>
+    `<script>import { onMount } from "svelte"; let { testimonials = [] } = $props(); let items = [{ quote: "Lorem ipsum dolor sit amet", author: "Author Name" }]; onMount(() => { ${guard} items = testimonials; });</script>{#each items as t}<blockquote>{t.quote}</blockquote><p>{t.author}</p>{/each}`;
+  it("does not report a local's literal replaced by a field under that field's emptiness test", () => {
+    expect(svelte(slider("if (testimonials.length > 0)"))).toEqual([]);
+    expect(
+      svelte(
+        slider("if (testimonials.length > 0) {").replace("testimonials; }", "testimonials; } }"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("still reports it when the replacement is not under that field's emptiness test", () => {
+    const texts = (src: string) => svelte(src).map(([, t]) => t);
+    expect(texts(slider("if (showReal)"))).toContain("Author Name");
+    expect(texts(slider(""))).toContain("Author Name");
+    // One assignment of anything but the field makes the literal a value.
+    expect(
+      texts(
+        slider("if (testimonials.length > 0)").replace(
+          "</script>",
+          " function reset() { items = others; }</script>",
+        ),
+      ),
+    ).toContain("Author Name");
+  });
+
+  // Finding 4: iCalendar and vCard property lines.
+  it("does not report iCalendar or vCard property lines, but reports their words", () => {
+    expect(
+      ts(
+        'export const description = `Join the call: ${url}`;\nexport const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", `SUMMARY:${title}`, "DTSTART;TZID=America/Los_Angeles:20261123T090000", "END:VCALENDAR"];',
+      ),
+    ).toEqual([["copy", "Join the call: ${…}"]]);
+    expect(svelte(`<p>FAQ: Ask us anything</p><p>NOTE:</p>`)).toEqual([
+      ["copy", "FAQ: Ask us anything"],
+      ["copy", "NOTE:"],
+    ]);
+  });
+
+  it("reads a long run of iCalendar-like parameters in linear time (CodeQL on #2231)", () => {
+    const evil = "DTSTART" + ";A=".repeat(30) + " x";
+    const t0 = performance.now();
+    expect(ts(`export const label = ${JSON.stringify(evil)};`)).toEqual([["copy", evil]]);
+    expect(performance.now() - t0).toBeLessThan(500);
+  });
+
+  // Finding 5: stats, prices and hours are content, not decoration.
+  it("reports stats, prices and hours, and still drops arrows, step numbers and numerals", () => {
+    expect(svelte(`<h2>1,000+</h2><span>$1,250</span><h3>98%</h3><p>9:00 – 5:00</p>`)).toEqual([
+      ["heading", "1,000+"],
+      ["copy", "$1,250"],
+      ["heading", "98%"],
+      ["copy", "9:00 – 5:00"],
+    ]);
+    expect(svelte(`<span>→</span><span>01</span><p>II.</p><span>2026</span>`)).toEqual([]);
+  });
+
+  // Finding 6: a snippet parameter's default, judged by the file's {@render} calls.
+  it("reports a snippet parameter default a {@render} call leaves out", () => {
+    expect(
+      svelte(`{#snippet card(t = "Our promise to you")}<p>{t}</p>{/snippet}{@render card()}`),
+    ).toEqual([["copy", "Our promise to you"]]);
+    expect(
+      svelte(
+        `{#snippet card(t = "Our promise to you")}<p>{t}</p>{/snippet}{@render card("Built to last")}`,
+      ),
+    ).toEqual([["copy", "Built to last"]]);
+  });
+});
+
+describe("rules round 5 found unpinned", () => {
+  const elseFallback = (open: string, shown: string) =>
+    svelte(
+      `<script>let { doc } = $props();</script>{#if ${open}}${shown}{:else}Our default words{/if}`,
+    );
+
+  it.each(["poster", "placeholder", "value", "label"])(
+    "an element's %s attribute shows the field its else falls back for",
+    (attr) => {
+      expect(elseFallback("doc.data.x", `<input ${attr}={doc.data.x} />`)).toEqual([]);
+    },
+  );
+
+  it.each(["asHTML", "asLink", "Boolean", "hasContent"])(
+    "%s(field) is an emptiness test",
+    (callee) => {
+      expect(elseFallback(`${callee}(doc.data.x)`, `<p>{doc.data.x}</p>`)).toEqual([]);
+    },
+  );
+
+  it("x.length >= 1 is an emptiness test", () => {
+    expect(
+      elseFallback("doc.data.items.length >= 1", `{#each doc.data.items as i}<p>{i.t}</p>{/each}`),
+    ).toEqual([]);
+  });
+
+  it("the legacy $app/env dev guard hides its branch", () => {
+    expect(
+      svelte(
+        `<script>import { dev } from "$app/env";</script>{#if dev}<p>Debug panel here</p>{/if}`,
+      ),
+    ).toEqual([]);
+  });
+
+  it.each(["OrDefault", "Fallback", "WithDefault"])(
+    "a helper whose name ends in %s is a fallback helper",
+    (suffix) => {
+      expect(
+        svelte(`<h1>{title${suffix}(doc.data.title, "Welcome to Acme Plumbing")}</h1>`),
+      ).toEqual([]);
+    },
+  );
+});
+
+describe("review round 6", () => {
+  // Finding 1: reddoor-website's funnel-copy defaults, read through a loop (29 rows).
+  it("a defaults map read through a loop into a fallback local is a fallback", () => {
+    expect(
+      ts(`export const DEFAULTS = { heading: "Welcome to Acme" };
+export function resolve(data) {
+  const out = {};
+  for (const key of Object.keys(DEFAULTS)) {
+    const fallback = DEFAULTS[key];
+    out[key] = data[key]?.trim() ? data[key] : fallback;
+  }
+  return out;
+}`),
+    ).toEqual([]);
+  });
+
+  it("so is the real shape: a typeof guard, a trimmed value and the map's type", () => {
+    expect(
+      ts(`export const DEFAULTS = { heading: "Welcome to Acme" };
+type D = typeof DEFAULTS;
+export function resolve(data) {
+  const out = {};
+  for (const key of Object.keys(DEFAULTS)) {
+    const fallback = DEFAULTS[key];
+    const value = data?.[key];
+    if (typeof fallback === "string") {
+      out[key] = typeof value === "string" && value.trim() ? value.trim() : fallback;
+    } else {
+      out[key] = isFilled.richText(value) ? value : fallback;
+    }
+  }
+  return out;
+}`),
+    ).toEqual([]);
+  });
+
+  it("a computed read into a local that is shown, or a direct read, is still content", () => {
+    expect(
+      ts(`export const DEFAULTS = { heading: "Welcome to Acme" };
+export function resolve(out) {
+  for (const key of Object.keys(DEFAULTS)) {
+    const v = DEFAULTS[key];
+    out[key] = v;
+  }
+}`),
+    ).toEqual([["heading", "Welcome to Acme"]]);
+    expect(
+      ts(`export const DEFAULTS = { heading: "Welcome to Acme" };
+export const keys = Object.keys(DEFAULTS);
+export const h = DEFAULTS.heading;`),
+    ).toEqual([["heading", "Welcome to Acme"]]);
+  });
+
+  // Finding 2: punctuation that joins a URL (seo.ts on 6 sites, gallerysonder).
+  it("punctuation that joins a URL is not a link", () => {
+    expect(
+      ts('export const u = (o, src) => ({ url: `${o}${src.startsWith("/") ? "" : "/"}${src}` });'),
+    ).toEqual([]);
+    expect(ts('export const q = (b) => ({ url: b + (b.includes("?") ? "&" : "?") });')).toEqual([]);
+    expect(svelte(`<script>let { b } = $props();</script><a href={b + "/"}>Go</a>`)).toEqual([
+      ["copy", "Go"],
+    ]);
+  });
+
+  it("a whole link of punctuation is still a link, and a joined path with words is too", () => {
+    expect(ts(`export const nav = { href: "/" };`)).toEqual([["link", "/"]]);
+    expect(svelte(`<a href="/">Home</a>`)).toEqual([
+      ["link", "/"],
+      ["copy", "Home"],
+    ]);
+    expect(ts(`export const go = (b) => ({ url: b ? "/about" : "/contact" });`)).toEqual([
+      ["link", "/about"],
+      ["link", "/contact"],
+    ]);
+  });
+
+  // Finding 4: SvelteKit's error() message, shown by +error.svelte.
+  it("reports the message of error() from @sveltejs/kit", () => {
+    expect(
+      ts(
+        `import { error } from "@sveltejs/kit";
+export function load() { error(404, "We could not find that page"); }`,
+        "src/routes/+page.ts",
+      ),
+    ).toEqual([["copy", "We could not find that page"]]);
+    expect(
+      ts(
+        `import { error as fail } from "@sveltejs/kit";
+export function load({ params }) { throw fail(404, \`No service called \${params.slug}\`); }`,
+        "src/routes/+page.server.ts",
+      ),
+    ).toEqual([["copy", "No service called ${…}"]]);
+  });
+
+  it("not an error() of another module, nor when the site's error page does not show it", () => {
+    expect(
+      ts(`import { error } from "$lib/log";
+export function load() { error(404, "We could not find that page"); }`),
+    ).toEqual([]);
+    expect(
+      scanSource(
+        "src/routes/+page.ts",
+        `import { error } from "@sveltejs/kit";
+export function load() { error(404, "We could not find that page"); }`,
+        { kitErrorShown: false },
+      ),
+    ).toEqual([]);
+  });
+
+  // Finding 5: images in a <style> block (29-navy's hero photos).
+  it("reports an image url() in a <style> block, as in a style attribute", () => {
+    const found = scanSource(
+      "src/routes/+page.svelte",
+      `<div class="hero"></div>\n<style>\n  .hero { background-image: url("/images/hero.jpg"); }\n  .x { background: url(data:image/svg+xml;base64,AAAA); }\n  @font-face { src: url(/fonts/a.woff2); }\n</style>`,
+    );
+    expect(found).toEqual([
+      { file: "src/routes/+page.svelte", line: 3, kind: "image", text: "/images/hero.jpg" },
+    ]);
+  });
+
+  it("never a mask, in a <style> block or a style attribute", () => {
+    expect(
+      svelte(
+        `<div class="m" style="-webkit-mask-image: url(/heart-mask.png)"></div><style>\n  .m { mask-image: url("/heart-mask.png"); }\n  .n { /* ref css:1 */ -webkit-mask: url(/a.png) no-repeat; }\n</style>`,
+      ),
+    ).toEqual([]);
+  });
+
+  // Finding 6: tracking pixels, tag-manager embeds and the site's own endpoints.
+  it("skips tracking pixels, tag-manager embeds and endpoint paths", () => {
+    expect(
+      svelte(
+        `<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-ABC" title="gtm"></iframe></noscript><noscript><img src="https://www.facebook.com/tr?id=123&ev=PageView" alt="" /></noscript><img src="https://www.google-analytics.com/collect?v=1" alt="" />`,
+      ),
+    ).toEqual([]);
+    expect(
+      ts(
+        `export const url = "/api/subscribe";\nexport const fn = { href: "/.netlify/functions/send" };`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("still reports the Facebook page and an /apiary page", () => {
+    expect(
+      ts(
+        `export const s = { href: "https://www.facebook.com/acme" };\nexport const p = { href: "/apiary" };`,
+      ),
+    ).toEqual([
+      ["social", "https://www.facebook.com/acme"],
+      ["link", "/apiary"],
+    ]);
+  });
+
+  // Finding 8: only real iCalendar and vCard property names are a property line.
+  it("reports copy written CAPS:word", () => {
+    expect(
+      svelte(
+        `<p>Q:What does a remodel cost?</p><h2>ADA:Accessible entrances</h2><p>NOTE:Closed on Sundays</p>`,
+      ),
+    ).toEqual([
+      ["copy", "Q:What does a remodel cost?"],
+      ["heading", "ADA:Accessible entrances"],
+      ["copy", "NOTE:Closed on Sundays"],
+    ]);
+  });
+
+  it("still skips real property lines, an X- extension and a parameter", () => {
+    expect(
+      svelte(
+        `<p>BEGIN:VCALENDAR</p><p>X-WR-CALNAME:Acme events</p><p>DTSTART;TZID=America/Los_Angeles:20261123T090000</p><p>LOCATION:12 Main Street</p>`,
+      ),
+    ).toEqual([]);
+  });
+
+  // Round 5's space rule, now that only real names count: a real property
+  // name followed by a space is words (`FAQ:` is no longer a name at all).
+  it("a property name followed by a space is words", () => {
+    expect(svelte(`<p>LOCATION: Downtown Austin, near the river</p>`)).toEqual([
+      ["copy", "LOCATION: Downtown Austin, near the river"],
+    ]);
+  });
+
+  // Finding 9's second nit: `javascript:` is not provably dead, so it stays.
+  it("a javascript: href is never a link or a phone", () => {
+    expect(svelte(`<a href="javascript:310-555-1234">Call</a>`)).toEqual([["copy", "Call"]]);
+  });
+});
+
+describe("rules round 6 found unpinned", () => {
+  it("a query-only href is a link", () => {
+    expect(ts(`export const tab = { href: "?tab=pricing" };`)).toEqual([["link", "?tab=pricing"]]);
+  });
+
+  it("a phone number inside a sentence longer than 24 characters does not make it a phone", () => {
+    expect(ts(`export const hero = { heading: "Call 310-555-1234 for a free quote" };`)).toEqual([
+      ["heading", "Call 310-555-1234 for a free quote"],
+    ]);
+  });
+
+  it.each([
+    ["https://www.yelp.com/biz/acme", "social"],
+    ["https://www.threads.net/@acme", "social"],
+    ["https://www.youtube.com/shorts/abc123DEF45", "video"],
+  ])("%s is %s", (url, kind) => {
+    expect(ts(`export const x = { href: "${url}" };`)).toEqual([[kind, url]]);
+  });
+
+  it("a code word with a colon is not copy", () => {
+    expect(ts(`export const x = { label: "status:open" };`)).toEqual([]);
+  });
+
+  it("a weekday range is hours, and a suite number an address", () => {
+    expect(svelte(`<p>Mon–Fri</p><p>400 Oak Plaza Suite 200</p>`)).toEqual([
+      ["hours", "Mon–Fri"],
+      ["address", "400 Oak Plaza Suite 200"],
+    ]);
+  });
+});
+
+describe("review round 6: what the fleet diff found in the first cut", () => {
+  // espada's SubHero: a typeof test alone chooses between two shapes of a value.
+  it("a typeof test alone is not an emptiness test", () => {
+    expect(
+      svelte(
+        `<script>let { src } = $props();</script>{#if typeof src === "object"}<Img {src} />{:else}<img {src} alt="hero background" />{/if}`,
+      ),
+    ).toEqual([["alt", "hero background"]]);
+  });
+});
+
+describe("review round 6: the funnel copy's own file", () => {
+  // reddoor-website's copy.ts also has `safeHref(url, fallback)`: another
+  // `fallback`, read plainly, in the same file.
+  it("judges the loop's local by its own block, not a same-named parameter elsewhere", () => {
+    expect(
+      ts(`export const DEFAULTS = { heading: "Welcome to Acme" };
+export function resolve(data) {
+  const out = {};
+  for (const key of Object.keys(DEFAULTS)) {
+    const fallback = DEFAULTS[key];
+    out[key] = data[key]?.trim() ? data[key] : fallback;
+  }
+  return out;
+}
+export function safeHref(url, fallback) {
+  return /^https:/.test(url) ? url : fallback;
+}`),
+    ).toEqual([]);
+  });
+});

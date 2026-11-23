@@ -334,6 +334,9 @@ const expectedSubcommands = [
   "match-harness",
   "health-endpoint",
   "smoke-suite",
+  // P1-120: its scanner imports svelte/compiler, a runtime dependency since
+  // this command; a bundling slip would show here first.
+  "content-check",
 ];
 
 await check("CLI --help exits 0 and lists all expected commands", () => {
@@ -613,6 +616,24 @@ await check("smoke/index.js measure() runs in a page as built", async () => {
     if (fine.cut.length !== 0) throw new Error(`a fine page gave ${JSON.stringify(fine)}`);
   } finally {
     await browser.close();
+  }
+});
+
+// The command as a site's CI runs it: from dist, against the dirty fixture.
+// Vitest runs the scanner from source, so only this proves svelte/compiler
+// resolves for the built package and the scan still finds every literal.
+await check("CLI content-check runs from dist and finds the dirty fixture's literals", () => {
+  const fixture = resolve(repoRoot, "tests/fixtures/content-check/dirty");
+  const out = execFileSync(
+    process.execPath,
+    [distBin, "content-check", "--all", "--cwd", fixture],
+    {
+      encoding: "utf-8",
+      env: { ...process.env, GITHUB_ACTIONS: "" },
+    },
+  );
+  if (!out.includes("content-check: 24 hard-coded literal(s), baseline ignored")) {
+    throw new Error(`unexpected output:\n${out}`);
   }
 });
 
