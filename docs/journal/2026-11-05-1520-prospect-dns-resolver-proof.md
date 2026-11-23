@@ -1,6 +1,6 @@
 # 2026-11-05 — The prospect audit's DNS checks now prove their resolver before a "none" counts
 
-Landed in: this PR (`claude/prospect-dns-resolver-check`). The saved MSOT report (`/audit/VHC0-mqgh8Nq9WYIeLSXbw`) was corrected in place in Turso; before/after `result_json` is in the workspace at `briefs/2026-11-04-msot-phase-1/evidence/`.
+Landed in: this PR (`claude/prospect-dns-resolver-check`). The saved MSOT report (its token, since rotated, is kept in the private workspace) was corrected in place in Turso; before/after `result_json` is in the workspace at `briefs/2026-11-04-msot-phase-1/evidence/`.
 
 The 11-04 audit of medicalsolutionsoftx.com told the prospect it had no MX record ("email sent to any address at it is rejected") and no `v=spf1` record. Both were false: dns.google and Cloudflare's resolver answer `MX 0 medicalsolutionsoftx-com.mail.protection.outlook.com` and `v=spf1 include:spf.protection.outlook.com include:_spf.google.com -all`. The MSOT client letter stopped linking the report because of it.
 
