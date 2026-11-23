@@ -1501,7 +1501,6 @@ function sidecarChecks(
    *  way the linked side already does. */
   aliasOf: ReadonlyMap<string, string>,
 ): SiteCheck[] {
-  const discoveredLinks = linkedPages.size;
   // Addresses with `{{` are template defects, not pages (TEC-05), so they are
   // left out of every count this function compares against.
   const realLinks = [...linkedPages].filter((a) => !isTemplatePlaceholderUrl(a)).length;
