@@ -58,7 +58,10 @@ async function cockpitWithDeadLetterAged(hours: number, breakOldestRead = false)
   await db.destroy();
   vi.stubEnv("TURSO_DATABASE_URL", url);
   vi.stubEnv("TURSO_AUTH_TOKEN", "");
-  const data = await runPage<{ view: CockpitView }>(load, "/");
+  // /triage has its own server load since P1-111 (the backlog); its section is not under test here.
+  const data = await runPage<{ view: CockpitView }>(load, "/", {}, undefined, {
+    backlog: { kind: "unavailable", reason: "not read in this test" },
+  });
   return renderPage(Page, { data });
 }
 

@@ -1,0 +1,67 @@
+[
+  {
+    "id": "1-gate-open",
+    "why": "The brief's mutation 1, re-aimed: the operator lifted the operator-only gate on 2026-11-23 (\"it's fine if they see it\"), so the gate under test is sign-in itself. With it open, a signed-out request reaches /triage's load.",
+    "edits": [
+      {
+        "file": "cockpit/src/hooks.server.ts",
+        "find": "  if (!auth.ok) return denialResponse(auth.denial);",
+        "replace": "  if (!auth.ok && false) return denialResponse(auth.denial);"
+      }
+    ],
+    "test": "cockpit/tests/triage/backlog.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "2-fixture-rows-swapped",
+    "why": "The brief's mutation 2: two rows of the fixture backlog swap places; the top-five test pins file order.",
+    "edits": [
+      {
+        "file": "tests/dashboard/backlog.test.ts",
+        "find": "const ALL = [ROWS.a, ROWS.b, ROWS.c, ROWS.d, ROWS.e, ROWS.f];",
+        "replace": "const ALL = [ROWS.b, ROWS.a, ROWS.c, ROWS.d, ROWS.e, ROWS.f];"
+      }
+    ],
+    "test": "tests/dashboard/backlog.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "3-malformed-status-read-as-title",
+    "why": "The brief's mutation 3: a status prefix without a valid date is no longer recognised as a status, so `**Status: shipped.**` would show as the row's title instead of failing loudly.",
+    "edits": [
+      {
+        "file": "src/dashboard/backlog.ts",
+        "find": "    if (STATUS_WORD.test(segment)) {",
+        "replace": "    if (STATUS_DATED.test(segment)) {"
+      }
+    ],
+    "test": "tests/dashboard/backlog.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "4-network-error-text-logged",
+    "why": "A failed read logs the error's whole text, which could carry what GitHub sent; the log must name the error only.",
+    "edits": [
+      {
+        "file": "src/dashboard/backlog-source.ts",
+        "find": "    log(`[triage:backlog] read failed: ${name}`);",
+        "replace": "    log(`[triage:backlog] read failed: ${String(err)}`);"
+      }
+    ],
+    "test": "tests/dashboard/backlog-source.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "5-rank-order-reversed",
+    "why": "The parser collects rows in reverse, so the ranks no longer follow the file's order.",
+    "edits": [
+      {
+        "file": "src/dashboard/backlog.ts",
+        "find": "    items.push(parseItem(items.length + 1, splitRow(lines[j]!), j + 1));",
+        "replace": "    items.unshift(parseItem(items.length + 1, splitRow(lines[j]!), j + 1));"
+      }
+    ],
+    "test": "tests/dashboard/backlog.test.ts",
+    "expect": "red"
+  }
+]

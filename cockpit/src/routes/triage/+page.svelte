@@ -5,19 +5,23 @@
   import PageStyles from "../../lib/PageStyles.svelte";
   import healthCss from "../../lib/cockpit/health.css?inline";
   import cockpitCss from "../cockpit.css?inline";
+  import backlogCss from "../../lib/backlog/backlog.css?inline";
+  import BacklogTop from "../../lib/backlog/BacklogTop.svelte";
+  import type { BacklogView } from "../../lib/backlog/view.js";
 
   // The fleet cockpit, a start page: verdict bar, the per-site Needs-you feed,
   // the Setup count, and the quiet lanes (Cardless, Inbox). The per-site cards
   // and the Recently and Archived lanes moved to Sites (/fleet, #672 step 3).
   // Every string comes decided from the server (lib/cockpit/view.ts).
-  let { data }: { data: { view: CockpitView } } = $props();
+  // `backlog` is absent only in the markup snapshots, which predate it.
+  let { data }: { data: { view: CockpitView; backlog?: BacklogView } } = $props();
   const v = $derived(data.view);
 </script>
 
 <svelte:head>
   <title>Reddoor maintenance — fleet cockpit</title>
 </svelte:head>
-<PageStyles sheets={[healthCss, cockpitCss]} />
+<PageStyles sheets={[healthCss, cockpitCss, backlogCss]} />
 
 <h1>Reddoor fleet cockpit</h1>
 <div class="meta">
@@ -29,6 +33,10 @@
   <div class="verdict-meta">{v.verdict.meta}</div>
   <AuditFleet />
 </div>
+
+{#if data.backlog}
+  <BacklogTop view={data.backlog} />
+{/if}
 
 {#if v.feedCount > 0}
   <section class="needs-you">
