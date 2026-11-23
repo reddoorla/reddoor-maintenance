@@ -582,7 +582,7 @@ describe("a place the site itself names is never 'contradicted'", () => {
   });
   const offline = { fetchPage: async () => null };
 
-  it("flips contradicted to confirmed when the site uses the claim's own terms", async () => {
+  it("downgrades contradicted to unverified, quoting the site, when the site uses the claim's own terms", async () => {
     const r = await checkAccuracy("https://acme.example/", site, [answer], [], {
       run: async () => ({
         assertions: [
@@ -598,8 +598,9 @@ describe("a place the site itself names is never 'contradicted'", () => {
       ownership: offline,
     });
     expect(r.assertions[0]).toMatchObject({
-      verdict: "confirmed",
+      verdict: "unverified",
       siteQuote: expect.stringContaining("Los Angeles"),
+      unverifiedReason: 'Your site does say "Los Angeles", so we have not called this wrong.',
     });
   });
 
@@ -619,6 +620,58 @@ describe("a place the site itself names is never 'contradicted'", () => {
       ownership: offline,
     });
     expect(r.assertions[0]?.verdict).not.toBe("confirmed");
+  });
+});
+
+describe("code never upgrades a verdict to 'confirmed'", () => {
+  // From a stored report: the model called both claims contradicted, and the
+  // contradicted→confirmed rule above turned each into "confirmed" because the
+  // site uses a term the model searched for: its own name in the footer, and
+  // "med-surg suppliers", the very phrase that contradicts the claim. The report
+  // then told the business its own site says it is a travel-nurse staffing
+  // agency, which it is not. Sharing a word is not saying the thing; code may
+  // only move a verdict down, to unverified, never up.
+  const site = crawl([
+    page(
+      "https://supply.example/",
+      "From our team, we know the DoD & VA healthcare landscape better than anyone. " +
+        "We enable med-surg suppliers to find and access opportunities that they would not have been able to tap into. " +
+        "Contact Us. ©2026 - Acme Supply of Texas | All Rights Reserved | Privacy Policy",
+    ),
+  ]);
+  const answer = branded({
+    query: "who is Acme Supply of Texas",
+    citedDomains: ["directory.example"],
+    fullAnswer:
+      'I couldn\'t find an exact company called "Acme Supply of Texas". ' +
+      "The closest match is a staffing firm that places travel nurses, including many assignments across Texas hospitals.",
+  });
+  const offline = { fetchPage: async () => null };
+
+  it.each([
+    {
+      claim:
+        "The business is a travel healthcare staffing agency that places travel nurses in Texas hospitals.",
+      engineQuote: "places travel nurses, including many assignments across Texas hospitals",
+      // The model's own evidence AGAINST the claim: what the site says it is.
+      searchTerms: ["med-surg suppliers"],
+    },
+    {
+      claim: 'No business operates under the exact name "Acme Supply of Texas".',
+      engineQuote: 'I couldn\'t find an exact company called "Acme Supply of Texas"',
+      searchTerms: ["Acme Supply of Texas"],
+    },
+  ])("a contradicted claim stays off 'confirmed': $claim", async (a) => {
+    const r = await checkAccuracy("https://supply.example/", site, [answer], [], {
+      run: async () => ({
+        assertions: [{ ...a, verdict: "contradicted", siteQuote: null }],
+      }),
+      ownership: offline,
+    });
+    expect(r.assertions).toHaveLength(1);
+    expect(r.assertions[0]?.verdict).not.toBe("confirmed");
+    expect(r.assertions[0]?.verdict).toBe("unverified");
+    expect(r.assertions[0]?.unverifiedReason).toMatch(/^Your site does say "/);
   });
 });
 

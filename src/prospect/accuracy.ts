@@ -722,21 +722,32 @@ function verifyQuotes(
   for (const a of raw) {
     if (!answers.includes(normalize(a.engineQuote))) continue;
 
-    // A place or a name the site itself uses, anywhere, cannot be
+    // A place or a name the site itself uses, anywhere, is not safe to call
     // "contradicted": a Texas mailing address on one page and "near the Los
     // Angeles metro" on another is the site saying both, not the engine getting
-    // it wrong. When the site uses the claim's own distinctive terms exactly,
-    // the honest verdict is confirmed, quoting the site's own sentence.
-    let verdict: typeof a.verdict = a.verdict;
+    // it wrong. So when the site uses one of the claim's distinctive terms
+    // exactly, the verdict comes DOWN to unverified, quoting the site's own
+    // passage so the reader can judge it.
+    //
+    // Never up. This once set "confirmed", and on a real report that told a
+    // business its own site says it is a travel-nurse staffing agency: the
+    // terms the model searched were its evidence AGAINST the claim ("med-surg
+    // suppliers", the business's own name in the footer), and finding them on
+    // the site was taken as the site agreeing. Sharing a term is not saying
+    // the thing. Only the model, with a quote that survives the checks below,
+    // can make a verdict "confirmed"; code may only take one away.
+    let verdict: typeof a.verdict | "unverified" = a.verdict;
     let siteQuote: string | null = a.siteQuote;
+    let downgradeReason: string | null = null;
     if (a.verdict === "contradicted") {
       for (const term of distinctive(searchTermsByClaim.get(a.claim) ?? [], a.claim)) {
         if (findTerm(site, term) !== "exact") continue;
         // The quote must survive the same substring check as a model quote, so
         // no ellipses: they are not in the page and would fail it.
         const at = site.indexOf(normalize(term));
-        verdict = "confirmed";
+        verdict = "unverified";
         siteQuote = flat.slice(Math.max(0, at - 80), at + term.length + 80).trim();
+        downgradeReason = `Your site does say "${term.trim()}", so we have not called this wrong.`;
         break;
       }
     }
@@ -762,11 +773,13 @@ function verifyQuotes(
       // better position than being told we found nothing.
       siteQuote: quoteReal ? siteQuote : null,
       nearbyMention: null,
-      unverifiedReason: !unsupported
-        ? null
-        : !quoteReal
-          ? "We could not find the passage this was based on, so we have not stated it either way."
-          : "The passage we found is about the same subject but does not actually say this, so we have not stated it either way.",
+      unverifiedReason: downgradeReason
+        ? downgradeReason
+        : !unsupported
+          ? null
+          : !quoteReal
+            ? "We could not find the passage this was based on, so we have not stated it either way."
+            : "The passage we found is about the same subject but does not actually say this, so we have not stated it either way.",
       sourceDomains,
       query: from?.query ?? "",
       engine: from?.engine ?? "",
