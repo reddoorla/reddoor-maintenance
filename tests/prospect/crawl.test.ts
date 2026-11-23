@@ -1519,3 +1519,101 @@ describe("W3 review round 2 — a probe that runs out of time is not a finding",
     expect(await budgetedFormProbe(Promise.resolve(null), 1000)).toBeNull();
   });
 });
+
+// W3 review round 3. A contact word is a whole word or a known contact page,
+// not a prefix; "consultation" is a verb phrase and never a blog's; and the
+// menu keeps its seats whatever the body links say.
+describe("W3 review round 3 — contact-like means a contact page, not a prefix", () => {
+  it.each([
+    ["https://acme.example/contact-lenses", ""],
+    ["https://acme.example/contact-lenses/brand-3", ""],
+    ["https://acme.example/contactless-payments", ""],
+    ["https://acme.example/x", "Contact lenses"],
+    ["https://acme.example/blog/x", "Consultation tips for owners"],
+    ["https://acme.example/blog/consultation", ""],
+    ["https://acme.example/2026/05/consultation", ""],
+  ])("%s %s is NOT contact-like", (href, text) => {
+    expect(isContactLike(href, text)).toBe(false);
+  });
+
+  it.each([
+    ["https://acme.example/contactus", ""],
+    ["https://acme.example/contact-sales", ""],
+    ["https://acme.example/contact-info", ""],
+    ["https://acme.example/contact-our-team", ""],
+    ["https://acme.example/contact-support", ""],
+    ["https://acme.example/x", "Contact"],
+    ["https://acme.example/x", "Contact us"],
+    ["https://acme.example/x", "Contact me"],
+    ["https://acme.example/x", "Get in touch"],
+    ["https://acme.example/x", "Book a consultation"],
+    ["https://acme.example/x", "Request a consultation"],
+    ["https://acme.example/x", "Schedule a consultation"],
+  ])("%s %s IS contact-like", (href, text) => {
+    expect(isContactLike(href, text)).toBe(true);
+  });
+
+  it("a menu of eye-clinic pages, a footer /contact and 25 lens pages: the contact and menu pages are read within 20", async () => {
+    const lensLinks = Array.from(
+      { length: 25 },
+      (_, i) => `<a href="/contact-lenses/brand-${i}">Brand ${i}</a>`,
+    ).join("");
+    const home = `<html><body><header><nav><a href="/services">Services</a><a href="/eye-exams">Eye exams</a><a href="/about">About</a></nav></header>
+      <main><h1>Acme</h1>${lensLinks}</main>
+      <footer><a href="/contact">Contact</a></footer></body></html>`;
+    const deps = stubDeps({
+      [HOME]: { body: home },
+      "https://acme.example/contact": { body: BARE_PAGE },
+      "https://acme.example/services": { body: BARE_PAGE },
+      "https://acme.example/eye-exams": { body: BARE_PAGE },
+      "https://acme.example/about": { body: BARE_PAGE },
+    });
+    const result = await crawlSite(HOME, deps);
+    const urls = result.pages.map((p) => p.url);
+    expect(urls).toEqual(
+      expect.arrayContaining([
+        "https://acme.example/contact",
+        "https://acme.example/services",
+        "https://acme.example/eye-exams",
+        "https://acme.example/about",
+      ]),
+    );
+    expect(urls.length).toBeLessThanOrEqual(20);
+  });
+
+  it("30 request-appointment links under locations do not push the menu out of the budget", () => {
+    const locations = Array.from(
+      { length: 30 },
+      (_, i) => `<a href="/locations/city-${i}/request-appointment">Visit ${i}</a>`,
+    ).join("");
+    const html = `<html><body><header><nav><a href="/services">Services</a><a href="/about">About</a></nav></header>
+      <main>${locations}</main></body></html>`;
+    const ranked = rankCandidates({
+      home: HOME,
+      nav: navLinks(html, HOME),
+      contact: contactLinks(html, HOME),
+      sitemap: [],
+      bodyLinks: [],
+    });
+    const { chosen } = normalizeCandidates(ranked, "https://acme.example", 20, null);
+    expect(chosen).toEqual(expect.arrayContaining(["https://acme.example/services"]));
+    expect(chosen).toEqual(expect.arrayContaining(["https://acme.example/about"]));
+    expect(ranked.indexOf("https://acme.example/about")).toBeLessThan(
+      ranked.indexOf("https://acme.example/locations/city-5/request-appointment"),
+    );
+  });
+
+  it("at most three contact-like links rank right after the home page", () => {
+    const contact = [
+      "https://acme.example/contact",
+      "https://acme.example/contact-sales",
+      "https://acme.example/contact-form",
+      "https://acme.example/contact-page",
+    ];
+    const nav = ["https://acme.example/services"];
+    const ranked = rankCandidates({ home: HOME, nav, contact, sitemap: [], bodyLinks: [] });
+    expect(ranked.slice(0, 4)).toEqual([HOME, ...contact.slice(0, 3)]);
+    expect(ranked[4]).toBe("https://acme.example/services");
+    expect(ranked[5]).toBe(contact[3]);
+  });
+});

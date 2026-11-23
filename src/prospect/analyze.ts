@@ -535,47 +535,6 @@ function firstTermHit(terms: TermPattern, text: string): string | null {
   return null;
 }
 
-/** Words in a run that must repeat before it counts as boilerplate. Six is long
- *  enough that two pages sharing an ordinary sentence is rare, and short enough
- *  to catch a footer whose links sit between its phrases. */
-const BOILERPLATE_RUN = 6;
-
-/** Every run of `BOILERPLATE_RUN` words that appears on two or more of `texts`:
- *  the footer, the nav and the cookie banner, which every page carries. A run
- *  that occurs once is this page's own copy, and is never boilerplate. */
-function repeatedRuns(texts: string[]): Set<string> {
-  const pagesWith = new Map<string, number>();
-  for (const text of texts) {
-    const words = text.split(" ");
-    const runs = new Set<string>();
-    for (let i = 0; i + BOILERPLATE_RUN <= words.length; i++) {
-      runs.add(
-        words
-          .slice(i, i + BOILERPLATE_RUN)
-          .join(" ")
-          .toLowerCase(),
-      );
-    }
-    for (const run of runs) pagesWith.set(run, (pagesWith.get(run) ?? 0) + 1);
-  }
-  return new Set([...pagesWith].filter(([, n]) => n >= 2).map(([run]) => run));
-}
-
-/** `text` with every word that sits inside a boilerplate run removed. */
-function withoutRuns(text: string, runs: Set<string>): string {
-  const words = text.split(" ");
-  const drop = new Array<boolean>(words.length).fill(false);
-  for (let i = 0; i + BOILERPLATE_RUN <= words.length; i++) {
-    const run = words
-      .slice(i, i + BOILERPLATE_RUN)
-      .join(" ")
-      .toLowerCase();
-    if (!runs.has(run)) continue;
-    for (let j = i; j < i + BOILERPLATE_RUN; j++) drop[j] = true;
-  }
-  return words.filter((_, i) => !drop[i]).join(" ");
-}
-
 /**
  * The last check before "your site does not answer this" is allowed to stand:
  * do the question's key terms appear in what we crawled and the model did NOT
@@ -593,11 +552,10 @@ function checkAbsence(q: BuyerQuestion, crawl: CrawlResult): BuyerQuestion {
   if (terms === null) return q;
   const sent = new Set(selectPages(crawl.pages).map((p) => p.url));
   const texts = crawl.pages.map((p) => (p.rendered ?? p.raw)?.text ?? "");
-  const boilerplate = repeatedRuns(texts);
   for (const [i, p] of crawl.pages.entries()) {
     const full = texts[i]!;
     const unseen = sent.has(p.url) ? full.slice(MAX_TEXT_CHARS) : full;
-    const hit = firstTermHit(terms, withoutRuns(unseen, boilerplate));
+    const hit = firstTermHit(terms, unseen);
     if (hit !== null) {
       return { ...q, answered: "unknown", notFound: { term: hit, page: p.url } };
     }

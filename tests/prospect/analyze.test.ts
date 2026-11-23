@@ -751,17 +751,42 @@ describe("checkAbsence — boilerplate and bare words (W3 review round 2)", () =
     ).buyerQuestions.find((q) => q.id === id)!;
   const filler = "Filler sentence. ".repeat(120);
 
-  it("MAJOR (6): a footer repeated on every page with a phrase leaves a `no` standing", async () => {
-    // The footer sits past the window the model read, on both pages, and it
-    // carries the phrase the `who-for` question keys on. It is boilerplate:
-    // the same words on two or more pages say nothing about this page.
-    const footer = "We work with Leeds businesses. Privacy policy. Cookie settings.";
+  it("MAJOR (6): a footer repeated on every page, with only genuine boilerplate, leaves a `no` standing", async () => {
+    // The footer sits past the window the model read, on both pages. It is
+    // genuine non-answering boilerplate: nothing in it is a who-for phrase.
+    const footer = "Privacy policy · Cookie settings · © 2026 Example Co · Follow us";
     const q = await askNo(
       withPages([`${filler}Welcome. ${footer}`, `${filler}Our studio. ${footer}`]),
       "who-for",
     );
     expect(q.answered).toBe("no");
     expect(q.notFound).toBeUndefined();
+  });
+
+  it("MAJOR (6, round 3): a price repeated in the same footer on two pages past the window flips a `no` to unknown", async () => {
+    // Removing repeated runs hid this: the same sentence on two pages is
+    // exactly the text past the model's window that the check must search.
+    const price = "Starter plan costs $49 per month and Growth plan costs $99 per month.";
+    const q = await askNo(
+      withPages([`${filler}Welcome. ${price}`, `${filler}Our studio. ${price}`]),
+      "cost",
+    );
+    expect(q.answered).toBe("unknown");
+    expect(q.notFound?.page).toBe("https://acme.example/q0");
+  });
+
+  it("MAJOR (6, round 3): a who-for footer repeated on three pages past the window flips a `no` to unknown", async () => {
+    const footer = "We serve dental practices across the county.";
+    const q = await askNo(
+      withPages([
+        `${filler}Welcome. ${footer}`,
+        `${filler}Our studio. ${footer}`,
+        `${filler}Contact. ${footer}`,
+      ]),
+      "who-for",
+    );
+    expect(q.answered).toBe("unknown");
+    expect(q.notFound).toEqual({ term: "We serve", page: "https://acme.example/q0" });
   });
 
   it("MAJOR (6): a bare footer word such as Industries no longer flips a `no`", async () => {

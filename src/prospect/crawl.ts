@@ -657,12 +657,28 @@ function isContactSegment(words: string[], topLevel: boolean): boolean {
   return CONTACT_PATH_WORDS.has(last) && !BOOKING_PATH_WORDS.has(last);
 }
 
+/** A path segment that is a contact page, by its whole name: `contact`,
+ *  `contact-us`, `contactus`, or `contact-` and one of the words a contact page
+ *  is called. Not a prefix: `contact-lenses` and `contactless-payments` are not. */
+const CONTACT_PAGE_SEGMENT =
+  /^(?:contact|contact-us|contactus|contact-(?:sales|form|page|information|info|our-team|team|me|details|support))$/;
+
+/** Path segments that mark a blog, a news feed or a dated archive. "Consultation"
+ *  in such a path is a post's title, not an offer. */
+const ARCHIVE_SEGMENT = /^(?:blog|blogs|news|articles?|posts?|insights|resources|(?:19|20)\d{2})$/;
+
+/** A consultation offered in link text, as a verb phrase: "Book a consultation",
+ *  "Request a consultation", "Free consultation". "Consultation tips for owners"
+ *  is a post's title, not an offer. */
+const CONSULTATION_OFFER =
+  /\b(?:book|request|schedule|arrange|get)\s+(?:an?\s+|your\s+|a\s+free\s+)?consultations?\b|\bfree consultations?\b/i;
+
 /** Link text that means the same, as a whole short label: a verb phrase that
  *  asks for contact, not a noun that happens to contain the word. "Book review"
  *  and "View schedule" are not contact links; "Book a demo" and "Get a free
- *  quote" are. */
+ *  quote" are; "Contact lenses" is not "Contact". */
 const CONTACT_LABEL =
-  /^(?:contact(?: us)?|talk to us|let['’]?s talk|get started|enquire|inquire|schedule|(?:get|request) (?:a |an |your |my |free )*(?:quote|estimate|consultation|demo|appointment|call|started)|book(?: (?:a|an|your|my|now|online|the|free))*(?: (?:demo|call|appointment|consultation|visit|session|meeting|table|quote|estimate))?|schedule (?:a|an|your|my|now|online)(?: (?:call|demo|consultation|appointment|visit|meeting|session))?|make (?:an? )?(?:enquiry|inquiry|appointment|booking))(?: (?:today|now|online|here))?$/i;
+  /^(?:contact(?: (?:us|me|sales|our team|support))?|get in touch|talk to us|let['’]?s talk|get started|enquire|inquire|schedule|(?:get|request) (?:a |an |your |my |free )*(?:quote|estimate|consultation|demo|appointment|call|started)|book(?: (?:a|an|your|my|now|online|the|free))*(?: (?:demo|call|appointment|consultation|visit|session|meeting|table|quote|estimate))?|schedule (?:a|an|your|my|now|online)(?: (?:call|demo|consultation|appointment|visit|meeting|session))?|make (?:an? )?(?:enquiry|inquiry|appointment|booking))(?: (?:today|now|online|here))?$/i;
 
 /**
  * Does this link lead to the way a visitor gets in touch: contact, quote, demo,
@@ -681,22 +697,23 @@ export function isContactLike(href: string, text = ""): boolean {
     return false;
   }
   const segments = path.split("/").filter(Boolean);
+  const archived = segments.some((s) => ARCHIVE_SEGMENT.test(s));
   for (const [i, segment] of segments.entries()) {
     const bare = segment.replace(/\.[a-z0-9]+$/, "");
-    // Any segment that starts with `contact` is a contact page: `contact-sales`,
-    // `contact-form`, `contact-page`, `contact-information`, as well as `contact-us`.
-    if (bare.startsWith("contact")) return true;
+    if (CONTACT_PAGE_SEGMENT.test(bare)) return true;
     const words = bare.split(/[-_]+/);
-    if (isContactSegment(words, segments.length === 1 && i === 0)) return true;
+    // "consultation" in a blog or dated path is a post's title, never an offer.
+    const consultationTitle = archived && words.includes("consultation");
+    if (!consultationTitle && isContactSegment(words, segments.length === 1 && i === 0)) {
+      return true;
+    }
     if (words.join(" ").includes("get started")) return true;
   }
   const label = text.replace(/\s+/g, " ").trim();
   if (label.length === 0 || label.length > 40) return false;
-  // A label that opens with "Contact" ("Contact Sales", "Contact our team"), or
-  // that offers a consultation ("Free consultation"), or the verb phrases below.
-  return (
-    /^contact\b/i.test(label) || /\bconsultations?\b/i.test(label) || CONTACT_LABEL.test(label)
-  );
+  // The whole-label verb phrases, or a consultation offered as one (not on a
+  // blog or dated path).
+  return CONTACT_LABEL.test(label) || (!archived && CONSULTATION_OFFER.test(label));
 }
 
 /** A dated post (`/2019/04/…`, `/2019/…`), a page of a paginated list
@@ -848,9 +865,19 @@ export function rankCandidates(input: {
   pool.sort((a, b) => a.late - b.late || a.depth - b.depth || a.i - b.i);
   // Contact-like links first, wherever they sit: the menu's own "Contact" is
   // part of `contact` too, so the menu's other links come after it.
-  const contact = new Set(input.contact);
+  // At most three contact-like links rank ahead of the menu; the rest come
+  // after it, so a page with dozens of "request an appointment" links cannot
+  // push the owner's own menu out of the budget.
+  const contactLinks = input.contact.filter((url) => url !== input.home);
+  const contact = new Set(contactLinks);
   const menu = input.nav.filter((url) => !contact.has(url));
-  return [input.home, ...input.contact, ...menu, ...pool.map((p) => p.url)];
+  return [
+    input.home,
+    ...contactLinks.slice(0, 3),
+    ...menu,
+    ...contactLinks.slice(3),
+    ...pool.map((p) => p.url),
+  ];
 }
 
 /**
@@ -916,7 +943,7 @@ export function normalizeCandidates(
     const key = samePageKey(u);
     if (seen.has(key)) continue;
     seen.add(key);
-    const path = `${u.origin.toLowerCase()}${u.pathname.replace(/\/+$/, "") || "/"}`;
+    const path = sitePathKey(u);
     if (paths.has(path)) variants.push(u.toString());
     else {
       paths.add(path);
