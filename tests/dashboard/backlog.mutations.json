@@ -147,7 +147,7 @@
   },
   {
     "id": "12-struck-status-read",
-    "why": "Answer (b): a status outside the item cell must stand at the start, after a space or after a bold opener. With that check gone, `~~Status …~~` and a status in a code span are read as live statuses instead of failing loudly.",
+    "why": "Answer (b): a status outside the item cell must stand at the start, after a space or after a bold opener. With that check gone, `~~Status …~~` is read as a live status instead of failing loudly. (A status in a code span still fails, on the check of what follows its date.)",
     "edits": [
       {
         "file": "src/dashboard/backlog.ts",
