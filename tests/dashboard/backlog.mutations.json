@@ -99,21 +99,34 @@
     "edits": [
       {
         "file": "src/dashboard/backlog.ts",
-        "find": "const STATUS_WORD = /^status(?:\\W{0,3}\\d|\\s*:)/i;",
-        "replace": "const STATUS_WORD = /^Status(?:\\W{0,3}\\d|\\s*:)/;"
+        "find": "/^status(?![a-z])[^a-z]*(?:\\[[^\\]]*\\][^a-z]*)?\\d/i.test(s)",
+        "replace": "/^Status(?![a-z])[^a-z]*(?:\\[[^\\]]*\\][^a-z]*)?\\d/.test(s)"
       }
     ],
     "test": "tests/dashboard/backlog.test.ts",
     "expect": "red"
   },
   {
-    "id": "9-dash-status-as-title",
-    "why": "Round 2, major: a status whose date follows a dash or a parenthesis is not recognised, so `**Status-2026-11-20: …**` shows as the title instead of failing loudly.",
+    "id": "9-spaced-status-as-title",
+    "why": "Rounds 2 and 3, major: only a few characters are allowed between the word and the date, so `**Status    2026-11-20: …**` or `**Status (2026-…)**` shows as the title.",
     "edits": [
       {
         "file": "src/dashboard/backlog.ts",
-        "find": "const STATUS_WORD = /^status(?:\\W{0,3}\\d|\\s*:)/i;",
-        "replace": "const STATUS_WORD = /^status(?:\\s*\\d|\\s*:)/i;"
+        "find": "/^status(?![a-z])[^a-z]*(?:\\[[^\\]]*\\][^a-z]*)?\\d/i.test(s)",
+        "replace": "/^status\\W{0,3}\\d/i.test(s)"
+      }
+    ],
+    "test": "tests/dashboard/backlog.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "10-emphasis-not-stripped",
+    "why": "Round 3, minor folded with the major's fix: a struck-through or italic status is not recognised, so `**~~Status 2026-11-19: …~~**` shows as the title.",
+    "edits": [
+      {
+        "file": "src/dashboard/backlog.ts",
+        "find": "  const s = segment.replace(/^[\\s_*~]+/, \"\");",
+        "replace": "  const s = segment.trim();"
       }
     ],
     "test": "tests/dashboard/backlog.test.ts",

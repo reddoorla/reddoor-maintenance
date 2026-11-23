@@ -87,13 +87,21 @@ export function plain(md: string): string {
     .trim();
 }
 
-/** A segment meant as a status: the word in any case, then a colon, or up to
- *  three non-word characters and a digit (`Status 2026-…`, `status 2026-…`,
- *  `Status2026-…`, `Status-2026-…`, `Status (2026-…)`, `Status: …`). A title
- *  that only begins with the word (`Status page for clients`) is not one; a
- *  title like `Status 404 pages` is read as a malformed status and fails
- *  loudly, which is the safe way to be wrong. */
-const STATUS_WORD = /^status(?:\W{0,3}\d|\s*:)/i;
+/**
+ * Whether a segment is meant as a status. Leading emphasis markers (`_`, `*`,
+ * `~`) are ignored, then: the word in any case, not followed by a letter, then
+ * either a colon, or any run of non-letters (one `[tag]` allowed) and a digit.
+ * So `Status 2026-…`, `status 2026-…`, `Status2026-…`, `Status-2026-…`,
+ * `Status    2026-…`, `Status_2026-…`, `Status (2026-…)`, `Status [M] 2026-…`,
+ * `Status: …`, `~~Status 2026-…~~` and `_Status 2026-…_` are all statuses, and
+ * any that is not exactly `Status YYYY-MM-DD` fails loudly. A title that only
+ * begins with the word (`Status page for clients`) is a title; `Status 404
+ * pages` reads as a malformed status and fails loudly, the safe way to be wrong.
+ */
+function isStatusAttempt(segment: string): boolean {
+  const s = segment.replace(/^[\s_*~]+/, "");
+  return /^status(?![a-z])[^a-z]*(?:\[[^\]]*\][^a-z]*)?\d/i.test(s) || /^status[^a-z\d]*:/i.test(s);
+}
 /** The one well-formed shape: `Status YYYY-MM-DD`, then a space, `[`, `:` or the end. */
 const STATUS_DATED = /^Status (\d{4}-\d{2}-\d{2})(?=[\s[:]|$)\s*(.*)$/s;
 
@@ -163,7 +171,7 @@ function leadingParts(cell: string): { statuses: string[]; title: string | null 
     rest = rest.replace(/^\s*(?:\*\*\s*)?/, "");
     const close = rest.indexOf("**");
     const segment = close === -1 ? rest : rest.slice(0, close);
-    if (STATUS_WORD.test(segment)) {
+    if (isStatusAttempt(segment)) {
       statuses.push(segment.trim());
       rest = close === -1 ? "" : rest.slice(close + 2);
       continue;
