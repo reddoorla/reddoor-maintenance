@@ -1038,16 +1038,26 @@ function scenarios(state: { createdId: string; reservedId: string }): Scenario[]
       },
     },
     {
-      // W1: an older report of the same site pointed at prospectToken.
+      // W1: an older live report of the same site pointed at a newer live one.
       name: "supersedeProspectAudit (old link points at the newer report)",
       covers: ["supersedeProspectAudit"],
       run: async (db) => {
-        const { token } = await prospectAudits.createProspectAudit(db, {
-          url: "https://prospect.example.com",
-          business: "Prospect Co",
-          resultJson: "{}",
-        });
-        const res = await prospectAudits.supersedeProspectAudit(db, token, prospectToken, "tester");
+        const make = () =>
+          prospectAudits.createProspectAudit(db, {
+            url: "https://prospect.example.com",
+            business: "Prospect Co",
+            resultJson: "{}",
+          });
+        const older = await make();
+        const newer = await make();
+        await prospectAudits.approveProspectAudit(db, older.token, "tester");
+        await prospectAudits.approveProspectAudit(db, newer.token, "tester");
+        const res = await prospectAudits.supersedeProspectAudit(
+          db,
+          older.token,
+          newer.token,
+          "tester",
+        );
         if (res.status !== "superseded") throw new Error(`supersede scenario: ${res.status}`);
       },
     },

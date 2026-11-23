@@ -827,7 +827,7 @@ export const MIGRATIONS: Migration[] = [
     sql: `ALTER TABLE prospect_audits ADD COLUMN approved_at TEXT;`,
   },
   {
-    // W1: who approved it, as typed at `prospect-audit --approve --by`.
+    // W1: who approved it, as typed at `prospect-audit-review --approve --by`.
     id: "0060_prospect_audits_approved_by",
     sql: `ALTER TABLE prospect_audits ADD COLUMN approved_by TEXT;`,
   },

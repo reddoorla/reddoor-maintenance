@@ -693,7 +693,7 @@ export async function supersedeProspectAudit(
     return { status: "refused", token: oldToken, reason: "a report cannot supersede itself" };
   const keys = await db
     .selectFrom("prospect_audits")
-    .select(["token", "site_key", "approved_at", "withdrawn_at", "superseded_by"])
+    .select(["token", "site_key", "created_at", "approved_at", "withdrawn_at", "superseded_by"])
     .where("token", "in", [oldToken, newToken])
     .where("status", "not in", NO_REPORT_STATUSES)
     .execute();
@@ -711,6 +711,22 @@ export async function supersedeProspectAudit(
   // and leave its reader nothing.
   if (reviewState(newRow) !== "live" || newRow.superseded_by)
     return { status: "refused", token: oldToken, reason: "approve the newer report first" };
+  // Review round 2. Swapped arguments took the newer live report down with no
+  // way back through this command; and a draft that never went out is
+  // withdrawn, not superseded, or its never-sent link would start pointing at
+  // the live report.
+  if (newRow.created_at < oldRow.created_at)
+    return {
+      status: "refused",
+      token: oldToken,
+      reason: "the report to point at is not the newer one",
+    };
+  if (!oldRow.approved_at)
+    return {
+      status: "refused",
+      token: oldToken,
+      reason: "the old report was never approved; withdraw it instead",
+    };
   await db
     .updateTable("prospect_audits")
     .set((eb) => ({
@@ -945,7 +961,7 @@ function serialiseOverrides(overrides: OverrideMap): string | null {
  * operator in whatever they first typed.
  *
  * What is stored is REBUILT from the validated strings, not the object passed
- * in, so an entry keeps its `original` and its `text` and nothing else: any
+ * in, so an entry keeps its `original`, its `text` and `hidden: true` (W1) and nothing else: any
  * other key on it is dropped rather than written through. See
  * `buildOverrideMap` for why that is the contract.
  *

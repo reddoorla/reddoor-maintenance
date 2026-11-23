@@ -95,6 +95,7 @@ describe("W1 — review state of a prospect audit", () => {
   it("supersede points the old row at the newer one of the same site and withdraws it", async () => {
     const db = await fresh();
     const old = await make(db, "https://acme.test/");
+    await approveProspectAudit(db, old.token, "Reviewer");
     const next = await make(db, "https://www.acme.test");
     await approveProspectAudit(db, next.token, "Reviewer");
     expect((await supersedeProspectAudit(db, old.token, next.token, "Reviewer")).status).toBe(
@@ -113,5 +114,33 @@ describe("W1 — review state of a prospect audit", () => {
     const res = await supersedeProspectAudit(db, old.token, other.token, "Reviewer");
     expect(res.status).toBe("refused");
     expect((await getProspectAuditByToken(db, old.token))!.superseded_by).toBeNull();
+  });
+
+  it("refuses swapped arguments: the report pointed at must be the newer one", async () => {
+    const db = await fresh();
+    const older = await make(db, "https://acme.test/");
+    const newer = await make(db, "https://www.acme.test");
+    // created_at is ms-resolution; force a gap so the order is unambiguous.
+    await db
+      .updateTable("prospect_audits")
+      .set({ created_at: "2026-01-01T00:00:00.000Z" })
+      .where("token", "=", older.token)
+      .execute();
+    await approveProspectAudit(db, older.token, "Reviewer");
+    await approveProspectAudit(db, newer.token, "Reviewer");
+    const res = await supersedeProspectAudit(db, newer.token, older.token, "Reviewer");
+    expect(res.status).toBe("refused");
+    expect(reviewState((await getProspectAuditByToken(db, newer.token))!)).toBe("live");
+  });
+
+  it("refuses to supersede a draft that never went out: it is withdrawn instead", async () => {
+    const db = await fresh();
+    const draft = await make(db, "https://acme.test/");
+    const live = await make(db, "https://www.acme.test");
+    await approveProspectAudit(db, live.token, "Reviewer");
+    expect((await supersedeProspectAudit(db, draft.token, live.token, "Reviewer")).status).toBe(
+      "refused",
+    );
+    expect((await getProspectAuditByToken(db, draft.token))!.superseded_by).toBeNull();
   });
 });

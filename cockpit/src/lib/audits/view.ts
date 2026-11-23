@@ -61,6 +61,8 @@ function pill(a: ProspectAuditListItem, now: Date): AuditRowView["pill"] {
 function report(a: ProspectAuditListItem): AuditRowView["report"] {
   if (a.status === "running") return { kind: "note", text: "No report yet" };
   if (hasNoReport(a.status)) return { kind: "note", text: "No report" };
+  // W1: a withdrawn or superseded report 404s; a link to it goes nowhere.
+  if (a.withdrawn_at) return { kind: "note", text: "Taken down" };
   if (isValidToken(a.token)) return { kind: "link", href: `/r/${a.token}` };
   return { kind: "note", text: "Report unavailable" };
 }

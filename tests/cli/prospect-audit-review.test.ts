@@ -83,7 +83,7 @@ describe("prospect-audit-review from a shell (W1 review round 1)", () => {
     const env = { ...process.env };
     delete env.TURSO_DATABASE_URL;
     delete env.TURSO_AUTH_TOKEN;
-    let out = "";
+    let out: string;
     let code = 0;
     try {
       // No --by: the command refuses with code 2 before it opens any database,

@@ -456,4 +456,34 @@ describe("audit-report-json — W1 drafts, withdrawn and superseded reports", ()
     await withdrawProspectAudit(db, next.token, "tester");
     expect((await auditReportJson(req(), ctxFor(old.token))).status).toBe(404);
   });
+
+  it("never stamps opened_at on a draft, even for an editor request without the edit-session header", async () => {
+    process.env.TURSO_DATABASE_URL = ":memory:";
+    process.env.PROSPECT_EDIT_TOKEN = EDIT_TOKEN;
+    const db = await openDb(readDbConfig());
+    const { token } = await draft(db);
+    const bearerOnly = new Request("https://ops.reddoor.test/api/audit-report/x", {
+      headers: { authorization: `Bearer ${EDIT_TOKEN}` },
+    });
+    expect((await auditReportJson(bearerOnly, ctxFor(token))).status).toBe(200);
+    expect((await getProspectAuditByToken(db, token))!.opened_at).toBeNull();
+  });
+
+  it("follows a chain of supersedes to the newest live report", async () => {
+    process.env.TURSO_DATABASE_URL = ":memory:";
+    const db = await openDb(readDbConfig());
+    const a = await draft(db);
+    const b = await draft(db, "https://www.acme.example");
+    const c = await draft(db, "https://acme.example");
+    for (const t of [a, b, c]) await approveProspectAudit(db, t.token, "tester");
+    expect((await supersedeProspectAudit(db, a.token, b.token, "tester")).status).toBe(
+      "superseded",
+    );
+    expect((await supersedeProspectAudit(db, b.token, c.token, "tester")).status).toBe(
+      "superseded",
+    );
+    const res = await auditReportJson(req(), ctxFor(a.token));
+    expect(res.status).toBe(410);
+    expect(await res.json()).toEqual({ error: "superseded", supersededBy: c.token });
+  });
 });

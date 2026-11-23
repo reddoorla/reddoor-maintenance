@@ -156,7 +156,7 @@ function summarize(
     if (!stage.ok) lines.push(`  ! ${name} not measured — ${stage.error}`);
   }
   if (file) lines.push("", `Report written to ${file}`);
-  if (link) lines.push("", `Shareable link: ${link}`);
+  if (link) lines.push("", `Link (a draft: it 404s until approved): ${link}`);
   if (email?.sent) {
     lines.push("", `Emailed to ${email.recipients.join(", ")} (${email.messageId})`);
   }
