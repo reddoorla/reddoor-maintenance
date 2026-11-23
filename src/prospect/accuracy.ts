@@ -712,34 +712,24 @@ function verifyQuotes(
   siteText: string,
   answerOf: Map<string, ProbeAnswer>,
   prospectDomain: string,
-  searchTermsByClaim: Map<string, string[]> = new Map(),
 ): Assertion[] {
   const answers = normalize(answerText);
   const site = normalize(siteText);
-  const flat = siteText.replace(/\s+/g, " ");
   const out: Assertion[] = [];
 
   for (const a of raw) {
     if (!answers.includes(normalize(a.engineQuote))) continue;
 
-    // A place or a name the site itself uses, anywhere, cannot be
-    // "contradicted": a Texas mailing address on one page and "near the Los
-    // Angeles metro" on another is the site saying both, not the engine getting
-    // it wrong. When the site uses the claim's own distinctive terms exactly,
-    // the honest verdict is confirmed, quoting the site's own sentence.
-    let verdict: typeof a.verdict = a.verdict;
-    let siteQuote: string | null = a.siteQuote;
-    if (a.verdict === "contradicted") {
-      for (const term of distinctive(searchTermsByClaim.get(a.claim) ?? [], a.claim)) {
-        if (findTerm(site, term) !== "exact") continue;
-        // The quote must survive the same substring check as a model quote, so
-        // no ellipses: they are not in the page and would fail it.
-        const at = site.indexOf(normalize(term));
-        verdict = "confirmed";
-        siteQuote = flat.slice(Math.max(0, at - 80), at + term.length + 80).trim();
-        break;
-      }
-    }
+    // Code never changes the model's verdict; it only checks the quote below.
+    // It once set "confirmed" whenever the site used one of the claim's
+    // distinctive terms, and on a real report it told a business its own site
+    // says it is a kind of business it is not: the matching terms were the
+    // model's evidence AGAINST the claim, and finding them on the site was read
+    // as the site agreeing. A narrower rule that took "contradicted" down to
+    // unverified went through six review rounds, each finding a claim it
+    // excused wrongly, and was removed (the operator, 11-23).
+    const verdict = a.verdict;
+    const siteQuote: string | null = a.siteQuote;
 
     const from = answerOf.get(normalize(a.engineQuote));
     const sourceDomains = [
@@ -860,14 +850,7 @@ export async function checkAccuracy(
 
   const siteText = fullSiteText(crawl);
   const answerText = branded.map((a) => a.fullAnswer ?? "").join("\n");
-  const verified = verifyQuotes(
-    parsed.assertions,
-    answerText,
-    siteText,
-    answerOf,
-    domainOf(url),
-    termsByClaim,
-  );
+  const verified = verifyQuotes(parsed.assertions, answerText, siteText, answerOf, domainOf(url));
 
   // Same rule as every quote: not in the answer, not trusted.
   const c = parsed.conflation;
