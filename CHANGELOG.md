@@ -1,5 +1,15 @@
 # @reddoorla/maintenance
 
+## 0.118.0
+
+### Minor Changes
+
+- 00b60a6: Add `reddoor-maint content-check` (P1-120 phase 2): warns on NEW hard-coded visitor-facing content (copy, headings, buttons, images and alt text, video IDs and posters, links, phone numbers, addresses, emails, hours, testimonials, team members, SEO and social links) in a SvelteKit site's `src/routes` and `src/lib`. Fallbacks behind a Prismic field, legal pages, `/dev/*` routes and decorative labels are never reported. A committed `content-check.baseline.json` holds today's literals so only new ones warn; `content-check.json` holds a site's exemptions and the `"mode": "fail"` switch (off by default). `--init` writes the CI workflow, pinned to this release, the settings and the baseline. `svelte` moves from a dev dependency to a dependency, for its parser.
+
+### Patch Changes
+
+- a869e87: prospect audit: the accuracy stage's name-collision verdict now records whether the answer settled which business it means. `conflation.settled` is true when the answer named this business by its own place, work or site and kept the others apart, and false only when it said it could not tell, asked which one was meant, described something else as this business, or mixed their facts. The old definition ("more than one business under this name") counted an answer that correctly identified the prospect and then set an unrelated acronym homonym apart, and called every other name a business. `otherNames` now carries what each other thing is in the answer's own words, which need not be a business. Structured output requires `settled`, so the model always judges it; on an unschema'd run an omitted `settled` reads as settled, so an omission is never a finding. The report renders the finding only for `detected && !settled`.
+
 ## 0.117.2
 
 ### Patch Changes

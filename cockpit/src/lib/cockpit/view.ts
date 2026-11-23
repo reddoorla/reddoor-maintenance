@@ -16,7 +16,6 @@ import type { AttentionItem } from "../../../../src/alerts/attention.js";
 import { onboardingStatus, missingOnboarding } from "../../../../src/dashboard/onboarding.js";
 import { relativeTimeFromNow } from "../../../../src/dashboard/relative-time.js";
 import { daysFlagged, LEVEL_RANK, levelOf, type Level } from "../../../../src/alerts/ladder.js";
-import { isLeadFormType } from "../../../../src/forms/types.js";
 import type { FleetEvent, FleetEventType } from "../../../../src/db/fleet-events.js";
 import {
   RECENT_EVENTS_DAYS,
@@ -98,23 +97,6 @@ export type RecentRowView = {
   link: { href: string; text: string } | null;
 };
 
-export type InboxRowView = {
-  key: string;
-  siteName: string;
-  what: string;
-  when: string;
-  href: string;
-};
-
-export type InboxView = {
-  summary: string;
-  rows: InboxRowView[];
-  /** Null when there are no submissions (only the spam lines show). */
-  more: { text: string } | null;
-  spamLine: string | null;
-  autoFiltered: number | null;
-};
-
 export type CockpitView = {
   total: number;
   verdict: VerdictView;
@@ -138,7 +120,6 @@ export type CockpitView = {
     /** P1-78b: how long it has stood ("for 6 days"); null when undated. */
     age: string | null;
   }>;
-  inbox: InboxView | null;
 };
 
 /** Per-band site counts for the verdict, derived from the Needs-you feed. */
@@ -496,55 +477,6 @@ function recently(
     }));
 }
 
-/** Most submissions to render in the cockpit inbox lane. The summary still shows
- *  the true fleet total; overflow is triaged on each site's page. */
-const SUBMISSIONS_STRIP_CAP = 10;
-
-function inbox(model: CockpitModel, now: Date): InboxView | null {
-  const subs = model.submissions ?? [];
-  const spam = model.spam;
-  const hasSpam = !!spam && (spam.caught > 0 || spam.through > 0);
-  const autoFiltered = model.autoFiltered ?? 0;
-  if (subs.length === 0 && !hasSpam && autoFiltered <= 0) return null;
-
-  const shown = [...subs]
-    .sort((a, b) => (b.submittedAt ?? "").localeCompare(a.submittedAt ?? ""))
-    .slice(0, SUBMISSIONS_STRIP_CAP);
-  const overflow = subs.length - shown.length;
-  // The spam numbers come from the nightly roll-up, up to 24h old, so the line
-  // says when they were taken.
-  const spamAsOf =
-    spam?.computedAt !== undefined
-      ? ` · as of ${spam.computedAt.slice(0, 16).replace("T", " ")} UTC`
-      : "";
-  // Actionable leads vs newsletter/rsvp signups: a signup backlog must not read
-  // as N leads waiting. The signup term only appears when nonzero.
-  const leads = subs.filter((s) => isLeadFormType(s.formType)).length;
-  const signups = subs.length - leads;
-  const count = signups === 0 ? `${leads} new` : `${leads} new · +${signups} newsletter/rsvp`;
-  return {
-    summary: `Submissions (${count})${hasSpam ? " · Spam (30d)" : ""}`,
-    rows: shown.map((sub, i) => ({
-      key: `${i}:${sub.submissionId}`,
-      siteName: sub.siteName,
-      what: `${sub.formType} — ${sub.name || sub.email}`,
-      when: sub.submittedAt ? relativeTimeFromNow(sub.submittedAt, now) : "",
-      href: `/s/${sub.slug}`,
-    })),
-    more:
-      subs.length === 0
-        ? null
-        : {
-            text:
-              overflow > 0 ? `+${overflow} more — view all submissions` : "View all submissions →",
-          },
-    spamLine: hasSpam
-      ? `Spam (30d) — caught ${spam!.caught} · through ${spam!.through}${spamAsOf}`
-      : null,
-    autoFiltered: autoFiltered > 0 ? autoFiltered : null,
-  };
-}
-
 /** Build the whole page. `now` stands in for every "Xm ago" the renderer took
  *  from the wall clock. */
 export function buildCockpitView(model: CockpitModel, now: Date): CockpitView {
@@ -569,7 +501,6 @@ export function buildCockpitView(model: CockpitModel, now: Date): CockpitView {
         };
       })
       .sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level]),
-    inbox: inbox(model, now),
   };
 }
 
