@@ -11,6 +11,11 @@
  * `## P1` heading.
  */
 
+import { fromMarkdown } from "mdast-util-from-markdown";
+import { gfmStrikethroughFromMarkdown } from "mdast-util-gfm-strikethrough";
+import { gfmStrikethrough } from "micromark-extension-gfm-strikethrough";
+import type { PhrasingContent } from "mdast";
+
 export const WORKSPACE_REPO = "reddoorla/reddoor-workspace";
 export const BACKLOG_PATH = "BACKLOG.md";
 /** The repo a bare `#NNN` means: the backlog writes maintenance's numbers bare
@@ -99,25 +104,12 @@ export function codeSpans(text: string): { spans: Array<[number, number]>; open:
   return { spans, open };
 }
 
-/** The text with every code span's characters, backticks included, replaced
- *  by `\u0000`: positions line up with the original, and no search sees code. */
-function masked(text: string): string {
-  let out = text;
-  for (const [a, b] of codeSpans(text).spans) {
-    out = out.slice(0, a) + "\u0000".repeat(b - a) + out.slice(b);
-  }
-  return out;
-}
-
-/** The index of the next `**` outside code, from `from`, or -1. */
-function boldAt(text: string, from = 0): number {
-  return masked(text).indexOf("**", from);
-}
-
 /**
  * Split a table row into cells. Every unescaped `|` splits, as GitHub does;
  * then a piece that leaves a backtick run unclosed is joined to the following
- * pieces up to the first one whose own first unclosed run has the same length,
+ * pieces up to the first one whose own first unclosed run has the same length (a piece
+ * whose first unclosed run differs, such as a lone backtick inside a ``…`` span,
+ * is passed over),
  * so a code span holding `|` (`a | b`, ``a|b``) stays one cell. A piece whose
  * backticks all pair within it, or a lone backtick with no such partner,
  * joins nothing.
@@ -143,11 +135,9 @@ export function splitRow(line: string): string[] {
     if (open.length > 0) {
       for (let j = i + 1; j < pieces.length; j++) {
         const first = codeSpans(pieces[j]!).open[0];
-        if (first === undefined) continue;
-        if (first === open[open.length - 1]) {
-          cell = pieces.slice(i, j + 1).join("|");
-          i = j;
-        }
+        if (first !== open[open.length - 1]) continue;
+        cell = pieces.slice(i, j + 1).join("|");
+        i = j;
         break;
       }
     }
@@ -159,76 +149,119 @@ export function splitRow(line: string): string[] {
   return cells.map((c) => c.replace(/\\\|/g, "|").trim());
 }
 
-/** Markdown outside code to plain text: links to their text; bold, italic and
- *  strike markers dropped (an `_` only at a word's edge, so `snake_case`
- *  stays). */
-function plainProse(md: string): string {
-  return md
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/~~|\*+/g, "")
-    .replace(/(?<![\p{L}\p{N}])_+|_+(?![\p{L}\p{N}])/gu, "");
-}
-
-/** Markdown to plain text: code spans keep their content verbatim, without
- *  their backticks; everything else goes through `plainProse`. */
-export function plain(md: string): string {
-  let out = "";
-  let at = 0;
-  for (const [a, b] of codeSpans(md).spans) {
-    out += plainProse(md.slice(at, a));
-    out += md.slice(a, b).replace(/^`+|`+$/g, "");
-    at = b;
-  }
-  out += plainProse(md.slice(at));
-  return out.replace(/\s+/g, " ").trim();
-}
-
-/**
- * A title that begins with the word Status, in any case, followed by anything
- * but a letter. Only an exact `Status YYYY-MM-DD` is peeled off as a status
- * (`leadingParts`), so every other way of writing one (`status 2026-…`,
- * `Status-2026-…`, `Status [M]: …`, `Status Nov 12: …`, `~~Status 2026-…~~`,
- * `` `Status 2026-…` ``, `<s>Status …</s>`) arrives here as the title, and is
- * refused rather than shown as one. Telling those apart from a real title such
- * as "Status page for clients" is a guess that four review rounds kept finding
- * holes in, so a title may not begin with the word at all: such a row fails
- * loudly, naming its ID, until it is reworded.
- */
-const STATUS_TITLE = /^status(?!\p{L})/iu;
-
-/** A title as a reader sees it: HTML tags dropped, then leading symbols,
- *  spaces and invisible characters (anything not a letter or digit). */
-function visibleText(title: string): string {
-  return title.replace(/<[^>]*>/g, "").replace(/^[^\p{L}\p{N}]+/u, "");
-}
-
 /** The one well-formed shape: `Status YYYY-MM-DD`, then a space, `[`, `:` or the end. */
-const STATUS_DATED = /^Status (\d{4}-\d{2}-\d{2})(?=[\s[:]|$)\s*(.*)$/s;
+const STATUS_AT = /^Status (\d{4}-\d{2}-\d{2})(?=[\s[:]|$)/;
+/** The word status, in any case, not inside a longer word ("Statuses" is not it). */
+const STATUS_WORD = /(?<!\p{L})status(?!\p{L})/giu;
+/** A title that begins with the word Status, in any case. */
+const STATUS_TITLE = /^status(?!\p{L})/iu;
 
 function validDate(iso: string): boolean {
   const d = new Date(`${iso}T00:00:00Z`);
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === iso;
 }
 
-/** The first sentence: up to the first `.`, `!` or `?` that ends a word and is
- *  followed by a space or the end, outside brackets, parentheses and code. */
-export function firstSentence(text: string): string {
-  const seen = masked(text);
+/** One cell's inline markdown, parsed by mdast (CommonMark plus GFM strikethrough). */
+function inline(md: string): PhrasingContent[] {
+  const root = fromMarkdown(md, {
+    extensions: [gfmStrikethrough()],
+    mdastExtensions: [gfmStrikethroughFromMarkdown()],
+  });
+  const first = root.children[0];
+  // A cell is one line, so one paragraph; anything else (a heading, a list
+  // marker, a thematic break) is read as nothing a status could hide in.
+  return first?.type === "paragraph" ? first.children : [];
+}
+
+/**
+ * What a character of flattened text came from: `plain` (text, or text in
+ * bold), `code` (a code span), `marked` (inside emphasis, strike or a link),
+ * `html` (one character standing for an HTML tag), or `title` (one character
+ * standing for the item cell's title, which ends every status line before it).
+ */
+type Kind = "plain" | "code" | "marked" | "html" | "title";
+type Flat = { text: string; kinds: Kind[] };
+
+const HTML_MARK = "￼";
+const TITLE_MARK = "�";
+
+function flatten(
+  nodes: PhrasingContent[],
+  kind: Kind = "plain",
+  out: Flat = { text: "", kinds: [] },
+  title?: PhrasingContent,
+): Flat {
+  const put = (text: string, k: Kind) => {
+    out.text += text;
+    for (let i = 0; i < text.length; i++) out.kinds.push(k);
+  };
+  for (const node of nodes) {
+    if (node === title) put(TITLE_MARK, "title");
+    else if (node.type === "text") put(node.value, kind);
+    else if (node.type === "inlineCode") put(node.value, "code");
+    else if (node.type === "html") put(HTML_MARK, "html");
+    else if (node.type === "break") put(" ", kind);
+    else if (node.type === "image") put(node.alt ?? "", "marked");
+    else if (node.type === "strong") flatten(node.children, kind, out);
+    else if ("children" in node) flatten(node.children as PhrasingContent[], "marked", out);
+  }
+  return out;
+}
+
+/** Visible text: HTML tags dropped, whitespace collapsed. */
+function visible(flat: Flat): string {
+  return flat.text.replaceAll(HTML_MARK, "").replace(/\s+/g, " ").trim();
+}
+
+/** The index just past the first sentence of `flat.text` from `from`: the first
+ *  `.`, `!` or `?` that ends a word, outside brackets, parentheses and code,
+ *  followed (after any closing quotes or brackets) by a space or the end. */
+function sentenceEnd(flat: Flat, from = 0, to = flat.text.length): number {
+  const t = flat.text;
   let depth = 0;
-  for (let i = 0; i < seen.length; i++) {
-    const ch = seen[i]!;
+  for (let i = from; i < to; i++) {
+    if (flat.kinds[i] === "code") continue;
+    const ch = t[i]!;
     if (ch === "(" || ch === "[") depth++;
     else if ((ch === ")" || ch === "]") && depth > 0) depth--;
     else if (depth === 0 && (ch === "." || ch === "!" || ch === "?")) {
-      const next = seen[i + 1];
-      const prev = seen[i - 1];
+      const prev = t[i - 1];
+      let j = i + 1;
+      while (j < to && /["'’”)*_~]/.test(t[j]!)) j++;
       // Not a decimal point, a version or a domain (`4.2.0`, `reddoorla.com`).
-      if ((next === undefined || /\s/.test(next)) && prev !== undefined && !/\s/.test(prev)) {
-        return text.slice(0, i + 1);
+      if ((j >= to || /\s/.test(t[j]!)) && i > from && prev !== undefined && !/\s/.test(prev)) {
+        return i + 1;
       }
     }
   }
-  return text;
+  return to;
+}
+
+/** The first sentence of a markdown text, as plain text. */
+export function firstSentence(md: string): string {
+  const flat = flatten(inline(md));
+  return tidy(flat, 0, sentenceEnd(flat));
+}
+
+/** Plain text for display from a span of flattened text: tag and title marks
+ *  dropped, stray `**` and `~~` dropped outside code, whitespace collapsed. */
+function tidy(flat: Flat, from = 0, to = flat.text.length): string {
+  let out = "";
+  let i = from;
+  while (i < to) {
+    const code = flat.kinds[i] === "code";
+    let j = i;
+    while (j < to && (flat.kinds[j] === "code") === code) j++;
+    const part = flat.text.slice(i, j);
+    out += code
+      ? part
+      : part
+          .replaceAll(HTML_MARK, "")
+          .replaceAll(TITLE_MARK, "")
+          .replace(/\*\*|~~/g, "");
+    i = j;
+  }
+  return out.replace(/\s+/g, " ").trim();
 }
 
 /** Every `owner/repo#NNN` and bare `#NNN` in a line, in order, once each. */
@@ -253,97 +286,99 @@ export function refsIn(text: string): BacklogRef[] {
 }
 
 /**
- * A title cell is zero or more status prefixes, then the bold title:
- * `**Status <date> …** **Title…** more text`. Each prefix runs from `Status` to
- * the next `**`. The prefixes are peeled off one at a time rather than read as
- * paired `**…**` spans, because a status prepended to a cell that already began
- * with one can leave the older one's opening `**` behind (P1-82, 2026-11-11),
- * which shifts every later pair. The title is the text after the prefixes, up
- * to the next `**`, and must itself open with `**`.
+ * Every status in a cell's flattened text (P1-111; the operator's answer (b)
+ * on 2026-11-23 reads them from every cell). Every whole word "status" must
+ * open an exact `Status YYYY-MM-DD` with a valid date, in plain or bold text
+ * (not code, emphasis, strike, a link or after an HTML tag), at the start or
+ * after a space. Any other use fails loudly, naming the row and the column:
+ * each earlier guess at which spellings were prose was a hole in the last.
+ * A status's line runs to the next status, the title, or the cell's end.
  */
-function leadingParts(cell: string): {
-  statuses: string[];
-  title: string | null;
-  /** The cell's text after the title's closing `**`. */
-  after: string;
-} {
-  const statuses: string[] = [];
-  let rest = cell;
-  for (;;) {
-    const opened = /^\s*\*\*/.test(rest);
-    rest = rest.replace(/^\s*(?:\*\*\s*)?/, "");
-    const close = boldAt(rest);
-    const segment = close === -1 ? rest : rest.slice(0, close);
-    if (STATUS_DATED.test(segment.trim())) {
-      statuses.push(segment.trim());
-      rest = close === -1 ? "" : rest.slice(close + 2);
-      continue;
+function statusesIn(id: string, column: number, flat: Flat): BacklogStatus[] {
+  const t = flat.text;
+  const refuse = () =>
+    new BacklogParseError(
+      `${id}: column ${column} uses the word status other than as "Status YYYY-MM-DD" with a valid date`,
+    );
+  const found: Array<{ start: number; end: number; date: string }> = [];
+  for (const m of t.matchAll(STATUS_WORD)) {
+    const start = m.index!;
+    const at = STATUS_AT.exec(t.slice(start, start + 40));
+    const before = t[start - 1];
+    if (
+      flat.kinds[start] === "title" ||
+      !at ||
+      (before !== undefined && !/\s/.test(before)) ||
+      flat.kinds.slice(start, start + at[0].length).some((k) => k !== "plain") ||
+      !validDate(at[1]!)
+    ) {
+      throw refuse();
     }
-    // Plain text straight after a status whose bold held only its label
-    // (`**Status 2026-11-22:** done. **Title**`) is that status's text, a
-    // sentence at a time: a bold inside it (`see **P1-82** first.`) is part of
-    // the sentence, and the title is the bold that opens after a sentence ends.
-    if (!opened && statuses.length > 0 && rest.trim() !== "") {
-      const sentence = firstSentence(rest);
-      statuses[statuses.length - 1] += ` ${sentence.trim()}`;
-      rest = rest.slice(sentence.length);
-      continue;
-    }
-    const title = opened && close !== -1 ? segment.trim() : null;
-    return { statuses, title, after: title === null ? "" : rest.slice(close + 2) };
+    found.push({ start, end: start + at[0].length, date: at[1]! });
   }
-}
-
-/** A status's date and the raw text after it, as a status. */
-function statusFrom(id: string, date: string, raw: string): BacklogStatus {
-  // Drop the provenance tag (`[M, merge commits]:`, not a leading `[link](url)`),
-  // a bare `:` or dash after the date, and the bold markers around either
-  // (`**Status 2026-11-01 [M]:** text`, where the bold holds only the label).
-  const bold = /^(?:\*\*|__)\s*/;
-  const body = raw
-    .trim()
-    .replace(bold, "")
-    .replace(/^\[[^\]]*\](?!\()\s*/, "")
-    .replace(bold, "")
-    .replace(/^[:\u2014\u2013-]\s*/, "")
-    .replace(bold, "");
-  const sentence = plain(firstSentence(body));
-  if (sentence === "") {
-    throw new BacklogParseError(`${id}: its status line dated ${date} has no text after the date`);
-  }
-  return { date, sentence, refs: refsIn(body) };
-}
-
-/** The word status, in any case, not inside a longer word ("Statuses" is not it). */
-const STATUS_WORD = /(?<!\p{L})status(?!\p{L})/giu;
-/** What a status may stand after: the cell's start, a space, or a bold opener that does. */
-const STATUS_BEFORE = /(?:^|\s)(?:\*\*|__)?$/;
-/** A well-formed status at the word: `Status YYYY-MM-DD`, then a space, `[`, `:`, `*`, `_` or the end. */
-const STATUS_AT = /^Status (\d{4}-\d{2}-\d{2})(?=[\s[:*_]|$)/;
-
-/**
- * Every status in a cell's text, wherever it stands (P1-111, the operator's
- * answer (b) on 2026-11-23: P1-93 writes its status in the "Start here"
- * column). Every whole word "status" must open an exact `Status YYYY-MM-DD`
- * with a valid date, standing at the start, after a space or after a bold
- * opener; any other use of the word (`status 2026-…`, `~~Status …`,
- * `` `Status …` ``, prose such as "the status of") fails loudly, naming the row
- * and the column, for the same reason as a title beginning with the word: each
- * guess at which spellings are prose was a hole in the last.
- */
-function statusesIn(id: string, column: number, text: string): BacklogStatus[] {
-  const at = [...text.matchAll(STATUS_WORD)].map((m) => m.index!);
-  return at.map((start, k) => {
-    const m = STATUS_AT.exec(text.slice(start));
-    if (!m || !STATUS_BEFORE.test(text.slice(0, start)) || !validDate(m[1]!)) {
+  return found.map((s, k) => {
+    let stop = found[k + 1]?.start ?? t.length;
+    const title = t.indexOf(TITLE_MARK, s.end);
+    if (title !== -1 && title < stop) stop = title;
+    // Drop the provenance tag (`[M, merge commits]`) and a `:` or dash after the date.
+    let from = s.end;
+    const lead = /^\s*(?:\[[^\]]*\]\s*)?(?::|—|–|-)?\s*/.exec(t.slice(from, stop))!;
+    from += lead[0].length;
+    const sentence = tidy(flat, from, sentenceEnd(flat, from, stop));
+    if (sentence === "") {
       throw new BacklogParseError(
-        `${id}: column ${column} uses the word status other than as "Status YYYY-MM-DD" with a valid date`,
+        `${id}: its status line dated ${s.date} has no text after the date`,
       );
     }
-    // The line runs to the next status in the cell, or the cell's end.
-    const end = at[k + 1] ?? text.length;
-    return statusFrom(id, m[1]!, text.slice(start + m[0].length, end));
+    return { date: s.date, sentence, refs: refsIn(tidy(flat, from, stop)) };
   });
+}
+
+/** A bold node, or an emphasis holding only one (`***Title***`). */
+function boldOf(node: PhrasingContent): boolean {
+  if (node.type === "strong") return true;
+  return (
+    node.type === "emphasis" && node.children.length === 1 && node.children[0]!.type === "strong"
+  );
+}
+
+/** A bold node whose text opens with `Status YYYY-MM-DD` in plain text: a status prefix. */
+function statusBold(node: PhrasingContent): boolean {
+  if (node.type !== "strong") return false;
+  const first = node.children[0];
+  return first?.type === "text" && STATUS_AT.test(first.value);
+}
+
+/**
+ * The item cell's title: the first bold node that is not a status prefix. The
+ * cell must open with a bold node. After a status whose bold holds only its
+ * label (`**Status 2026-11-22:** done, see **P1-82** first. **Title**`), the
+ * plain text that follows is that status's, and the title is the first bold
+ * that opens after a sentence ends.
+ */
+function titleOf(id: string, nodes: PhrasingContent[]): PhrasingContent {
+  let labelOnly = false;
+  let since = "";
+  let seenStatus = false;
+  for (const node of nodes) {
+    if (statusBold(node)) {
+      seenStatus = true;
+      const rest = flatten([node]).text.replace(STATUS_AT, "");
+      labelOnly = /^(?:\[[^\]]*\])?\s?[:—–-]?$/.test(rest.trim());
+      since = "";
+      continue;
+    }
+    if (boldOf(node)) {
+      const pending = since.trim();
+      if (!labelOnly || pending === "" || /\S[.!?]["'’”)]*$/.test(pending)) {
+        return node;
+      }
+    }
+    const text = flatten([node]).text;
+    if (!seenStatus && text.trim() !== "") break;
+    since += text;
+  }
+  throw new BacklogParseError(`${id}: its item cell has no bold title`);
 }
 
 function parseItem(rank: number, cells: string[], lineNo: number): BacklogItem {
@@ -353,30 +388,28 @@ function parseItem(rank: number, cells: string[], lineNo: number): BacklogItem {
       `line ${lineNo}: the P1 table's row has no P1-NNN ID in its first cell`,
     );
   }
-  const { statuses: spans, title: lead, after } = leadingParts(cells[1] ?? "");
-  // A prefix may itself hold more statuses, or a misspelled one: the same
-  // word check as every other cell applies to it.
-  const statuses = spans.flatMap((s) => statusesIn(id, 2, s));
-  const title = lead === null ? "" : plain(lead);
-  if (title === "") {
-    throw new BacklogParseError(`${id}: its item cell has no bold title`);
-  }
-  if (STATUS_TITLE.test(visibleText(title))) {
+  const item = inline(cells[1] ?? "");
+  const titleNode = titleOf(id, item);
+  const title = visible(flatten([titleNode]));
+  if (title === "") throw new BacklogParseError(`${id}: its item cell has no bold title`);
+  if (STATUS_TITLE.test(title.replace(/^[^\p{L}\p{N}]+/u, ""))) {
     throw new BacklogParseError(
       `${id}: its title begins with the word Status; a status line must read "Status YYYY-MM-DD"`,
     );
   }
-  // The rest of the item cell, after its title, and every cell after it
-  // (column 1 is the ID; the title is checked above, by its own rule).
-  statuses.push(...statusesIn(id, 2, after));
-  cells.slice(2).forEach((cell, k) => statuses.push(...statusesIn(id, k + 3, cell)));
+  // The item cell (its title excluded) and every cell after it; column 1 is the ID.
+  const statuses = [
+    ...statusesIn(id, 2, flatten(item, "plain", undefined, titleNode)),
+    ...cells.slice(2).flatMap((cell, k) => statusesIn(id, k + 3, flatten(inline(cell)))),
+  ];
+  // The newest by date; on a tie, the first met.
   const newest = statuses.reduce<BacklogStatus | null>(
     (best, s) => (best === null || s.date > best.date ? s : best),
     null,
   );
   const tierCell = cells[2];
-  const tier = tierCell === undefined || plain(tierCell) === "" ? null : plain(tierCell);
-  return { rank, id, title, tier, status: newest };
+  const tierText = tierCell === undefined ? "" : visible(flatten(inline(tierCell)));
+  return { rank, id, title, tier: tierText === "" ? null : tierText, status: newest };
 }
 
 /** "Last full re-rank: 2026-11-23 ~13:20Z" → the ISO instant, or null. */

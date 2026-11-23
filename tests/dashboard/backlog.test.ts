@@ -218,6 +218,54 @@ describe("topBacklogItems", () => {
     });
   });
 
+  describe("reads sentences and bold the way GitHub shows them (round 8)", () => {
+    const one = (row: string) => topBacklogItems(backlog([row])).items[0]!;
+
+    it("a sentence ends before a closing bold, italic or strike", () => {
+      expect(
+        one(
+          "| P1-940 | **T** | 🟢 | S | **Status 2026-11-22 [M]: shipped in #2239.** Next, more. | y |",
+        ).status?.sentence,
+      ).toBe("shipped in #2239.");
+      expect(
+        one("| P1-940 | **T** **Status 2026-11-22: done.** Then this. | 🟢 |").status?.sentence,
+      ).toBe("done.");
+      expect(
+        one("| P1-940 | **T** | 🟢 | S | Status 2026-11-22 *done.* Next step. | y |").status
+          ?.sentence,
+      ).toBe("done.");
+    });
+
+    it("a bold ending a label-only prefix's sentence is part of it, and the title follows", () => {
+      const item = one("| P1-941 | **Status 2026-11-22:** done **now.** **Title** | 🟢 |");
+      expect(item.title).toBe("Title");
+      expect(item.status?.sentence).toBe("done now.");
+    });
+
+    it("plain text after a full prefix does not hide the title", () => {
+      const item = one("| P1-942 | **Status 2026-11-01: blocked.** waiting on #5 **Title** | 🟢 |");
+      expect(item.title).toBe("Title");
+      expect(item.status?.sentence).toBe("blocked.");
+    });
+
+    it("a double-backtick span holding a lone backtick and pipes stays one cell", () => {
+      expect(one("| P1-943 | **T** ``a|`|b`` | 🟢 | S | x | y |").tier).toBe("🟢");
+    });
+
+    it("a long label-only prefix parses in linear time", () => {
+      const long = (k: number) =>
+        `| P1-944 | **Status 2026-11-22:** ${"a `x` b. ".repeat(k)}**T** | 🟢 |`;
+      const time = (k: number) => {
+        const t0 = performance.now();
+        topBacklogItems(backlog([long(k)]));
+        return performance.now() - t0;
+      };
+      time(200);
+      // 36 KB: round 8 measured 18 KB at 4.5 s before the rewrite.
+      expect(time(4000)).toBeLessThan(1500);
+    });
+  });
+
   describe("reads markdown code and emphasis the way GitHub shows them (round 7)", () => {
     const one = (row: string) => topBacklogItems(backlog([row])).items[0]!;
 
@@ -520,8 +568,9 @@ describe("splitRow", () => {
 
 describe("firstSentence", () => {
   it("stops at the first full stop that ends a word, outside brackets and code", () => {
+    // Plain text since the parser moved to mdast (round 8): code keeps its content, not its backticks.
     expect(firstSentence("Moves 4.2.0 to `x. y` (see a. b) on reddoorla.com. Then more.")).toBe(
-      "Moves 4.2.0 to `x. y` (see a. b) on reddoorla.com.",
+      "Moves 4.2.0 to x. y (see a. b) on reddoorla.com.",
     );
     expect(firstSentence("No full stop at all")).toBe("No full stop at all");
   });

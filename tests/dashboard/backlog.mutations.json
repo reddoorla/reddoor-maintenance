@@ -34,8 +34,8 @@
     "edits": [
       {
         "file": "src/dashboard/backlog.ts",
-        "find": "  if (STATUS_TITLE.test(visibleText(title))) {",
-        "replace": "  if (false && STATUS_TITLE.test(visibleText(title))) {"
+        "find": "  if (STATUS_TITLE.test(title.replace(/^[^\\p{L}\\p{N}]+/u, \"\"))) {",
+        "replace": "  if (false && STATUS_TITLE.test(title.replace(/^[^\\p{L}\\p{N}]+/u, \"\"))) {"
       }
     ],
     "test": "tests/dashboard/backlog.test.ts",
@@ -121,12 +121,12 @@
   },
   {
     "id": "10-html-tags-kept",
-    "why": "Round 4: HTML tags are not dropped before the check, so `<s>Status 2026-…</s>` shows as the title.",
+    "why": "Round 4, re-aimed at the mdast rewrite: an HTML tag is kept as plain text, so `<s>Status 2026-…</s>` shows as the title.",
     "edits": [
       {
         "file": "src/dashboard/backlog.ts",
-        "find": "title.replace(/<[^>]*>/g, \"\")",
-        "replace": "title"
+        "find": "    else if (node.type === \"html\") put(HTML_MARK, \"html\");",
+        "replace": "    else if (node.type === \"html\") put(node.value, \"plain\");"
       }
     ],
     "test": "tests/dashboard/backlog.test.ts",
@@ -138,7 +138,7 @@
     "edits": [
       {
         "file": "src/dashboard/backlog.ts",
-        "find": "  cells.slice(2).forEach((cell, k) => statuses.push(...statusesIn(id, k + 3, cell)));\n",
+        "find": "    ...cells.slice(2).flatMap((cell, k) => statusesIn(id, k + 3, flatten(inline(cell)))),\n",
         "replace": ""
       }
     ],
@@ -147,12 +147,12 @@
   },
   {
     "id": "12-struck-status-read",
-    "why": "Answer (b): a status outside the item cell must stand at the start, after a space or after a bold opener. With that check gone, `~~Status …~~` is read as a live status instead of failing loudly. (A status in a code span still fails, on the check of what follows its date.)",
+    "why": "Answer (b): a status must stand in plain or bold text. With that check gone, `~~Status …~~` or a status in a code span is read as live instead of failing loudly.",
     "edits": [
       {
         "file": "src/dashboard/backlog.ts",
-        "find": "if (!m || !STATUS_BEFORE.test(text.slice(0, start)) || !validDate(m[1]!)) {",
-        "replace": "if (!m || !validDate(m[1]!)) {"
+        "find": "      flat.kinds.slice(start, start + at[0].length).some((k) => k !== \"plain\") ||\n",
+        "replace": ""
       }
     ],
     "test": "tests/dashboard/backlog.test.ts",
@@ -173,25 +173,25 @@
   },
   {
     "id": "14-prefix-text-unchecked",
-    "why": "Round 6, major: a status prefix is parsed from its start alone, so a second status inside it is dropped and a misspelled or impossibly dated one is accepted silently.",
+    "why": "Round 6, re-aimed: only the first status word in a cell is checked, so a second status in a prefix is dropped and a misspelled one accepted silently.",
     "edits": [
       {
         "file": "src/dashboard/backlog.ts",
-        "find": "spans.flatMap((s) => statusesIn(id, 2, s))",
-        "replace": "spans.flatMap((s) => statusesIn(id, 2, s).slice(0, 1))"
+        "find": "  for (const m of t.matchAll(STATUS_WORD)) {",
+        "replace": "  for (const m of [...t.matchAll(STATUS_WORD)].slice(0, 1)) {"
       }
     ],
     "test": "tests/dashboard/backlog.test.ts",
     "expect": "red"
   },
   {
-    "id": "15-label-only-prefix-text-lost",
-    "why": "Round 6, major: `**Status 2026-11-22:** done. **Title**` loses the text after the label's bold and fails with \"no text after the date\".",
+    "id": "15-code-read-as-plain",
+    "why": "Rounds 6 to 8, re-aimed at the mdast rewrite (replacing 15-label-only-prefix-text-lost, whose code is gone): a code span's text counts as plain, so `` `Status 2026-…` `` is read as a live status.",
     "edits": [
       {
         "file": "src/dashboard/backlog.ts",
-        "find": "    if (!opened && statuses.length > 0 && rest.trim() !== \"\") {",
-        "replace": "    if (false && !opened && statuses.length > 0 && rest.trim() !== \"\") {"
+        "find": "    else if (node.type === \"inlineCode\") put(node.value, \"code\");",
+        "replace": "    else if (node.type === \"inlineCode\") put(node.value, \"plain\");"
       }
     ],
     "test": "tests/dashboard/backlog.test.ts",
@@ -238,12 +238,12 @@
   },
   {
     "id": "19-bold-inside-code",
-    "why": "Round 7, major: `**` inside a code span (`src/**`) is read as bold, cutting the title short.",
+    "why": "Round 7, re-aimed: `**` inside a code span (`src/**`) is stripped from the sentence as if it were bold.",
     "edits": [
       {
         "file": "src/dashboard/backlog.ts",
-        "find": "  return masked(text).indexOf(\"**\", from);",
-        "replace": "  return text.indexOf(\"**\", from);"
+        "find": "    const code = flat.kinds[i] === \"code\";",
+        "replace": "    const code = false;"
       }
     ],
     "test": "tests/dashboard/backlog.test.ts",
@@ -251,25 +251,25 @@
   },
   {
     "id": "20-sentence-sees-code",
-    "why": "Round 7: the first sentence's search looks inside code spans, so a `. ` in code ends the sentence.",
+    "why": "Round 7, re-aimed: the first sentence's search looks inside code spans, so a `. ` in code ends the sentence.",
     "edits": [
       {
         "file": "src/dashboard/backlog.ts",
-        "find": "  const seen = masked(text);",
-        "replace": "  const seen = text;"
+        "find": "    if (flat.kinds[i] === \"code\") continue;\n",
+        "replace": ""
       }
     ],
     "test": "tests/dashboard/backlog.test.ts",
     "expect": "red"
   },
   {
-    "id": "21-single-emphasis-kept",
-    "why": "Round 7, major: single `*` emphasis and `~~` strike are left in titles and sentences.",
+    "id": "21-emphasis-strike-link-read-as-plain",
+    "why": "Round 7, re-aimed (replacing 21-single-emphasis-kept, now the library's job): text inside emphasis, strike or a link counts as plain, so `~~Status 2026-…~~` is read as a live status.",
     "edits": [
       {
         "file": "src/dashboard/backlog.ts",
-        "find": ".replace(/~~|\\*+/g, \"\")",
-        "replace": ".replace(/\\*\\*/g, \"\")"
+        "find": "    else if (\"children\" in node) flatten(node.children as PhrasingContent[], \"marked\", out);",
+        "replace": "    else if (\"children\" in node) flatten(node.children as PhrasingContent[], kind, out);"
       }
     ],
     "test": "tests/dashboard/backlog.test.ts",
@@ -277,12 +277,12 @@
   },
   {
     "id": "22-continuation-stops-at-bold",
-    "why": "Round 7, major (from round 6's fix): a label-only prefix's text stops at the next `**`, so an inline bold in it is shown as the title.",
+    "why": "Round 7, major (from round 6's fix): after a label-only prefix the first bold is taken as the title, so `see **P1-82** first.` shows P1-82 as the title.",
     "edits": [
       {
         "file": "src/dashboard/backlog.ts",
-        "find": "      const sentence = firstSentence(rest);",
-        "replace": "      const sentence = close === -1 ? rest : rest.slice(0, close);"
+        "find": "      if (!labelOnly || pending === \"\" || /\\S[.!?][\"'’”)]*$/.test(pending)) {",
+        "replace": "      if (true || pending === \"\" || /\\S[.!?][\"'’”)]*$/.test(pending)) {"
       }
     ],
     "test": "tests/dashboard/backlog.test.ts",
