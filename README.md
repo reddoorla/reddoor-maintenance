@@ -74,7 +74,7 @@ Standalone, outside the `[site]` loop above (it audits an external URL, not a fl
   a shareable report. Flags: `--business <name>`, `--competitors <list>`,
   `--no-probes`, `--technical` (only the unpaid stages, no model tokens),
   `--out <file>`, `--json`. Needs `ANTHROPIC_API_KEY` (or the
-  standard Anthropic auth chain) and, for tier 3, `PERPLEXITY_API_KEY`;
+  standard Anthropic auth chain; not with `--technical`) and, for tier 3, `PERPLEXITY_API_KEY`;
   persistence and the shareable link need the Turso vars.
 
 ### Common flags

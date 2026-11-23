@@ -360,9 +360,7 @@ export function readStack(crawl: CrawlResult): StackReadout {
       sig.name,
       // The product, never the build (LGL-05): "Apache/2.4.18 (Ubuntu)" is
       // stored as "Apache (Ubuntu)". The raw header stays in `homeHeaders`.
-      sig.value
-        ? `${sig.header}: ${receipt(value.replace(/\/?\d+(?:\.\d+)+/g, ""))}`
-        : `${sig.header} header`,
+      sig.value ? `${sig.header}: ${receipt(value.replace(/\/\S+/g, ""))}` : `${sig.header} header`,
     );
   }
 

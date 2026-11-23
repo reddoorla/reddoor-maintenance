@@ -562,3 +562,28 @@ describe("W4 review: a DMARC record with no readable policy", () => {
     expect(c?.evidence).toContain("no valid p= policy");
   });
 });
+
+describe("W4 review round 2: who forged mail is reported to", () => {
+  const dmarc = (record: string) =>
+    dnsChecks({
+      measured: true,
+      domain: "acme.example",
+      spf: "v=spf1 -all",
+      dmarc: record,
+      mx: ["mx.example"],
+      contactMx: null,
+      expiresAt: undefined,
+    }).find((x) => x.key === "dns-dmarc");
+
+  it("does not say reports reach you when the record sets no rua=", () => {
+    const c = dmarc("v=DMARC1; p=none");
+    expect(c?.evidence).not.toContain("reported to you");
+    expect(c?.evidence).toContain("no report address is set");
+  });
+
+  it("says so when it does", () => {
+    expect(dmarc("v=DMARC1; p=none; rua=mailto:d@acme.example")?.evidence).toContain(
+      "reported to you",
+    );
+  });
+});

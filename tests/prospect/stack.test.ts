@@ -241,3 +241,11 @@ describe("W4 review: HubSpot's file CDN is not a CMS, and no build is stored", (
     expect(hosting?.evidence).not.toContain("2.4.18");
   });
 });
+
+describe("W4 review round 2: a stock Apache header", () => {
+  it("keeps the product names whole and drops every version", () => {
+    const r = readStack(site({}, { server: "Apache/2.4.41 (Ubuntu) OpenSSL/1.1.1f" }));
+    const hosting = r.items.find((i) => i.layer === "hosting");
+    expect(hosting?.evidence).toBe("server: Apache (Ubuntu) OpenSSL");
+  });
+});

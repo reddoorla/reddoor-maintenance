@@ -1282,7 +1282,8 @@ export function restrictsFraming(csp: string | undefined): boolean {
     policy.split(";").some((d) => {
       const [name, ...sources] = d.trim().split(/\s+/);
       if (name?.toLowerCase() !== "frame-ancestors" || sources.length === 0) return false;
-      return !sources.some((s) => /^(?:\*|https?:)$/i.test(s));
+      // `*`, a bare scheme, or a host wildcard like `https://*` allows every site.
+      return !sources.some((s) => /^(?:\*|https?:|(?:https?:\/\/)?\*(?::\*)?\/?)$/i.test(s));
     }),
   );
 }
@@ -1501,6 +1502,9 @@ function sidecarChecks(
   aliasOf: ReadonlyMap<string, string>,
 ): SiteCheck[] {
   const discoveredLinks = linkedPages.size;
+  // Addresses with `{{` are template defects, not pages (TEC-05), so they are
+  // left out of every count this function compares against.
+  const realLinks = [...linkedPages].filter((a) => !isTemplatePlaceholderUrl(a)).length;
   const out: SiteCheck[] = [];
   const robotsMeasured = crawl.sidecarErrors.robots === null;
 
@@ -1585,7 +1589,8 @@ function sidecarChecks(
           : "we could not read the sitemap on this run",
       ),
     );
-  } else if (discoveredLinks === 0) {
+  } else if (realLinks === 0) {
+    // No links at all, or only `{{` placeholders: nothing to compare against.
     out.push(
       unknown("sitemap-coverage", "A sitemap that lists your pages", WHY_COVERAGE, "content"),
     );
@@ -1610,13 +1615,6 @@ function sidecarChecks(
     // Compared against pages WE found links to, never against our own crawl
     // cap. "We read 14 of your pages" is a fact about our limit, and using it
     // as the denominator would report our ceiling as their gap.
-    const realLinks = [...linkedPages].filter((a) => !isTemplatePlaceholderUrl(a)).length;
-    if (realLinks === 0) {
-      out.push(
-        unknown("sitemap-coverage", "A sitemap that lists your pages", WHY_COVERAGE, "content"),
-      );
-      return out;
-    }
     const ok = crawl.sitemap.urlCount >= realLinks;
     // When the crawl carried the WHOLE sitemap, a count is not the best we can
     // do — we can name a page it leaves out, and a named page is a job where a
@@ -1783,7 +1781,7 @@ function analyticsCheck(pages: { url: string; extract: PageExtract }[]): SiteChe
  * `/legal/terms` match and `/privacy-dentistry-blog-post` does not.
  */
 const DELIBERATELY_HIDDEN_SEGMENT =
-  /^(?:privacy(?:-policy|-notice|-statement)?|terms(?:-of-(?:use|service))?|terms-(?:and-)?conditions|legal|disclaimer|cookies?(?:-policy|-notice)?|thank-?you(?:-[a-z0-9-]+)?|thanks|confirmation|search|login|log-in|signin|sign-in|wp-login|account|my-account)$/i;
+  /^(?:privacy(?:-policy|-notice|-statement)?|terms(?:-of-(?:use|service))?|terms-(?:and-)?conditions|legal|disclaimer|cookies?(?:-policy|-notice)?|thank-?you(?:-for-[a-z-]+|-page|-\d+)?|thanks|confirmation|search|login|log-in|signin|sign-in|wp-login|account|my-account)$/i;
 
 export function isDeliberatelyHiddenPath(url: string): boolean {
   try {
@@ -1791,7 +1789,13 @@ export function isDeliberatelyHiddenPath(url: string): boolean {
     if (u.searchParams.has("s") && u.pathname === "/") return true;
     // The LAST segment only (W4 review): `/legal/terms` is a legal page, but
     // `/search/boise-homes` and `/legal/estate-planning` are content.
-    const last = u.pathname.split("/").filter(Boolean).pop();
+    // A trailing `index.html` or an AMP twin names the page above it.
+    const segs = u.pathname
+      .split("/")
+      .filter(Boolean)
+      .map((x) => x.replace(/\.(?:html?|php|aspx?)$/i, ""));
+    while (segs.length > 1 && /^(?:index|amp)$/i.test(segs[segs.length - 1]!)) segs.pop();
+    const last = segs.pop();
     return (
       last !== undefined &&
       DELIBERATELY_HIDDEN_SEGMENT.test(last.replace(/\.(?:html?|php|aspx?)$/i, ""))
@@ -2827,7 +2831,7 @@ function browserChecks(
         "structural",
         erroring.length === 0,
         erroring.length === 0
-          ? `no script threw on the ${separated.length} pages we opened${note}`
+          ? `no script threw on ${separated.length === 1 ? "the one page" : `the ${separated.length} pages`} we opened${note}`
           : `${erroring[0]!.url}: ${erroring[0]!.vitals.scriptErrors[0]}`,
       ),
     );
@@ -2962,7 +2966,7 @@ export function dnsChecks(dns: DnsFindings | null): SiteCheck[] {
   const WHY_SPF =
     "SPF is the published list of servers allowed to send mail as your domain. Without it, receiving mail servers have less to go on, and your own mail is more likely to be filed as spam.";
   const WHY_DMARC =
-    "DMARC tells receiving mail servers what to do with a message that claims to be from your domain but fails its checks. At p=none they deliver it anyway and only report it to you; quarantine or reject is what turns it away.";
+    "DMARC tells receiving mail servers what to do with a message that claims to be from your domain but fails its checks. At p=none they deliver it anyway, and at most report it to you; quarantine or reject is what turns it away.";
   const WHY_MX =
     "There is no mail server listed for your domain, so email sent to any address at it is rejected.";
   const WHY_CONTACT_MX =
@@ -3020,7 +3024,7 @@ export function dnsChecks(dns: DnsFindings | null): SiteCheck[] {
         state === "missing"
           ? `no record at _dmarc.${dns.domain}`
           : state === "monitoring"
-            ? `${dmarcPolicyTag(dns.dmarc!) === "none" ? "monitoring only (p=none)" : "no valid p= policy, so receivers apply none"}: forged mail is reported to you but still delivered — ${clipRecord(dns.dmarc!)}`
+            ? `${dmarcPolicyTag(dns.dmarc!) === "none" ? "monitoring only (p=none)" : "no valid p= policy, so receivers apply none"}: forged mail is still delivered${/(?:^|;)\s*rua\s*=/i.test(dns.dmarc!) ? " and reported to you" : ", and no report address is set"} — ${clipRecord(dns.dmarc!)}`
             : clipRecord(dns.dmarc!),
       ),
     );

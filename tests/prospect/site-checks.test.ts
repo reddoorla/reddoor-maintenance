@@ -2108,3 +2108,51 @@ describe("W4 review round 1", () => {
     expect(c?.status).toBe("unmeasured");
   });
 });
+
+describe("W4 review round 2", () => {
+  const run = (over: Partial<CrawlResult>) =>
+    runSiteChecks(exemplary(over), exemplaryChecks(), "Acme Roofing");
+  const { "x-frame-options": _x, ...noXfo } = HEADERS;
+
+  it("keeps the rest of the battery when every linked page is a placeholder", () => {
+    const checks = run({
+      sitemap: { present: true, urlCount: 1, sample: ["https://acme.example/"], truncated: false },
+      pages: [
+        page("https://acme.example/", { anchors: [{ href: "/{{url}}", text: "x", rel: "" }] }),
+      ],
+    });
+    expect(byKey(checks, "llms-txt")).toBeDefined();
+  });
+
+  it.each(["frame-ancestors https://*", "frame-ancestors 'self' http://*"])(
+    "does not count %s as protection",
+    (csp) => {
+      const c = byKey(
+        run({ homeHeaders: { ...noXfo, "content-security-policy": csp } }),
+        "header-x-frame-options",
+      );
+      expect(c?.status).toBe("fail");
+    },
+  );
+
+  it.each([
+    ["https://acme.example/privacy/index.html", true],
+    ["https://acme.example/privacy-policy/amp", true],
+    ["https://acme.example/thank-you-for-contacting-us", true],
+    ["https://acme.example/thank-you-notes-for-teachers", false],
+  ])("treats noindex on %s as deliberate: %s", (url, deliberate) => {
+    const c = byKey(
+      run({ pages: [page("https://acme.example/"), page(url, { metas: { robots: "noindex" } })] }),
+      "meta-noindex",
+    );
+    expect(c?.status).toBe(deliberate ? "pass" : "fail");
+  });
+
+  it("says one page, not 1 pages", () => {
+    const c = byKey(
+      run({ pages: [page("https://acme.example/", {}, { ...CLEAN_VITALS })] }),
+      "console-errors",
+    );
+    expect(c?.evidence).toContain("the one page");
+  });
+});
