@@ -51,6 +51,8 @@ const FLAGS = {
   "--goal": "goal",
   "--competitors": "competitors",
   "--no-probes": "probes",
+  // W4. The unpaid stages only, for the Technical report.
+  "--technical": "technical",
   "--out": "out",
   "--json": "json",
   "--email": "email",

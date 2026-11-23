@@ -115,6 +115,12 @@ export const ANALYZE_SKIPPED = "skipped — the checks stage failed";
  *  reason as the constants above: consumers compare, they do not retype. */
 export const ASSETS_SKIPPED = "skipped — the checks stage failed";
 
+/** `opts.technical` (the CLI's `--technical`): the run collects only the
+ *  unpaid stages a Technical report is built from, so analyze and probes are
+ *  skipped on purpose and accuracy has no branded answers to check. A fresh
+ *  technical run costs no model tokens. */
+export const TECHNICAL_SKIPPED = "skipped (--technical)";
+
 /** No branded answers to check, because the probes did not run or were turned
  *  off. An absence of input, never a finding: the report must read "not
  *  measured" here and never "the engine said nothing wrong about you". */
@@ -236,6 +242,9 @@ export type ProspectAuditOptions = {
   competitors?: string[];
   /** false → tier 3 is skipped deliberately (`--no-probes`). */
   probes?: boolean;
+  /** true → analyze, probes and (with them) accuracy are skipped: the paid
+   *  stages. What is left is everything the Technical report reads. */
+  technical?: boolean;
   /** What this site is for, when we already know. Overrides the analyze stage's
    *  inference — supply it when the prospect has told us, leave it out for a
    *  cold audit and let the site speak for itself. */
@@ -377,28 +386,30 @@ export async function runProspectAudit(
       ? checkGoal(opts.goal, "operator", crawlData, checks.ok ? checks.data : null)
       : null;
 
-  const analyze: StageResult<AnalyzeResult> = checks.ok
-    ? await stage("analyze", deps, async () =>
-        // The operator's goal, when we have one, decides which fixed question
-        // set gets asked — so it must reach this stage rather than being
-        // applied after it. Without one we ask the universal set; the model
-        // still infers `primaryGoal` for the goal-fit section either way.
-        analyzeSite(
-          url,
-          crawlData,
-          checks.data,
-          deps.analyze ?? envAnalyzeDeps(),
-          opts.goal ?? "unknown",
-          operatorFit,
-          // #676. Threaded exactly like `goal`: it must reach the stage that
-          // asks, not be applied after it.
-          {
-            ...(opts.terms ? { terms: opts.terms } : {}),
-            ...(opts.questions ? { questions: opts.questions } : {}),
-          },
-        ),
-      )
-    : { ok: false, error: ANALYZE_SKIPPED };
+  const analyze: StageResult<AnalyzeResult> = opts.technical
+    ? { ok: false, error: TECHNICAL_SKIPPED }
+    : checks.ok
+      ? await stage("analyze", deps, async () =>
+          // The operator's goal, when we have one, decides which fixed question
+          // set gets asked — so it must reach this stage rather than being
+          // applied after it. Without one we ask the universal set; the model
+          // still infers `primaryGoal` for the goal-fit section either way.
+          analyzeSite(
+            url,
+            crawlData,
+            checks.data,
+            deps.analyze ?? envAnalyzeDeps(),
+            opts.goal ?? "unknown",
+            operatorFit,
+            // #676. Threaded exactly like `goal`: it must reach the stage that
+            // asks, not be applied after it.
+            {
+              ...(opts.terms ? { terms: opts.terms } : {}),
+              ...(opts.questions ? { questions: opts.questions } : {}),
+            },
+          ),
+        )
+      : { ok: false, error: ANALYZE_SKIPPED };
 
   // The searchable proper NOUN (AnalyzeResult.businessName), never the
   // model's one-or-two-sentence description (AnalyzeResult.business) — that
@@ -447,7 +458,9 @@ export async function runProspectAudit(
   };
 
   let probes: StageResult<ProbesResult>;
-  if (opts.probes === false) {
+  if (opts.technical) {
+    probes = { ok: false, error: TECHNICAL_SKIPPED };
+  } else if (opts.probes === false) {
     probes = { ok: false, error: PROBES_SKIPPED };
   } else {
     probes = await stage("probes", deps, async () =>

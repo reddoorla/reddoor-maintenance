@@ -200,9 +200,14 @@ export function summarizeAccessibility(pages: PageCapture[]): AccessibilityResul
  * is affordable at all.
  */
 export type PageVitals = {
-  /** Uncaught exceptions and `console.error` calls, capped and deduped. The
-   *  most demonstrable "your site is broken" evidence there is. */
+  /** `console.error` messages, capped and deduped. A NOTE, not a failure: a
+   *  script printing a message is not a script that stopped. Runs stored
+   *  before `scriptErrors` existed also hold thrown errors here, mixed in. */
   consoleErrors: string[];
+  /** Uncaught exceptions (`pageerror`), capped and deduped — a script that
+   *  threw and stopped. Optional: absent on runs stored before it existed,
+   *  which read as "not separated", never as "none thrown". */
+  scriptErrors?: string[];
   /**
    * Requests the page made that failed or came back 4xx/5xx.
    *
