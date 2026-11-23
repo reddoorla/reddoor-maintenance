@@ -175,19 +175,25 @@ describe("GET /auth/login on the old netlify.app host (P1-122)", () => {
     expect(cookieFor(res, STATE_COOKIE)).toBeUndefined();
   });
 
-  it("reads the host from the Host header, not req.url", async () => {
+  it("hops only when the Host header and req.url agree, so it can never loop", async () => {
     googleConfigured();
     process.env.DASHBOARD_BASE_URL = "https://dashboard.reddoorla.com";
     // Arrived on the custom domain although req.url names the netlify.app host:
-    // no hop, or the page would redirect to itself forever.
-    const here = await authFn(get(`${OLD}/auth/login`, { host: "dashboard.reddoorla.com" }), ctx);
-    expect(here.status).toBe(200);
-    // Arrived on the old host although req.url names the custom domain: hop.
-    const there = await authFn(
+    // hopping on either one alone would redirect the canonical host to itself.
+    const mixedA = await authFn(get(`${OLD}/auth/login`, { host: "dashboard.reddoorla.com" }), ctx);
+    expect(mixedA.status).toBe(200);
+    const mixedB = await authFn(
       get("https://dashboard.reddoorla.com/auth/login", { host: LEGACY }),
       ctx,
     );
-    expect(there.status).toBe(302);
+    expect(mixedB.status).toBe(200);
+    // Agreeing, with the port and case a Host header can carry: hop.
+    const agreed = await authFn(
+      get(`${OLD}/auth/login`, { host: "REDDOOR-MAINTENANCE.NETLIFY.APP:443" }),
+      ctx,
+    );
+    expect(agreed.status).toBe(302);
+    expect(agreed.headers.get("location")).toBe("https://dashboard.reddoorla.com/auth/login");
   });
 
   it("renders the page when DASHBOARD_BASE_URL does not parse, rather than a 502", async () => {

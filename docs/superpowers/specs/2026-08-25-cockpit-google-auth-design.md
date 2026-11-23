@@ -367,6 +367,12 @@ default is itself the switch.** Move the host in this order, or sign-in breaks:
    repo's Actions variable `DASHBOARD_BASE_URL` to the same value for the
    digest.
 4. Remove the old redirect URI only once sign-in at the new host is proven.
+   Until then, rolling back is publishing the previous deploy.
+
+The hop knows the cockpit's hosts by name (`DASHBOARD_HOST` and
+`LEGACY_DASHBOARD_HOST` in `src/dashboard/handler-helpers.ts`) and never hops to
+any other. A move to a third host adds it there in the same change, or a flow
+started on the old hosts ends in `error=state`.
 
 **2. Netlify environment variables.** Link the checkout to the site first, and
 read every variable back: `netlify env:set` accepts `--site <id>` as a global

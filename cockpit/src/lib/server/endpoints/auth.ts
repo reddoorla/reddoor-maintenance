@@ -89,14 +89,17 @@ const COCKPIT_HOSTS = new Set([LEGACY_DASHBOARD_HOST, DASHBOARD_HOST]);
  * starts on and Google returns to the canonical host's callback, so a flow
  * started on the other host would always end in error=state (P1-122).
  *
- * The host comes from the Host header, which csrf.ts treats as authoritative
- * behind Netlify, rather than from req.url. A deploy preview's own host is left
+ * It hops only when the Host header and req.url name the same cockpit host.
+ * If the platform ever handed the function one host in Host and another in
+ * req.url, reading either alone could redirect the canonical host to itself
+ * forever; when they disagree the page renders instead, and a loop cannot
+ * happen whatever the platform passes. A deploy preview's own host is left
  * alone: it signs in with the shared password, and Google cannot redirect to
  * it. A base URL that does not parse hops nowhere, so the page still renders.
  */
 function canonicalLoginUrl(req: Request, url: URL): string | null {
   const host = requestHost(req)?.replace(/:\d+$/, "");
-  if (!host || !COCKPIT_HOSTS.has(host)) return null;
+  if (!host || !COCKPIT_HOSTS.has(host) || host !== url.hostname.toLowerCase()) return null;
   const base = resolveDashboardBaseUrl(process.env.DASHBOARD_BASE_URL);
   let baseHost: string;
   try {

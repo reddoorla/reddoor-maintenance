@@ -46,7 +46,7 @@ gh secret set RESEND_API_KEY           --repo "$R"
 gh secret set PROSPECT_AUDIT_RECIPIENTS --repo "$R"   # tucker@…,tim@…,erik@…
 gh secret set ANTHROPIC_API_KEY        --repo "$R"    # when it exists
 gh secret set PERPLEXITY_API_KEY       --repo "$R"    # when it exists
-gh variable set DASHBOARD_BASE_URL     --repo "$R" --body "https://reddoor-maintenance.netlify.app"
+gh variable set DASHBOARD_BASE_URL     --repo "$R" --body "https://dashboard.reddoorla.com"
 ```
 
 Without `ANTHROPIC_API_KEY` and `PERPLEXITY_API_KEY` the audit still runs,
