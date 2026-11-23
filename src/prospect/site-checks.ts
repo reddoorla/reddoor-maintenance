@@ -3252,7 +3252,7 @@ function namedForm(probe: FormProbe, how: string | null): string {
 }
 
 function formInteractionChecks(
-  pages: { extract: PageExtract }[],
+  pages: { extract: PageExtract; formProbe?: FormProbe | null | undefined }[],
   probes: (FormProbe | null | undefined)[],
 ): SiteCheck[] {
   const WHY_EMPTY =
@@ -3292,8 +3292,11 @@ function formInteractionChecks(
   // A page with an enquiry form whose probe never ran (a timeout, a mismatch)
   // is a form we did not try. A null on another page is no answer for it, so
   // "no enquiry form to try" would be false (W3 review round 4).
+  // Paired through each page's own probe, never by index: `pages` has had the
+  // unusable pages dropped, `probes` has not, so an index would read another
+  // page's probe after a drop (W3 review round 5, finding 3).
   const untried = pages.some(
-    (p, i) => probes[i] === undefined && (p.extract.forms ?? []).some((f) => f.kind === "enquiry"),
+    (p) => p.formProbe === undefined && (p.extract.forms ?? []).some((f) => f.kind === "enquiry"),
   );
   if (!probe && untried) {
     const NOTE = "we could not try every form";
@@ -3483,6 +3486,7 @@ export function runSiteChecks(
   const pages = set.pages.map((p) => ({
     url: p.page.url,
     extract: p.extract,
+    formProbe: p.page.formProbe,
     // Carried through so the browser checks can read what the render pass
     // observed without a second traversal of the capture list.
     vitals: p.page.vitals,

@@ -942,6 +942,46 @@ export function isFetchableCandidate(url: string, robotsTxt: string | null): boo
   return robotsAllowsUs(robotsTxt, u.toString(), USER_AGENT);
 }
 
+/** Query keys that name no content: tracking, sorting and sharing parameters.
+ *  A URL whose every query key is one of these is the same page as its bare
+ *  address (W3 review round 5, finding 1). Any other key makes it a page. */
+const NON_CONTENT_QUERY_KEYS = new Set([
+  "orderby",
+  "order",
+  "sort",
+  "sortby",
+  "ref",
+  "source",
+  "campaign",
+  "gclid",
+  "fbclid",
+  "msclkid",
+  "mc_cid",
+  "mc_eid",
+  "add-to-cart",
+  "replytocom",
+  "share",
+  "amp",
+]);
+
+/** The URL with its non-content keys stripped, as a page identity. */
+function identityKey(u: URL): string {
+  const copy = new URL(u.toString());
+  for (const key of [...copy.searchParams.keys()]) {
+    const k = key.toLowerCase();
+    if (k.startsWith("utm_") || NON_CONTENT_QUERY_KEYS.has(k)) copy.searchParams.delete(key);
+  }
+  return samePageKey(copy);
+}
+
+/** True when the URL's query carries at least one key that can name content. */
+function hasContentQuery(u: URL): boolean {
+  return [...u.searchParams.keys()].some((key) => {
+    const k = key.toLowerCase();
+    return !k.startsWith("utm_") && !NON_CONTENT_QUERY_KEYS.has(k);
+  });
+}
+
 /**
  * Which URLs to spend the page budget on.
  *
@@ -965,31 +1005,53 @@ export function normalizeCandidates(
   max: number,
   robotsTxt: string | null,
 ): { chosen: string[]; considered: number } {
-  const pages: string[] = [];
-  const seen = new Set<string>();
-  const paths = new Set<string>();
+  // Every fetchable address on this site, in the order given. Same SITE, not
+  // same origin: a sitemap written on `http://` or `www.` for an `https://` apex
+  // site lists this site's pages, and dropping them all read one stored site at
+  // 1 page of 52. Rewritten onto the origin we landed on, so every page is
+  // fetched from one address.
+  const all: URL[] = [];
   for (const raw of urls) {
-    // Same SITE, not same origin: a sitemap written on `http://` or `www.` for
-    // an `https://` apex site lists this site's pages, and dropping them all
-    // read one stored site at 1 page of 52. Rewritten onto the origin we
-    // landed on, so every page is fetched from one address.
     const onOrigin = toSameOrigin(raw, origin);
     if (onOrigin === null) continue;
     if (!isFetchableCandidate(onOrigin, robotsTxt)) continue;
     const u = new URL(onOrigin);
     u.hash = "";
-    const key = samePageKey(u);
+    all.push(u);
+  }
+  // The bare address of each path that has one. A sort or tracking variant of
+  // such a path is that page's duplicate, so the bare page takes the variant's
+  // place (W3 review round 5, finding 2).
+  const barePaths = new Set(all.filter((u) => u.search === "").map((u) => sitePathKey(u)));
+  // A candidate's identity is its URL with the non-content keys stripped, so two
+  // candidates with the same identity are one page: one seat, counted once.
+  const seen = new Set<string>();
+  const uniq: URL[] = [];
+  for (const u of all) {
+    const key = identityKey(u);
     if (seen.has(key)) continue;
     seen.add(key);
-    // One seat per page path. A query-string variant of a path already listed
-    // (`/shop/?orderby=price`) is the same page to a buyer, so it takes no seat
-    // and is not counted. A pagination variant (`?page=2`) is different content
-    // and keeps its seat (W3 review round 4, approved by the coordinator).
-    const path = sitePathKey(u);
-    if (paths.has(path) && !isDatedOrPaginated(u.toString())) continue;
-    paths.add(path);
-    pages.push(u.toString());
+    uniq.push(u);
   }
+  // Distinct paths first: every address with no content key, one seat per path.
+  // Then the content-keyed variants (`?page_id=7`, `?route=…`, `?page=2`), each
+  // its own page, in their original relative order (W3 review round 5, finding 1).
+  const pages: string[] = [];
+  const placed = new Set<string>();
+  for (const u of uniq) {
+    if (hasContentQuery(u)) continue;
+    const path = sitePathKey(u);
+    if (placed.has(path)) continue;
+    placed.add(path);
+    if (u.search !== "" && barePaths.has(path)) {
+      const bare = new URL(u.toString());
+      bare.search = "";
+      pages.push(bare.toString());
+    } else {
+      pages.push(u.toString());
+    }
+  }
+  for (const u of uniq) if (hasContentQuery(u)) pages.push(u.toString());
   return { chosen: pages.slice(0, max), considered: pages.length };
 }
 
@@ -1119,6 +1181,15 @@ async function fetchSidecars(
   let sitemapTruncated = false;
   if (sitemap.res) {
     sitemapPresent = true;
+    // A gzipped sitemap the owner named was skipped (see above). When the sitemap
+    // we did read is one they did not name, it is not the whole of their sitemap
+    // (W3 review round 5, finding 5).
+    if (
+      namedGzipped > 0 &&
+      (sitemapSource === null || candidates.indexOf(sitemapSource) >= namedCount)
+    ) {
+      sitemapTruncated = true;
+    }
     if (isSitemapIndex(sitemap.res.body)) {
       // `child` is attacker-controlled: it comes out of the AUDITED site's
       // sitemap, and the audited site is a prospect we have not met. Without
@@ -1140,13 +1211,18 @@ async function fetchSidecars(
         .map((child) => toSameOrigin(child, origin))
         .filter((child): child is string => child !== null && isSafeNestedSitemap(child, origin));
       const children = safe.slice(0, MAX_SITEMAP_CHILDREN);
-      sitemapTruncated = safe.length > children.length;
+      // Every <loc> the index names counts, including one on another host that
+      // `safe` dropped: an address we did not read is a child we did not read
+      // (W3 review round 5, finding 4).
+      if (parseSitemapLocs(sitemap.res.body).length > children.length) sitemapTruncated = true;
       for (const child of children) {
         await pace();
         const nested = await optional(deps, child);
         // A child we could not fetch is a piece of their sitemap we did not
         // read, and the count that comes out is short by however much it held.
-        if (nested.res) {
+        // So is a child that is not a urlset: an index inside an index, or an
+        // HTML page answering at a sitemap address. Its addresses are not pages.
+        if (nested.res && /<(?:[\w-]+:)?urlset[\s>]/i.test(nested.res.body)) {
           const locs = parseSitemapLocs(nested.res.body);
           listed.push(...locs);
           if (isPostSitemap(child)) {

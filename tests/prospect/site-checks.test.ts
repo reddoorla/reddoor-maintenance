@@ -2109,3 +2109,51 @@ describe("form probe — a form we could not try is not a form we found absent (
     expect(byKey(checks, "form-rejects-empty")?.evidence).toBe("we found no enquiry form to try");
   });
 });
+
+// W3 review round 5, finding 3. The probe read for a page must be that page's own:
+// a dropped page (a 404) must not shift the probes of the pages after it.
+describe("form probe — the probe belongs to its own page after a dropped page (W3 review round 5, finding 3)", () => {
+  const enquiryForm = {
+    kind: "enquiry" as const,
+    action: "/contact",
+    method: "post",
+    fieldCount: 4,
+    hasContactField: true,
+    hasSubmit: true,
+    fields: [
+      { type: "text" as const, name: "name", autocomplete: "name", required: true },
+      { type: "email" as const, name: "email", autocomplete: "email", required: true },
+      { type: "tel" as const, name: "phone", autocomplete: "tel", required: false },
+      { type: "textarea" as const, name: "message", autocomplete: null, required: true },
+    ],
+  };
+
+  it("home (no probe), /old (404), /about (no probe), /contact (enquiry form, no probe): unmeasured, not absent", () => {
+    const crawl = exemplary({
+      pages: [
+        { ...page("https://acme.example/", { forms: [] }), formProbe: null },
+        { ...page("https://acme.example/old", { forms: [] }), status: 404 },
+        { ...page("https://acme.example/about", { forms: [] }), formProbe: null },
+        page("https://acme.example/contact", { forms: [enquiryForm] }),
+      ],
+    });
+    const checks = runSiteChecks(crawl, exemplaryChecks(), "Acme Roofing");
+    for (const key of ["form-rejects-empty", "form-rejects-bad-email"]) {
+      const c = byKey(checks, key);
+      expect(c?.status).toBe("unmeasured");
+      expect(c?.evidence).toBe("we could not try every form");
+    }
+  });
+
+  it("control: the same pages without the 404 are still unmeasured", () => {
+    const crawl = exemplary({
+      pages: [
+        { ...page("https://acme.example/", { forms: [] }), formProbe: null },
+        { ...page("https://acme.example/about", { forms: [] }), formProbe: null },
+        page("https://acme.example/contact", { forms: [enquiryForm] }),
+      ],
+    });
+    const checks = runSiteChecks(crawl, exemplaryChecks(), "Acme Roofing");
+    expect(byKey(checks, "form-rejects-empty")?.evidence).toBe("we could not try every form");
+  });
+});

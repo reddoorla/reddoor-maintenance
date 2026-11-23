@@ -1669,9 +1669,10 @@ describe("W3 review round 4 — the menu is not a dated post (finding 3)", () =>
 
 describe("W3 review round 4 — a query-string variant takes no seat (finding 5)", () => {
   it("/shop/ and 30 of its ?orderby variants: two pages considered, two chosen", () => {
+    const SORTS = ["price", "date", "popularity", "rating"];
     const variants = Array.from(
       { length: 30 },
-      (_, i) => `https://acme.example/shop/?orderby=price&v=${i}`,
+      (_, i) => `https://acme.example/shop/?orderby=${SORTS[i % 4]}&add-to-cart=${i}`,
     );
     const { chosen, considered } = normalizeCandidates(
       [HOME, "https://acme.example/shop/", ...variants],
@@ -1686,9 +1687,10 @@ describe("W3 review round 4 — a query-string variant takes no seat (finding 5)
 
 describe("W3 review round 4 — a pagination variant keeps its seat (finding 5, approved)", () => {
   it("/shop/ with ?orderby variants and ?page=2: three considered, three chosen", () => {
+    const SORTS = ["price", "date", "popularity", "rating"];
     const variants = Array.from(
       { length: 30 },
-      (_, i) => `https://acme.example/shop/?orderby=price&v=${i}`,
+      (_, i) => `https://acme.example/shop/?orderby=${SORTS[i % 4]}&add-to-cart=${i}`,
     );
     const { chosen, considered } = normalizeCandidates(
       [HOME, "https://acme.example/shop/", ...variants, "https://acme.example/shop/?page=2"],
@@ -1750,5 +1752,228 @@ describe("W3 review round 4 — percent-escapes are one page (finding 9)", () =>
     );
     expect(considered).toBe(2);
     expect(chosen).toHaveLength(2);
+  });
+});
+
+// W3 review round 5, finding 1. A query variant of a path already seen is a page
+// of its own when one of its keys has content (page_id, route, page). Only
+// tracking and sort keys make it the same page.
+describe("W3 review round 5 — a content query variant is its own page (finding 1)", () => {
+  const BARE_PAGE = "<html><head><title>Acme</title></head><body><h1>Acme</h1></body></html>";
+
+  it("WordPress plain permalinks: the ?page_id= pages of the menu are five pages, all read", async () => {
+    const ids = [2, 7, 9, 11];
+    const menu = ids.map((id) => `<a href="/?page_id=${id}">Page ${id}</a>`).join("");
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: {
+        body: `<html><head><title>Acme</title></head><body><nav>${menu}</nav><h1>Acme</h1></body></html>`,
+      },
+      "https://acme.example/sitemap.xml": {
+        body: `<urlset>${ids.map((id) => `<url><loc>https://acme.example/?page_id=${id}</loc></url>`).join("")}</urlset>`,
+      },
+    };
+    for (const id of ids) routes[`https://acme.example/?page_id=${id}`] = { body: BARE_PAGE };
+
+    const result = await crawlSite(HOME, stubDeps(routes));
+    expect(result.pages).toHaveLength(5);
+    expect(result.selection?.pagesConsidered).toBe(5);
+    for (const id of ids) {
+      expect(result.pages.map((p) => p.url)).toContain(`https://acme.example/?page_id=${id}`);
+    }
+  });
+
+  it("OpenCart: two routes under one /index.php path are two pages, and the shop page is read", async () => {
+    const contact = "https://acme.example/index.php?route=information/contact";
+    const shop = "https://acme.example/index.php?route=product/category&path=20";
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: { body: NO_MENU_HOME },
+      "https://acme.example/sitemap.xml": {
+        body: `<urlset><url><loc>${contact}</loc></url><url><loc>${shop}</loc></url></urlset>`,
+      },
+      [contact]: { body: BARE_PAGE },
+      [shop]: { body: BARE_PAGE },
+    };
+
+    const result = await crawlSite(HOME, stubDeps(routes));
+    expect(result.pages.map((p) => p.url)).toEqual(expect.arrayContaining([contact, shop]));
+    expect(result.selection?.pagesConsidered).toBe(3);
+  });
+
+  it("normalizeCandidates: a route variant after the same path takes its own seat", () => {
+    const contact = "https://acme.example/index.php?route=information/contact";
+    const shop = "https://acme.example/index.php?route=product/category&path=20";
+    const { chosen, considered } = normalizeCandidates(
+      [HOME, contact, shop],
+      "https://acme.example",
+      20,
+      null,
+    );
+    expect(considered).toBe(3);
+    expect(chosen).toEqual([HOME, contact, shop]);
+  });
+
+  it("a variant whose only key is tracking is still one page: no extra seat", () => {
+    const { considered } = normalizeCandidates(
+      [HOME, "https://acme.example/about", "https://acme.example/about?utm_source=news"],
+      "https://acme.example",
+      20,
+      null,
+    );
+    expect(considered).toBe(2);
+  });
+});
+
+// W3 review round 5, finding 2. A sort or tracking variant listed before the bare
+// page must not take the page's place: the bare page is read instead.
+describe("W3 review round 5 — a sort variant does not take the bare page's place (finding 2)", () => {
+  it("/shop/?orderby=price listed before /shop/: /shop/ is read, the variant is not", () => {
+    const { chosen, considered } = normalizeCandidates(
+      [HOME, "https://acme.example/shop/?orderby=price", "https://acme.example/shop/"],
+      "https://acme.example",
+      20,
+      null,
+    );
+    expect(considered).toBe(2);
+    expect(chosen).toEqual([HOME, "https://acme.example/shop/"]);
+  });
+
+  it("the same through crawlSite: a menu link to the variant, and the sitemap's bare page, reads /shop/", async () => {
+    const BARE_PAGE = "<html><head><title>Acme</title></head><body><h1>Acme</h1></body></html>";
+    const variant = "https://acme.example/shop/?orderby=price";
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: {
+        body: `<html><head><title>Acme</title></head><body><nav><a href="/shop/?orderby=price">Shop</a></nav><h1>Acme</h1></body></html>`,
+      },
+      "https://acme.example/sitemap.xml": {
+        body: `<urlset><url><loc>https://acme.example/shop/</loc></url></urlset>`,
+      },
+      "https://acme.example/shop/": { body: BARE_PAGE },
+      [variant]: { body: BARE_PAGE },
+    };
+    const result = await crawlSite(HOME, stubDeps(routes));
+    const urls = result.pages.map((p) => p.url);
+    expect(urls).toContain("https://acme.example/shop/");
+    expect(urls).not.toContain(variant);
+    expect(result.selection?.pagesConsidered).toBe(2);
+  });
+
+  it("control: a sort variant with no bare page anywhere is fetched as it is, in its place", () => {
+    const variant = "https://acme.example/shop/?orderby=price";
+    const { chosen, considered } = normalizeCandidates(
+      [HOME, variant],
+      "https://acme.example",
+      20,
+      null,
+    );
+    expect(considered).toBe(2);
+    expect(chosen).toEqual([HOME, variant]);
+  });
+});
+
+// W3 review round 5, finding 4. A sitemap index whose children are not all read
+// as urlsets is a truncated count, whatever the number of URLs that did come out.
+describe("W3 review round 5 — a sitemap index's count is truncated unless every child was read (finding 4)", () => {
+  const INDEX = (locs: string[]) =>
+    `<?xml version="1.0"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${locs
+      .map((l) => `<sitemap><loc>${l}</loc></sitemap>`)
+      .join("")}</sitemapindex>`;
+  const URLSET = (urls: string[]) =>
+    `<urlset>${urls.map((u) => `<url><loc>${u}</loc></url>`).join("")}</urlset>`;
+  const PAGES_XML = URLSET(["https://acme.example/services", "https://acme.example/about"]);
+
+  it("(a) a child on another host is a child we did not read: truncated", async () => {
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: { body: NO_MENU_HOME },
+      "https://acme.example/sitemap.xml": {
+        body: INDEX([
+          "https://acme.example/pages.xml",
+          "https://cdn.acme-static.example/products.xml",
+        ]),
+      },
+      "https://acme.example/pages.xml": { body: PAGES_XML },
+    };
+    const result = await crawlSite(HOME, stubDeps(routes));
+    expect(result.sitemap.urlCount).toBe(2);
+    expect(result.sitemap.truncated).toBe(true);
+  });
+
+  it("(b) a child that answers with an HTML body and no urlset is a child we did not read: truncated", async () => {
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: { body: NO_MENU_HOME },
+      "https://acme.example/sitemap.xml": {
+        body: INDEX(["https://acme.example/pages.xml", "https://acme.example/old-posts.xml"]),
+      },
+      "https://acme.example/pages.xml": { body: PAGES_XML },
+      "https://acme.example/old-posts.xml": { body: "<html><body>Hello</body></html>" },
+    };
+    const result = await crawlSite(HOME, stubDeps(routes));
+    expect(result.sitemap.urlCount).toBe(2);
+    expect(result.sitemap.truncated).toBe(true);
+  });
+
+  it("(c) a child that is itself an index adds none of its addresses as pages, and is truncated", async () => {
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: { body: NO_MENU_HOME },
+      "https://acme.example/sitemap.xml": {
+        body: INDEX(["https://acme.example/pages.xml", "https://acme.example/child.xml"]),
+      },
+      "https://acme.example/pages.xml": { body: PAGES_XML },
+      "https://acme.example/child.xml": {
+        body: INDEX(["https://acme.example/grandchild.xml"]),
+      },
+      "https://acme.example/grandchild.xml": { body: URLSET(["https://acme.example/x"]) },
+    };
+    const result = await crawlSite(HOME, stubDeps(routes));
+    expect(result.sitemap.urlCount).toBe(2);
+    expect(result.sitemap.sample).not.toContain("https://acme.example/grandchild.xml");
+    expect(result.sitemap.truncated).toBe(true);
+  });
+
+  it("control: an index whose two same-origin children are both urlsets is read whole", async () => {
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: { body: NO_MENU_HOME },
+      "https://acme.example/sitemap.xml": {
+        body: INDEX(["https://acme.example/pages.xml", "https://acme.example/posts.xml"]),
+      },
+      "https://acme.example/pages.xml": { body: PAGES_XML },
+      "https://acme.example/posts.xml": { body: URLSET(["https://acme.example/news"]) },
+    };
+    const result = await crawlSite(HOME, stubDeps(routes));
+    expect(result.sitemap.urlCount).toBe(3);
+    expect(result.sitemap.truncated).toBe(false);
+  });
+});
+
+// W3 review round 5, finding 5. A sitemap the owner named as .gz that we skipped,
+// with the default /sitemap.xml read instead, is not the whole of their sitemap.
+describe("W3 review round 5 — a skipped named .gz sitemap truncates a default one (finding 5)", () => {
+  it("robots names sitemap.xml.gz; /sitemap.xml answers: present, and truncated", async () => {
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: { body: NO_MENU_HOME },
+      "https://acme.example/robots.txt": {
+        body: "User-agent: *\nAllow: /\nSitemap: https://acme.example/sitemap.xml.gz",
+      },
+      "https://acme.example/sitemap.xml": {
+        body: `<urlset><url><loc>https://acme.example/services</loc></url><url><loc>https://acme.example/about</loc></url></urlset>`,
+      },
+    };
+    const result = await crawlSite(HOME, stubDeps(routes));
+    expect(result.sitemap.present).toBe(true);
+    expect(result.sitemap.urlCount).toBe(2);
+    expect(result.sitemap.truncated).toBe(true);
+  });
+
+  it("control: robots names a plain sitemap.xml that is read: not truncated", async () => {
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: { body: NO_MENU_HOME },
+      "https://acme.example/robots.txt": {
+        body: "User-agent: *\nAllow: /\nSitemap: https://acme.example/sitemap.xml",
+      },
+      "https://acme.example/sitemap.xml": {
+        body: `<urlset><url><loc>https://acme.example/services</loc></url></urlset>`,
+      },
+    };
+    const result = await crawlSite(HOME, stubDeps(routes));
+    expect(result.sitemap.truncated).toBe(false);
   });
 });
