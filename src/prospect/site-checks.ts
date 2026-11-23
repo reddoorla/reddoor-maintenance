@@ -1592,6 +1592,50 @@ function sidecarChecks(
     );
   }
 
+  // THE SITEMAP'S OWN ADDRESSES (W3, the audit-system review's TEC-01 and
+  // SEO-06). A sitemap listing `http://` or the other side of `www.` for the
+  // address the site answers on is read as this site's pages (crawl.ts
+  // `toSameOrigin`), so the crawl is not short of pages; it is still a fault,
+  // because every crawler that trusts the file is sent through a redirect, or
+  // to a host that may not answer, for every page it lists.
+  const WHY_SAME_HOST =
+    "A sitemap should list each page at the address it answers on. Listing another scheme or the other side of www. sends every crawler that reads it through a redirect for every page.";
+  const sel = crawl.selection;
+  if (!sitemapMeasured || !crawl.sitemap.present) {
+    out.push(
+      skip(
+        "sitemap-same-host",
+        "A sitemap on the address your site answers on",
+        WHY_SAME_HOST,
+        "quick",
+        sitemapMeasured ? "this site has no sitemap" : "we could not read the sitemap on this run",
+      ),
+    );
+  } else if (sel === undefined) {
+    out.push(
+      unknown(
+        "sitemap-same-host",
+        "A sitemap on the address your site answers on",
+        WHY_SAME_HOST,
+        "quick",
+      ),
+    );
+  } else {
+    const off = sel.sitemapOffOrigin;
+    out.push(
+      check(
+        "sitemap-same-host",
+        "A sitemap on the address your site answers on",
+        WHY_SAME_HOST,
+        "quick",
+        off === 0,
+        off === 0
+          ? `every address it lists is on ${crawl.origin}`
+          : `${off} of the ${crawl.sitemap.urlCount} addresses it lists are written like ${sel.sitemapOffOriginExample ?? "another host"}, not on ${crawl.origin}`,
+      ),
+    );
+  }
+
   // REPORTED, NEVER FAILED — and this is a reconciliation, not a softening.
   //
   // `checks.ts` already took llms.txt out of the Findability score, on the
@@ -3165,6 +3209,14 @@ export function httpChecks(http: HttpFindings | null): SiteCheck[] {
  * form, a control we could not reach, a browser pass that never ran) and reads
  * as unmeasured. A form we could not press is our gap, never their defect.
  */
+/** A probe verdict's evidence, led by the form it is about when the probe
+ *  recorded one: "the 8-field form on /contact: the browser blocks it". */
+function namedForm(probe: FormProbe, how: string | null): string {
+  const said = how ?? "";
+  if (!probe.form) return said;
+  return said ? `${probe.form}: ${said}` : probe.form;
+}
+
 function formInteractionChecks(probes: (FormProbe | null | undefined)[]): SiteCheck[] {
   const WHY_EMPTY =
     "Somebody who taps send too early should be told what is missing. A form that submits anyway puts a blank enquiry in your inbox and tells them it worked, so they never follow up and you have nothing to follow up on.";
@@ -3231,7 +3283,7 @@ function formInteractionChecks(probes: (FormProbe | null | undefined)[]): SiteCh
           WHY_EMPTY,
           "quick",
           probe.emptyRefused,
-          probe.emptyHow ?? "",
+          namedForm(probe, probe.emptyHow),
         ),
   ];
 
@@ -3257,7 +3309,7 @@ function formInteractionChecks(probes: (FormProbe | null | undefined)[]): SiteCh
             WHY_EMAIL,
             "quick",
             probe.invalidEmailRefused,
-            probe.invalidEmailHow ?? "",
+            namedForm(probe, probe.invalidEmailHow),
           ),
   );
 
@@ -3344,6 +3396,7 @@ export const TIER0_CHECK_KEYS = [
   "robots-not-blocking",
   "robots-names-sitemap",
   "sitemap-coverage",
+  "sitemap-same-host",
   "llms-txt",
   "analytics",
 ] as const;

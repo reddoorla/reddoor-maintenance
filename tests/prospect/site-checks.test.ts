@@ -1079,6 +1079,48 @@ describe("each check fires on the thing it is named for", () => {
     );
     expect(byKey(checks, "sitemap-coverage")?.status).toBe("fail");
   });
+
+  // W3 (TEC-01, SEO-06): read as this site's pages, reported as its own fault.
+  it("fails a sitemap written on another scheme or host, naming an example", () => {
+    const checks = runSiteChecks(
+      exemplary({
+        sitemap: { present: true, urlCount: 83, truncated: false },
+        selection: {
+          pagesConsidered: 84,
+          sitemapSource: "https://acme.example/sitemap.xml",
+          sitemapOffOrigin: 83,
+          sitemapOffOriginExample: "http://www.acme.example/",
+        },
+      }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    const c = byKey(checks, "sitemap-same-host");
+    expect(c?.status).toBe("fail");
+    expect(c?.evidence).toContain("83 of the 83");
+    expect(c?.evidence).toContain("http://www.acme.example/");
+  });
+
+  it("passes a sitemap on the site's own address, and is unmeasured on a row that predates the count", () => {
+    const sel = {
+      pagesConsidered: 3,
+      sitemapSource: "https://acme.example/sitemap.xml",
+      sitemapOffOrigin: 0,
+      sitemapOffOriginExample: null,
+    };
+    const ok = runSiteChecks(
+      exemplary({ sitemap: { present: true, urlCount: 3, truncated: false }, selection: sel }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(ok, "sitemap-same-host")?.status).toBe("pass");
+    const older = runSiteChecks(
+      exemplary({ sitemap: { present: true, urlCount: 3, truncated: false } }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(older, "sitemap-same-host")?.status).toBe("unmeasured");
+  });
 });
 
 describe("Tier 1 — each check fires on the thing it is named for", () => {
@@ -1903,5 +1945,38 @@ describe("a page that mis-declares another page's canonical is not an alias of i
     const c = byKey(checks, "sitemap-coverage");
     expect(c?.status).toBe("fail");
     expect(c?.evidence).toMatch(/acme\.example\/(about|contact)/);
+  });
+});
+
+// W3 (LG-02): a probe verdict says which form it is about, so "a form that
+// catches an empty submission: pass" can no longer be earned by a newsletter
+// box without anyone being able to tell.
+describe("form probe evidence names the form", () => {
+  it("leads the evidence with the form the probe pressed", () => {
+    const crawl = exemplary({
+      pages: exemplary().pages.map((p, i) =>
+        i === 0
+          ? {
+              ...p,
+              formProbe: {
+                url: "https://acme.example/contact",
+                form: "the 8-field form on /contact",
+                emptyRefused: true,
+                emptyHow: "the browser blocks it — the form marks its fields required",
+                invalidEmailRefused: true,
+                invalidEmailHow: "the form showed an error rather than submitting",
+                blocked: 0,
+              },
+            }
+          : p,
+      ),
+    });
+    const checks = runSiteChecks(crawl, exemplaryChecks(), "Acme Roofing");
+    expect(byKey(checks, "form-rejects-empty")?.evidence).toBe(
+      "the 8-field form on /contact: the browser blocks it — the form marks its fields required",
+    );
+    expect(byKey(checks, "form-rejects-bad-email")?.evidence).toMatch(
+      /^the 8-field form on \/contact: /,
+    );
   });
 });

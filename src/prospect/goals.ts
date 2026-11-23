@@ -1,4 +1,5 @@
 import type { ChecksResult, CrawlResult, JourneyMap, PageCapture, PageExtract } from "./types.js";
+import { isContactLike, toSameOrigin } from "./crawl.js";
 
 /**
  * Can a visitor do the one thing this site needs them to do?
@@ -419,6 +420,9 @@ type Signals = {
    *  on reports stored before form extraction existed, and there a count of
    *  zero means we never looked, not that the site has no form. */
   formsMeasured: boolean;
+  /** A contact, quote, demo, booking or get-started page this site links to
+   *  that we did not read, or null when we read every one we saw a link to. */
+  contactUnread: string | null;
   /** Any phone written as a `tel:` link anywhere. */
   hasTappablePhone: boolean;
   /** False when there is no phone number at all, or when the report predates
@@ -515,6 +519,49 @@ function priceSignal(text: string): string | null {
   return null;
 }
 
+/** The address of a page, for "did we read it?": no fragment, no trailing
+ *  slash, the query kept. */
+function pageKey(url: string): string {
+  const u = new URL(url);
+  u.hash = "";
+  return `${u.origin}${u.pathname.replace(/\/+$/, "") || "/"}${u.search}`;
+}
+
+/**
+ * The first contact-like page (contact, quote, demo, book, get started) that a
+ * page we read links to and that we did not read ourselves.
+ *
+ * "We read your pages and none had an enquiry form" is only a finding when the
+ * page the site's own buttons point to was among them. One stored report told
+ * a site it lacks a qualifying form while its home page linked to an
+ * eight-field form on `/contact` seven times, and the crawl had spent its
+ * pages on blog posts instead.
+ */
+function contactPageUnread(crawl: CrawlResult): string | null {
+  const read = new Set<string>();
+  for (const p of crawl.pages) {
+    if (extractOf(p) === null) continue;
+    try {
+      read.add(pageKey(p.url));
+    } catch {
+      // A stored URL that does not parse cannot be compared; skip it.
+    }
+  }
+  for (const p of crawl.pages) {
+    for (const a of extractOf(p)?.anchors ?? []) {
+      let onSite: string | null;
+      try {
+        onSite = toSameOrigin(new URL(a.href, p.url).toString(), crawl.origin);
+      } catch {
+        continue;
+      }
+      if (onSite === null || !isContactLike(onSite, a.text)) continue;
+      if (!read.has(pageKey(onSite))) return onSite;
+    }
+  }
+  return null;
+}
+
 function gather(crawl: CrawlResult, checks: ChecksResult | null): Signals {
   const text = siteText(crawl.pages);
   const phones = checks?.consistency?.phones ?? [];
@@ -530,6 +577,7 @@ function gather(crawl: CrawlResult, checks: ChecksResult | null): Signals {
   }
   return {
     text,
+    contactUnread: contactPageUnread(crawl),
     anchors: allAnchors(crawl.pages),
     schemaTypes: checks?.schema.typesFound ?? [],
     bestEnquiryFields,
@@ -744,7 +792,10 @@ export function checkGoal(
     "A name-and-email box produces enquiries you have to qualify by hand. Three or four more fields turn a lead into a briefed conversation.",
     "content",
     s.bestEnquiryFields >= 4 ? `enquiry form with ${s.bestEnquiryFields} fields` : null,
-    s.formsMeasured,
+    // Not measured, rather than missing, while a page the site's own links
+    // call "contact" (or quote, demo, book, get started) went unread: the
+    // form is most likely there. A form found elsewhere still counts as met.
+    s.formsMeasured && (s.bestEnquiryFields >= 4 || s.contactUnread === null),
   );
 
   switch (goal) {

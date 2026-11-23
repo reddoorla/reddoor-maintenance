@@ -337,11 +337,13 @@ describe("analyzeSite", () => {
     expect(result.business).toContain("Acme Roofing");
     // The fixture's first question is `partial` citing a price range that does
     // not appear on the crawled page. Evidence verification nulls the quote,
-    // and an unsupported positive verdict is then downgraded — so `no`, not
-    // `partial`. This assertion used to read `partial`, which was the bug: a
-    // verdict survived the evidence that justified it being thrown away.
+    // and an unsupported positive verdict is then downgraded. This assertion
+    // first read `partial` (a verdict survived the evidence that justified it
+    // being thrown away), then `no`, which printed "your site does not answer
+    // this" about a question the model said it did answer (W3, B-04). It is
+    // `unknown` now: out of the score, and never an absence.
     expect(result.buyerQuestions[0]!.evidence).toBeNull();
-    expect(result.buyerQuestions[0]!.answered).toBe("no");
+    expect(result.buyerQuestions[0]!.answered).toBe("unknown");
   });
 
   it("rejects output that does not match the schema", async () => {
@@ -547,14 +549,16 @@ describe("verifyEvidence — a positive verdict must be supported", () => {
     return result.buyerQuestions[0]!;
   };
 
-  it("downgrades a `partial` with no evidence to `no`", async () => {
+  // W3: these four read `no` until the audit-system review. A verdict we cannot
+  // confirm is our gap, so it is `unknown`; `no` printed it as their absence.
+  it("downgrades a `partial` with no evidence to `unknown`", async () => {
     const q = await ask({ answered: "partial", page: null, evidence: null });
-    expect(q.answered).toBe("no");
+    expect(q.answered).toBe("unknown");
   });
 
-  it("downgrades a `yes` with no evidence to `no`", async () => {
+  it("downgrades a `yes` with no evidence to `unknown`", async () => {
     const q = await ask({ answered: "yes", page: null, evidence: null });
-    expect(q.answered).toBe("no");
+    expect(q.answered).toBe("unknown");
   });
 
   // The evidence was nulled out because it wasn't a real quote — so the verdict
@@ -566,7 +570,7 @@ describe("verifyEvidence — a positive verdict must be supported", () => {
       evidence: "a sentence that appears nowhere on the page",
     });
     expect(q.evidence).toBeNull();
-    expect(q.answered).toBe("no");
+    expect(q.answered).toBe("unknown");
   });
 
   it("downgrades when the cited page was never crawled", async () => {
@@ -575,7 +579,7 @@ describe("verifyEvidence — a positive verdict must be supported", () => {
       page: "https://acme.example/never-crawled",
       evidence: "Body copy number 0.",
     });
-    expect(q.answered).toBe("no");
+    expect(q.answered).toBe("unknown");
   });
 
   it("leaves a genuinely supported verdict alone", async () => {
@@ -617,5 +621,48 @@ describe("fix rationales may not promise engine outcomes", () => {
     expect(system).toMatch(
       /Never predict\s+what an answer engine will cite, repeat, rank or recommend/,
     );
+  });
+});
+
+// W3, from the audit-system review (B-04): a `no` is the commonest headline and
+// the one claim with no receipt. Before it stands, the question's key words are
+// looked for in everything we crawled; a hit makes it `unknown`, naming the
+// word and the page, so the report can say what it did not find, and where it
+// looked, instead of asserting an absence.
+describe("checkAbsence — a `no` is checked against everything we crawled", () => {
+  const withPages = (texts: string[]): CrawlResult => ({
+    ...crawl(0),
+    pages: texts.map((t, i) => page(`https://acme.example/q${i}`, html(`Page ${i}`, t))),
+  });
+  const askNo = async (c: CrawlResult, id = "cost") =>
+    (
+      await analyzeSite("https://acme.example/", c, runChecks(c), {
+        run: async () => ({
+          ...validOutput,
+          buyerQuestions: validOutput.buyerQuestions.map((q) =>
+            q.id === id ? { ...q, answered: "no" as const, page: null, evidence: null } : q,
+          ),
+        }),
+      })
+    ).buyerQuestions.find((q) => q.id === id)!;
+
+  it("makes a `no` unknown when the question's words are on a crawled page, and names them", async () => {
+    const q = await askNo(withPages(["Welcome.", "Our pricing starts with a free call."]));
+    expect(q.answered).toBe("unknown");
+    expect(q.notFound).toEqual({ term: "pricing", page: "https://acme.example/q1" });
+  });
+
+  it("leaves a `no` standing when none of the words is anywhere we read", async () => {
+    const q = await askNo(withPages(["Welcome.", "We roof buildings."]));
+    expect(q.answered).toBe("no");
+    expect(q.notFound).toBeUndefined();
+  });
+
+  it("finds words past the 1,500 characters the model was shown", async () => {
+    const long = `${"Filler sentence. ".repeat(120)}Our fees are listed below.`;
+    expect(long.indexOf("fees")).toBeGreaterThan(1500);
+    const q = await askNo(withPages([long]));
+    expect(q.answered).toBe("unknown");
+    expect(q.notFound?.term).toBe("fees");
   });
 });

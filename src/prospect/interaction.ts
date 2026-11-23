@@ -56,6 +56,9 @@ const REMOVE_MARKER = `() => {
 export type FormProbe = {
   /** The page we probed, so a finding has an address. */
   url: string;
+  /** Which form we pressed, in words a report can print: "the 8-field form
+   *  on /contact". Absent on probes stored before it was recorded. */
+  form?: string;
   /**
    * Whether an empty submit was refused.
    *
@@ -74,6 +77,18 @@ export type FormProbe = {
   blocked: number;
 };
 
+/** "the 8-field form on /contact": the form a probe verdict is about. */
+export function describeForm(fields: number, url: string): string {
+  let where = url;
+  try {
+    const u = new URL(url);
+    where = `${u.pathname}${u.search}`;
+  } catch {
+    // Keep the URL as given.
+  }
+  return `the ${fields}-field form on ${where}`;
+}
+
 /** What the page told us about the form it chose, before anything was clicked. */
 type Chosen = {
   fields: number;
@@ -89,11 +104,18 @@ type Chosen = {
  * A search form scores itself out: submitting one is harmless but it answers a
  * question nobody asked.
  */
-const CHOOSE_FORM = `() => {
+const CHOOSE_FORM = `(args) => {
   const forms = Array.from(document.querySelectorAll("form"));
+  // Which forms the static classifier (extract.ts formShape) calls an enquiry
+  // form, by document position. When it was read off a document that does
+  // not line up with this one, choose nothing: a probe we skip reads as "not
+  // measured", and pressing the wrong form reads as a verdict.
+  const allowed = args && Array.isArray(args.enquiry) ? args.enquiry : null;
+  if (allowed && allowed.length !== forms.length) return null;
   let best = null;
   let bestScore = 0;
-  for (const form of forms) {
+  for (const [index, form] of forms.entries()) {
+    if (allowed && !allowed[index]) continue;
     const controls = Array.from(form.querySelectorAll("input, textarea, select"));
     const typed = (el) => (el.getAttribute("type") || el.tagName.toLowerCase()).toLowerCase();
     const visible = controls.filter((el) => {
@@ -200,6 +222,15 @@ const READ_STATE = `(args) => {
 }`;
 
 export type InteractionDeps = {
+  /**
+   * Per `<form>` on the page, in document order: does the static classifier
+   * (extract.ts `formShape`) call it an enquiry form? When given, only those
+   * are pressed. One stored probe passed a site on its Mailchimp footer box
+   * while its two broken lead forms went unseen; a newsletter box is not the
+   * form a buyer uses to make contact. Absent: every form may be chosen, as
+   * before.
+   */
+  enquiryForms?: boolean[];
   /** Everything this needs from a Playwright page, named so a test can supply
    *  it without a browser. */
   evaluate: <T>(fn: string, arg?: unknown) => Promise<T>;
@@ -246,12 +277,16 @@ export function withTimeout<T>(work: Promise<T>, ms: number): Promise<T | null> 
 }
 
 export async function probeForms(deps: InteractionDeps): Promise<FormProbe | null> {
-  const chosen = await deps.evaluate<Chosen | null>(CHOOSE_FORM);
+  const chosen = await deps.evaluate<Chosen | null>(
+    CHOOSE_FORM,
+    deps.enquiryForms ? { enquiry: deps.enquiryForms } : null,
+  );
   if (!chosen) return null;
 
   const guard = await deps.intercept();
   const probe: FormProbe = {
     url: deps.url,
+    form: describeForm(chosen.fields, deps.url),
     emptyRefused: undefined,
     emptyHow: null,
     invalidEmailRefused: chosen.hasEmail ? undefined : null,
@@ -406,9 +441,11 @@ export async function probeForms(deps: InteractionDeps): Promise<FormProbe | nul
 export function pageInteractionDeps(
   page: import("@playwright/test").Page,
   url: string,
+  enquiryForms?: boolean[],
 ): InteractionDeps {
   return {
     url,
+    ...(enquiryForms ? { enquiryForms } : {}),
     settle: (ms) => page.waitForTimeout(ms),
     // Playwright evaluates a STRING as an expression and does not call it —
     // `page.evaluate("() => 1 + 1")` yields a function object, which serialises
@@ -596,7 +633,11 @@ export function pageInteractionDeps(
           } finally {
             allowNavigation = false;
           }
-          const again = await page.evaluate(`(${CHOOSE_FORM})(null)`).catch(() => null);
+          const again = await page
+            .evaluate(
+              `(${CHOOSE_FORM})(${JSON.stringify(enquiryForms ? { enquiry: enquiryForms } : null)})`,
+            )
+            .catch(() => null);
           return again !== null;
         },
         release: async () => {

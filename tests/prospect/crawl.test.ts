@@ -12,6 +12,7 @@ import {
   defaultCrawlDeps,
   MAX_RESPONSE_BYTES,
   ResponseTooLargeError,
+  isContactLike,
   type CrawlDeps,
   type FetchResponse,
 } from "../../src/prospect/crawl.js";
@@ -46,6 +47,9 @@ function stubDeps(
 }
 
 const HOME = "https://acme.example/";
+
+/** A home page with no links at all. */
+const NO_MENU_HOME = "<html><head><title>Acme</title></head><body><h1>Acme</h1></body></html>";
 
 describe("crawlSite", () => {
   it("captures the raw and rendered extract of every discovered page", async () => {
@@ -93,7 +97,9 @@ describe("crawlSite", () => {
     );
     const others = ["a", "b", "c"].map((n) => `<url><loc>https://acme.example/${n}</loc></url>`);
     const routes: Record<string, Partial<FetchResponse>> = {
-      [HOME]: { body: fixture("rich.html") },
+      // A home page with no menu, so the sitemap is the only source of pages:
+      // a menu's links are read before the sitemap's (rankCandidates).
+      [HOME]: { body: NO_MENU_HOME },
       "https://acme.example/sitemap.xml": {
         body: `<urlset><url><loc>https://acme.example/features</loc></url>${variants.join("")}${others.join("")}</urlset>`,
       },
@@ -139,7 +145,14 @@ describe("crawlSite", () => {
     expect(result.pages.map((p) => p.url)).toContain("https://acme.example/?page=3");
   });
 
-  it("prefers sitemap URLs and honours maxPages", async () => {
+  // REWRITTEN BY THE AUDIT-SYSTEM REVIEW (W3). This test used to be "prefers
+  // sitemap URLs and honours maxPages" and asserted exactly [HOME, p0, p1]:
+  // the sitemap in file order, ahead of the home page's own menu. That order
+  // is the bug (TEC-01): one stored crawl spent all 20 pages on the home page,
+  // `/blog/` and 18 posts while the menu linked to the contact page. The menu
+  // is now read before the sitemap; the cap and the sitemap counts are as
+  // they were.
+  it("reads the home page's menu before the sitemap, and honours maxPages", async () => {
     const locs = Array.from(
       { length: 5 },
       (_, i) => `<url><loc>https://acme.example/p${i}</loc></url>`,
@@ -157,11 +170,14 @@ describe("crawlSite", () => {
     // the whole sitemap and `sitemap-coverage` may name a page it omits.
     expect(result.sitemap.sample).toHaveLength(5);
     expect(result.pages).toHaveLength(3);
+    // rich.html's <nav> links /services and /about.
     expect(result.pages.map((p) => p.url)).toEqual([
       HOME,
-      "https://acme.example/p0",
-      "https://acme.example/p1",
+      "https://acme.example/services",
+      "https://acme.example/about",
     ]);
+    // Home, its two menu pages and the five sitemap pages.
+    expect(result.selection?.pagesConsidered).toBe(8);
   });
 
   it("follows one level of sitemap index", async () => {
@@ -855,7 +871,9 @@ describe("robotsAllowsUs — our own crawler obeying the file", () => {
 describe("the crawl does not fetch a disallowed path", () => {
   it("skips it and spends the budget elsewhere", async () => {
     const routes: Record<string, Partial<FetchResponse>> = {
-      [HOME]: { body: fixture("rich.html") },
+      // No menu, so the three sitemap URLs are the only candidates for the two
+      // seats after the home page (a menu is read before the sitemap).
+      [HOME]: { body: NO_MENU_HOME },
       "https://acme.example/robots.txt": { body: "User-agent: *\nDisallow: /private" },
       "https://acme.example/sitemap.xml": {
         body: `<urlset>${["/private/a", "/open-b", "/open-c"]
@@ -870,5 +888,203 @@ describe("the crawl does not fetch a disallowed path", () => {
     const urls = result.pages.map((p) => p.url);
     expect(urls).not.toContain("https://acme.example/private/a");
     expect(urls).toContain("https://acme.example/open-b");
+  });
+});
+
+describe("which pages the 20 seats go to (W3)", () => {
+  /** A home page with no menu and no links, so ranking alone is on trial. */
+  const BARE = "<html><head><title>Acme</title></head><body><h1>Acme</h1></body></html>";
+  const page = { body: BARE };
+
+  /** 95 URLs: 18 dated posts first, then 75 more posts, then the pages a buyer
+   *  reads — the shape of a CMS sitemap sorted by publish date. */
+  function ninetyFive(host = "https://acme.example"): string[] {
+    const dated = Array.from(
+      { length: 18 },
+      (_, i) => `${host}/20${10 + (i % 14)}/0${1 + (i % 9)}/post-${i}/`,
+    );
+    const more = Array.from({ length: 72 }, (_, i) => `${host}/news/2019/item-${i}/`);
+    const pages = [
+      "/services/",
+      "/services/tenant-screening/",
+      "/faqs/",
+      "/about/",
+      "/contact/",
+    ].map((p) => `${host}${p}`);
+    return [...dated, ...more, ...pages];
+  }
+  const urlset = (urls: string[]): string =>
+    `<urlset>${urls.map((u) => `<url><loc>${u}</loc></url>`).join("")}</urlset>`;
+
+  it("reads the service and contact pages of a 95-URL sitemap that lists 18 dated posts first", async () => {
+    const urls = ninetyFive();
+    expect(urls).toHaveLength(95);
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: page,
+      "https://acme.example/sitemap.xml": { body: urlset(urls) },
+    };
+    for (const u of urls) routes[u] = page;
+    const result = await crawlSite(HOME, stubDeps(routes));
+    const chosen = result.pages.map((p) => p.url);
+
+    expect(chosen).toHaveLength(20);
+    expect(chosen).toContain("https://acme.example/services/");
+    expect(chosen).toContain("https://acme.example/contact/");
+    expect(chosen).toContain("https://acme.example/services/tenant-screening/");
+    expect(result.sitemap.urlCount).toBe(95);
+    expect(result.selection?.pagesConsidered).toBe(96);
+  });
+
+  it("reads a sitemap written on http://www. for an https:// apex site as this site's pages", async () => {
+    const urls = ["/", "/about", "/services", "/contact"].map((p) => `http://www.acme.example${p}`);
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: page,
+      "https://acme.example/sitemap.xml": { body: urlset(urls) },
+      "https://acme.example/about": page,
+      "https://acme.example/services": page,
+      "https://acme.example/contact": page,
+    };
+    const result = await crawlSite(HOME, stubDeps(routes));
+    const chosen = result.pages.map((p) => p.url);
+
+    expect(chosen.length).toBeGreaterThan(1);
+    expect(chosen).toContain("https://acme.example/services");
+    // Fetched at the address the site answers on, never the sitemap's.
+    expect(chosen.every((u) => u.startsWith("https://acme.example/"))).toBe(true);
+    // And the mismatch is recorded as a finding of its own.
+    expect(result.selection?.sitemapOffOrigin).toBe(4);
+    expect(result.selection?.sitemapOffOriginExample).toBe("http://www.acme.example/");
+  });
+
+  it("does not take another subdomain for the same site", async () => {
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: page,
+      "https://acme.example/sitemap.xml": {
+        body: urlset(["https://shop.acme.example/cart", "https://acme.example/about"]),
+      },
+      "https://acme.example/about": page,
+    };
+    const result = await crawlSite(HOME, stubDeps(routes));
+    expect(result.pages.map((p) => p.url)).toEqual([HOME, "https://acme.example/about"]);
+    expect(result.selection?.sitemapOffOrigin).toBe(0);
+  });
+
+  it("reads a contact page the home page links to seven times, though the sitemap lists it last", async () => {
+    const urls = ninetyFive();
+    const links = Array.from(
+      { length: 7 },
+      (_, i) =>
+        `<p><a href="/contact/">${["CONTACT", "Contact Acme", "GET STARTED TODAY", "LET’S TALK", "Write to us", "Reach us", "Here"][i]}</a></p>`,
+    ).join("");
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: { body: `<html><body><h1>Acme</h1>${links}</body></html>` },
+      "https://acme.example/sitemap.xml": { body: urlset(urls) },
+    };
+    for (const u of urls) routes[u] = page;
+    const result = await crawlSite(HOME, stubDeps(routes, { maxPages: 3 }));
+    // Three seats: the home page, the contact page its links name, and the
+    // shallowest sitemap page.
+    expect(result.pages.map((p) => p.url)).toEqual([
+      HOME,
+      "https://acme.example/contact/",
+      "https://acme.example/services/",
+    ]);
+  });
+
+  it("finds the sitemap robots.txt names, before /sitemap.xml", async () => {
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: page,
+      "https://acme.example/robots.txt": {
+        body: "User-agent: *\nAllow: /\nSitemap: https://www.acme.example/sitemap.php\n",
+      },
+      "https://acme.example/sitemap.php": { body: urlset(["https://acme.example/projects"]) },
+      "https://acme.example/projects": page,
+    };
+    const result = await crawlSite(HOME, stubDeps(routes));
+    expect(result.sitemap).toMatchObject({ present: true, urlCount: 1 });
+    expect(result.selection?.sitemapSource).toBe("https://acme.example/sitemap.php");
+    expect(result.pages.map((p) => p.url)).toContain("https://acme.example/projects");
+  });
+
+  it("falls back to /sitemap_index.xml and then /wp-sitemap.xml", async () => {
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: page,
+      "https://acme.example/wp-sitemap.xml": { body: urlset(["https://acme.example/team"]) },
+    };
+    const result = await crawlSite(HOME, stubDeps(routes));
+    expect(result.sitemap.present).toBe(true);
+    expect(result.selection?.sitemapSource).toBe("https://acme.example/wp-sitemap.xml");
+    expect(result.sidecarErrors.sitemap).toBeNull();
+  });
+
+  it("records no sitemap, and no sitemap error, when none of the addresses has one", async () => {
+    const result = await crawlSite(HOME, stubDeps({ [HOME]: page }));
+    expect(result.sitemap.present).toBe(false);
+    expect(result.selection?.sitemapSource).toBeNull();
+    expect(result.sidecarErrors.sitemap).toBeNull();
+  });
+
+  it("reads page-sitemap pages before post-sitemap posts whose paths carry no date", async () => {
+    const posts = Array.from({ length: 30 }, (_, i) => `https://acme.example/a-post-${i}/`);
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: page,
+      "https://acme.example/sitemap.xml": {
+        body: `<sitemapindex><sitemap><loc>https://acme.example/post-sitemap.xml</loc></sitemap><sitemap><loc>https://acme.example/page-sitemap.xml</loc></sitemap></sitemapindex>`,
+      },
+      "https://acme.example/post-sitemap.xml": { body: urlset(posts) },
+      "https://acme.example/page-sitemap.xml": {
+        body: urlset(["https://acme.example/services/", "https://acme.example/contact/"]),
+      },
+    };
+    const result = await crawlSite(HOME, stubDeps(routes, { maxPages: 3 }));
+    expect(result.pages.map((p) => p.url)).toEqual([
+      HOME,
+      "https://acme.example/services/",
+      "https://acme.example/contact/",
+    ]);
+  });
+
+  it("reads tag, category and author archives after the pages they list", async () => {
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: page,
+      "https://acme.example/sitemap.xml": {
+        body: urlset([
+          "https://acme.example/tag/news/",
+          "https://acme.example/category/blog/",
+          "https://acme.example/author/ann/",
+          "https://acme.example/services/",
+        ]),
+      },
+    };
+    const result = await crawlSite(HOME, stubDeps(routes, { maxPages: 2 }));
+    expect(result.pages.map((p) => p.url)).toEqual([HOME, "https://acme.example/services/"]);
+  });
+});
+
+describe("isContactLike", () => {
+  it.each([
+    ["https://acme.example/contact", ""],
+    ["https://acme.example/contact-us/", ""],
+    ["https://acme.example/request-demo", ""],
+    ["https://acme.example/get-a-quote", ""],
+    ["https://acme.example/book-now", ""],
+    ["https://acme.example/get-started", ""],
+    ["https://acme.example/start", "Get started"],
+    ["https://acme.example/hello", "LET’S TALK"],
+  ])("%s %s is contact-like", (href, text) => {
+    expect(isContactLike(href, text)).toBe(true);
+  });
+
+  it.each([
+    ["https://acme.example/ebook", ""],
+    ["https://acme.example/facebook", ""],
+    ["https://acme.example/books", ""],
+    ["https://acme.example/blog/a-post", "Read more"],
+    [
+      "https://acme.example/blog/a-post",
+      "A long paragraph that happens to be a link and mentions how to contact us",
+    ],
+  ])("%s %s is not", (href, text) => {
+    expect(isContactLike(href, text)).toBe(false);
   });
 });

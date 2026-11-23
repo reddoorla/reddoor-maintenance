@@ -132,11 +132,12 @@ describe("what the model gets wrong about the set", () => {
     expect(out.buyerQuestions).toHaveLength(questionSetFor("call").questions.length);
   });
 
-  it("still downgrades an unevidenced yes to no", async () => {
+  it("still downgrades an unevidenced yes, to unknown", async () => {
     // The pre-existing guard must survive the rework: a verdict we cannot point
-    // at a passage for is not a positive verdict.
+    // at a passage for is not a positive verdict. It read `no` until W3 (the
+    // audit-system review, B-04): our failure to confirm is not their absence.
     const out = await run("visit", answerAll("visit", "yes"));
-    expect(out.buyerQuestions.every((q) => q.answered === "no")).toBe(true);
+    expect(out.buyerQuestions.every((q) => q.answered === "unknown")).toBe(true);
   });
 
   it("keeps an answer whose evidence really is on the page", async () => {

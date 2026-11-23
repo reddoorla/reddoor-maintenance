@@ -700,3 +700,73 @@ describe("checkGoal — never converts our own missing data into their defect", 
     }
   });
 });
+
+// W3, from the audit-system review (LG-01): one stored report said a site
+// lacks a qualifying form while its home page linked to an eight-field form on
+// `/contact` seven times, and the crawl never read that page.
+describe("qualifying-form waits for the contact page", () => {
+  const link = (href: string, text: string): PageAnchor => ({ href, text, rel: "" });
+  const newsletter = [
+    {
+      kind: "subscribe" as const,
+      action: null,
+      method: "post",
+      fieldCount: 1,
+      hasContactField: true,
+      hasSubmit: true,
+    },
+  ];
+
+  it("is unmeasured, not missing, when a linked contact page went unread", () => {
+    const home = crawl(
+      "",
+      Array.from({ length: 7 }, () => link("/contact", "CONTACT")),
+      newsletter,
+    );
+    expect(status(checkGoal("enquire", "inferred", home, null), "qualifying-form")).toBe(
+      "unmeasured",
+    );
+  });
+
+  it("is unmeasured for a link whose words, not its path, say so", () => {
+    const home = crawl("", [link("https://www.example.com/start", "Get started")], newsletter);
+    expect(status(checkGoal("enquire", "inferred", home, null), "qualifying-form")).toBe(
+      "unmeasured",
+    );
+  });
+
+  it("is missing once the contact page was read and had no such form", () => {
+    const withContact = crawl("", [link("/contact/", "Contact")], newsletter);
+    withContact.pages.push({
+      ...withContact.pages[0]!,
+      url: "https://example.com/contact",
+      raw: extract({ text: "Call us.", forms: newsletter }),
+    });
+    expect(status(checkGoal("enquire", "inferred", withContact, null), "qualifying-form")).toBe(
+      "missing",
+    );
+  });
+
+  it("is still met by a real form found elsewhere, read or not", () => {
+    const home = crawl(
+      "",
+      [link("/contact", "Contact")],
+      [
+        {
+          kind: "enquiry",
+          action: "/submit",
+          method: "post",
+          fieldCount: 6,
+          hasContactField: true,
+          hasSubmit: true,
+        },
+      ],
+    );
+    expect(status(checkGoal("enquire", "inferred", home, null), "qualifying-form")).toBe("met");
+  });
+
+  it("ignores a contact link on someone else's site", () => {
+    const home = crawl("", [link("https://other.example/contact", "Contact")], newsletter);
+    expect(status(checkGoal("enquire", "inferred", home, null), "qualifying-form")).toBe("missing");
+  });
+});

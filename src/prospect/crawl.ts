@@ -15,8 +15,9 @@ import {
   type FormProbe,
 } from "./interaction.js";
 import type { CrawlResult, PageCapture, RobotsAgentAccess } from "./types.js";
-import { extractPage, UNRENDERED_TAGS } from "./extract.js";
+import { extractPage, formShape, UNRENDERED_TAGS } from "./extract.js";
 import { isPrivateOrLoopbackHost } from "../util/url.js";
+import { pathDepth } from "../util/path-depth.js";
 
 /** The answer-engine crawlers the report scores. */
 export const AI_AGENTS = [
@@ -483,6 +484,229 @@ function samePageKey(u: URL): string {
   return `${u.origin.toLowerCase()}${path}${u.search}`;
 }
 
+/** A hostname with one leading `www.` taken off, lower-cased. */
+function bareHost(hostname: string): string {
+  return hostname.toLowerCase().replace(/^www\./, "");
+}
+
+/**
+ * `raw` moved onto `origin`, when it is the same SITE: the same host give or
+ * take one leading `www.`, over http or https, on the default port. Null for
+ * anything else, including a URL that does not parse.
+ *
+ * A sitemap that lists `http://www.` addresses for an `https://` apex site is
+ * listing this site's pages; the old `u.origin !== origin` test dropped every
+ * one of them without a word, and one stored site was read at 12 pages of a
+ * sitemap of 83 that way. The equivalence is deliberately this narrow: another
+ * subdomain (`shop.`, `blog.`) is often a different system run by someone
+ * else, so it stays out.
+ */
+export function toSameOrigin(raw: string, origin: string): string | null {
+  let u: URL;
+  let o: URL;
+  try {
+    u = new URL(raw, origin);
+    o = new URL(origin);
+  } catch {
+    return null;
+  }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+  if (u.port !== "" || bareHost(u.hostname) !== bareHost(o.hostname)) return null;
+  if (u.origin === o.origin) return u.toString();
+  u.protocol = o.protocol;
+  u.hostname = o.hostname;
+  u.port = o.port;
+  return u.toString();
+}
+
+/** True when `raw` is on this site but written on another scheme or the other
+ *  side of `www.`: the sitemap mismatch recorded as a finding of its own. */
+function isOffOriginSameSite(raw: string, origin: string): boolean {
+  try {
+    return new URL(raw).origin !== origin && toSameOrigin(raw, origin) !== null;
+  } catch {
+    return false;
+  }
+}
+
+/** Path words that mean "this is how you reach them", matched against whole
+ *  hyphen- or underscore-separated words of a path segment, so `/ebook` and
+ *  `/facebook` are not a booking page and `/request-demo` is a demo. */
+const CONTACT_PATH_WORDS = new Set([
+  "contact",
+  "contactus",
+  "quote",
+  "demo",
+  "book",
+  "booking",
+  "enquiry",
+  "enquire",
+  "inquiry",
+  "inquire",
+  "schedule",
+  "consultation",
+  "appointment",
+  "appointments",
+]);
+
+/** Link text that means the same. Short text only: a paragraph that happens to
+ *  be a link and mentions "contact" is not a contact link. */
+const CONTACT_TEXT =
+  /\b(contact|quote|demo|book|booking|get started|let['’]?s talk|talk to us|enquir\w*|inquir\w*|schedule|consultation|appointment)\b/i;
+
+/**
+ * Does this link lead to the way a visitor gets in touch: contact, quote, demo,
+ * book, get started? Read off the path, or off the link's own words when the
+ * path says nothing (`/start` labelled "Get started").
+ *
+ * Shared by the crawl, which reads these pages before the sitemap's, and by
+ * the goal checklist, which will not call a form missing while one of these
+ * pages went unread.
+ */
+export function isContactLike(href: string, text = ""): boolean {
+  let path: string;
+  try {
+    path = new URL(href).pathname.toLowerCase();
+  } catch {
+    return false;
+  }
+  for (const segment of path.split("/").filter(Boolean)) {
+    const words = segment.replace(/\.[a-z0-9]+$/, "").split(/[-_]+/);
+    if (words.some((w) => CONTACT_PATH_WORDS.has(w))) return true;
+    if (words.join(" ").includes("get started")) return true;
+  }
+  const label = text.replace(/\s+/g, " ").trim();
+  return label.length > 0 && label.length <= 40 && CONTACT_TEXT.test(label);
+}
+
+/** A dated post (`/2019/04/…`, `/2019/…`), a page of a paginated list
+ *  (`/page/3`, `?page=3`, `?paged=3`) or a CMS archive listing (`/tag/…`,
+ *  `/category/…`, `/author/…`). Read last: a buyer arrives at the service
+ *  pages, and these are what a CMS sitemap lists first. The archives were
+ *  found by the replay over stored rows: with posts ranked last, four of one
+ *  site's 20 seats went to `/category/` and `/tag/` lists. */
+function isDatedOrPaginated(raw: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return false;
+  }
+  const path = u.pathname.toLowerCase();
+  if (/\/(19|20)\d{2}\/[^/]+/.test(path)) return true;
+  if (/\/page\/\d+\/?$/.test(path)) return true;
+  if (/^\/(tag|tags|category|categories|author)\//.test(path)) return true;
+  return /[?&](page|paged|p)=\d+/i.test(u.search);
+}
+
+/** A child sitemap that holds posts rather than pages: Yoast's
+ *  `post-sitemap.xml`, WordPress core's `wp-sitemap-posts-post-1.xml`, and the
+ *  blog and news equivalents. Yoast lists it BEFORE `page-sitemap.xml`, which
+ *  is how one stored crawl came to be the home page, `/blog/` and 18 posts
+ *  whose own paths carry no date. */
+export function isPostSitemap(url: string): boolean {
+  let file: string;
+  try {
+    file = new URL(url).pathname.toLowerCase().split("/").pop() ?? "";
+  } catch {
+    return false;
+  }
+  return /(^|[-_])(post|posts|blog|news|article|articles|press)([-_.]|$)/.test(file);
+}
+
+/** Same-origin hrefs of the `<a>` elements under `roots`, absolute,
+ *  fragment-stripped and deduped, in document order, kept when `keep` says. */
+function anchorHrefs(
+  html: string,
+  baseUrl: string,
+  selector: string | null,
+  keep: (href: string, text: string) => boolean,
+): string[] {
+  const site = new URL(baseUrl);
+  const doc = parse(html);
+  const baseHref = doc.querySelector("base")?.getAttribute("href");
+  let resolveBase = site;
+  if (baseHref) {
+    try {
+      resolveBase = new URL(baseHref, site);
+    } catch {
+      // A malformed <base> is ignored, exactly as a browser ignores it.
+    }
+  }
+  const roots = selector === null ? [doc] : doc.querySelectorAll(selector);
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const root of roots) {
+    for (const a of root.querySelectorAll("a")) {
+      const href = a.getAttribute("href");
+      if (!href) continue;
+      let u: URL;
+      try {
+        u = new URL(href, resolveBase);
+      } catch {
+        continue;
+      }
+      const onSite = toSameOrigin(u.toString(), site.origin);
+      if (onSite === null) continue;
+      u = new URL(onSite);
+      u.hash = "";
+      const norm = u.toString();
+      if (seen.has(norm) || !keep(norm, a.text)) continue;
+      seen.add(norm);
+      out.push(norm);
+    }
+  }
+  return out;
+}
+
+/** Same-origin links inside the home page's `<header>` and `<nav>`: the menu,
+ *  which is the owner's own list of what matters. */
+export function navLinks(html: string, baseUrl: string): string[] {
+  return anchorHrefs(html, baseUrl, "header, nav", () => true);
+}
+
+/** Same-origin links anywhere on the page whose path or words say "contact". */
+export function contactLinks(html: string, baseUrl: string): string[] {
+  return anchorHrefs(html, baseUrl, null, isContactLike);
+}
+
+/**
+ * The candidate list in the order the page budget is spent: what a buyer would
+ * read, before what a CMS happens to list first.
+ *
+ *   1. the home page;
+ *   2. links in the home page's `<header>` and `<nav>`: the owner's own menu;
+ *   3. contact-like links anywhere on the home page (contact, quote, demo,
+ *      book, get started): the pages the lead-capture verdicts are about;
+ *   4. the sitemap's URLs and the home page's other links, shallowest path
+ *      first, with dated posts, post sitemaps and paginated lists last.
+ *
+ * Step 4 used to be the whole of it, in sitemap file order, cut at 20: one
+ * stored crawl spent all 20 pages on the home page, `/blog/` and 18 posts while
+ * the home page linked to `/contact` seven times. Ties keep their order,
+ * sitemap before body links, so the site's own sequence still decides between
+ * pages we cannot tell apart. The 20-page cap is unchanged; only who gets the
+ * seats is.
+ */
+export function rankCandidates(input: {
+  home: string;
+  nav: string[];
+  contact: string[];
+  sitemap: string[];
+  postUrls?: ReadonlySet<string>;
+  bodyLinks: string[];
+}): string[] {
+  const posts = input.postUrls ?? new Set<string>();
+  const pool = [...input.sitemap, ...input.bodyLinks].map((url, i) => ({
+    url,
+    i,
+    late: posts.has(url) || isDatedOrPaginated(url) ? 1 : 0,
+    depth: pathDepth(url),
+  }));
+  pool.sort((a, b) => a.late - b.late || a.depth - b.depth || a.i - b.i);
+  return [input.home, ...input.nav, ...input.contact, ...pool.map((p) => p.url)];
+}
+
 /**
  * Which URLs to spend the page budget on.
  *
@@ -497,25 +721,27 @@ function samePageKey(u: URL): string {
  * is genuinely another page. A blog whose only content is `?page=N` still gets
  * crawled: those URLs simply queue behind the distinct paths instead of
  * crowding them out.
+ *
+ * Exported for the offline replay of page selection over stored rows.
  */
-function normalizeCandidates(
+export function normalizeCandidates(
   urls: string[],
   origin: string,
   max: number,
   robotsTxt: string | null,
-): string[] {
+): { chosen: string[]; considered: number } {
   const firstOfPath: string[] = [];
   const variants: string[] = [];
   const seen = new Set<string>();
   const paths = new Set<string>();
   for (const raw of urls) {
-    let u: URL;
-    try {
-      u = new URL(raw);
-    } catch {
-      continue;
-    }
-    if (u.origin !== origin) continue;
+    // Same SITE, not same origin: a sitemap written on `http://` or `www.` for
+    // an `https://` apex site lists this site's pages, and dropping them all
+    // read one stored site at 1 page of 52. Rewritten onto the origin we
+    // landed on, so every page is fetched from one address.
+    const onOrigin = toSameOrigin(raw, origin);
+    if (onOrigin === null) continue;
+    const u = new URL(onOrigin);
     if (ASSET_EXT.test(u.pathname)) continue;
     // Infrastructure a crawler can follow but a visitor never lands on — see
     // pages.ts. Following them costs a page of the budget and then invites a
@@ -535,7 +761,8 @@ function normalizeCandidates(
       firstOfPath.push(u.toString());
     }
   }
-  return [...firstOfPath, ...variants].slice(0, max);
+  const all = [...firstOfPath, ...variants];
+  return { chosen: all.slice(0, max), considered: all.length };
 }
 
 type Sidecars = {
@@ -543,8 +770,15 @@ type Sidecars = {
   agentAccess: RobotsAgentAccess[];
   llmsTxt: { present: boolean; firstLine: string | null };
   sitemapUrls: string[];
+  /** URLs that came out of a post sitemap (see `isPostSitemap`). */
+  sitemapPostUrls: Set<string>;
   sitemapPresent: boolean;
   sitemapTruncated: boolean;
+  /** The address the sitemap was read from, or null when none was found. */
+  sitemapSource: string | null;
+  /** How many listed URLs were written on another scheme or `www.` host. */
+  sitemapOffOrigin: number;
+  sitemapOffOriginExample: string | null;
   sidecarErrors: { robots: string | null; llms: string | null; sitemap: string | null };
 };
 
@@ -579,11 +813,44 @@ async function fetchSidecars(origin: string, deps: CrawlDeps): Promise<Sidecars>
       }
     : { present: false, firstLine: null };
 
-  const sitemap = await optional(deps, `${origin}/sitemap.xml`);
-  let sitemapUrls: string[] = [];
+  // WHERE THE SITEMAP IS: the `Sitemap:` lines in robots.txt first, because
+  // that is where the owner says it is, then the three addresses CMSes use.
+  // Only `/sitemap.xml` used to be tried, so a site whose robots.txt names
+  // `/sitemap.php`, or whose WordPress serves only `/wp-sitemap.xml`, was told
+  // it has no sitemap. Each candidate must be this site (give or take `www.`
+  // and the scheme) and is fetched at this origin, like every other URL here.
+  const candidates: string[] = [];
+  for (const line of (robotsTxt ?? "").split(/\r?\n/)) {
+    const m = /^\s*sitemap\s*:\s*(\S+)/i.exec(line);
+    const at = m?.[1] ? toSameOrigin(m[1], origin) : null;
+    if (at !== null && !candidates.includes(at)) candidates.push(at);
+  }
+  for (const path of ["/sitemap.xml", "/sitemap_index.xml", "/wp-sitemap.xml"]) {
+    const at = `${origin}${path}`;
+    if (!candidates.includes(at)) candidates.push(at);
+  }
+  let sitemap: SidecarFetch = { res: null, error: null };
+  let sitemapSource: string | null = null;
+  let firstError: string | null = null;
+  for (const at of candidates) {
+    if (!isSafeNestedSitemap(at, origin)) continue;
+    const tried = await optional(deps, at);
+    if (tried.error !== null && firstError === null) firstError = tried.error;
+    if (tried.res && /<(?:[\w-]+:)?(urlset|sitemapindex)[\s>]/i.test(tried.res.body)) {
+      sitemap = tried;
+      sitemapSource = at;
+      break;
+    }
+  }
+  // A transport failure on any address we tried means we do not know there is
+  // no sitemap; only when every address answered is absence a fact.
+  if (sitemapSource === null) sitemap = { res: null, error: firstError };
+
+  let listed: string[] = [];
+  const sitemapPostUrls = new Set<string>();
   let sitemapPresent = false;
   let sitemapTruncated = false;
-  if (sitemap.res && /<(urlset|sitemapindex)[\s>]/i.test(sitemap.res.body)) {
+  if (sitemap.res) {
     sitemapPresent = true;
     if (isSitemapIndex(sitemap.res.body)) {
       // `child` is attacker-controlled: it comes out of the AUDITED site's
@@ -599,30 +866,54 @@ async function fetchSidecars(origin: string, deps: CrawlDeps): Promise<Sidecars>
       // real sitemaps — the crawl then silently sees fewer pages, which is a
       // quieter failure than the SSRF itself. Caught by the positive control in
       // the SSRF test, not by reading the loop.
-      const safe = parseSitemapLocs(sitemap.res.body).filter((child) =>
-        isSafeNestedSitemap(child, origin),
-      );
+      //
+      // A child on the other side of `www.` or the scheme is moved onto this
+      // origin first (`toSameOrigin`), so the same-origin rule still binds.
+      const safe = parseSitemapLocs(sitemap.res.body)
+        .map((child) => toSameOrigin(child, origin))
+        .filter((child): child is string => child !== null && isSafeNestedSitemap(child, origin));
       const children = safe.slice(0, MAX_SITEMAP_CHILDREN);
       sitemapTruncated = safe.length > children.length;
       for (const child of children) {
         const nested = await optional(deps, child);
         // A child we could not fetch is a piece of their sitemap we did not
         // read, and the count that comes out is short by however much it held.
-        if (nested.res) sitemapUrls.push(...parseSitemapLocs(nested.res.body));
-        else sitemapTruncated = true;
+        if (nested.res) {
+          const locs = parseSitemapLocs(nested.res.body);
+          listed.push(...locs);
+          if (isPostSitemap(child)) {
+            for (const loc of locs) sitemapPostUrls.add(toSameOrigin(loc, origin) ?? loc);
+          }
+        } else sitemapTruncated = true;
       }
     } else {
-      sitemapUrls = parseSitemapLocs(sitemap.res.body);
+      listed = parseSitemapLocs(sitemap.res.body);
     }
   }
+  // Every listed URL on this site is moved onto the origin we landed on; the
+  // ones that needed moving are counted, because "your sitemap lists http://
+  // addresses for an https:// site" is a finding in its own right.
+  let sitemapOffOrigin = 0;
+  let sitemapOffOriginExample: string | null = null;
+  const sitemapUrls = listed.map((loc) => {
+    if (isOffOriginSameSite(loc, origin)) {
+      sitemapOffOrigin += 1;
+      sitemapOffOriginExample ??= loc;
+    }
+    return toSameOrigin(loc, origin) ?? loc;
+  });
 
   return {
     robotsTxt,
     agentAccess,
     llmsTxt,
     sitemapUrls,
+    sitemapPostUrls,
     sitemapPresent,
     sitemapTruncated,
+    sitemapSource,
+    sitemapOffOrigin,
+    sitemapOffOriginExample,
     sidecarErrors: { robots: robots.error, llms: llms.error, sitemap: sitemap.error },
   };
 }
@@ -705,8 +996,15 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
 
   const sidecars = await fetchSidecars(origin, deps);
 
-  const pageUrls = normalizeCandidates(
-    [resolvedUrl, ...sidecars.sitemapUrls, ...sameOriginLinks(home.body, resolvedUrl)],
+  const { chosen: pageUrls, considered: pagesConsidered } = normalizeCandidates(
+    rankCandidates({
+      home: resolvedUrl,
+      nav: navLinks(home.body, resolvedUrl),
+      contact: contactLinks(home.body, resolvedUrl),
+      sitemap: sidecars.sitemapUrls,
+      postUrls: sidecars.sitemapPostUrls,
+      bodyLinks: sameOriginLinks(home.body, resolvedUrl),
+    }),
     origin,
     deps.maxPages,
     sidecars.robotsTxt,
@@ -785,6 +1083,15 @@ export async function crawlSite(rawUrl: string, deps: CrawlDeps): Promise<CrawlR
       // business being stored whole for the sake of sampling twelve of them.
       sample: sidecars.sitemapUrls.slice(0, MAX_SITEMAP_SAMPLE),
       truncated: sitemapTruncatedOf(sidecars),
+    },
+    // The denominator. Every distinct page of this site we knew of and were
+    // allowed to read (home, its links, the sitemap), before the 20-page cap:
+    // what "we read N of your M pages" is made of.
+    selection: {
+      pagesConsidered,
+      sitemapSource: sidecars.sitemapSource,
+      sitemapOffOrigin: sidecars.sitemapOffOrigin,
+      sitemapOffOriginExample: sidecars.sitemapOffOriginExample,
     },
     llmsTxt: sidecars.llmsTxt,
     sidecarErrors: sidecars.sidecarErrors,
@@ -1012,6 +1319,15 @@ async function runAxe(page: import("@playwright/test").Page): Promise<AxePageRes
   }
 }
 
+/** Per `<form>` in a rendered document, in document order: is it an enquiry
+ *  form by the same classifier the static checks use? What the probe is told
+ *  it may press. */
+export function enquiryFormsIn(html: string): boolean[] {
+  return parse(html)
+    .querySelectorAll("form")
+    .map((form) => formShape(form).kind === "enquiry");
+}
+
 /** Real deps: identified sequential fetches + one shared Playwright chromium.
  *  Playwright is imported lazily so unit tests (which inject deps) never load it. */
 export function defaultCrawlDeps(
@@ -1123,7 +1439,14 @@ export function defaultCrawlDeps(
         // a stranger's server (each pulls images, fonts, third-party scripts),
         // so they get the same courtesy pacing as the raw fetches.
         let formProbed = false;
-        await pacedEach(urls, delayMs, async (url) => {
+        // Contact-like pages first, so the one form we press is the one on the
+        // page the site calls its contact page, where one exists. The order is
+        // only the browser's: what comes back is keyed by URL.
+        const order = [
+          ...urls.filter((u) => isContactLike(u)),
+          ...urls.filter((u) => !isContactLike(u)),
+        ];
+        await pacedEach(order, delayMs, async (url) => {
           try {
             // `load`, NOT `networkidle`.
             //
@@ -1189,7 +1512,7 @@ export function defaultCrawlDeps(
               let formProbe: FormProbe | null = null;
               if (!formProbed) {
                 formProbe = await withTimeout(
-                  probeForms(pageInteractionDeps(page, url)),
+                  probeForms(pageInteractionDeps(page, url, enquiryFormsIn(html))),
                   PROBE_BUDGET_MS,
                 );
                 if (formProbe) formProbed = true;
