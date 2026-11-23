@@ -858,7 +858,11 @@ const OVERFLOW_SETTLE_STEP_MS = 250;
  */
 async function measureVitals(
   page: import("@playwright/test").Page,
-  collected: { consoleErrors: string[]; failed: PageVitals["failedRequests"] },
+  collected: {
+    consoleErrors: string[];
+    scriptErrors: string[];
+    failed: PageVitals["failedRequests"];
+  },
 ): Promise<PageVitals | null> {
   try {
     // Desktop first, because that is how the page was rendered and captured.
@@ -928,6 +932,7 @@ async function measureVitals(
 
     return {
       consoleErrors: collected.consoleErrors.slice(0, MAX_CONSOLE_ERRORS),
+      scriptErrors: collected.scriptErrors.slice(0, MAX_CONSOLE_ERRORS),
       failedRequests: collected.failed.slice(0, MAX_FAILED_REQUESTS),
       overflowAt375,
       tinyText: desktop.tiny,
@@ -979,6 +984,8 @@ export async function settledOverflow(
  * fell over is OUR missing measurement, and a page reported with no violations
  * because the scanner crashed would be the worst kind of false all-clear.
  */
+const THIRD_PARTY_FRAME_ATTR = "data-reddoor-third-party-frame";
+
 async function runAxe(page: import("@playwright/test").Page): Promise<AxePageResult | null> {
   try {
     // The NAMED export, not the default. The package publishes both, and under
@@ -986,7 +993,34 @@ async function runAxe(page: import("@playwright/test").Page): Promise<AxePageRes
     // namespace rather than the class — which type-checks as "not
     // constructable" and would have thrown at runtime.
     const { AxeBuilder } = await import("@axe-core/playwright");
-    const results = await new AxeBuilder({ page }).analyze();
+    // DES-13: the inside of a cross-origin frame is somebody else's markup —
+    // two of one site's three "Critical" rules were YouTube's player. Mark
+    // those frames and exclude their documents, not the frame elements: a
+    // missing `title` on the <iframe> tag is the site's own, and stays.
+    const thirdParty = await page
+      .evaluate((attr) => {
+        let n = 0;
+        for (const f of Array.from(document.querySelectorAll("iframe, frame"))) {
+          const src = f.getAttribute("src");
+          if (!src) continue;
+          try {
+            if (new URL(src, location.href).origin !== location.origin) {
+              f.setAttribute(attr, "");
+              n += 1;
+            }
+          } catch {
+            /* an unparseable src is not provably third-party */
+          }
+        }
+        return n;
+      }, THIRD_PARTY_FRAME_ATTR)
+      .catch(() => 0);
+    const builder = new AxeBuilder({ page });
+    // `[frame, "*"]`: every element inside the frame's document. Tested in a
+    // browser (W4): `[frame, "html"]` is silently ignored, and excluding the
+    // frame selector alone also drops `frame-title` on the site's own tag.
+    if (thirdParty > 0) builder.exclude([`[${THIRD_PARTY_FRAME_ATTR}]`, "*"]);
+    const results = await builder.analyze();
     return {
       violations: results.violations.map((v) => ({
         id: v.id,
@@ -1063,6 +1097,11 @@ export function defaultCrawlDeps(
         const ctx = await browser.newContext({
           userAgent: USER_AGENT,
           viewport: { width: DESKTOP_WIDTH, height: DESKTOP_HEIGHT },
+          // DES-14: axe measured contrast on text still fading in, and
+          // reported dozens of failures on two sites whose own gates hold AA.
+          // A site that animates on load honours this and renders its final
+          // state, which is the page a visitor reads.
+          reducedMotion: "reduce",
         });
         const page = await ctx.newPage();
 
@@ -1071,20 +1110,21 @@ export function defaultCrawlDeps(
         // the page reports during load, which is most of it.
         const collected = {
           consoleErrors: [] as string[],
+          scriptErrors: [] as string[],
           failed: [] as PageVitals["failedRequests"],
         };
         let currentOrigin = "";
-        const noteError = (message: string): void => {
+        const note = (into: string[], message: string): void => {
           const trimmed = message.trim().slice(0, 300);
           // Deduped: one broken component in a loop can report the same line a
           // thousand times, and a thousand copies is not a thousand problems.
-          if (trimmed && !collected.consoleErrors.includes(trimmed)) {
-            collected.consoleErrors.push(trimmed);
-          }
+          if (trimmed && !into.includes(trimmed)) into.push(trimmed);
         };
-        page.on("pageerror", (err) => noteError(err.message));
+        // Kept apart (TEC-05): a thrown error stopped a script; a
+        // `console.error` is a message a script chose to print and kept going.
+        page.on("pageerror", (err) => note(collected.scriptErrors, err.message));
         page.on("console", (msg) => {
-          if (msg.type() === "error") noteError(msg.text());
+          if (msg.type() === "error") note(collected.consoleErrors, msg.text());
         });
         const noteFailed = (url: string, status: number | null): void => {
           // A URL we cannot parse is not evidence that it belongs to this site,
@@ -1145,6 +1185,7 @@ export function defaultCrawlDeps(
             // gives client-side frameworks room to hydrate, which is what the
             // rendered extract is actually for.
             collected.consoleErrors.length = 0;
+            collected.scriptErrors.length = 0;
             collected.failed.length = 0;
             try {
               currentOrigin = new URL(url).origin;

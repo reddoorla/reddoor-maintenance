@@ -196,3 +196,29 @@ describe("readStack — the other platforms", () => {
     expect(named(readout, "cms")).toContain("Webflow");
   });
 });
+
+describe("W4: HubSpot tracking is not a CMS", () => {
+  it("names a WordPress site that loads HubSpot's banner as WordPress, with HubSpot tracking", () => {
+    const r = readStack(
+      site({
+        scriptSrcs: [
+          "https://acme.example/wp-content/themes/acme/js/main.js",
+          "https://js.hs-banner.com/v2/1234567/banner.js",
+          "https://js.hs-scripts.com/1234567.js",
+        ],
+        metas: { generator: "WordPress 6.4.2" },
+      }),
+    );
+    expect(named(r, "cms")).toEqual(["WordPress"]);
+    expect(named(r, "analytics")).toContain("HubSpot tracking");
+  });
+
+  it("still names a page HubSpot serves as HubSpot CMS", () => {
+    const r = readStack(
+      site({
+        imageSrcs: ["https://1234567.fs1.hubspotusercontent-na1.net/hubfs/1234567/hero.jpg"],
+      }),
+    );
+    expect(named(r, "cms")).toEqual(["HubSpot CMS"]);
+  });
+});

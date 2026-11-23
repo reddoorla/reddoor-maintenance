@@ -110,6 +110,7 @@ function extract(over: Partial<PageExtract> = {}): PageExtract {
  *  extract because these are the browser's observations, not the markup's. */
 const CLEAN_VITALS = {
   consoleErrors: [],
+  scriptErrors: [],
   failedRequests: [],
   overflowAt375: 0,
   tinyText: { count: 0, sample: null },
@@ -1298,8 +1299,9 @@ describe("Tier 3 — what the browser itself reported", () => {
     );
 
   it("catches a JavaScript error, which no amount of markup reading can reach", () => {
+    // W4: a THROWN error, which the crawl now records apart from console lines.
     const c = byKey(
-      withVitals({ consoleErrors: ["TypeError: n.slice is not a function"] }),
+      withVitals({ scriptErrors: ["TypeError: n.slice is not a function"] }),
       "console-errors",
     );
     expect(c?.status).toBe("fail");
@@ -1903,5 +1905,142 @@ describe("a page that mis-declares another page's canonical is not an alias of i
     const c = byKey(checks, "sitemap-coverage");
     expect(c?.status).toBe("fail");
     expect(c?.evidence).toMatch(/acme\.example\/(about|contact)/);
+  });
+});
+
+describe("W4: the checks the Technical report leans on say what is true", () => {
+  const run = (over: Partial<CrawlResult>) =>
+    runSiteChecks(exemplary(over), exemplaryChecks(), "Acme Roofing");
+  const withVitals = (v: Partial<NonNullable<PageCapture["vitals"]>>) =>
+    run({ pages: [page("https://acme.example/", {}, { ...CLEAN_VITALS, ...v })] });
+
+  describe("script errors are thrown errors, not console messages", () => {
+    it("counts zero script errors on a page that only logs a styled console.error", () => {
+      // The shape of a real false fail: a `%c` banner printed with
+      // console.error, reported as "a script that throws stops running".
+      const c = byKey(
+        withVitals({
+          consoleErrors: ["%c%d font-size:0;color:transparent NaN"],
+          scriptErrors: [],
+        }),
+        "console-errors",
+      );
+      expect(c?.status).toBe("pass");
+      expect(c?.evidence).toContain("no script threw");
+      expect(c?.evidence).toContain("notes rather than failures");
+    });
+
+    it("cannot tell a run stored before the split, so it does not guess", () => {
+      const { scriptErrors: _absent, ...oldShape } = CLEAN_VITALS;
+      const c = byKey(
+        run({
+          pages: [
+            page(
+              "https://acme.example/",
+              {},
+              {
+                ...oldShape,
+                consoleErrors: ["TypeError: x is undefined"],
+              },
+            ),
+          ],
+        }),
+        "console-errors",
+      );
+      expect(c?.status).toBe("unmeasured");
+    });
+  });
+
+  describe("noindex on a page that is hidden on purpose", () => {
+    const hidden = (url: string) =>
+      byKey(
+        run({
+          pages: [
+            page("https://acme.example/"),
+            page(url, { metas: { robots: "noindex, follow" } }),
+          ],
+        }),
+        "meta-noindex",
+      );
+
+    it.each([
+      "https://acme.example/privacy",
+      "https://acme.example/privacy-policy/",
+      "https://acme.example/legal/terms",
+      "https://acme.example/thank-you",
+      "https://acme.example/search",
+      "https://acme.example/login",
+    ])("passes %s, and says it is deliberate", (url) => {
+      const c = hidden(url);
+      expect(c?.status).toBe("pass");
+      expect(c?.evidence).toContain("deliberately");
+    });
+
+    it("still fails a services page that asks to be hidden", () => {
+      expect(hidden("https://acme.example/services")?.status).toBe("fail");
+    });
+
+    it("matches whole path segments, not a word inside a slug", () => {
+      expect(hidden("https://acme.example/privacy-in-dental-offices-blog")?.status).toBe("fail");
+    });
+  });
+
+  describe("an address with {{ in it is a template defect, not a page", () => {
+    const sample = ["https://acme.example/", "https://acme.example/a"];
+    const checks = run({
+      sitemap: { present: true, urlCount: sample.length, sample, truncated: false },
+      pages: [
+        page("https://acme.example/", {
+          anchors: [
+            { href: "/a", text: "A", rel: "" },
+            { href: "https://acme.example/{{url}}", text: "Read", rel: "" },
+          ],
+        }),
+      ],
+    });
+
+    it("leaves it out of the sitemap comparison", () => {
+      expect(byKey(checks, "sitemap-coverage")?.status).toBe("pass");
+    });
+
+    it("reports it under template-leakage, where the defect is", () => {
+      const c = byKey(checks, "template-leakage");
+      expect(c?.status).toBe("fail");
+      expect(c?.evidence).toContain("{{url}}");
+    });
+  });
+
+  describe("security headers: observation and consequence, no version strings", () => {
+    it("counts frame-ancestors in a content policy as doing X-Frame-Options' job", () => {
+      const { "x-frame-options": _dropped, ...rest } = HEADERS;
+      const c = byKey(
+        run({
+          homeHeaders: {
+            ...rest,
+            "content-security-policy": "default-src 'self'; frame-ancestors 'self'",
+          },
+        }),
+        "header-x-frame-options",
+      );
+      expect(c?.status).toBe("pass");
+      expect(c?.evidence).toContain("frame-ancestors");
+    });
+
+    it("names the software and never the version it announces", () => {
+      const c = byKey(
+        run({ homeHeaders: { ...HEADERS, server: "Apache/2.4.18 (Ubuntu)" } }),
+        "header-version-leak",
+      );
+      expect(c?.status).toBe("fail");
+      expect(c?.evidence).toContain("Apache");
+      expect(c?.evidence).not.toMatch(/\d+\.\d+/);
+    });
+
+    it("never says what 'anyone can' do, or calls a site vulnerable or insecure", () => {
+      const all = run({ homeHeaders: {} });
+      for (const c of all) {
+        expect(c.why, c.key).not.toMatch(/\banyone can\b|\bvulnerab|\binsecure\b/i);
+      }
+    });
   });
 });
