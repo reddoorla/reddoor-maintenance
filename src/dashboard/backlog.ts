@@ -50,42 +50,137 @@ export class BacklogParseError extends Error {
   override name = "BacklogParseError";
 }
 
-/** Split a table row into cells on `|`, except inside a code span or after a backslash. */
+/**
+ * The code spans in a text, by CommonMark's rule: a run of n backticks not
+ * escaped by a backslash opens a span only when a later run of exactly n
+ * closes it; otherwise it is literal. `open` lists, in order, the lengths of
+ * the runs left unclosed. Every step that must not look inside code (cell
+ * splitting, the bold title, the first sentence, markdown stripping) reads
+ * spans from here, so none of them guesses on its own (P1-111 round 7).
+ */
+export function codeSpans(text: string): { spans: Array<[number, number]>; open: number[] } {
+  const spans: Array<[number, number]> = [];
+  const open: number[] = [];
+  const runAt = (i: number) => {
+    let n = 0;
+    while (text[i + n] === "`") n++;
+    return n;
+  };
+  for (let i = 0; i < text.length;) {
+    if (text[i] === "\\") {
+      i += 2;
+      continue;
+    }
+    if (text[i] !== "`") {
+      i++;
+      continue;
+    }
+    const n = runAt(i);
+    let j = i + n;
+    let close = -1;
+    while (j < text.length) {
+      if (text[j] === "`") {
+        const m = runAt(j);
+        if (m === n) {
+          close = j;
+          break;
+        }
+        j += m;
+      } else j++;
+    }
+    if (close === -1) {
+      open.push(n);
+      i += n;
+    } else {
+      spans.push([i, close + n]);
+      i = close + n;
+    }
+  }
+  return { spans, open };
+}
+
+/** The text with every code span's characters, backticks included, replaced
+ *  by `\u0000`: positions line up with the original, and no search sees code. */
+function masked(text: string): string {
+  let out = text;
+  for (const [a, b] of codeSpans(text).spans) {
+    out = out.slice(0, a) + "\u0000".repeat(b - a) + out.slice(b);
+  }
+  return out;
+}
+
+/** The index of the next `**` outside code, from `from`, or -1. */
+function boldAt(text: string, from = 0): number {
+  return masked(text).indexOf("**", from);
+}
+
+/**
+ * Split a table row into cells. Every unescaped `|` splits, as GitHub does;
+ * then a piece that leaves a backtick run unclosed is joined to the following
+ * pieces up to the first one whose own first unclosed run has the same length,
+ * so a code span holding `|` (`a | b`, ``a|b``) stays one cell. A piece whose
+ * backticks all pair within it, or a lone backtick with no such partner,
+ * joins nothing.
+ */
 export function splitRow(line: string): string[] {
-  const cells: string[] = [];
+  const pieces: string[] = [];
   let cur = "";
-  let inCode = false;
   for (let i = 0; i < line.length; i++) {
     const ch = line[i]!;
     if (ch === "\\" && line[i + 1] === "|") {
-      cur += "|";
+      cur += "\\|";
       i++;
-    } else if (ch === "`") {
-      // A lone backtick with no partner later in the line opens no code span.
-      if (inCode || line.indexOf("`", i + 1) !== -1) inCode = !inCode;
-      cur += ch;
-    } else if (ch === "|" && !inCode) {
-      cells.push(cur);
+    } else if (ch === "|") {
+      pieces.push(cur);
       cur = "";
-    } else {
-      cur += ch;
-    }
+    } else cur += ch;
   }
-  cells.push(cur);
+  pieces.push(cur);
+  const cells: string[] = [];
+  for (let i = 0; i < pieces.length; i++) {
+    let cell = pieces[i]!;
+    const open = codeSpans(cell).open;
+    if (open.length > 0) {
+      for (let j = i + 1; j < pieces.length; j++) {
+        const first = codeSpans(pieces[j]!).open[0];
+        if (first === undefined) continue;
+        if (first === open[open.length - 1]) {
+          cell = pieces.slice(i, j + 1).join("|");
+          i = j;
+        }
+        break;
+      }
+    }
+    cells.push(cell);
+  }
   // A row is `| a | b |`: drop the empty edges outside the first and last pipe.
   if (cells.length > 0 && cells[0]!.trim() === "") cells.shift();
   if (cells.length > 0 && cells[cells.length - 1]!.trim() === "") cells.pop();
-  return cells.map((c) => c.trim());
+  return cells.map((c) => c.replace(/\\\|/g, "|").trim());
 }
 
-/** Markdown to plain text: emphasis and code markers dropped, links to their text. */
-export function plain(md: string): string {
+/** Markdown outside code to plain text: links to their text; bold, italic and
+ *  strike markers dropped (an `_` only at a word's edge, so `snake_case`
+ *  stays). */
+function plainProse(md: string): string {
   return md
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/\*\*|__/g, "")
-    .replace(/`/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+    .replace(/~~|\*+/g, "")
+    .replace(/(?<![\p{L}\p{N}])_+|_+(?![\p{L}\p{N}])/gu, "");
+}
+
+/** Markdown to plain text: code spans keep their content verbatim, without
+ *  their backticks; everything else goes through `plainProse`. */
+export function plain(md: string): string {
+  let out = "";
+  let at = 0;
+  for (const [a, b] of codeSpans(md).spans) {
+    out += plainProse(md.slice(at, a));
+    out += md.slice(a, b).replace(/^`+|`+$/g, "");
+    at = b;
+  }
+  out += plainProse(md.slice(at));
+  return out.replace(/\s+/g, " ").trim();
 }
 
 /**
@@ -118,17 +213,15 @@ function validDate(iso: string): boolean {
 /** The first sentence: up to the first `.`, `!` or `?` that ends a word and is
  *  followed by a space or the end, outside brackets, parentheses and code. */
 export function firstSentence(text: string): string {
+  const seen = masked(text);
   let depth = 0;
-  let inCode = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i]!;
-    if (ch === "`") inCode = !inCode;
-    if (inCode) continue;
+  for (let i = 0; i < seen.length; i++) {
+    const ch = seen[i]!;
     if (ch === "(" || ch === "[") depth++;
     else if ((ch === ")" || ch === "]") && depth > 0) depth--;
     else if (depth === 0 && (ch === "." || ch === "!" || ch === "?")) {
-      const next = text[i + 1];
-      const prev = text[i - 1];
+      const next = seen[i + 1];
+      const prev = seen[i - 1];
       // Not a decimal point, a version or a domain (`4.2.0`, `reddoorla.com`).
       if ((next === undefined || /\s/.test(next)) && prev !== undefined && !/\s/.test(prev)) {
         return text.slice(0, i + 1);
@@ -179,7 +272,7 @@ function leadingParts(cell: string): {
   for (;;) {
     const opened = /^\s*\*\*/.test(rest);
     rest = rest.replace(/^\s*(?:\*\*\s*)?/, "");
-    const close = rest.indexOf("**");
+    const close = boldAt(rest);
     const segment = close === -1 ? rest : rest.slice(0, close);
     if (STATUS_DATED.test(segment.trim())) {
       statuses.push(segment.trim());
@@ -187,10 +280,13 @@ function leadingParts(cell: string): {
       continue;
     }
     // Plain text straight after a status whose bold held only its label
-    // (`**Status 2026-11-22:** done. **Title**`) is that status's text.
-    if (!opened && statuses.length > 0 && segment.trim() !== "") {
-      statuses[statuses.length - 1] += ` ${segment.trim()}`;
-      rest = close === -1 ? "" : rest.slice(close);
+    // (`**Status 2026-11-22:** done. **Title**`) is that status's text, a
+    // sentence at a time: a bold inside it (`see **P1-82** first.`) is part of
+    // the sentence, and the title is the bold that opens after a sentence ends.
+    if (!opened && statuses.length > 0 && rest.trim() !== "") {
+      const sentence = firstSentence(rest);
+      statuses[statuses.length - 1] += ` ${sentence.trim()}`;
+      rest = rest.slice(sentence.length);
       continue;
     }
     const title = opened && close !== -1 ? segment.trim() : null;

@@ -199,12 +199,90 @@
   },
   {
     "id": "16-lone-backtick-opens-code",
-    "why": "Round 6, major: one unpaired backtick keeps the splitter in a code span to the line's end, so every later column merges into one.",
+    "why": "Rounds 6 and 7, major: a backtick counts as paired whenever any later column holds one, so a lone backtick merges the columns between.",
     "edits": [
       {
         "file": "src/dashboard/backlog.ts",
-        "find": "if (inCode || line.indexOf(\"`\", i + 1) !== -1) inCode = !inCode;",
-        "replace": "inCode = !inCode;"
+        "find": "const first = codeSpans(pieces[j]!).open[0];",
+        "replace": "const first = pieces[j]!.includes(\"`\") ? open[open.length - 1] : undefined;"
+      }
+    ],
+    "test": "tests/dashboard/backlog.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "17-escaped-backtick-opens-code",
+    "why": "Round 7, major: a backslash-escaped backtick is read as a code delimiter, so columns merge.",
+    "edits": [
+      {
+        "file": "src/dashboard/backlog.ts",
+        "find": "    if (text[i] === \"\\\\\") {",
+        "replace": "    if (false) {"
+      }
+    ],
+    "test": "tests/dashboard/backlog.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "18-run-length-ignored",
+    "why": "Round 7, major: backtick runs pair by count of one, so a double-backtick span holding `|` is split.",
+    "edits": [
+      {
+        "file": "src/dashboard/backlog.ts",
+        "find": "    const n = runAt(i);",
+        "replace": "    const n = 1;"
+      }
+    ],
+    "test": "tests/dashboard/backlog.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "19-bold-inside-code",
+    "why": "Round 7, major: `**` inside a code span (`src/**`) is read as bold, cutting the title short.",
+    "edits": [
+      {
+        "file": "src/dashboard/backlog.ts",
+        "find": "  return masked(text).indexOf(\"**\", from);",
+        "replace": "  return text.indexOf(\"**\", from);"
+      }
+    ],
+    "test": "tests/dashboard/backlog.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "20-sentence-sees-code",
+    "why": "Round 7, major: the first sentence's search looks inside code spans and ignores the scanner, so it ends inside code.",
+    "edits": [
+      {
+        "file": "src/dashboard/backlog.ts",
+        "find": "  const seen = masked(text);",
+        "replace": "  const seen = text.replace(/`[^`]*`/g, (c) => c.replace(/[.!?]/g, \"\\u0000\")).replace(/`/g, \"\\u0000\");"
+      }
+    ],
+    "test": "tests/dashboard/backlog.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "21-single-emphasis-kept",
+    "why": "Round 7, major: single `*` emphasis and `~~` strike are left in titles and sentences.",
+    "edits": [
+      {
+        "file": "src/dashboard/backlog.ts",
+        "find": ".replace(/~~|\\*+/g, \"\")",
+        "replace": ".replace(/\\*\\*/g, \"\")"
+      }
+    ],
+    "test": "tests/dashboard/backlog.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "22-continuation-stops-at-bold",
+    "why": "Round 7, major (from round 6's fix): a label-only prefix's text stops at the next `**`, so an inline bold in it is shown as the title.",
+    "edits": [
+      {
+        "file": "src/dashboard/backlog.ts",
+        "find": "      const sentence = firstSentence(rest);",
+        "replace": "      const sentence = close === -1 ? rest : rest.slice(0, close);"
       }
     ],
     "test": "tests/dashboard/backlog.test.ts",

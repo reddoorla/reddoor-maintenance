@@ -203,6 +203,75 @@ describe("topBacklogItems", () => {
       expect(topBacklogItems(backlog([row])).items[0]!.tier).toBe("🟢");
     });
 
+    it("a bold inside a label-only prefix's text is part of its sentence, not the title", () => {
+      const row =
+        "| P1-920 | **Status 2026-11-22:** done, see **P1-82** first. **Real title** | 🟢 | S | ev | done |";
+      const item = topBacklogItems(backlog([row])).items[0]!;
+      expect(item.title).toBe("Real title");
+      expect(item.status?.sentence).toBe("done, see P1-82 first.");
+    });
+
+    it("when two statuses share a date, the first met wins", () => {
+      const row =
+        "| P1-921 | **Status 2026-11-22: first.** **Title** | 🟢 | S | Status 2026-11-22: second. | done |";
+      expect(topBacklogItems(backlog([row])).items[0]!.status?.sentence).toBe("first.");
+    });
+  });
+
+  describe("reads markdown code and emphasis the way GitHub shows them (round 7)", () => {
+    const one = (row: string) => topBacklogItems(backlog([row])).items[0]!;
+
+    it("a lone backtick joins no columns, even when a later column has a code span", () => {
+      const item = one(
+        "| P1-930 | **Title** it's a ` tick | 🟢 | S | Status 2026-11-22 ran `x`. | done |",
+      );
+      expect(item.tier).toBe("🟢");
+      expect(item.status?.sentence).toBe("ran x.");
+    });
+
+    it("an escaped backtick opens no code span", () => {
+      expect(one("| P1-931 | **Title** a \\` b | 🟢 | S | run `x` | done |").tier).toBe("🟢");
+    });
+
+    it("a double-backtick code span holding a pipe stays one cell", () => {
+      const item = one("| P1-932 | **Title** run ``a|b`` now | 🟢 | S | ev | done |");
+      expect(item.tier).toBe("🟢");
+    });
+
+    it("** inside a code span is not bold, in a title, a sentence or a prefix", () => {
+      expect(one("| P1-933 | **Lint `src/**/*.ts` files** then more | 🟢 |").title).toBe(
+        "Lint src/**/*.ts files",
+      );
+      expect(
+        one("| P1-933 | **Title** | 🟢 | S | Status 2026-11-22 ran `src/**` clean. | done |").status
+          ?.sentence,
+      ).toBe("ran src/** clean.");
+      const prefixed = one(
+        "| P1-933 | **Status 2026-11-22 ran `src/**` clean.** **Real title** | 🟢 |",
+      );
+      expect(prefixed.title).toBe("Real title");
+      expect(prefixed.status?.sentence).toBe("ran src/** clean.");
+    });
+
+    it("a lone backtick does not swallow the following sentences", () => {
+      expect(
+        one(
+          "| P1-934 | **Title** | 🟢 | S | Status 2026-11-22 the ` key is set. Then more. | done |",
+        ).status?.sentence,
+      ).toBe("the ` key is set.");
+    });
+
+    it("single emphasis and strikethrough are stripped, snake_case is kept", () => {
+      expect(
+        one(
+          "| P1-935 | **Title** | 🟢 | S | Status 2026-11-22 *shipped* ~~not~~ site_fields _now_. | done |",
+        ).status?.sentence,
+      ).toBe("shipped not site_fields now.");
+      expect(one("| P1-935 | ***Title*** | 🟢 |").title).toBe("Title");
+    });
+  });
+
+  describe("reads statuses from every cell (continued)", () => {
     it("a word that only contains status is not one", () => {
       const row = "| P1-915 | **Title** statuses noted | 🟢 | S | Statuses wait. | done |";
       expect(topBacklogItems(backlog([row])).items[0]!.status).toBeNull();
