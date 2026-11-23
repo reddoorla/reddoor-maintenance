@@ -706,6 +706,10 @@ function scanWords(text: string): ScannedWord[] {
   return out;
 }
 
+/** A claim that denies something. The site using the denied term refutes it
+ *  rather than giving a reason to doubt the model's "contradicted". */
+const NEGATED = /\b(no|not|never|none|nobody|without)\b|n't\b/i;
+
 function verifyQuotes(
   raw: z.infer<typeof AccuracySchema>["assertions"],
   answerText: string,
@@ -725,22 +729,29 @@ function verifyQuotes(
     // A place or a name the site itself uses, anywhere, is not safe to call
     // "contradicted": a Texas mailing address on one page and "near the Los
     // Angeles metro" on another is the site saying both, not the engine getting
-    // it wrong. So when the site uses one of the claim's distinctive terms
-    // exactly, the verdict comes DOWN to unverified, quoting the site's own
-    // passage so the reader can judge it.
+    // it wrong. So when the site uses, exactly, a distinctive term that is part
+    // of the claim's own wording, the verdict comes DOWN to unverified, quoting
+    // the site around the term so the reader can judge it.
     //
-    // Never up. This once set "confirmed", and on a real report that told a
-    // business its own site says it is a travel-nurse staffing agency: the
-    // terms the model searched were its evidence AGAINST the claim ("med-surg
-    // suppliers", the business's own name in the footer), and finding them on
-    // the site was taken as the site agreeing. Sharing a term is not saying
-    // the thing. Only the model, with a quote that survives the checks below,
-    // can make a verdict "confirmed"; code may only take one away.
+    // Never up. This once set "confirmed", and on a real report it told a
+    // business its own site says it is a kind of business it is not. The terms
+    // that matched were the model's evidence AGAINST the claim (what the site
+    // says the business actually does, and its own name under a claim that no
+    // business has that name), and finding them on the site was read as the
+    // site agreeing. Sharing a term is not saying the thing. Only the model,
+    // with a quote that survives the checks below, makes a verdict "confirmed";
+    // code may only take one away.
+    //
+    // Two cases stay with the model, because "your site does say <term>" is no
+    // reason to doubt them: a term that is not in the claim (it is the model's
+    // evidence, not the claim's subject), and a negated claim ("no business
+    // operates under the name X"), which the site saying X refutes.
     let verdict: typeof a.verdict | "unverified" = a.verdict;
     let siteQuote: string | null = a.siteQuote;
     let downgradeReason: string | null = null;
-    if (a.verdict === "contradicted") {
+    if (a.verdict === "contradicted" && !NEGATED.test(a.claim)) {
       for (const term of distinctive(searchTermsByClaim.get(a.claim) ?? [], a.claim)) {
+        if (!normalize(a.claim).includes(normalize(term))) continue;
         if (findTerm(site, term) !== "exact") continue;
         // The quote must survive the same substring check as a model quote, so
         // no ellipses: they are not in the page and would fail it.

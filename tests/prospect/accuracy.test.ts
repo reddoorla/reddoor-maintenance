@@ -620,22 +620,43 @@ describe("a place the site itself names is never 'contradicted'", () => {
       ownership: offline,
     });
     expect(r.assertions[0]?.verdict).not.toBe("confirmed");
+    expect(r.assertions[0]?.unverifiedReason ?? "").not.toMatch(/^Your site does say/);
+  });
+  it("keeps a supported contradiction as contradicted, with no reason added", async () => {
+    const r = await checkAccuracy("https://acme.example/", site, [answer], [], {
+      run: async () => ({
+        assertions: [
+          {
+            claim: "Acme Design is located in the Portland metro area.",
+            engineQuote: "Acme Design (Los Angeles-based)",
+            verdict: "contradicted",
+            siteQuote: "We are conveniently located near the Los Angeles metro area.",
+            searchTerms: ["Portland"],
+          },
+        ],
+      }),
+      ownership: offline,
+    });
+    expect(r.assertions[0]).toMatchObject({
+      verdict: "contradicted",
+      siteQuote: "We are conveniently located near the Los Angeles metro area.",
+      unverifiedReason: null,
+    });
   });
 });
 
 describe("code never upgrades a verdict to 'confirmed'", () => {
-  // From a stored report: the model called both claims contradicted, and the
-  // contradicted→confirmed rule above turned each into "confirmed" because the
-  // site uses a term the model searched for: its own name in the footer, and
-  // "med-surg suppliers", the very phrase that contradicts the claim. The report
-  // then told the business its own site says it is a travel-nurse staffing
-  // agency, which it is not. Sharing a word is not saying the thing; code may
-  // only move a verdict down, to unverified, never up.
+  // Rebuilt in invented words from a stored report. The model called both
+  // claims contradicted, and a rule here turned each into "confirmed" because
+  // the site uses a term the model searched for: the phrase saying what the
+  // business really does, and the business's own name in its footer. The
+  // report then told the business its own site agrees with both. Sharing a
+  // term is not saying the thing.
   const site = crawl([
     page(
       "https://supply.example/",
-      "From our team, we know the DoD & VA healthcare landscape better than anyone. " +
-        "We enable med-surg suppliers to find and access opportunities that they would not have been able to tap into. " +
+      "Our people know the public healthcare market inside out. " +
+        "We connect surgical-supply makers with buyers that they could not reach alone. " +
         "Contact Us. ©2026 - Acme Supply of Texas | All Rights Reserved | Privacy Policy",
     ),
   ]);
@@ -653,25 +674,28 @@ describe("code never upgrades a verdict to 'confirmed'", () => {
       claim:
         "The business is a travel healthcare staffing agency that places travel nurses in Texas hospitals.",
       engineQuote: "places travel nurses, including many assignments across Texas hospitals",
-      // The model's own evidence AGAINST the claim: what the site says it is.
-      searchTerms: ["med-surg suppliers"],
+      // The model's evidence AGAINST the claim: what the site says it does.
+      searchTerms: ["surgical-supply makers"],
+      siteQuote: "We connect surgical-supply makers with buyers that they could not reach alone.",
     },
     {
       claim: 'No business operates under the exact name "Acme Supply of Texas".',
       engineQuote: 'I couldn\'t find an exact company called "Acme Supply of Texas"',
+      // In the claim, but the claim denies it: the site using it refutes it.
       searchTerms: ["Acme Supply of Texas"],
+      siteQuote: "©2026 - Acme Supply of Texas | All Rights Reserved",
     },
-  ])("a contradicted claim stays off 'confirmed': $claim", async (a) => {
+  ])("leaves the model's verdict alone, never 'confirmed': $claim", async (a) => {
     const r = await checkAccuracy("https://supply.example/", site, [answer], [], {
-      run: async () => ({
-        assertions: [{ ...a, verdict: "contradicted", siteQuote: null }],
-      }),
+      run: async () => ({ assertions: [{ ...a, verdict: "contradicted" }] }),
       ownership: offline,
     });
     expect(r.assertions).toHaveLength(1);
+    // Whatever the model's own quote checks make of it, code adds nothing:
+    // no "confirmed", no "your site does say", and the model's quote kept.
     expect(r.assertions[0]?.verdict).not.toBe("confirmed");
-    expect(r.assertions[0]?.verdict).toBe("unverified");
-    expect(r.assertions[0]?.unverifiedReason).toMatch(/^Your site does say "/);
+    expect(r.assertions[0]?.unverifiedReason ?? "").not.toMatch(/^Your site does say/);
+    expect(r.assertions[0]?.siteQuote).toBe(a.siteQuote);
   });
 });
 
