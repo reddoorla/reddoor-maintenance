@@ -1103,6 +1103,11 @@ describe("rules round 4 found unpinned (minor 9)", () => {
     expect(svelte(`<p>{"" || "Welcome to Acme Plumbing"}</p>`)).toEqual([
       ["copy", "Welcome to Acme Plumbing"],
     ]);
+    // In script too: since round 5 the template case is also caught by the
+    // file's-own-data rule, so only this one pins the literal-left guard.
+    expect(ts(`export const hero = { heading: "" || "Welcome to Acme Plumbing" };`)).toEqual([
+      ["heading", "Welcome to Acme Plumbing"],
+    ]);
   });
 
   it("a helper whose name ends in Or is a fallback helper", () => {
@@ -1232,7 +1237,7 @@ describe("review round 5 on #2231", () => {
   });
 
   it("reads a long run of iCalendar-like parameters in linear time (CodeQL on #2231)", () => {
-    const evil = "A" + ";A=".repeat(30) + " x";
+    const evil = "DTSTART" + ";A=".repeat(30) + " x";
     const t0 = performance.now();
     expect(ts(`export const label = ${JSON.stringify(evil)};`)).toEqual([["copy", evil]]);
     expect(performance.now() - t0).toBeLessThan(500);
@@ -1478,6 +1483,14 @@ export function load() { error(404, "We could not find that page"); }`,
         `<p>BEGIN:VCALENDAR</p><p>X-WR-CALNAME:Acme events</p><p>DTSTART;TZID=America/Los_Angeles:20261123T090000</p><p>LOCATION:12 Main Street</p>`,
       ),
     ).toEqual([]);
+  });
+
+  // Round 5's space rule, now that only real names count: a real property
+  // name followed by a space is words (`FAQ:` is no longer a name at all).
+  it("a property name followed by a space is words", () => {
+    expect(svelte(`<p>LOCATION: Downtown Austin, near the river</p>`)).toEqual([
+      ["copy", "LOCATION: Downtown Austin, near the river"],
+    ]);
   });
 
   // Finding 9's second nit: `javascript:` is not provably dead, so it stays.

@@ -1527,7 +1527,7 @@
       "tests/content-check/command.test.ts"
     ],
     "expect": "red",
-    "why": "fold 5: `FAQ: Ask us` and `NOTE:` are words, not property lines"
+    "why": "fold 5: a value after a space (`LOCATION: Downtown Austin`) is words, not a property line"
   },
   {
     "id": "r5-stats-are-decorative",
