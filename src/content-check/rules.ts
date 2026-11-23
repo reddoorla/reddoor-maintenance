@@ -302,11 +302,19 @@ export function linkKind(value: string): Kind | undefined {
  */
 export function isDecorative(text: string): boolean {
   const letters = text.match(/\p{L}/gu)?.length ?? 0;
-  if (letters < 2) return true;
+  // A stat, a price or hours (`1,000+`, `$1,250`, `98%`, `9:00 – 5:00`) is
+  // words a client writes, though it has no letters (review round 5).
+  if (letters < 2) return !/\d[$%+,:]|[$%+,:]\d/.test(text);
   // Only the numerals a list or a step counts with, II to XXXIX: a wider
   // grammar reads ID, MIX, MD, DC, MI and LLC as numbers (review round 1).
   return /^X{0,3}(?:IX|IV|V?I{0,3})\.?$/.test(text.trim());
 }
+
+/** An iCalendar or vCard property line (`BEGIN:VCALENDAR`, `SUMMARY:${…}`,
+ *  `DTSTART;TZID=…:…`): a file format a calendar reads, never copy. A value
+ *  after a space (`FAQ: Ask us`) is words (review round 5). */
+export const isPropertyLine = (text: string): boolean =>
+  /^[A-Z][A-Z0-9-]*(?:;[A-Z][A-Z0-9-]*=[^:\s]*)*:(?=\S)/.test(text.trim());
 
 /** A lower-case code word (`"email"`, `"contact-form"`, `"hero_image"`): a key,
  *  a slug or an option value. Applied to script values and component props,

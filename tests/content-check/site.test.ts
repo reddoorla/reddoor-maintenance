@@ -602,3 +602,31 @@ describe("an imported .json file is scanned (round 4, major 5)", () => {
     expect(r.findings).toEqual([]);
   });
 });
+
+describe("rules round 5 found unpinned", () => {
+  it("reads fallbackHelpers from content-check.json", async () => {
+    const page = `<h1>{pick(doc.data.title, "Welcome to Acme Plumbing")}</h1>`;
+    const bare = await scan(site({ "src/routes/+page.svelte": page }));
+    expect(bare.findings.map((f) => f.text)).toEqual(["Welcome to Acme Plumbing"]);
+    const wired = await scan(
+      site({
+        "src/routes/+page.svelte": page,
+        "content-check.json": JSON.stringify({ fallbackHelpers: ["pick"] }),
+      }),
+    );
+    expect(wired.findings).toEqual([]);
+  });
+
+  it("a file over its baseline count does not cancel another file's stale entries", () => {
+    const f = (file: string, line: number, text: string) => ({
+      file,
+      line,
+      kind: "copy" as const,
+      text,
+    });
+    const base = toBaseline([f("a", 1, "Hi there"), f("b", 1, "Gone now")]);
+    expect(
+      staleCount([f("a", 1, "Hi there"), f("a", 2, "Hi there"), f("a", 3, "Hi there")], base),
+    ).toBe(1);
+  });
+});

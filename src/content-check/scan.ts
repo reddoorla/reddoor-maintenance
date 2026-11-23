@@ -15,6 +15,7 @@ import {
   FALLBACK_HELPER,
   assetKind,
   isDecorative,
+  isPropertyLine,
   isIdentifierLike,
   isProseKind,
   kindForKey,
@@ -186,6 +187,8 @@ function sharePath(a: Set<string>, b: Set<string>): boolean {
 
 /** Svelte runes that only wrap a value: `const x = $derived("…")`. */
 const RUNE = /^\$(?:derived|state)(?:\.raw)?$/;
+/** Svelte context getters: `getContext`, `getAppState`, `getCartStore`. */
+const CONTEXT_GETTER = /^getContext$|^get\w*(?:State|Context|Store)$/;
 const calleePath = (node: Node): string | undefined => memberPath(node.callee as Node);
 
 const calleeName = (node: Node): string | undefined => {
@@ -526,6 +529,7 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
   // local stands for itself (`isMobile = $derived(w < 768)` is a switch).
   const inits = new Map<string, Node>();
   const snippets = new Map<string, Node>();
+  const renders = new Map<string, number[]>();
   // Locals declared with no initialiser (`let error;`): Svelte 4 local state,
   // never a field, unless exported (a prop).
   const bareLets = new Set<string>();
@@ -558,6 +562,16 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
     }
     if (n.type === "SnippetBlock" && (n.expression as Node).type === "Identifier") {
       snippets.set((n.expression as Node).name as string, n);
+    }
+    // `{@render card("x")}`: how many arguments each call of a snippet passes,
+    // so a parameter's default is judged by the calls (review round 5).
+    if (n.type === "RenderTag" && isNode(n.expression)) {
+      const e = n.expression;
+      const call = TRANSPARENT.has(e.type) ? (e.expression as Node) : e;
+      if (call.type === "CallExpression" && (call.callee as Node).type === "Identifier") {
+        const name = (call.callee as Node).name as string;
+        renders.set(name, [...(renders.get(name) ?? []), (call.arguments as Node[]).length]);
+      }
     }
     for (const [, c] of children(n)) collect(c);
   })(ast);
@@ -674,6 +688,10 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
     if (bare.type === "CallExpression" && /^\$state(?:\.raw)?$/.test(calleePath(bare) ?? "")) {
       return true;
     }
+    // `getAppState()`, `getContext("app")`: shared state other components
+    // fill, often from fields (gallerysonder's lightbox alt), not data worked
+    // out here (round 5's fold).
+    if (bare.type === "CallExpression" && CONTEXT_GETTER.test(calleePath(bare) ?? "")) return false;
     const u = unwrap(init);
     if (emptiness(u, 2) !== undefined) return false;
     switch (u.type) {
@@ -862,6 +880,7 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
     const text = raw.replace(/\s+/g, " ").trim();
     if (text === "") return;
     if (isProseKind(kind) && isDecorative(text)) return;
+    if (isPropertyLine(text)) return;
     if (ignored(text)) return;
     findings.push({ file, line: lineOf(pos), kind, text });
     offsets.set(findings.at(-1)!, pos);
@@ -949,7 +968,11 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
             key === "right" &&
             (parent.operator === "||" || parent.operator === "??") &&
             !isPureLiteral(parent.left as Node) &&
-            !isLiteralChoice(parent.left as Node)
+            !isLiteralChoice(parent.left as Node) &&
+            // In the template, as for a ternary, `{selected || "Choose a plan"}`
+            // with `selected = $state("")` is the file's own words (round 5).
+            (chain[1]?.key !== "fragment" || aboutField(parent.left as Node)) &&
+            !isResponseBody(parent.left as Node)
           ) {
             // `{sub || "Serving Austin"}` with `sub` a prop: shown whenever a
             // caller leaves `sub` out, so the call sites decide (round 4).
@@ -1082,6 +1105,14 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
       n !== undefined &&
       /^(?:FunctionDeclaration|FunctionExpression|ArrowFunctionExpression)$/.test(n.type);
     const pattern = chain[at]!.node;
+    // `{#snippet card(t = "x")}`: shown when a `{@render card()}` here leaves
+    // the argument out; with no call here, the snippet is handed elsewhere.
+    const owner = chain[at - 1]?.node;
+    if (owner?.type === "SnippetBlock" && chain[at]!.key === "parameters") {
+      const index = (owner.parameters as Node[]).indexOf(pattern);
+      const name = (owner.expression as Node).name as string;
+      return !(renders.get(name) ?? []).some((n) => n <= index);
+    }
     if (isFn(chain[at - 1]?.node) && chain[at]!.key === "params") {
       return FALLBACK_PARAM.test(paramName(pattern));
     }
@@ -1114,6 +1145,25 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
   /** `!x`, as the path x, else undefined. */
   const negated = (n: Node): string | undefined =>
     n.type === "UnaryExpression" && n.operator === "!" ? memberPath(n.argument as Node) : undefined;
+
+  /** `data?.error` with `const data = await res.json()` (or
+   *  `await res.json().catch(…)`): a response body the site's own endpoint
+   *  sent, not a field. A Prismic read never ends in `.json()` (round 5). */
+  function isResponseBody(n: Node): boolean {
+    const root = memberPath(unwrap(n))?.split(".")[0];
+    const init = root === undefined ? undefined : inits.get(root);
+    if (init?.type !== "AwaitExpression") return false;
+    let call = unwrap(init.argument as Node);
+    const member = (c: Node, name: string): Node | undefined =>
+      c.type === "CallExpression" &&
+      (c.callee as Node).type === "MemberExpression" &&
+      ((c.callee as Node).property as Node).name === name
+        ? ((c.callee as Node).object as Node)
+        : undefined;
+    const caught = member(call, "catch");
+    if (caught) call = caught;
+    return member(call, "json") !== undefined;
+  }
 
   /** `x = "lit"` inside `if (!x) …`, or `x ||= "lit"` / `x ??= "lit"`. */
   function assignsFallback(chain: Ancestor[], at: number): boolean {
@@ -1218,6 +1268,9 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
    *  `const heading = "x"` → heading, `items: ["a", "b"]` → items. */
   function slotOf(chain: Ancestor[]): {
     name?: string | undefined;
+    /** The plain local the literal is assigned to (`error = "x"`) or is the
+     *  snippet parameter default of: judged like `const error = "x"`. */
+    local?: string;
     templateText?: Ancestor[];
     attr?: Node;
   } {
@@ -1284,11 +1337,16 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
         if (prop?.type === "Property" && (prop.key as Node).type === "Identifier") {
           return { name: (prop.key as Node).name as string };
         }
-        return { name: paramName(parent.left as Node) || undefined };
+        const param = paramName(parent.left as Node) || undefined;
+        if (param && prop?.type === "SnippetBlock") return { name: param, local: param };
+        return { name: param };
       }
       if (parent.type === "AssignmentExpression" && key === "right") {
         const left = parent.left as Node;
         const p = memberPath(left);
+        if (left.type === "Identifier" && parent.operator === "=") {
+          return { name: left.name as string, local: left.name as string };
+        }
         return { name: p?.split(".").at(-1) };
       }
       if (parent.type === "PropertyDefinition" && key === "value") {
@@ -1522,8 +1580,10 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
       (slot.name ? kindForKey(slot.name) : undefined) ??
       (binding ? kindForKey(binding.name) : undefined);
     const kind = valueKindForKey(byKey, text);
-    if (!kind && binding && !binding.exported && slot.name === binding.name && !holes) {
-      unnamed.push({ binding: binding.name, pos, text });
+    // `const go = () => { error = "x" }`: the local assigned, not the arrow.
+    const local = slot.local ?? (binding && !binding.exported ? binding.name : undefined);
+    if (!kind && local && slot.name === local && !holes) {
+      unnamed.push({ binding: local, pos, text });
     }
     if (!kind || (holes && !isProseKind(kind))) return;
     const prop = propOf(chain) ?? (via.length ? via : undefined);
@@ -1649,6 +1709,42 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
     }
   }
 
+  /**
+   * `let items = [placeholders]; … if (testimonials.length > 0) items =
+   * testimonials;`: a local whose literal the field replaces whenever the
+   * field has something is a fallback for it, like `field || placeholders`
+   * (Vineyard's testimonial sliders, review round 5). Every assignment must
+   * be of that shape: one that sets anything else makes the literal a value.
+   */
+  const reassigned = new Map<string, { all: number; byField: number }>();
+  function onAssignment(node: Node, chain: Ancestor[]): void {
+    const left = node.left as Node;
+    if (left.type !== "Identifier") return;
+    const name = left.name as string;
+    const r = reassigned.get(name) ?? { all: 0, byField: 0 };
+    r.all++;
+    reassigned.set(name, r);
+    if (node.operator !== "=") return;
+    const right = node.right as Node;
+    for (let j = chain.length - 1; j > 0; j--) {
+      const parent = chain[j - 1]!.node;
+      if (parent.type === "ExpressionStatement" || parent.type === "BlockStatement") continue;
+      if (
+        parent.type === "IfStatement" &&
+        chain[j]!.key === "consequent" &&
+        aboutField(right) &&
+        shares(emptiness(parent.test as Node), valuePaths(right))
+      ) {
+        r.byField++;
+      }
+      return;
+    }
+  }
+  const replacedByField = (name: string): boolean => {
+    const r = reassigned.get(name);
+    return r !== undefined && r.byField > 0 && r.byField === r.all;
+  };
+
   // `chain` is the path from the root to `node`, `node` included as its last
   // entry; each entry's `key` is the property of the entry before it that the
   // node hangs off.
@@ -1696,6 +1792,9 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
       case "StyleDirective":
         onStyle(node, chain);
         break;
+      case "AssignmentExpression":
+        onAssignment(node, chain);
+        break;
       case "Identifier":
         onIdentifier(node, chain);
         return;
@@ -1723,6 +1822,7 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
     for (const u of unnamed) {
       const kind = shownAs.get(u.binding) ?? eachShown(u.binding);
       if (!kind || isIdentifierLike(u.text) || onlyStyling(u.binding)) continue;
+      if (replacedByField(u.binding)) continue;
       report(u.pos, refineProse(kind, u.text), u.text);
     }
     const deferred: Deferred[] = [];
@@ -1732,7 +1832,11 @@ export function scanParsed(parsed: Parsed, opts: ScanOptions = {}): FileScan {
         report(p.pos, p.kind, p.text);
         // `report` applies the filters; what survives waits for the site.
         if (findings.length > before) deferred.push({ ...findings.pop()!, binding: p.binding });
-      } else if (!onlyFallbacks(p.binding) && !(isProseKind(p.kind) && onlyStyling(p.binding))) {
+      } else if (
+        !onlyFallbacks(p.binding) &&
+        !replacedByField(p.binding) &&
+        !(isProseKind(p.kind) && onlyStyling(p.binding))
+      ) {
         report(p.pos, p.kind, p.text);
       }
     }

@@ -1112,3 +1112,189 @@ describe("rules round 4 found unpinned (minor 9)", () => {
     ]);
   });
 });
+
+describe("review round 5 on #2231", () => {
+  // Finding 1: a literal assigned later to a local the template shows.
+  it("reports a literal assigned to a shown local, Svelte 5 and Svelte 4", () => {
+    expect(
+      svelte(
+        `<script>let error = $state(""); function go() { error = "Please provide a valid email address."; }</script>{#if error}<p role="alert">{error}</p>{/if}`,
+      ),
+    ).toEqual([["copy", "Please provide a valid email address."]]);
+    expect(
+      svelte(
+        `<script>let msg = ""; msg = "Thanks, we will be in touch soon.";</script><p>{msg}</p>`,
+      ),
+    ).toEqual([["copy", "Thanks, we will be in touch soon."]]);
+    expect(
+      svelte(
+        `<script>let errorMsg = $state(""); const go = async () => { errorMsg = "Network error. Please try again."; };</script>{#if errorMsg}<p role="alert">{errorMsg}</p>{/if}`,
+      ),
+    ).toEqual([["copy", "Network error. Please try again."]]);
+  });
+
+  it("does not report an assigned literal the template never shows, or one under if (!x)", () => {
+    expect(
+      svelte(
+        `<script>let error = $state(""); function go() { error = "Please provide a valid email address."; }</script><button disabled={!!error}>Send it</button>`,
+      ),
+    ).toEqual([["button", "Send it"]]);
+    expect(
+      svelte(
+        `<script>let { data } = $props(); let title = data.title; if (!title) title = "Welcome to Acme Plumbing";</script><h1>{title}</h1>`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("reports the words behind ?? on a fetch response's body, not on a Prismic read", () => {
+    expect(
+      svelte(
+        `<script>let error = $state(""); async function go() { const res = await fetch("/api/x"); const data = await res.json().catch(() => ({})); error = data?.error ?? "Something went wrong. Please try again."; }</script><p>{error}</p>`,
+      ),
+    ).toEqual([["copy", "Something went wrong. Please try again."]]);
+    expect(
+      svelte(
+        `<script>let title = $state(""); async function go() { const doc = await client.getSingle("home"); title = doc.data.title ?? "Welcome to Acme Plumbing"; }</script><h1>{title}</h1>`,
+      ),
+    ).toEqual([]);
+  });
+
+  // Finding 2: template || / ?? on the file's own data.
+  it("reports a template || or ?? whose left is the file's own state", () => {
+    expect(
+      svelte(
+        `<script>let selected = $state("");</script><p>{selected || "Choose a plan today"}</p>`,
+      ),
+    ).toEqual([["copy", "Choose a plan today"]]);
+    expect(
+      svelte(
+        `<script>let q = $state("");</script><input placeholder={q ?? "Search our listings"} />`,
+      ),
+    ).toEqual([["copy", "Search our listings"]]);
+    expect(
+      svelte(
+        `<script>let { data } = $props();</script><h1>{data.page.title || "Our homes, built to last"}</h1>`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("a context getter's state is not the file's own: its || is a fallback", () => {
+    expect(
+      svelte(
+        `<script>const app = getAppState();</script><img src={app.url} alt={app.alt || "Enlarged image"} />`,
+      ),
+    ).toEqual([]);
+    expect(
+      svelte(
+        `<script>let { view } = $props(); const rows = healthRows(view);</script><p>{rows.note || "Nothing to report this month"}</p>`,
+      ),
+    ).toEqual([["copy", "Nothing to report this month"]]);
+  });
+
+  // Finding 3: a placeholder list replaced by the field when the field has items.
+  const slider = (guard: string) =>
+    `<script>import { onMount } from "svelte"; let { testimonials = [] } = $props(); let items = [{ quote: "Lorem ipsum dolor sit amet", author: "Author Name" }]; onMount(() => { ${guard} items = testimonials; });</script>{#each items as t}<blockquote>{t.quote}</blockquote><p>{t.author}</p>{/each}`;
+  it("does not report a local's literal replaced by a field under that field's emptiness test", () => {
+    expect(svelte(slider("if (testimonials.length > 0)"))).toEqual([]);
+    expect(
+      svelte(
+        slider("if (testimonials.length > 0) {").replace("testimonials; }", "testimonials; } }"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("still reports it when the replacement is not under that field's emptiness test", () => {
+    const texts = (src: string) => svelte(src).map(([, t]) => t);
+    expect(texts(slider("if (showReal)"))).toContain("Author Name");
+    expect(texts(slider(""))).toContain("Author Name");
+    // One assignment of anything but the field makes the literal a value.
+    expect(
+      texts(
+        slider("if (testimonials.length > 0)").replace(
+          "</script>",
+          " function reset() { items = others; }</script>",
+        ),
+      ),
+    ).toContain("Author Name");
+  });
+
+  // Finding 4: iCalendar and vCard property lines.
+  it("does not report iCalendar or vCard property lines, but reports their words", () => {
+    expect(
+      ts(
+        'export const description = `Join the call: ${url}`;\nexport const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", `SUMMARY:${title}`, "DTSTART;TZID=America/Los_Angeles:20261123T090000", "END:VCALENDAR"];',
+      ),
+    ).toEqual([["copy", "Join the call: ${…}"]]);
+    expect(svelte(`<p>FAQ: Ask us anything</p><p>NOTE:</p>`)).toEqual([
+      ["copy", "FAQ: Ask us anything"],
+      ["copy", "NOTE:"],
+    ]);
+  });
+
+  // Finding 5: stats, prices and hours are content, not decoration.
+  it("reports stats, prices and hours, and still drops arrows, step numbers and numerals", () => {
+    expect(svelte(`<h2>1,000+</h2><span>$1,250</span><h3>98%</h3><p>9:00 – 5:00</p>`)).toEqual([
+      ["heading", "1,000+"],
+      ["copy", "$1,250"],
+      ["heading", "98%"],
+      ["copy", "9:00 – 5:00"],
+    ]);
+    expect(svelte(`<span>→</span><span>01</span><p>II.</p><span>2026</span>`)).toEqual([]);
+  });
+
+  // Finding 6: a snippet parameter's default, judged by the file's {@render} calls.
+  it("reports a snippet parameter default a {@render} call leaves out", () => {
+    expect(
+      svelte(`{#snippet card(t = "Our promise to you")}<p>{t}</p>{/snippet}{@render card()}`),
+    ).toEqual([["copy", "Our promise to you"]]);
+    expect(
+      svelte(
+        `{#snippet card(t = "Our promise to you")}<p>{t}</p>{/snippet}{@render card("Built to last")}`,
+      ),
+    ).toEqual([["copy", "Built to last"]]);
+  });
+});
+
+describe("rules round 5 found unpinned", () => {
+  const elseFallback = (open: string, shown: string) =>
+    svelte(
+      `<script>let { doc } = $props();</script>{#if ${open}}${shown}{:else}Our default words{/if}`,
+    );
+
+  it.each(["poster", "placeholder", "value", "label"])(
+    "an element's %s attribute shows the field its else falls back for",
+    (attr) => {
+      expect(elseFallback("doc.data.x", `<input ${attr}={doc.data.x} />`)).toEqual([]);
+    },
+  );
+
+  it.each(["asHTML", "asLink", "Boolean", "hasContent"])(
+    "%s(field) is an emptiness test",
+    (callee) => {
+      expect(elseFallback(`${callee}(doc.data.x)`, `<p>{doc.data.x}</p>`)).toEqual([]);
+    },
+  );
+
+  it("x.length >= 1 is an emptiness test", () => {
+    expect(
+      elseFallback("doc.data.items.length >= 1", `{#each doc.data.items as i}<p>{i.t}</p>{/each}`),
+    ).toEqual([]);
+  });
+
+  it("the legacy $app/env dev guard hides its branch", () => {
+    expect(
+      svelte(
+        `<script>import { dev } from "$app/env";</script>{#if dev}<p>Debug panel here</p>{/if}`,
+      ),
+    ).toEqual([]);
+  });
+
+  it.each(["OrDefault", "Fallback", "WithDefault"])(
+    "a helper whose name ends in %s is a fallback helper",
+    (suffix) => {
+      expect(
+        svelte(`<h1>{title${suffix}(doc.data.title, "Welcome to Acme Plumbing")}</h1>`),
+      ).toEqual([]);
+    },
+  );
+});

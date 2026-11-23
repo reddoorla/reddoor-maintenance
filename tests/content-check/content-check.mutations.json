@@ -1375,5 +1375,481 @@
     ],
     "expect": "red",
     "why": "round 4 minor 9: a helper named \u2026Or is a fallback helper"
+  },
+  {
+    "id": "r5-assigned-literal-has-no-local",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "          return { name: left.name as string, local: left.name as string };",
+        "replace": "          return { name: left.name as string };"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 5 finding 1: a literal assigned to a shown local is reported"
+  },
+  {
+    "id": "r5-arrow-binding-wins",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "    const local = slot.local ?? (binding && !binding.exported ? binding.name : undefined);",
+        "replace": "    const local = binding ? (binding.exported ? undefined : binding.name) : slot.local;"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "fold 5: an assignment inside `const go = () => {}` is judged by the local, not by go"
+  },
+  {
+    "id": "r5-response-body-is-a-field",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "    return member(call, \"json\") !== undefined;",
+        "replace": "    return false;"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 5 finding 1: `data?.error ?? \"x\"` on a fetch body is reported"
+  },
+  {
+    "id": "r5-template-or-ignores-own-state",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "            (chain[1]?.key !== \"fragment\" || aboutField(parent.left as Node)) &&\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 5 finding 2: template ||/?? on the file's own state is reported"
+  },
+  {
+    "id": "r5-no-reverse-fallback",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "    return r !== undefined && r.byField > 0 && r.byField === r.all;",
+        "replace": "    return false;"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 5 finding 3: Vineyard's replaced placeholders are fallbacks"
+  },
+  {
+    "id": "r5-reverse-fallback-any-assignment",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "    return r !== undefined && r.byField > 0 && r.byField === r.all;",
+        "replace": "    return r !== undefined && r.byField > 0;"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "fold 5: one assignment of something else makes the literal a value"
+  },
+  {
+    "id": "r5-reverse-fallback-no-emptiness-test",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "        aboutField(right) &&\n        shares(emptiness(parent.test as Node), valuePaths(right))\n",
+        "replace": "        aboutField(right)\n"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "fold 5: the replacement must sit under that field's emptiness test"
+  },
+  {
+    "id": "r5-no-property-line-filter",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "    if (isPropertyLine(text)) return;\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 5 finding 4: iCalendar lines are not copy"
+  },
+  {
+    "id": "r5-property-line-takes-spaced-values",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": ":(?=\\S)/.test(text.trim());",
+        "replace": ":/.test(text.trim());"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "fold 5: `FAQ: Ask us` and `NOTE:` are words, not property lines"
+  },
+  {
+    "id": "r5-stats-are-decorative",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": "  if (letters < 2) return !/\\d[$%+,:]|[$%+,:]\\d/.test(text);",
+        "replace": "  if (letters < 2) return true;"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 5 finding 5: stats, prices and hours are reported"
+  },
+  {
+    "id": "r5-snippet-default-always-fallback",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "      return !(renders.get(name) ?? []).some((n) => n <= index);",
+        "replace": "      return true;"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 5 finding 6: a snippet default a {@render} leaves out is reported"
+  },
+  {
+    "id": "r5-snippet-default-has-no-local",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "        if (param && prop?.type === \"SnippetBlock\") return { name: param, local: param };\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 5 finding 6: the default is judged by whether the snippet shows its parameter"
+  },
+  {
+    "id": "r5-context-getter-is-computed",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "    if (bare.type === \"CallExpression\" && CONTEXT_GETTER.test(calleePath(bare) ?? \"\")) return false;\n",
+        "replace": ""
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "fold 5: gallerysonder's getAppState() alt fallback stays hidden"
+  },
+  {
+    "id": "r5-shown-attrs-no-label",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "  \"label\",\n  \"poster\",",
+        "replace": "  \"poster\","
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 5 unpinned: an element's label shows the field its else falls back for"
+  },
+  {
+    "id": "r5-shown-attrs-no-value",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "  \"value\",\n  \"label\",",
+        "replace": "  \"label\","
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 5 unpinned: an element's value shows the field its else falls back for"
+  },
+  {
+    "id": "r5-shown-attrs-no-placeholder",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "  \"placeholder\",\n  \"src\",",
+        "replace": "  \"src\","
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 5 unpinned: an element's placeholder shows the field its else falls back for"
+  },
+  {
+    "id": "r5-shown-attrs-no-poster",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "  \"poster\",\n]);\n\n/** Template directives",
+        "replace": "]);\n\n/** Template directives"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 5 unpinned: an element's poster shows the field its else falls back for"
+  },
+  {
+    "id": "r5-emptiness-no-asHTML",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "^(?:asText|asHTML|asLink|Boolean|hasContent)$/.test(callee)",
+        "replace": "^(?:asText|asLink|Boolean|hasContent)$/.test(callee)"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 5 unpinned: asHTML(field) is an emptiness test"
+  },
+  {
+    "id": "r5-emptiness-no-asLink",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "^(?:asText|asHTML|asLink|Boolean|hasContent)$/.test(callee)",
+        "replace": "^(?:asText|asHTML|Boolean|hasContent)$/.test(callee)"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 5 unpinned: asLink(field) is an emptiness test"
+  },
+  {
+    "id": "r5-emptiness-no-Boolean",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "^(?:asText|asHTML|asLink|Boolean|hasContent)$/.test(callee)",
+        "replace": "^(?:asText|asHTML|asLink|hasContent)$/.test(callee)"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 5 unpinned: Boolean(field) is an emptiness test"
+  },
+  {
+    "id": "r5-emptiness-no-hasContent",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "^(?:asText|asHTML|asLink|Boolean|hasContent)$/.test(callee)",
+        "replace": "^(?:asText|asHTML|asLink|Boolean)$/.test(callee)"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 5 unpinned: hasContent(field) is an emptiness test"
+  },
+  {
+    "id": "r5-no-length-gte-1",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": " ||\n          (op === \">=\" && v === 1)\n",
+        "replace": "\n"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 5 unpinned: x.length >= 1 is an emptiness test"
+  },
+  {
+    "id": "r5-no-app-env",
+    "edits": [
+      {
+        "file": "src/content-check/scan.ts",
+        "find": "/^\\$app\\/env(?:ironment)?$/",
+        "replace": "/^\\$app\\/environment$/"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 5 unpinned: the legacy $app/env dev guard"
+  },
+  {
+    "id": "r5-fallback-helpers-not-wired",
+    "edits": [
+      {
+        "file": "src/content-check/check.ts",
+        "find": "      fallbackHelpers: config.fallbackHelpers,",
+        "replace": "      fallbackHelpers: [],"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 5 unpinned: scanSite reads fallbackHelpers from content-check.json"
+  },
+  {
+    "id": "r5-helper-suffix-no-OrDefault",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": "/(?:Or|OrDefault|Fallback|WithDefault)$|",
+        "replace": "/(?:Or|Fallback|WithDefault)$|"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 5 unpinned: a helper ending in OrDefault is a fallback helper"
+  },
+  {
+    "id": "r5-helper-suffix-no-Fallback",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": "/(?:Or|OrDefault|Fallback|WithDefault)$|",
+        "replace": "/(?:Or|OrDefault|WithDefault)$|"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 5 unpinned: a helper ending in Fallback is a fallback helper"
+  },
+  {
+    "id": "r5-helper-suffix-no-WithDefault",
+    "edits": [
+      {
+        "file": "src/content-check/rules.ts",
+        "find": "/(?:Or|OrDefault|Fallback|WithDefault)$|",
+        "replace": "/(?:Or|OrDefault|Fallback)$|"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 5 unpinned: a helper ending in WithDefault is a fallback helper"
+  },
+  {
+    "id": "r5-stale-count-unclamped",
+    "edits": [
+      {
+        "file": "src/content-check/check.ts",
+        "find": "stale += Math.max(0, n - (have[file]?.[key] ?? 0));",
+        "replace": "stale += n - (have[file]?.[key] ?? 0);"
+      }
+    ],
+    "test": [
+      "tests/content-check/scan.test.ts",
+      "tests/content-check/site.test.ts",
+      "tests/content-check/command.test.ts"
+    ],
+    "expect": "red",
+    "why": "round 5 unpinned: a file over its baseline does not cancel other stale entries"
   }
 ]
