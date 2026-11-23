@@ -99,8 +99,21 @@
     "edits": [
       {
         "file": "src/dashboard/backlog.ts",
-        "find": "const STATUS_WORD = /^status\\s*[:\\d]/i;",
-        "replace": "const STATUS_WORD = /^Status\\s*[:\\d]/;"
+        "find": "const STATUS_WORD = /^status(?:\\W{0,3}\\d|\\s*:)/i;",
+        "replace": "const STATUS_WORD = /^Status(?:\\W{0,3}\\d|\\s*:)/;"
+      }
+    ],
+    "test": "tests/dashboard/backlog.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "9-dash-status-as-title",
+    "why": "Round 2, major: a status whose date follows a dash or a parenthesis is not recognised, so `**Status-2026-11-20: …**` shows as the title instead of failing loudly.",
+    "edits": [
+      {
+        "file": "src/dashboard/backlog.ts",
+        "find": "const STATUS_WORD = /^status(?:\\W{0,3}\\d|\\s*:)/i;",
+        "replace": "const STATUS_WORD = /^status(?:\\s*\\d|\\s*:)/i;"
       }
     ],
     "test": "tests/dashboard/backlog.test.ts",

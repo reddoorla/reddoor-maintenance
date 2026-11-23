@@ -87,11 +87,13 @@ export function plain(md: string): string {
     .trim();
 }
 
-/** A segment meant as a status: the word in any case, then a colon or a digit,
- *  with or without a space (`Status 2026-…`, `status 2026-…`, `Status2026-…`,
- *  `Status: …`). A title that only begins with the word (`Status page for
- *  clients`) is not one. */
-const STATUS_WORD = /^status\s*[:\d]/i;
+/** A segment meant as a status: the word in any case, then a colon, or up to
+ *  three non-word characters and a digit (`Status 2026-…`, `status 2026-…`,
+ *  `Status2026-…`, `Status-2026-…`, `Status (2026-…)`, `Status: …`). A title
+ *  that only begins with the word (`Status page for clients`) is not one; a
+ *  title like `Status 404 pages` is read as a malformed status and fails
+ *  loudly, which is the safe way to be wrong. */
+const STATUS_WORD = /^status(?:\W{0,3}\d|\s*:)/i;
 /** The one well-formed shape: `Status YYYY-MM-DD`, then a space, `[`, `:` or the end. */
 const STATUS_DATED = /^Status (\d{4}-\d{2}-\d{2})(?=[\s[:]|$)\s*(.*)$/s;
 
@@ -177,8 +179,9 @@ function parseStatus(id: string, span: string): BacklogStatus {
       `${id}: a status line is not "Status YYYY-MM-DD" with a valid date`,
     );
   }
-  // Drop the provenance tag (`[M, merge commits]:`) and a bare `:` after the date.
-  const body = m[2]!.replace(/^\[[^\]]*\]\s*/, "").replace(/^:\s*/, "");
+  // Drop the provenance tag (`[M, merge commits]:`, not a leading `[link](url)`)
+  // and a bare `:` or dash after the date.
+  const body = m[2]!.replace(/^\[[^\]]*\](?!\()\s*/, "").replace(/^[:\u2014\u2013-]\s*/, "");
   const sentence = plain(firstSentence(body));
   if (sentence === "") {
     throw new BacklogParseError(`${id}: its status line dated ${m[1]} has no text after the date`);

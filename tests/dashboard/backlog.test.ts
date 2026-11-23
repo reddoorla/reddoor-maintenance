@@ -139,6 +139,13 @@ describe("topBacklogItems", () => {
     expect(d.status).toBeNull();
   });
 
+  it("keeps a leading link's text in the sentence, and drops a dash after the date", () => {
+    const link = "| P1-910 | **Status 2026-11-20 [PR](https://x.example/1) merged.** **T** | 🟢 |";
+    expect(topBacklogItems(backlog([link])).items[0]!.status?.sentence).toBe("PR merged.");
+    const dash = "| P1-910 | **Status 2026-11-20 — merged #5.** **T** | 🟢 |";
+    expect(topBacklogItems(backlog([dash])).items[0]!.status?.sentence).toBe("merged #5.");
+  });
+
   it("reads a title that only begins with the word Status as a title", () => {
     const row = "| P1-909 | **Status page for clients** | 🟢 |";
     const it9 = topBacklogItems(backlog([row])).items[0]!;
