@@ -560,11 +560,12 @@ describe("quoteSupportsClaim — a related passage is not a supporting one", () 
   });
 });
 
-describe("a place the site itself names is never 'contradicted'", () => {
+describe("a place the site itself names", () => {
   // The audited site listed a Texas mailing address on one page and "near the
   // Los Angeles metro" on another. The model called "Los Angeles-based"
-  // contradicted on the strength of the address alone. The site says both;
-  // the honest verdict quotes the site's own sentence.
+  // contradicted on the strength of the address alone. Code once overrode it
+  // on the site using "Los Angeles"; it no longer changes the model's verdict,
+  // so only the quote checks apply.
   const site = crawl([
     page(
       "https://acme.example/",
@@ -582,7 +583,7 @@ describe("a place the site itself names is never 'contradicted'", () => {
   });
   const offline = { fetchPage: async () => null };
 
-  it("flips contradicted to confirmed when the site uses the claim's own terms", async () => {
+  it("leaves the model's contradicted alone even when the site uses the claim's own terms", async () => {
     const r = await checkAccuracy("https://acme.example/", site, [answer], [], {
       run: async () => ({
         assertions: [
@@ -597,9 +598,15 @@ describe("a place the site itself names is never 'contradicted'", () => {
       }),
       ownership: offline,
     });
-    expect(r.assertions[0]).toMatchObject({
-      verdict: "confirmed",
-      siteQuote: expect.stringContaining("Los Angeles"),
+    const [a] = r.assertions;
+    expect(a?.verdict).not.toBe("confirmed");
+    expect(a?.siteQuote).toBe("HQ mailing address: 1 Main St, Fair Oaks Ranch, TX.");
+    // The model's verdict stands; only the usual quote check moves it, because
+    // the address does not say where the studio is based.
+    expect(a).toMatchObject({
+      verdict: "unverified",
+      unverifiedReason:
+        "The passage we found is about the same subject but does not actually say this, so we have not stated it either way.",
     });
   });
 
@@ -619,6 +626,149 @@ describe("a place the site itself names is never 'contradicted'", () => {
       ownership: offline,
     });
     expect(r.assertions[0]?.verdict).not.toBe("confirmed");
+    expect(r.assertions[0]?.unverifiedReason ?? "").not.toMatch(/^Your site does say/);
+  });
+
+  it("keeps a supported contradiction as contradicted, with no reason added", async () => {
+    const r = await checkAccuracy("https://acme.example/", site, [answer], [], {
+      run: async () => ({
+        assertions: [
+          {
+            claim: "Acme Design is located in the Portland metro area.",
+            engineQuote: "Acme Design (Los Angeles-based)",
+            verdict: "contradicted",
+            siteQuote: "We are conveniently located near the Los Angeles metro area.",
+            searchTerms: ["Portland"],
+          },
+        ],
+      }),
+      ownership: offline,
+    });
+    expect(r.assertions[0]).toMatchObject({
+      verdict: "contradicted",
+      siteQuote: "We are conveniently located near the Los Angeles metro area.",
+      unverifiedReason: null,
+    });
+  });
+
+  it("keeps a supported contradiction even when the site uses its search term", async () => {
+    const r = await checkAccuracy("https://acme.example/", site, [answer], [], {
+      run: async () => ({
+        assertions: [
+          {
+            claim: "Acme Design is located in the Portland metro area.",
+            engineQuote: "Acme Design (Los Angeles-based)",
+            verdict: "contradicted",
+            siteQuote: "We are conveniently located near the Los Angeles metro area.",
+            searchTerms: ["metro area"],
+          },
+        ],
+      }),
+      ownership: offline,
+    });
+    expect(r.assertions[0]).toMatchObject({ verdict: "contradicted", unverifiedReason: null });
+  });
+});
+
+const SAME_SUBJECT =
+  "The passage we found is about the same subject but does not actually say this, so we have not stated it either way.";
+
+describe("code never upgrades a verdict to 'confirmed'", () => {
+  // Invented. A rule here once turned the model's "contradicted" into
+  // "confirmed" whenever the site used one of the claim's search terms, and a
+  // report told a business its own site agreed it was something it is not.
+  // The terms were the model's evidence AGAINST the claim.
+  const site = crawl([
+    page(
+      "https://rosewood.example/",
+      "Our business is known for fresh flowers arranged daily for weddings and events. " +
+        "Find us in Riverside, Oregon. ©2026 Rosewood Market | All Rights Reserved",
+    ),
+  ]);
+  const answer = branded({
+    query: "who is Rosewood Market",
+    citedDomains: ["directory.example"],
+    fullAnswer:
+      'I couldn\'t find a company called "Rosewood Market". ' +
+      "Rosewood Market is a bakery known for sourdough bread, based in Lakeside, Oregon.",
+  });
+  const offline = { fetchPage: async () => null };
+  const judge = async (a: {
+    claim: string;
+    engineQuote: string;
+    searchTerms: string[];
+    siteQuote: string;
+  }) =>
+    (
+      await checkAccuracy("https://rosewood.example/", site, [answer], [], {
+        run: async () => ({ assertions: [{ ...a, verdict: "contradicted" }] }),
+        ownership: offline,
+      })
+    ).assertions;
+
+  it.each([
+    {
+      why: "the term is the model's counter-evidence, not in the claim",
+      verdict: "unverified",
+      reason: SAME_SUBJECT,
+      claim: "The business is a bakery known for sourdough bread.",
+      engineQuote: "a bakery known for sourdough bread",
+      searchTerms: ["fresh flowers"],
+      siteQuote: "Our business is known for fresh flowers arranged daily for weddings and events.",
+    },
+    {
+      why: "the claim denies the name the site uses",
+      verdict: "contradicted",
+      reason: null,
+      claim: 'No business operates under the name "Rosewood Market".',
+      engineQuote: 'I couldn\'t find a company called "Rosewood Market"',
+      searchTerms: ["Rosewood Market"],
+      siteQuote: "©2026 Rosewood Market | All Rights Reserved",
+    },
+    {
+      why: "the term is only the business's own name",
+      verdict: "unverified",
+      reason: SAME_SUBJECT,
+      claim: "Rosewood Market is a bakery known for sourdough bread.",
+      engineQuote: "Rosewood Market is a bakery known for sourdough bread",
+      searchTerms: ["Rosewood Market"],
+      siteQuote: "Our business is known for fresh flowers arranged daily for weddings and events.",
+    },
+    {
+      why: "the term carries only part of the place the claim asserts",
+      verdict: "unverified",
+      reason: SAME_SUBJECT,
+      claim: "Rosewood Market is based in Lakeside, Oregon.",
+      engineQuote: "based in Lakeside, Oregon",
+      searchTerms: ["Oregon"],
+      // Real on the site, and without the term, so only the place guard holds.
+      siteQuote: "Find us in Riverside",
+    },
+    {
+      why: "the term is the claim's own opening words",
+      verdict: "unverified",
+      reason: SAME_SUBJECT,
+      claim: "The business is a bakery known for sourdough bread.",
+      engineQuote: "a bakery known for sourdough bread",
+      searchTerms: ["The business"],
+      siteQuote: "Our business is known for fresh flowers arranged daily for weddings and events.",
+    },
+  ] as const)("leaves the model's verdict alone when $why", async (c) => {
+    const { why: _why, verdict, reason, ...a } = c;
+    const [r] = await judge({ ...a, searchTerms: [...a.searchTerms] });
+    // Exactly what main's quote checks give the model's "contradicted": kept
+    // where its own quote supports it, unverified where it does not.
+    expect(r).toMatchObject({ verdict, unverifiedReason: reason, siteQuote: a.siteQuote });
+  });
+
+  it("leaves it alone when the model's own quote already holds the term", async () => {
+    const [r] = await judge({
+      claim: "Rosewood Market is based in Riverside, Oregon.",
+      engineQuote: "based in Lakeside, Oregon",
+      searchTerms: ["Riverside, Oregon"],
+      siteQuote: "Find us in Riverside, Oregon.",
+    });
+    expect(r?.unverifiedReason ?? "").not.toMatch(/^Your site does say/);
   });
 });
 

@@ -38,9 +38,10 @@ function endpointRoutes(
 
 const routes = endpointRoutes();
 
-/** The two GET-only reads, with the query each needs to reach its auth (the
+/** The GET-only reads, with the query each needs to reach its auth (the
  *  status poll answers 400 before auth without `since`). The rest act on POST. */
 const READS: Record<string, string> = {
+  "/api/backlog": "",
   "/api/reports/rec1/preview": "",
   "/api/fleet/refresh/status": "?since=2026-10-21T00:00:00Z",
   "/api/cockpit/version": "",
@@ -76,6 +77,8 @@ afterEach(() => {
 describe("the cockpit's endpoint routes", () => {
   it("are exactly the endpoints the dashboard's functions served", () => {
     expect(routes.map((r) => r.path).sort()).toEqual([
+      // The cockpit's own (P1-111): the Triage page's read of the workspace backlog.
+      "/api/backlog",
       // The cockpit's own, not a moved function: the snapshot's change check.
       "/api/cockpit/version",
       "/api/fleet/refresh",

@@ -61,7 +61,7 @@ describe("/fleet parity with renderFleetTableHtml", () => {
       const model = buildFleetTableModel(rows, { ...DEFAULT_QUERY, ...query });
       // Each row's health, from the cockpit model of the same rows (#672 step 3).
       const sitesView = buildSitesView(
-        buildCockpitModel(rows, [], {}, BASE, NOW, [], null, [], 0, new Map(), new Map()),
+        buildCockpitModel(rows, [], {}, BASE, NOW, [], [], new Map(), new Map()),
         NOW,
       );
       const after = canonical(renderPage(Page, { data: { model, sites: sitesView } }));

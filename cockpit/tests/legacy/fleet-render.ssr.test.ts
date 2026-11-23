@@ -658,7 +658,6 @@ describe("renderCockpitHtml — region order", () => {
           submittedAt: "2026-06-10T12:00:00Z",
         } as never,
       ],
-      { honeypot: 3, tooFast: 2, markedSpam: 1 },
     );
     const html = renderCockpitHtml(m);
     const iVerdict = html.indexOf('class="verdict');
