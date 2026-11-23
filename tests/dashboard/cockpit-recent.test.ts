@@ -29,7 +29,7 @@ const events: FleetEvent[] = [
 
 describe("buildCockpitModel — recent lane", () => {
   it("maps events into model.recent with slug + external url", () => {
-    const model = buildCockpitModel([], [], {}, "https://d.test", new Date(), [], null, events);
+    const model = buildCockpitModel([], [], {}, "https://d.test", new Date(), [], events);
     expect(model.recent).toHaveLength(2);
     const pr = model.recent!.find((r) => r.type === "pr_automerged")!;
     expect(pr.slug).toBe("caltex-landing");

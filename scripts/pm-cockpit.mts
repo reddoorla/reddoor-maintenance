@@ -18,10 +18,9 @@ import {
   countUnreplayedDeadLettersBySlug,
   oldestUnreplayedDeadLetterBySlug,
 } from "../src/db/deadletter.js";
-import { listNewSubmissions, countAutoSpamSince } from "../src/db/submissions.js";
+import { listNewSubmissions } from "../src/db/submissions.js";
 import type { NotifyBounceCounts } from "../src/db/submissions.js";
 import { listFleetEvents } from "../src/db/fleet-events.js";
-import { screenOutsSince } from "../src/db/screenouts.js";
 import { readDigestState, readCockpitRollup } from "../src/db/digest-state.js";
 import {
   buildCockpitModel,
@@ -111,14 +110,7 @@ export type CockpitInputs = {
   prior: DigestSnapshot;
   baseUrl: string;
   newSubmissions: SubmissionRow[];
-  spamTotals: {
-    honeypot: number;
-    tooFast: number;
-    markedSpam: number;
-    computedAt?: string;
-  } | null;
   recentEvents: FleetEvent[];
-  autoFilteredCount: number;
   notifyBounces: ReadonlyMap<string, NotifyBounceCounts>;
   deadLetters: ReadonlyMap<string, number>;
   /** OD 87: the oldest unreplayed row per slug, the clock of a known site's hold. */
@@ -134,13 +126,10 @@ export async function loadCockpitInputs(db: Db, now: Date): Promise<CockpitInput
   const prior = await readDigestState(db);
   const newSubmissions = await listNewSubmissions(db);
   const rollup = await readCockpitRollup(db);
-  const spamTotals =
-    rollup !== null ? { ...rollup.spamTotals, computedAt: rollup.computedAt } : null;
   const recentEvents = await listFleetEvents(db, {
     sinceIso: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(),
     limit: 20,
   });
-  const autoFilteredCount = await countAutoSpamSince(db, screenOutsSince(now, 7));
   const notifyBounces: ReadonlyMap<string, NotifyBounceCounts> = new Map(
     Object.entries(rollup?.notifyBounces ?? {}),
   );
@@ -153,9 +142,7 @@ export async function loadCockpitInputs(db: Db, now: Date): Promise<CockpitInput
     prior,
     baseUrl: resolveDashboardBaseUrl(process.env.DASHBOARD_BASE_URL),
     newSubmissions,
-    spamTotals,
     recentEvents,
-    autoFilteredCount,
     notifyBounces,
     deadLetters,
     deadLetterOldest,
@@ -261,9 +248,7 @@ export function cockpitFromInputs(inputs: CockpitInputs, now: Date): CockpitMode
     inputs.baseUrl,
     now,
     inputs.newSubmissions,
-    inputs.spamTotals,
     inputs.recentEvents,
-    inputs.autoFilteredCount,
     inputs.notifyBounces,
     inputs.deadLetters,
     inputs.deadLetterOldest,

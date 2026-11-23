@@ -436,11 +436,6 @@ function scenarios(state: { createdId: string; reservedId: string }): Scenario[]
     },
     ...submissionFilterMatrix(),
     {
-      name: "countAutoSpamSince",
-      covers: ["countAutoSpamSince"],
-      run: (db) => submissions.countAutoSpamSince(db, SINCE_DATE),
-    },
-    {
       name: "countSubmissionsSinceBySite (digest telemetry)",
       covers: ["countSubmissionsSinceBySite"],
       run: (db) => submissions.countSubmissionsSinceBySite(db, SINCE_ISO),

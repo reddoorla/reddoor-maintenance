@@ -543,20 +543,12 @@ export type CockpitModel = {
   cards: SiteCard[];
   pending: PendingEntry[];
   /** NEW submissions across the fleet, newest-first (optional for back-compat).
-   *  No page renders this, `spam` or `autoFiltered` since the /triage inbox lane
-   *  went (#2241; /submissions reads its own rows). Kept in place: removing them
-   *  reaches the snapshot schema, and no client or visitor sees the choice. */
+   *  No page renders this list since the /triage inbox lane went (#2241;
+   *  /submissions reads its own rows); the fleet spam totals and auto-filtered
+   *  count that sat beside it went too (the follow-up to #2248). */
   submissions?: SubmissionEntry[];
-  /** Fleet spam totals over the window (optional; populated by buildCockpitModel). */
-  /** `computedAt` present ⇒ these came from the nightly roll-up and are up to
-   *  24h old; anything that shows them must say so. */
-  spam?: { caught: number; through: number; computedAt?: string } | null;
   /** Recent fleet-activity events for the "Recently" lane (optional for back-compat). */
   recent?: RecentEntry[];
-  /** Fleet-wide count of submissions auto-filtered as spam in the affordance window
-   *  (optional for back-compat). Drove the /triage "N auto-filtered this week" line
-   *  until #2241. */
-  autoFiltered?: number;
   /** Archived (legacy/deprecated) rows — excluded from every fleet op, listed on a
    *  neutral collapsed lane so a row can never silently vanish (optional for back-compat). */
   archived?: OffFleetSiteEntry[];
@@ -913,16 +905,7 @@ export function buildCockpitModel(
   baseUrl: string,
   now: Date,
   newSubmissions: SubmissionRow[] = [],
-  spamTotals: {
-    honeypot: number;
-    tooFast: number;
-    markedSpam: number;
-    /** When the nightly digest computed these. The figures are up to 24h
-     *  old by construction, so the strip says so rather than reading live. */
-    computedAt?: string;
-  } | null = null,
   recentEvents: FleetEvent[] = [],
-  autoFilteredCount = 0,
   // Per-site bounced-lead-notification counts (countNotifyBouncedBySite, last
   // NOTIFY_BOUNCE_WINDOW_DAYS). Optional like the other libSQL inputs: a Turso
   // blip drops the signal, never the cockpit (2026-07-16).
@@ -1144,15 +1127,7 @@ export function buildCockpitModel(
     cardless,
     pending,
     submissions,
-    spam: spamTotals
-      ? {
-          caught: spamTotals.honeypot + spamTotals.tooFast,
-          through: spamTotals.markedSpam,
-          ...(spamTotals.computedAt !== undefined ? { computedAt: spamTotals.computedAt } : {}),
-        }
-      : null,
     recent,
-    autoFiltered: autoFilteredCount,
     archived,
     unrecognizedStatus,
   };
