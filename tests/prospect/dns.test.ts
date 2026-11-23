@@ -545,3 +545,20 @@ describe("W4: DMARC has three states, and watch-only is not a pass", () => {
     expect(dmarcRow("v=DMARC1; p=none;")?.label).not.toMatch(/SPF is enforced/);
   });
 });
+
+describe("W4 review: a DMARC record with no readable policy", () => {
+  it("does not claim the record says p=none", () => {
+    const c = dnsChecks({
+      measured: true,
+      domain: "acme.example",
+      spf: "v=spf1 -all",
+      dmarc: "v=DMARC1; p=rejct; rua=mailto:d@acme.example",
+      mx: ["mx.example"],
+      contactMx: null,
+      expiresAt: undefined,
+    }).find((x) => x.key === "dns-dmarc");
+    expect(c?.status).toBe("fail");
+    expect(c?.evidence).not.toContain("p=none");
+    expect(c?.evidence).toContain("no valid p= policy");
+  });
+});

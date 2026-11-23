@@ -216,9 +216,28 @@ describe("W4: HubSpot tracking is not a CMS", () => {
   it("still names a page HubSpot serves as HubSpot CMS", () => {
     const r = readStack(
       site({
-        imageSrcs: ["https://1234567.fs1.hubspotusercontent-na1.net/hubfs/1234567/hero.jpg"],
+        scriptSrcs: ["https://acme.hs-sites.com/hs/hsstatic/content_shared_assets/main.js"],
       }),
     );
     expect(named(r, "cms")).toEqual(["HubSpot CMS"]);
+  });
+});
+
+describe("W4 review: HubSpot's file CDN is not a CMS, and no build is stored", () => {
+  it("does not name HubSpot CMS from an image on hubspotusercontent", () => {
+    const r = readStack(
+      site({
+        imageSrcs: ["https://1234567.fs1.hubspotusercontent-na1.net/hubfs/1234567/logo.png"],
+        metas: { generator: "WordPress 6.4.2" },
+      }),
+    );
+    expect(named(r, "cms")).toEqual(["WordPress"]);
+  });
+
+  it("stores the server product without its version", () => {
+    const r = readStack(site({}, { server: "Apache/2.4.18 (Ubuntu)" }));
+    const hosting = r.items.find((i) => i.layer === "hosting");
+    expect(hosting?.evidence).toContain("Apache");
+    expect(hosting?.evidence).not.toContain("2.4.18");
   });
 });

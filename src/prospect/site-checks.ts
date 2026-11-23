@@ -547,7 +547,11 @@ function placeholderLink(
 ): { page: string; snippet: string } | null {
   for (const p of pages) {
     const a = p.extract.anchors?.find((x) => isTemplatePlaceholderUrl(x.href));
-    if (a) return { page: p.url, snippet: `a link points to ${a.href}` };
+    if (a)
+      return {
+        page: p.url,
+        snippet: `a link points to ${a.href}, so a visitor who follows it lands on a missing page`,
+      };
   }
   return null;
 }
@@ -1269,10 +1273,24 @@ const SECURITY_HEADER_CHECKS: {
  *  of known holes to work through. */
 const VERSIONED = /\d+\.\d+/;
 
+/** Whether a content policy's `frame-ancestors` actually restricts framing.
+ *  `*`, `http:` and `https:` allow every site, which is no protection; a
+ *  header carrying two policies joined by "," is read policy by policy. */
+export function restrictsFraming(csp: string | undefined): boolean {
+  if (!csp) return false;
+  return csp.split(",").some((policy) =>
+    policy.split(";").some((d) => {
+      const [name, ...sources] = d.trim().split(/\s+/);
+      if (name?.toLowerCase() !== "frame-ancestors" || sources.length === 0) return false;
+      return !sources.some((s) => /^(?:\*|https?:)$/i.test(s));
+    }),
+  );
+}
+
 /** "Apache/2.4.18 (Ubuntu)" → "Apache". The product, never the build. */
 export function softwareName(value: string): string {
   const name = value.split(/[\s/,(]/)[0]?.trim();
-  return name && !VERSIONED.test(name) ? name : "a version number";
+  return name && !VERSIONED.test(name) ? name : "";
 }
 
 /**
@@ -1366,8 +1384,7 @@ function headerChecks(headers: Record<string, string>, measured: boolean): SiteC
     // `frame-ancestors` in a content policy does X-Frame-Options' job and
     // supersedes it in every current browser (LGL-05), so it counts as present.
     const framedByPolicy =
-      header === "x-frame-options" &&
-      /(?:^|;)\s*frame-ancestors\s/i.test(headers["content-security-policy"] ?? "");
+      header === "x-frame-options" && restrictsFraming(headers["content-security-policy"]);
     const present = value !== undefined || framedByPolicy;
     const ok = framedByPolicy || (present && (restricts === undefined || restricts(value!)));
     out.push(
@@ -1402,7 +1419,12 @@ function headerChecks(headers: Record<string, string>, measured: boolean): SiteC
   } else {
     const leaks = ["server", "x-powered-by"]
       .filter((h) => headers[h] && VERSIONED.test(headers[h]!))
-      .map((h) => `your ${h} header names its software version (${softwareName(headers[h]!)})`);
+      .map((h) => {
+        const name = softwareName(headers[h]!);
+        return name
+          ? `your ${h} header names its software version (${name})`
+          : `your ${h} header carries a version number`;
+      });
     out.push(
       check(
         "header-version-leak",
@@ -1589,6 +1611,12 @@ function sidecarChecks(
     // cap. "We read 14 of your pages" is a fact about our limit, and using it
     // as the denominator would report our ceiling as their gap.
     const realLinks = [...linkedPages].filter((a) => !isTemplatePlaceholderUrl(a)).length;
+    if (realLinks === 0) {
+      out.push(
+        unknown("sitemap-coverage", "A sitemap that lists your pages", WHY_COVERAGE, "content"),
+      );
+      return out;
+    }
     const ok = crawl.sitemap.urlCount >= realLinks;
     // When the crawl carried the WHOLE sitemap, a count is not the best we can
     // do — we can name a page it leaves out, and a named page is a job where a
@@ -1755,16 +1783,19 @@ function analyticsCheck(pages: { url: string; extract: PageExtract }[]): SiteChe
  * `/legal/terms` match and `/privacy-dentistry-blog-post` does not.
  */
 const DELIBERATELY_HIDDEN_SEGMENT =
-  /^(?:privacy(?:-policy|-notice)?|terms(?:-of-(?:use|service))?|terms-and-conditions|legal|disclaimer|cookies?(?:-policy)?|thank-?you|thanks|confirmation|search|login|log-in|signin|sign-in|wp-login\.php|account|my-account)$/i;
+  /^(?:privacy(?:-policy|-notice|-statement)?|terms(?:-of-(?:use|service))?|terms-(?:and-)?conditions|legal|disclaimer|cookies?(?:-policy|-notice)?|thank-?you(?:-[a-z0-9-]+)?|thanks|confirmation|search|login|log-in|signin|sign-in|wp-login|account|my-account)$/i;
 
 export function isDeliberatelyHiddenPath(url: string): boolean {
   try {
     const u = new URL(url);
     if (u.searchParams.has("s") && u.pathname === "/") return true;
-    return u.pathname
-      .split("/")
-      .filter(Boolean)
-      .some((seg) => DELIBERATELY_HIDDEN_SEGMENT.test(seg.replace(/\.html?$/i, "")));
+    // The LAST segment only (W4 review): `/legal/terms` is a legal page, but
+    // `/search/boise-homes` and `/legal/estate-planning` are content.
+    const last = u.pathname.split("/").filter(Boolean).pop();
+    return (
+      last !== undefined &&
+      DELIBERATELY_HIDDEN_SEGMENT.test(last.replace(/\.(?:html?|php|aspx?)$/i, ""))
+    );
   } catch {
     return false;
   }
@@ -2914,6 +2945,9 @@ const DMARC_LABEL = "A DMARC policy that turns forged mail away";
  * turn a forged message away.
  */
 export type DmarcState = "missing" | "monitoring" | "enforcing";
+export function dmarcPolicyTag(record: string): string | null {
+  return /(?:^|;)\s*p\s*=\s*([a-z]+)/i.exec(record)?.[1]?.toLowerCase() ?? null;
+}
 export function dmarcState(record: string | null): DmarcState {
   if (record === null) return "missing";
   const m = /(?:^|;)\s*p\s*=\s*([a-z]+)/i.exec(record);
@@ -2986,7 +3020,7 @@ export function dnsChecks(dns: DnsFindings | null): SiteCheck[] {
         state === "missing"
           ? `no record at _dmarc.${dns.domain}`
           : state === "monitoring"
-            ? `monitoring only (p=none): forged mail is reported to you but still delivered — ${clipRecord(dns.dmarc!)}`
+            ? `${dmarcPolicyTag(dns.dmarc!) === "none" ? "monitoring only (p=none)" : "no valid p= policy, so receivers apply none"}: forged mail is reported to you but still delivered — ${clipRecord(dns.dmarc!)}`
             : clipRecord(dns.dmarc!),
       ),
     );

@@ -971,6 +971,8 @@ export async function settledOverflow(
   }
 }
 
+const THIRD_PARTY_FRAME_ATTR = "data-reddoor-third-party-frame";
+
 /**
  * Run the whole axe rule set against the page already loaded in this tab.
  *
@@ -984,8 +986,6 @@ export async function settledOverflow(
  * fell over is OUR missing measurement, and a page reported with no violations
  * because the scanner crashed would be the worst kind of false all-clear.
  */
-const THIRD_PARTY_FRAME_ATTR = "data-reddoor-third-party-frame";
-
 async function runAxe(page: import("@playwright/test").Page): Promise<AxePageResult | null> {
   try {
     // The NAMED export, not the default. The package publishes both, and under
@@ -1004,7 +1004,11 @@ async function runAxe(page: import("@playwright/test").Page): Promise<AxePageRes
           const src = f.getAttribute("src");
           if (!src) continue;
           try {
-            if (new URL(src, location.href).origin !== location.origin) {
+            const u = new URL(src, location.href);
+            // about:blank, javascript: and data: frames are filled by the
+            // site's own script: not provably third-party, so scanned.
+            if (!/^https?:$/.test(u.protocol)) continue;
+            if (u.origin !== location.origin) {
               f.setAttribute(attr, "");
               n += 1;
             }

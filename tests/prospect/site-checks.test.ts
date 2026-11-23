@@ -2044,3 +2044,67 @@ describe("W4: the checks the Technical report leans on say what is true", () => 
     });
   });
 });
+
+describe("W4 review round 1", () => {
+  const run = (over: Partial<CrawlResult>) =>
+    runSiteChecks(exemplary(over), exemplaryChecks(), "Acme Roofing");
+  const { "x-frame-options": _x, ...noXfo } = HEADERS;
+
+  it("does not count frame-ancestors * as protection against framing", () => {
+    const c = byKey(
+      run({
+        homeHeaders: {
+          ...noXfo,
+          "content-security-policy": "default-src 'self'; frame-ancestors *",
+        },
+      }),
+      "header-x-frame-options",
+    );
+    expect(c?.status).toBe("fail");
+  });
+
+  it("reads frame-ancestors in the second of two comma-joined policies", () => {
+    const c = byKey(
+      run({
+        homeHeaders: {
+          ...noXfo,
+          "content-security-policy": "default-src 'self', frame-ancestors 'self'",
+        },
+      }),
+      "header-x-frame-options",
+    );
+    expect(c?.status).toBe("pass");
+  });
+
+  it.each([
+    ["https://acme.example/search/boise-homes-for-sale", false],
+    ["https://acme.example/legal/estate-planning", false],
+    ["https://acme.example/privacy-statement", true],
+    ["https://acme.example/thank-you-for-contacting-us", true],
+    ["https://acme.example/terms.php", true],
+  ])("treats noindex on %s as deliberate: %s", (url, deliberate) => {
+    const c = byKey(
+      run({ pages: [page("https://acme.example/"), page(url, { metas: { robots: "noindex" } })] }),
+      "meta-noindex",
+    );
+    expect(c?.status).toBe(deliberate ? "pass" : "fail");
+  });
+
+  it("is unmeasured, not a pass, when every linked page is a placeholder", () => {
+    const c = byKey(
+      run({
+        sitemap: {
+          present: true,
+          urlCount: 1,
+          sample: ["https://acme.example/"],
+          truncated: false,
+        },
+        pages: [
+          page("https://acme.example/", { anchors: [{ href: "/{{url}}", text: "x", rel: "" }] }),
+        ],
+      }),
+      "sitemap-coverage",
+    );
+    expect(c?.status).toBe("unmeasured");
+  });
+});

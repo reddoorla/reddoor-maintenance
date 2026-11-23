@@ -123,11 +123,9 @@ const ASSET_SIGNATURES: AssetSignature[] = [
   // tracking and cookie-banner hosts (`hs-scripts`, `hs-banner`) run on any
   // site that uses HubSpot's CRM, and named a WordPress site "HubSpot CMS"
   // in a live report (TEC-06); they are analytics, below.
-  {
-    layer: "cms",
-    name: "HubSpot CMS",
-    match: /(?:^|\/\/|\.)(?:hs-sites\.com|hubspotusercontent[a-z0-9-]*\.net)\//,
-  },
+  // Not `hubspotusercontent`: that is HubSpot's file CDN, which CRM-only
+  // customers embed images from too (W4 review).
+  { layer: "cms", name: "HubSpot CMS", match: /(?:^|\/\/|\.)hs-sites\.com\// },
   { layer: "cms", name: "Duda", match: /(?:^|\/\/|\.)cdn-website\.com\// },
   { layer: "cms", name: "GoDaddy Website Builder", match: /(?:^|\/\/|\.)wsimg\.com\// },
   { layer: "cms", name: "Drupal", match: /\/(?:core|modules)\/misc\/drupal\.js/ },
@@ -360,7 +358,11 @@ export function readStack(crawl: CrawlResult): StackReadout {
     add(
       "hosting",
       sig.name,
-      sig.value ? `${sig.header}: ${receipt(value)}` : `${sig.header} header`,
+      // The product, never the build (LGL-05): "Apache/2.4.18 (Ubuntu)" is
+      // stored as "Apache (Ubuntu)". The raw header stays in `homeHeaders`.
+      sig.value
+        ? `${sig.header}: ${receipt(value.replace(/\/?\d+(?:\.\d+)+/g, ""))}`
+        : `${sig.header} header`,
     );
   }
 

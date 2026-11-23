@@ -52,6 +52,13 @@ const framePage = (
 ) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Embed</title></head>
 <body><main><h1>Embed</h1><iframe${title} src="${src}"></iframe></main></body></html>`;
 
+// A frame the site fills itself: about:blank, written by the page's own script.
+const BLANK_FRAME = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Blank</title></head>
+<body><main><h1>Blank</h1><iframe title="Filled" src="about:blank"></iframe>
+<script>const d = document.querySelector("iframe").contentDocument; d.open();
+d.write('<!doctype html><html lang="en"><head><title>in</title></head><body><button></button></body></html>'); d.close();</script>
+</main></body></html>`;
+
 describe("the crawl's browser settings, against a real browser", () => {
   let server: Server;
   let other: Server;
@@ -77,6 +84,7 @@ describe("the crawl's browser settings, against a real browser", () => {
       "/widget": NAMELESS_BUTTON,
       "/third-party-frame": framePage(`${otherBase}/widget`),
       "/own-frame": framePage("/widget"),
+      "/blank-frame": BLANK_FRAME,
       "/untitled-third-party-frame": framePage(`${otherBase}/widget`, ""),
     });
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -130,6 +138,10 @@ describe("the crawl's browser settings, against a real browser", () => {
     const p = await render("/untitled-third-party-frame");
     expect(nodes(p, "frame-title")).toBeGreaterThan(0);
     expect(nodes(p, "button-name")).toBe(0);
+  }, 60_000);
+
+  it("scans an about:blank frame the site fills itself", async () => {
+    expect(nodes(await render("/blank-frame"), "button-name")).toBeGreaterThan(0);
   }, 60_000);
 
   it("CONTROL: the same widget in a same-origin frame is the site's own, and reported", async () => {
