@@ -51,6 +51,7 @@ const SCHEMA = JSON.stringify({
 
 const CLEAN_VITALS = {
   consoleErrors: [],
+  scriptErrors: [],
   failedRequests: [],
   overflowAt375: 0,
   tinyText: { count: 0, sample: null },

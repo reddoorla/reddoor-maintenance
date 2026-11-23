@@ -8,7 +8,8 @@ import {
   type DnsBackend,
   type DnsDeps,
 } from "../../src/prospect/dns.js";
-import { dnsChecks } from "../../src/prospect/site-checks.js";
+import { dmarcState, dnsChecks } from "../../src/prospect/site-checks.js";
+import type { DnsFindings } from "../../src/prospect/dns.js";
 
 /** A resolver that answers exactly what a test tells it to, and throws the
  *  codes a real one throws. */
@@ -502,5 +503,87 @@ describe("defaultDnsDeps() with no arguments — the path production calls", () 
     expect(r.mx).toEqual(["medicalsolutionsoftx-com.mail.protection.outlook.com"]);
     expect(r.spf).toMatch(/^v=spf1 include:spf\.protection\.outlook\.com/);
     expect(r.dmarc).toBeNull();
+  });
+});
+
+describe("W4: DMARC has three states, and watch-only is not a pass", () => {
+  const findings = (dmarc: string | null): DnsFindings => ({
+    measured: true,
+    domain: "acme.example",
+    spf: "v=spf1 include:_spf.example.net -all",
+    dmarc,
+    mx: ["mx1.example.net"],
+    contactMx: null,
+    expiresAt: undefined,
+  });
+  const dmarcRow = (dmarc: string | null) =>
+    dnsChecks(findings(dmarc)).find((c) => c.key === "dns-dmarc");
+
+  it("reads p=none as monitoring only, a fail with its own wording", () => {
+    const c = dmarcRow("v=DMARC1; p=none; rua=mailto:dmarc@acme.example");
+    expect(c?.status).toBe("fail");
+    expect(c?.evidence).toContain("monitoring only");
+    expect(dmarcState("v=DMARC1; p=none;")).toBe("monitoring");
+  });
+
+  it("passes quarantine and reject", () => {
+    expect(dmarcRow("v=DMARC1; p=quarantine; pct=100")?.status).toBe("pass");
+    expect(dmarcRow("v=DMARC1;p=reject")?.status).toBe("pass");
+  });
+
+  it("does not read the subdomain policy as the domain's", () => {
+    expect(dmarcState("v=DMARC1; p=none; sp=reject")).toBe("monitoring");
+  });
+
+  it("fails a domain with no record, and says so", () => {
+    const c = dmarcRow(null);
+    expect(c?.status).toBe("fail");
+    expect(c?.evidence).toContain("no record");
+  });
+
+  it("no longer claims SPF is enforced by a DMARC record", () => {
+    expect(dmarcRow("v=DMARC1; p=none;")?.label).not.toMatch(/SPF is enforced/);
+  });
+});
+
+describe("W4 review: a DMARC record with no readable policy", () => {
+  it("does not claim the record says p=none", () => {
+    const c = dnsChecks({
+      measured: true,
+      domain: "acme.example",
+      spf: "v=spf1 -all",
+      dmarc: "v=DMARC1; p=rejct; rua=mailto:d@acme.example",
+      mx: ["mx.example"],
+      contactMx: null,
+      expiresAt: undefined,
+    }).find((x) => x.key === "dns-dmarc");
+    expect(c?.status).toBe("fail");
+    expect(c?.evidence).not.toContain("p=none");
+    expect(c?.evidence).toContain("no valid p= policy");
+  });
+});
+
+describe("W4 review round 2: who forged mail is reported to", () => {
+  const dmarc = (record: string) =>
+    dnsChecks({
+      measured: true,
+      domain: "acme.example",
+      spf: "v=spf1 -all",
+      dmarc: record,
+      mx: ["mx.example"],
+      contactMx: null,
+      expiresAt: undefined,
+    }).find((x) => x.key === "dns-dmarc");
+
+  it("does not say reports reach you when the record sets no rua=", () => {
+    const c = dmarc("v=DMARC1; p=none");
+    expect(c?.evidence).not.toContain("reported to you");
+    expect(c?.evidence).toContain("no report address is set");
+  });
+
+  it("says so when it does", () => {
+    expect(dmarc("v=DMARC1; p=none; rua=mailto:d@acme.example")?.evidence).toContain(
+      "reported to you",
+    );
   });
 });

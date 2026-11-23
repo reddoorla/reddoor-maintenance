@@ -860,6 +860,10 @@ cli
     "--reviews",
     'Also ask "<name> reviews". Off by default: what comes back is reputational material nobody has checked, so use it only for a report a person reads before it goes out.',
   )
+  .option(
+    "--technical",
+    "Run only the unpaid stages a Technical report reads: skips analyze, probes and accuracy, so no model tokens are spent.",
+  )
   .option("--out <file>", "Also write the rendered report to this file.")
   .option("--json", "Print the raw result JSON instead of the report summary.")
   .option(
@@ -882,6 +886,7 @@ cli
         goal?: string;
         competitors?: string;
         probes?: boolean;
+        technical?: boolean;
         out?: string;
         json?: boolean;
         email?: boolean;

@@ -1,6 +1,6 @@
 import { escapeHtml, safeUrl } from "../util/html.js";
 import { hostnameOf } from "../util/url.js";
-import { ANALYZE_SKIPPED, PROBES_SKIPPED } from "./pipeline.js";
+import { ANALYZE_SKIPPED, PROBES_SKIPPED, TECHNICAL_SKIPPED } from "./pipeline.js";
 import { domainOf, resolveBusinessName } from "./probes.js";
 import type {
   AnalyzeResult,
@@ -120,6 +120,9 @@ function notMeasuredNote(): string {
  *  {error}" would otherwise imply. Compares against the pipeline's exported
  *  constants rather than a retyped string literal. */
 function skippableStageNote(error: string, skipConstant: string, skipMessage: string): string {
+  if (error === TECHNICAL_SKIPPED) {
+    return `<p class="muted">${escapeHtml("A technical-only run: this section's model stages were not run.")}</p>`;
+  }
   if (error === skipConstant) {
     return `<p class="muted">${escapeHtml(skipMessage)}</p>`;
   }
