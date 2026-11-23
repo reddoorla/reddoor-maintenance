@@ -157,8 +157,8 @@
     "edits": [
       {
         "file": "src/content-check/rules.ts",
-        "find": "  const letters = text.match(/\\p{L}/gu)?.length ?? 0;\n  if (letters < 2) return true;\n",
-        "replace": "  const letters = text.match(/\\p{L}/gu)?.length ?? 0;\n  if (letters < 0) return true;\n"
+        "find": "  if (letters < 2) return !/\\d[$%+,:]|[$%+,:]\\d/.test(text);\n",
+        "replace": "  if (letters < 0) return true;\n"
       }
     ],
     "test": [
@@ -276,8 +276,8 @@
     "edits": [
       {
         "file": "src/content-check/scan.ts",
-        "find": "            !isLiteralChoice(parent.left as Node)\n",
-        "replace": "            true\n"
+        "find": "            !isLiteralChoice(parent.left as Node) &&\n",
+        "replace": "            true &&\n"
       }
     ],
     "test": [
