@@ -266,6 +266,56 @@ describe("topBacklogItems", () => {
     });
   });
 
+  describe("reads cells as GitHub does, round 9", () => {
+    const one = (row: string) => topBacklogItems(backlog([row])).items[0]!;
+
+    it("a cell that starts like a list, quote, heading or HTML block is still read", () => {
+      for (const lead of ["- ", "1. ", "+ ", "> ", "# ", "<!-- n --> "]) {
+        const item = one(`| P1-950 | **T** | 🟢 | S | ${lead}Status 2026-11-22: done. | x |`);
+        expect(item.status?.date, lead).toBe("2026-11-22");
+      }
+      expect(one("| P1-950 | **T** | 1. ops |").tier).toBe("1. ops");
+      expect(() => one("| P1-950 | **T** | 🟢 | S | - check status later | x |")).toThrow(
+        /^P1-950: column 5 /,
+      );
+    });
+
+    it("after a label-only prefix, a full stop in code or brackets ends no sentence", () => {
+      const code = one("| P1-951 | **Status 2026-11-22:** see `a.` **P1-82** first. **T** | 🟢 |");
+      expect([code.title, code.status?.sentence]).toEqual(["T", "see a. P1-82 first."]);
+      const paren = one(
+        "| P1-951 | **Status 2026-11-22:** done (see v1. **P1-82** too). **T** | 🟢 |",
+      );
+      expect([paren.title, paren.status?.sentence]).toEqual(["T", "done (see v1. P1-82 too)."]);
+    });
+
+    it("after a label-only prefix, the title is the first bold after a sentence has ended", () => {
+      const item = one("| P1-952 | **Status 2026-11-22:** done. Next step **T** | 🟢 |");
+      expect([item.title, item.status?.sentence]).toEqual(["T", "done."]);
+    });
+
+    it("a row of unpaired backtick runs splits in linear time", () => {
+      const row = (k: number) => `| P1-953 | **T** | 🟢 |${" `` `|".repeat(k)}`;
+      const time = (k: number) => {
+        const t0 = performance.now();
+        topBacklogItems(backlog([row(k)]));
+        return performance.now() - t0;
+      };
+      time(200);
+      // 40 KB: round 9 measured 9.5 s before the join was made linear.
+      expect(time(8000)).toBeLessThan(1500);
+    });
+
+    it("an impossible re-rank date or time reads as no re-rank time", () => {
+      for (const when of ["2026-02-30 ~13:20Z", "2026-11-23 ~24:00Z", "2026-11-23 ~13:60Z"]) {
+        expect(
+          topBacklogItems(backlog(ALL, `**Last full re-rank: ${when}**`)).rerankedAt,
+          when,
+        ).toBeNull();
+      }
+    });
+  });
+
   describe("reads markdown code and emphasis the way GitHub shows them (round 7)", () => {
     const one = (row: string) => topBacklogItems(backlog([row])).items[0]!;
 

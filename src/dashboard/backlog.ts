@@ -128,20 +128,25 @@ export function splitRow(line: string): string[] {
     } else cur += ch;
   }
   pieces.push(cur);
+  // Each piece's unclosed runs, read once; then, from the right, the nearest
+  // later piece whose first unclosed run has a given length, so the join is
+  // linear in the row (round 9 measured the per-pair search as quadratic).
+  const opens = pieces.map((p) => codeSpans(p).open);
+  const partner: Array<number | undefined> = new Array(pieces.length);
+  const nearest = new Map<number, number>();
+  for (let i = pieces.length - 1; i >= 0; i--) {
+    const open = opens[i]!;
+    if (open.length > 0) partner[i] = nearest.get(open[open.length - 1]!);
+    if (open[0] !== undefined) nearest.set(open[0], i);
+  }
   const cells: string[] = [];
   for (let i = 0; i < pieces.length; i++) {
-    let cell = pieces[i]!;
-    const open = codeSpans(cell).open;
-    if (open.length > 0) {
-      for (let j = i + 1; j < pieces.length; j++) {
-        const first = codeSpans(pieces[j]!).open[0];
-        if (first !== open[open.length - 1]) continue;
-        cell = pieces.slice(i, j + 1).join("|");
-        i = j;
-        break;
-      }
+    const j = partner[i];
+    if (j === undefined) cells.push(pieces[i]!);
+    else {
+      cells.push(pieces.slice(i, j + 1).join("|"));
+      i = j;
     }
-    cells.push(cell);
   }
   // A row is `| a | b |`: drop the empty edges outside the first and last pipe.
   if (cells.length > 0 && cells[0]!.trim() === "") cells.shift();
@@ -161,15 +166,36 @@ function validDate(iso: string): boolean {
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === iso;
 }
 
+/**
+ * A table cell holds inline markdown only: GitHub never reads `- `, `1. `,
+ * `> `, `# `, `~~~` or an HTML block at a cell's start as a block. Turning
+ * the block constructs off keeps such a cell a paragraph, so its text is read
+ * (P1-111 round 9: a cell starting `- Status …` was read as empty).
+ */
+const INLINE_ONLY = {
+  disable: {
+    null: [
+      "blockQuote",
+      "codeFenced",
+      "codeIndented",
+      "definition",
+      "headingAtx",
+      "htmlFlow",
+      "list",
+      "setextUnderline",
+      "thematicBreak",
+    ],
+  },
+};
+
 /** One cell's inline markdown, parsed by mdast (CommonMark plus GFM strikethrough). */
 function inline(md: string): PhrasingContent[] {
   const root = fromMarkdown(md, {
-    extensions: [gfmStrikethrough()],
+    extensions: [gfmStrikethrough(), INLINE_ONLY],
     mdastExtensions: [gfmStrikethroughFromMarkdown()],
   });
   const first = root.children[0];
-  // A cell is one line, so one paragraph; anything else (a heading, a list
-  // marker, a thematic break) is read as nothing a status could hide in.
+  // With every block construct off, a cell is one paragraph (or nothing).
   return first?.type === "paragraph" ? first.children : [];
 }
 
@@ -217,6 +243,12 @@ function visible(flat: Flat): string {
  *  `.`, `!` or `?` that ends a word, outside brackets, parentheses and code,
  *  followed (after any closing quotes or brackets) by a space or the end. */
 function sentenceEnd(flat: Flat, from = 0, to = flat.text.length): number {
+  const end = findSentenceEnd(flat, from, to);
+  return end === -1 ? to : end;
+}
+
+/** As `sentenceEnd`, but -1 when no sentence ends before `to`. */
+function findSentenceEnd(flat: Flat, from = 0, to = flat.text.length): number {
   const t = flat.text;
   let depth = 0;
   for (let i = from; i < to; i++) {
@@ -234,7 +266,7 @@ function sentenceEnd(flat: Flat, from = 0, to = flat.text.length): number {
       }
     }
   }
-  return to;
+  return -1;
 }
 
 /** The first sentence of a markdown text, as plain text. */
@@ -358,25 +390,26 @@ function statusBold(node: PhrasingContent): boolean {
  */
 function titleOf(id: string, nodes: PhrasingContent[]): PhrasingContent {
   let labelOnly = false;
-  let since = "";
+  let since: PhrasingContent[] = [];
   let seenStatus = false;
   for (const node of nodes) {
     if (statusBold(node)) {
       seenStatus = true;
       const rest = flatten([node]).text.replace(STATUS_AT, "");
       labelOnly = /^(?:\[[^\]]*\])?\s?[:—–-]?$/.test(rest.trim());
-      since = "";
+      since = [];
       continue;
     }
     if (boldOf(node)) {
-      const pending = since.trim();
-      if (!labelOnly || pending === "" || /\S[.!?]["'’”)]*$/.test(pending)) {
+      // A sentence has ended in the text since the label (outside code and
+      // brackets, by the same rule as a status's sentence), or there is none.
+      const pending = flatten(since);
+      if (!labelOnly || pending.text.trim() === "" || findSentenceEnd(pending) !== -1) {
         return node;
       }
     }
-    const text = flatten([node]).text;
-    if (!seenStatus && text.trim() !== "") break;
-    since += text;
+    if (!seenStatus && flatten([node]).text.trim() !== "") break;
+    since.push(node);
   }
   throw new BacklogParseError(`${id}: its item cell has no bold title`);
 }
@@ -416,8 +449,9 @@ function parseItem(rank: number, cells: string[], lineNo: number): BacklogItem {
 function parseRerank(md: string): string | null {
   const m = /Last full re-rank:\s*(\d{4}-\d{2}-\d{2})\s*~?\s*(\d{1,2}):(\d{2})Z/.exec(md);
   if (!m) return null;
-  const iso = `${m[1]}T${m[2]!.padStart(2, "0")}:${m[3]}:00Z`;
-  return Number.isNaN(Date.parse(iso)) ? null : new Date(iso).toISOString();
+  // Date.parse rolls 2026-02-30 and 24:00 over to the next day; refuse both.
+  if (!validDate(m[1]!) || Number(m[2]) > 23 || Number(m[3]) > 59) return null;
+  return new Date(`${m[1]}T${m[2]!.padStart(2, "0")}:${m[3]}:00Z`).toISOString();
 }
 
 /** The first `count` rows of the backlog's P1 table, in rank order. */
