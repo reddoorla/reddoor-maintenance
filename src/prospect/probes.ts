@@ -10,7 +10,8 @@ export type VisibilityEngine = {
 };
 
 /** Ceiling on queries per engine per audit. Sized to fit everything the stage
- *  actually asks for — 2 branded + 5 category + 2 competitor — so nothing is
+ *  actually asks for — 1 branded + 5 category + 2 competitor, plus the reviews
+ *  query when `--reviews` asks for it — so nothing is
  *  silently dropped at the end. It was 8 while category was capped at 3; raising
  *  category to 5 without raising this would have quietly discarded a competitor
  *  query, which is the same bug in a different place. */
@@ -28,7 +29,8 @@ const SNIPPET_CHARS = 300;
  * constrained or reasoned about, and the citations come from the same search
  * index whichever model drives the tool.
  *
- * It is also where the money is: seven probe calls per audit against the
+ * It is also where the money is: up to eight probe calls per audit (the reviews
+ * query is one more, only with `--reviews`) against the
  * analyze pass's one, so this single constant is roughly half the cost of an
  * audit. Opus here buys prose quality in `answer`, which only ever appears as a
  * 300-character snippet.
@@ -116,8 +118,8 @@ export type ProbeInput = {
    *
    * It asks for reputational material on purpose, and what comes back is
    * whatever review surface exists: for a B2B firm that is employee ratings,
-   * and one assistant failing to find reviews in four searches came back as
-   * "there just isn't a public review footprint". Neither is something a
+   * and an answer that said it found no reviews is a finding about the search,
+   * not about the business. Neither is something a
    * sales document should carry unread.
    */
   reviews?: boolean;
@@ -506,6 +508,7 @@ export async function runVisibilityProbes(
     answers,
     visibilityScore,
     brandedRecognized,
+    reviewsAsked: input.reviews === true,
     competitorsSeen: [...competitorCounts.entries()]
       .map(([domain, count]) => ({ domain, count }))
       .sort((a, b) => b.count - a.count)

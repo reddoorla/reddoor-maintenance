@@ -823,3 +823,30 @@ describe("namesakes on the probe result", () => {
     expect(result.namesakes!.map((n) => n.domain)).not.toContain("someagency.example");
   });
 });
+
+describe("review round 1: reviewsAsked records whether the reviews probe ran", () => {
+  const base = {
+    url: "https://acme.example/",
+    business: "Acme Roofing",
+    categoryQueries: ["how much does a roof repair cost"],
+    competitors: [],
+  };
+  const engines = () => [
+    engine("perplexity", () => ({
+      answer: "Acme Roofing is a Boise contractor.",
+      citedDomains: [],
+    })),
+  ];
+
+  it("is false by default, and the reviews query is not asked", async () => {
+    const result = await runVisibilityProbes(base, engines(), { delayMs: 0 });
+    expect(result.reviewsAsked).toBe(false);
+    expect(result.answers.map((a) => a.query)).not.toContain("Acme Roofing reviews");
+  });
+
+  it("is true when the operator option is given", async () => {
+    const result = await runVisibilityProbes({ ...base, reviews: true }, engines(), { delayMs: 0 });
+    expect(result.reviewsAsked).toBe(true);
+    expect(result.answers.map((a) => a.query)).toContain("Acme Roofing reviews");
+  });
+});

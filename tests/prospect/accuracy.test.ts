@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  AccuracySchema,
   backstopAbsent,
   quoteSupportsClaim,
   buildAccuracyInput,
   checkAccuracy,
   fullSiteText,
   selectPages,
+  siteCoverage,
   type Assertion,
 } from "../../src/prospect/accuracy.js";
 import type {
@@ -211,9 +213,11 @@ describe("backstopAbsent — never accuse an engine of inventing what the site p
 });
 
 describe("checkAccuracy — quotes are verified, not trusted", () => {
-  // A two-page site whose sitemap lists two pages: read whole, so `absent` can stand.
-  const site = crawl(
-    [
+  // A two-page site whose sitemap lists two pages, complete and read whole, so
+  // `absent` can stand. The sitemap must say it is untruncated and give its full
+  // sample, or the site is not known to be read whole (review round 1, fix 3).
+  const site: CrawlResult = {
+    ...crawl([
       page(
         "https://seaviewdental.example/",
         "Beachfront Dentistry in Riviera Village, Redondo Beach.",
@@ -222,9 +226,14 @@ describe("checkAccuracy — quotes are verified, not trusted", () => {
         "https://seaviewdental.example/team",
         "Meet Your Team Dr. Priya Raman Dr. Marcus Whitfield",
       ),
-    ],
-    2,
-  );
+    ]),
+    sitemap: {
+      present: true,
+      urlCount: 2,
+      truncated: false,
+      sample: ["https://seaviewdental.example/", "https://seaviewdental.example/team"],
+    },
+  };
   const answer = branded({
     fullAnswer:
       "Beachfront Dentistry is a dental practice in the Riviera Village neighborhood of Redondo Beach. " +
@@ -666,30 +675,36 @@ describe("a place the site itself names", () => {
   });
 
   it("holds a contradiction to two different values even when the site uses its search term", async () => {
-    const r = await checkAccuracy("https://acme.example/", site, [answer], [], {
+    // A valid contradiction: the engine says Portland, the site says Los Angeles,
+    // and the site also uses the claim's search term ("metro area"). The
+    // search-term hit must not undo a contradiction the two values support.
+    const portland = branded({
+      query: "who is Acme Design",
+      citedDomains: ["yelp.com"],
+      fullAnswer: "Acme Design (Los Angeles-based) is a studio. Acme Design is based in Portland.",
+    });
+    const r = await checkAccuracy("https://acme.example/", site, [portland], [], {
       run: async () => ({
         assertions: [
           {
             claim: "Acme Design is located in the Portland metro area.",
-            engineQuote: "Acme Design (Los Angeles-based)",
+            engineQuote: "Acme Design is based in Portland",
             verdict: "contradicted",
             siteQuote: "We are conveniently located near the Los Angeles metro area.",
             searchTerms: ["metro area"],
             contradiction: {
               attribute: "location",
-              engineValue: "Los Angeles",
-              siteValue: "Los Angeles metro area",
+              engineValue: "Portland",
+              siteValue: "Los Angeles",
             },
           },
         ],
       }),
       ownership: offline,
     });
-    // The site's value holds the engine's, so the two do not differ: the
-    // search term on the site plays no part either way.
     expect(r.assertions[0]).toMatchObject({
-      verdict: "unverified",
-      unverifiedReason: NO_SECOND_VALUE,
+      verdict: "contradicted",
+      unverifiedReason: null,
     });
   });
 });
@@ -1150,14 +1165,22 @@ describe("W2: what the assistant said, about the right company", () => {
       expect(r.siteFullyRead).toBe(false);
     });
 
+    // Changed in review round 1 (fix 3a): a crawl that took the 20-page cap is never
+    // read whole, so this fixture now stops one page short of it. Every page of a
+    // 19-page site is read, the sitemap is complete and untruncated, and its sample
+    // lists the pages we read.
     it("keeps absent when the pages read cover the sitemap", async () => {
-      const r = await checkAccuracy(
-        "https://north.example/",
-        crawl(pages, 20),
-        [answer],
-        [],
-        run([absent]),
-      );
+      const nineteen = pages.slice(0, 19);
+      const c: CrawlResult = {
+        ...crawl(nineteen),
+        sitemap: {
+          present: true,
+          urlCount: 19,
+          truncated: false,
+          sample: nineteen.map((p) => p.url),
+        },
+      };
+      const r = await checkAccuracy("https://north.example/", c, [answer], [], run([absent]));
       expect(r.siteFullyRead).toBe(true);
       expect(r.assertions[0]?.verdict).toBe("absent");
     });
@@ -1177,7 +1200,7 @@ describe("W2: what the assistant said, about the right company", () => {
         quoteSupportsClaim(
           "Calder offers gutter repair for homeowners.",
           "Calder handles gutter repair for homeowners citywide.",
-          "NORV",
+          "Calder",
         ),
       ).toBe(true);
     });
@@ -1289,5 +1312,350 @@ describe("W2: what the assistant said, about the right company", () => {
         expect(system).toContain(field);
       }
     });
+  });
+});
+
+/**
+ * Review round 1 (reddoorla/reddoor-maintenance#2256).
+ */
+describe("review round 1: a contradiction needs the site to differ from the engine", () => {
+  const offline = { fetchPage: async () => null };
+  const run = (assertions: unknown[]) => ({
+    run: async () => ({ assertions }),
+    ownership: offline,
+  });
+
+  it("is unverified when the site quote also says the engine's value", async () => {
+    const site = crawl([page("https://acme.example/", "Founded in 2001. Copyright 2022.")], 1);
+    const answer = branded({
+      query: "who is Acme Design",
+      fullAnswer: "Acme was founded in 2001.",
+    });
+    const r = await checkAccuracy(
+      "https://acme.example/",
+      site,
+      [answer],
+      [],
+      run([
+        {
+          claim: "Acme was founded in 2001.",
+          engineQuote: "Acme was founded in 2001",
+          verdict: "contradicted",
+          siteQuote: "Founded in 2001. Copyright 2022.",
+          searchTerms: ["2001"],
+          contradiction: { attribute: "founding year", engineValue: "2001", siteValue: "2022" },
+        },
+      ]),
+    );
+    expect(r.assertions[0]).toMatchObject({ verdict: "unverified", contradiction: null });
+  });
+
+  describe("the same value written two ways is not a contradiction", () => {
+    const contradictionBetween = async (
+      engineQuote: string,
+      engineValue: string,
+      siteQuote: string,
+      siteValue: string,
+    ) => {
+      const r = await checkAccuracy(
+        "https://acme.example/",
+        crawl([page("https://acme.example/", siteQuote)], 1),
+        [branded({ query: "who is Acme Design", fullAnswer: engineQuote })],
+        [],
+        run([
+          {
+            claim: "Acme Design's figure is the one the site gives.",
+            engineQuote,
+            verdict: "contradicted",
+            siteQuote,
+            searchTerms: ["Acme"],
+            contradiction: { attribute: "figure", engineValue, siteValue },
+          },
+        ]),
+      );
+      return r.assertions[0]?.verdict;
+    };
+
+    it("LA and Los Angeles", async () => {
+      expect(
+        await contradictionBetween(
+          "Acme Design is based in LA.",
+          "LA",
+          "Acme Design is based in Los Angeles.",
+          "Los Angeles",
+        ),
+      ).toBe("unverified");
+    });
+
+    it("12 and twelve", async () => {
+      expect(
+        await contradictionBetween(
+          "Acme Design has 12 staff.",
+          "12",
+          "Acme Design has twelve staff.",
+          "twelve",
+        ),
+      ).toBe("unverified");
+    });
+
+    it("$1M and $1,000,000", async () => {
+      expect(
+        await contradictionBetween(
+          "Acme Design reports revenue of $1M.",
+          "$1M",
+          "Acme Design reports revenue of $1,000,000.",
+          "$1,000,000",
+        ),
+      ).toBe("unverified");
+    });
+
+    it("still stands for two different years: 2001 against 2022", async () => {
+      expect(
+        await contradictionBetween(
+          "Acme Design was founded in 2001.",
+          "2001",
+          "Acme Design opened in 2022.",
+          "2022",
+        ),
+      ).toBe("contradicted");
+    });
+  });
+
+  it("the engine half of the check: an engine value not in its own quote does not stand", async () => {
+    // "1999" is not in the engine's quote, so the contradiction is not held,
+    // even though the site's value is in its quote.
+    const site = crawl([page("https://north.example/", "Northwind Supply opened in 2022.")], 1);
+    const answer = branded({
+      query: "who is Northwind Supply",
+      fullAnswer: "Northwind Supply was established in 2001.",
+    });
+    const r = await checkAccuracy(
+      "https://north.example/",
+      site,
+      [answer],
+      [],
+      run([
+        {
+          claim: "Northwind Supply was founded in 1999.",
+          engineQuote: "established in 2001",
+          verdict: "contradicted",
+          siteQuote: "opened in 2022",
+          searchTerms: ["Northwind"],
+          contradiction: { attribute: "founding year", engineValue: "1999", siteValue: "2022" },
+        },
+      ]),
+    );
+    expect(r.assertions[0]?.verdict).toBe("unverified");
+  });
+
+  it("the otherName is kept only for a statement about another business", async () => {
+    const site = crawl([page("https://acme.example/", "Acme Design is a studio.")], 1);
+    const answer = branded({
+      query: "who is Acme Design",
+      fullAnswer: "Acme Design is a studio run by Northwind.",
+    });
+    const r = await checkAccuracy(
+      "https://acme.example/",
+      site,
+      [answer],
+      [],
+      run([
+        {
+          claim: "Acme Design is run by Northwind.",
+          engineQuote: "Acme Design is a studio run by Northwind",
+          verdict: "absent",
+          siteQuote: null,
+          searchTerms: ["Northwind"],
+          subject: "prospect",
+          otherName: "Northwind",
+        },
+      ]),
+    );
+    expect(r.assertions[0]?.otherName).toBeNull();
+  });
+});
+
+describe("review round 1: unknown enum values do not fail the stage", () => {
+  const base = {
+    claim: "Acme is rated highly.",
+    engineQuote: "Acme is rated highly",
+    verdict: "absent",
+    siteQuote: null,
+    searchTerms: ["Acme"],
+  };
+
+  it("parses an unknown topic as other", () => {
+    const parsed = AccuracySchema.parse({ assertions: [{ ...base, topic: "ratings" }] });
+    expect(parsed.assertions[0]?.topic).toBe("other");
+  });
+
+  it("parses an unknown subject as unclear", () => {
+    const parsed = AccuracySchema.parse({ assertions: [{ ...base, subject: "the business" }] });
+    expect(parsed.assertions[0]?.subject).toBe("unclear");
+  });
+});
+
+describe("review round 1: the site counts as read whole only when its pages were read", () => {
+  const ORIGIN = "https://example.com";
+  const urls = (n: number) => Array.from({ length: n }, (_, i) => `${ORIGIN}/p${i}`);
+  /** A crawl that took `n` pages, all read, with the sitemap as given. */
+  const taken = (
+    n: number,
+    sitemap: CrawlResult["sitemap"],
+  ): Pick<CrawlResult, "sitemap" | "pages"> => ({
+    sitemap,
+    pages: urls(n).map((u) => page(u, "Text.")),
+  });
+  const readAll = (n: number) => ({ crawlFullyRead: true, pagesRead: n, readUrls: urls(n) });
+
+  describe("(a) a crawl that reached its page cap is never read whole", () => {
+    it("is not full when the crawl took exactly the cap, even with a matching sitemap", () => {
+      const sitemap = { present: true, urlCount: 20, truncated: false, sample: urls(20) };
+      expect(siteCoverage(readAll(20), taken(20, sitemap), 20).full).toBe(false);
+    });
+
+    it("is full one page under the cap, on the same evidence", () => {
+      const sitemap = { present: true, urlCount: 19, truncated: false, sample: urls(19) };
+      expect(siteCoverage(readAll(19), taken(19, sitemap), 20).full).toBe(true);
+    });
+
+    it("takes the cap as a parameter, so a different cap is honoured", () => {
+      const sitemap = { present: true, urlCount: 5, truncated: false, sample: urls(5) };
+      expect(siteCoverage(readAll(5), taken(5, sitemap), 5).full).toBe(false);
+    });
+  });
+
+  describe("(b) a sitemap whose truncated flag is missing is not known to be complete", () => {
+    const sitemapSample = { present: true, urlCount: 3, sample: urls(3) };
+
+    it("is not full when truncated is absent", () => {
+      expect(siteCoverage(readAll(3), taken(3, sitemapSample), 20).full).toBe(false);
+    });
+
+    it("is full only once truncated is explicitly false", () => {
+      expect(
+        siteCoverage(readAll(3), taken(3, { ...sitemapSample, truncated: false }), 20).full,
+      ).toBe(true);
+    });
+  });
+
+  describe("(c) the sitemap's sample decides which pages were the site", () => {
+    it("is not full when the sample is incomplete (fewer URLs than the count)", () => {
+      const sitemap = { present: true, urlCount: 3, truncated: false, sample: urls(2) };
+      expect(siteCoverage(readAll(3), taken(3, sitemap), 20).full).toBe(false);
+    });
+
+    it("is not full when the sample is absent", () => {
+      const sitemap = { present: true, urlCount: 3, truncated: false };
+      expect(siteCoverage(readAll(3), taken(3, sitemap), 20).full).toBe(false);
+    });
+
+    it("is not full when a complete sample lists a URL we did not read", () => {
+      const sitemap = {
+        present: true,
+        urlCount: 3,
+        truncated: false,
+        sample: [...urls(2), `${ORIGIN}/never-read`],
+      };
+      expect(siteCoverage(readAll(3), taken(3, sitemap), 20).full).toBe(false);
+    });
+
+    it("is full when every sampled URL was read, after normalising scheme, www and a trailing slash", () => {
+      const sitemap = {
+        present: true,
+        urlCount: 3,
+        truncated: false,
+        sample: ["http://www.example.com/p0/", "https://example.com/p1", "https://example.com/p2/"],
+      };
+      expect(siteCoverage(readAll(3), taken(3, sitemap), 20).full).toBe(true);
+    });
+  });
+
+  describe("(d) the P-of-S reason comes first when the site size is known", () => {
+    it("says how many of the site's pages we read", () => {
+      const sitemap = { present: true, urlCount: 95, truncated: false, sample: [] };
+      const r = siteCoverage(
+        { crawlFullyRead: false, pagesRead: 20, readUrls: urls(20) },
+        taken(20, sitemap),
+        20,
+      );
+      expect(r).toEqual({
+        full: false,
+        reason: "We read 20 of your 95 pages, so we cannot say this is absent from your site.",
+      });
+    });
+
+    it("keeps the generic reason when the site size is unknown", () => {
+      const r = siteCoverage(
+        { crawlFullyRead: false, pagesRead: 20, readUrls: urls(20) },
+        taken(20, { present: false, urlCount: 0 }),
+        20,
+      );
+      expect(r.reason).toBe(
+        "The site was larger than we read in one pass, so we cannot say this is absent from it.",
+      );
+    });
+  });
+
+  describe("(e) a one-page site reads grammatically", () => {
+    it("says we read your one page when the site is one page and we read it", () => {
+      const sitemap = { present: true, urlCount: 1, truncated: false, sample: urls(1) };
+      const r = siteCoverage(
+        { crawlFullyRead: false, pagesRead: 1, readUrls: urls(1) },
+        taken(1, sitemap),
+        20,
+      );
+      expect(r.reason).toBe(
+        "We read your one page, so we cannot say this is absent from your site.",
+      );
+      expect(r.reason).not.toMatch(/1 of your 1/);
+    });
+
+    it("keeps the plural for a site of more than one page", () => {
+      const sitemap = { present: true, urlCount: 2, truncated: false, sample: urls(2) };
+      const r = siteCoverage(
+        { crawlFullyRead: false, pagesRead: 1, readUrls: urls(1) },
+        taken(1, sitemap),
+        20,
+      );
+      expect(r.reason).toBe(
+        "We read 1 of your 2 pages, so we cannot say this is absent from your site.",
+      );
+    });
+  });
+
+  it("through checkAccuracy: an absent on a 20-page crawl at the cap, with a 5-URL sitemap, is unverified", async () => {
+    const pages = urls(20).map((u, i) => page(u, `Page ${i} of Northwind Supply.`));
+    const c: CrawlResult = {
+      ...crawl(pages),
+      sitemap: { present: true, urlCount: 5, truncated: false },
+    };
+    const r = await checkAccuracy(
+      "https://example.com/",
+      c,
+      [
+        branded({
+          query: "who is Northwind Supply",
+          fullAnswer: "Northwind Supply is at 12 Harbor Road.",
+        }),
+      ],
+      [],
+      {
+        run: async () => ({
+          assertions: [
+            {
+              claim: "The business is based at 12 Harbor Road.",
+              engineQuote: "at 12 Harbor Road",
+              verdict: "absent",
+              siteQuote: null,
+              searchTerms: ["12 Harbor Road"],
+            },
+          ],
+        }),
+        ownership: { fetchPage: async () => null },
+      },
+    );
+    expect(r.siteFullyRead).toBe(false);
+    expect(r.assertions[0]?.verdict).toBe("unverified");
   });
 });

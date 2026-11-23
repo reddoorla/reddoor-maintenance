@@ -9,6 +9,7 @@ import {
   type OwnershipDeps,
 } from "./ownership.js";
 import { pathDepth } from "../util/path-depth.js";
+import { CRAWL_MAX_PAGES } from "./crawl.js";
 
 /**
  * When an AI describes this business, where is it getting that from?
@@ -154,9 +155,12 @@ export type AccuracyResult = {
    * business, inside a document about factual errors about their business.
    */
   sources: DomainVerdict[];
-  /** False when the site was too large to send whole. Every `absent` verdict is
-   *  suppressed to `unverified` when this is false, because "the site does not
-   *  say it" is not a claim we can make about pages we did not read. */
+  /** True only when the whole site was read: the crawl did not stop at its page
+   *  cap, the site's own sitemap gives a complete, untruncated size and sample,
+   *  and every page the sitemap lists was read (see `siteCoverage`). Every
+   *  `absent` verdict is suppressed to `unverified` when this is false, because
+   *  "the site does not say it" is not a claim we can make about pages we did
+   *  not read. */
   siteFullyRead: boolean;
   pagesRead: number;
   /**
@@ -231,9 +235,9 @@ export const AccuracySchema = z.object({
         searchTerms: z.array(z.string()).min(1).max(6),
         /** Defaulted to the most cautious reading, so a model that omits it
          *  gets its statement withheld rather than printed as about them. */
-        subject: z.enum(SUBJECTS).default("unclear"),
+        subject: z.enum(SUBJECTS).default("unclear").catch("unclear"),
         otherName: z.string().nullable().default(null),
-        topic: z.enum(TOPICS).default("other"),
+        topic: z.enum(TOPICS).default("other").catch("other"),
         /** Required for a "contradicted" to stand: code checks each value is in
          *  its own quote and that they differ. */
         contradiction: z
@@ -404,7 +408,7 @@ export function selectPages(crawl: CrawlResult): {
 export function buildAccuracyInput(
   crawl: CrawlResult,
   branded: ProbeAnswer[],
-): { system: string; user: string; fullyRead: boolean; pagesRead: number } {
+): { system: string; user: string; fullyRead: boolean; pagesRead: number; readUrls: string[] } {
   const fence = makeFenceTag();
   const { pages, fullyRead } = selectPages(crawl);
 
@@ -431,7 +435,13 @@ export function buildAccuracyInput(
     pageBlocks.join("\n\n---\n\n"),
   ].join("\n");
 
-  return { system: buildSystemPrompt(fence), user, fullyRead, pagesRead: pages.length };
+  return {
+    system: buildSystemPrompt(fence),
+    user,
+    fullyRead,
+    pagesRead: pages.length,
+    readUrls: pages.map((p) => p.url),
+  };
 }
 
 function normalize(s: string): string {
@@ -822,9 +832,83 @@ function contradictionHolds(
 ): boolean {
   if (c === null || siteQuote === null) return false;
   if (!holdsValue(engineQuote, c.engineValue) || !holdsValue(siteQuote, c.siteValue)) return false;
+  // The site quote also says the engine's value, so the site does not disagree
+  // with it: "Founded in 2001. Copyright 2022." is not a contradiction of 2001.
+  if (holdsValue(siteQuote, c.engineValue)) return false;
   const e = normalize(c.engineValue);
   const s = normalize(c.siteValue);
-  return e !== s && !e.includes(s) && !s.includes(e);
+  return !sameValue(c.engineValue, c.siteValue) && !e.includes(s) && !s.includes(e);
+}
+
+/** Spelled-out numbers, zero to twenty, and "a dozen". */
+const WORD_NUMBERS = new Map<string, number>([
+  ["zero", 0],
+  ["one", 1],
+  ["two", 2],
+  ["three", 3],
+  ["four", 4],
+  ["five", 5],
+  ["six", 6],
+  ["seven", 7],
+  ["eight", 8],
+  ["nine", 9],
+  ["ten", 10],
+  ["eleven", 11],
+  ["twelve", 12],
+  ["thirteen", 13],
+  ["fourteen", 14],
+  ["fifteen", 15],
+  ["sixteen", 16],
+  ["seventeen", 17],
+  ["eighteen", 18],
+  ["nineteen", 19],
+  ["twenty", 20],
+  ["a dozen", 12],
+]);
+
+/** The suffixes a money or count figure carries, and what each multiplies by. */
+const SCALE = new Map<string, number>([
+  ["k", 1e3],
+  ["thousand", 1e3],
+  ["m", 1e6],
+  ["million", 1e6],
+  ["b", 1e9],
+  ["billion", 1e9],
+]);
+
+/** A value as a number, when it is one: "twelve", "12", "$1,000,000", "$1M",
+ *  "1.5 million". Null for anything else. */
+function numberOf(value: string): number | null {
+  const word = WORD_NUMBERS.get(normalize(value));
+  if (word !== undefined) return word;
+  const m = /^(\d+(?:\.\d+)?)(k|thousand|m|million|b|billion)?$/.exec(
+    normalize(value).replace(/[$,\s]/g, ""),
+  );
+  if (!m) return null;
+  return Number(m[1]) * (m[2] === undefined ? 1 : (SCALE.get(m[2]) ?? 1));
+}
+
+/** `short` is two to four capitals that are the first letters of `long`'s
+ *  words: "LA" and "Los Angeles", "NYC" and "New York City". */
+function isInitialsOf(short: string, long: string): boolean {
+  const s = short.trim();
+  if (!/^[A-Z]{2,4}$/.test(s)) return false;
+  const initials = long
+    .trim()
+    .split(/[\s-]+/)
+    .filter((w) => w.length > 0)
+    .map((w) => w.charAt(0))
+    .join("");
+  return initials.toLowerCase() === s.toLowerCase();
+}
+
+/** Two values name the same thing, written two ways. */
+function sameValue(a: string, b: string): boolean {
+  if (normalize(a) === normalize(b)) return true;
+  const na = numberOf(a);
+  const nb = numberOf(b);
+  if (na !== null && nb !== null && na === nb) return true;
+  return isInitialsOf(a, b) || isInitialsOf(b, a);
 }
 
 function verifyQuotes(
@@ -912,32 +996,72 @@ function verifyQuotes(
  * claimed.
  */
 export function siteCoverage(
-  crawlFullyRead: boolean,
-  pagesRead: number,
-  siteUrlCount: number | null,
-  crawl: Pick<CrawlResult, "sitemap">,
+  read: { crawlFullyRead: boolean; pagesRead: number; readUrls: string[] },
+  crawl: Pick<CrawlResult, "sitemap" | "pages">,
+  /** The crawl's own page cap. A crawl that took this many pages stopped
+   *  because of it, so the pages past it were never seen. */
+  pageCap: number,
 ): { full: boolean; reason: string } {
-  const truncated = (crawl.sitemap as CrawlResult["sitemap"] | undefined)?.truncated === true;
-  if (!crawlFullyRead) {
-    return {
-      full: false,
-      reason:
-        "The site was larger than we read in one pass, so we cannot say this is absent from it.",
-    };
+  const notFull = (reason: string): { full: boolean; reason: string } => ({ full: false, reason });
+  const sitemap = crawl.sitemap as CrawlResult["sitemap"] | undefined;
+  const siteUrlCount = sitemap?.present ? sitemap.urlCount : null;
+  const generic =
+    "The site was larger than we read in one pass, so we cannot say this is absent from it.";
+
+  // (d) Known size and not every page read: say how many of theirs we read.
+  if (!read.crawlFullyRead) {
+    return notFull(
+      siteUrlCount !== null && siteUrlCount > 0
+        ? readOfSite(read.pagesRead, siteUrlCount)
+        : generic,
+    );
   }
-  if (siteUrlCount === null || siteUrlCount <= 0 || truncated) {
-    return {
-      full: false,
-      reason: `We read ${pagesRead} of your pages and could not learn how many your site has, so we cannot say this is absent from it.`,
-    };
+
+  // A known size we did not reach is the reason to give, whatever the sitemap's
+  // `truncated` flag says: the count is at least what we were told.
+  if (siteUrlCount !== null && siteUrlCount > 0 && read.pagesRead < siteUrlCount) {
+    return notFull(readOfSite(read.pagesRead, siteUrlCount));
   }
-  if (pagesRead < siteUrlCount) {
-    return {
-      full: false,
-      reason: `We read ${pagesRead} of your ${siteUrlCount} pages, so we cannot say this is absent from your site.`,
-    };
+
+  // (b) A missing `truncated` is "we do not know", not "complete".
+  if (siteUrlCount === null || siteUrlCount <= 0 || sitemap?.truncated !== false) {
+    return notFull(
+      `We read ${read.pagesRead} of your pages and could not learn how many your site has, so we cannot say this is absent from it.`,
+    );
   }
+
+  // (a) A crawl that stopped at its cap read a prefix of the site, whatever the
+  // sitemap says, so it is never read whole.
+  if (crawl.pages.length >= pageCap) return notFull(generic);
+
+  // (c) The sample is the only list of the site's own URLs. Complete, it must
+  // be among the pages we read; incomplete, or missing, it cannot say so.
+  const sentence =
+    "We could not match the pages we read to your sitemap, so we cannot say this is absent from your site.";
+  const sample = sitemap?.sample;
+  if (sample === undefined || sample.length !== siteUrlCount) return notFull(sentence);
+  const readSet = new Set(read.readUrls.map(normalizeUrl));
+  if (!sample.every((u) => readSet.has(normalizeUrl(u)))) return notFull(sentence);
+
   return { full: true, reason: "" };
+}
+
+/** "We read P of your S pages", with the one-page case written as English. */
+function readOfSite(pagesRead: number, siteUrlCount: number): string {
+  if (pagesRead === 1 && siteUrlCount === 1) {
+    return "We read your one page, so we cannot say this is absent from your site.";
+  }
+  const noun = siteUrlCount === 1 ? "page" : "pages";
+  return `We read ${pagesRead} of your ${siteUrlCount} ${noun}, so we cannot say this is absent from your site.`;
+}
+
+/** Scheme, a leading `www.` and a trailing slash do not make a different page. */
+function normalizeUrl(u: string): string {
+  return u
+    .trim()
+    .replace(/^https?:\/\//i, "")
+    .replace(/^www\./i, "")
+    .replace(/\/+$/, "");
 }
 
 export type AccuracyDeps = {
@@ -1042,7 +1166,11 @@ export async function checkAccuracy(
   );
 
   const siteUrlCount = siteUrlCountOf(crawl);
-  const coverage = siteCoverage(input.fullyRead, input.pagesRead, siteUrlCount, crawl);
+  const coverage = siteCoverage(
+    { crawlFullyRead: input.fullyRead, pagesRead: input.pagesRead, readUrls: input.readUrls },
+    crawl,
+    CRAWL_MAX_PAGES,
+  );
   return {
     assertions: backstopAbsent(verified, siteText, termsByClaim, coverage.full, coverage.reason),
     sources,
