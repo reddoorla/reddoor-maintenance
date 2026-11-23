@@ -11,3 +11,7 @@ Landed in: this PR (`claude/w4-technical-checks`). The website half, the Technic
 **Measured.** Mutations, each run and reverted: `p=none` read as enforcing turned 2 DMARC tests red; removing `reducedMotion` made the fade-in fixture report contrast nodes (1 red); pushing styled `console.error` into `scriptErrors` turned the zero-script-errors test red. Every "absent" browser assertion has a control beside it that reports the thing when it is really there (pale text, a throwing script, the same widget in a same-origin frame). Full suite: 14,665 passed, 1 failed, and that one (`tests/scripts/dropbox.test.ts`, the HTTPS_PROXY re-exec) fails identically on untouched `main` in this container.
 
 **Test changes.** `site-checks.test.ts` "catches a JavaScript error" now supplies the error as `scriptErrors`: the brief's Done-when changes what `consoleErrors` alone means. The CLI registration test lists `--technical`, as it exists to demand.
+
+**Review.** Three Opus rounds. Round 1 (4 majors) and round 2 (7 majors, one of them a regression from round 1's own fix) were dirty. Round 3 was clean, and its minors are in reddoorla/reddoor-maintenance#2262 and #2267.
+
+Usage: $35.78, 3,414/366,909 tokens, 106,838,408/1,113,344 cache, rate limit allowed (whole session to this point, which also built the website half)
