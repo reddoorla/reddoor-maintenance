@@ -78,7 +78,7 @@ describe("loadBacklogPanel", () => {
 
   it("shows a parse failure by row ID, and neither shows nor logs the row's text", async () => {
     const log = vi.fn();
-    const broken = MD.replace("**Second**", "**Status soon: Second** **Hidden title**");
+    const broken = MD.replace("**Second**", "**Status: soon, Second** **Hidden title**");
     const { fetch } = stub(new Response(broken));
     const panel = await loadBacklogPanel({ token: "tok", fetch, log });
     expect(panel.kind).toBe("unavailable");

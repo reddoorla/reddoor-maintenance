@@ -10,6 +10,8 @@ import type { BacklogPanel } from "../../../src/dashboard/backlog-source.js";
 import { mintSession, SESSION_COOKIE } from "../../../src/dashboard/auth/session.js";
 import { renderPage } from "../_helpers/parity.js";
 import { cases, NOW } from "../home/fixtures.js";
+import { load as triageLoad } from "../../src/routes/triage/+page.js";
+import { snapshot } from "../overview/fixtures.js";
 
 /**
  * P1-111: the backlog's top five on /triage, fetched by the page from
@@ -96,6 +98,15 @@ describe("/triage's backlog section", () => {
 });
 
 describe("/triage's page", () => {
+  it("its load names /api/backlog as the backlog's source", async () => {
+    const data = (await (triageLoad as (e: unknown) => Promise<unknown>)({
+      url: new URL("https://dash.example/triage"),
+      params: {},
+      parent: async () => ({ snapshot: snapshot(), failure: null, clockOffsetMs: 0 }),
+    })) as { backlogSource?: string };
+    expect(data.backlogSource).toBe("/api/backlog");
+  });
+
   it("server-renders the section's frame while the read is in flight", () => {
     const doc = parse(
       renderPage(Page, {

@@ -11,10 +11,14 @@
 
   onMount(() => {
     let live = true;
+    const abort = new AbortController();
     void (async () => {
       let next: BacklogView;
       try {
-        const res = await fetch(source, { headers: { accept: "application/json" } });
+        const res = await fetch(source, {
+          headers: { accept: "application/json" },
+          signal: abort.signal,
+        });
         if (res.status === 401) {
           next = buildBacklogView(
             { kind: "unavailable", reason: "Signed out: reload the page to sign in." },
@@ -38,6 +42,7 @@
     })();
     return () => {
       live = false;
+      abort.abort();
     };
   });
 </script>

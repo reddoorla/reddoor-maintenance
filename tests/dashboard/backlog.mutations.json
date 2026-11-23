@@ -79,5 +79,31 @@
     ],
     "test": "cockpit/tests/triage/backlog.dom.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "7-load-names-no-source",
+    "why": "Round 1, major: the triage load stops naming the backlog's source, so production shows no section while the page tests, which pass the prop by hand, stay green.",
+    "edits": [
+      {
+        "file": "cockpit/src/routes/triage/+page.ts",
+        "find": "    backlogSource: \"/api/backlog\",",
+        "replace": ""
+      }
+    ],
+    "test": "cockpit/tests/triage/backlog.ssr.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "8-lower-case-status-as-title",
+    "why": "Round 1, major: a status prefix is recognised only in its exact case, so `**status 2026-11-11: …**` shows as the title instead of failing loudly.",
+    "edits": [
+      {
+        "file": "src/dashboard/backlog.ts",
+        "find": "const STATUS_WORD = /^status\\s*[:\\d]/i;",
+        "replace": "const STATUS_WORD = /^Status\\s*[:\\d]/;"
+      }
+    ],
+    "test": "tests/dashboard/backlog.test.ts",
+    "expect": "red"
   }
 ]

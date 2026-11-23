@@ -87,8 +87,13 @@ export function plain(md: string): string {
     .trim();
 }
 
-const STATUS_WORD = /^Status\b/;
-const STATUS_DATED = /^Status (\d{4}-\d{2}-\d{2})\b\s*(.*)$/s;
+/** A segment meant as a status: the word in any case, then a colon or a digit,
+ *  with or without a space (`Status 2026-…`, `status 2026-…`, `Status2026-…`,
+ *  `Status: …`). A title that only begins with the word (`Status page for
+ *  clients`) is not one. */
+const STATUS_WORD = /^status\s*[:\d]/i;
+/** The one well-formed shape: `Status YYYY-MM-DD`, then a space, `[`, `:` or the end. */
+const STATUS_DATED = /^Status (\d{4}-\d{2}-\d{2})(?=[\s[:]|$)\s*(.*)$/s;
 
 function validDate(iso: string): boolean {
   const d = new Date(`${iso}T00:00:00Z`);
@@ -169,7 +174,7 @@ function parseStatus(id: string, span: string): BacklogStatus {
   const m = STATUS_DATED.exec(span);
   if (!m || !validDate(m[1]!)) {
     throw new BacklogParseError(
-      `${id}: a bold status line starts "Status" without a valid YYYY-MM-DD date after it`,
+      `${id}: a status line is not "Status YYYY-MM-DD" with a valid date`,
     );
   }
   // Drop the provenance tag (`[M, merge commits]:`) and a bare `:` after the date.

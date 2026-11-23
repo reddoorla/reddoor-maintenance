@@ -38,7 +38,7 @@ function endpointRoutes(
 
 const routes = endpointRoutes();
 
-/** The two GET-only reads, with the query each needs to reach its auth (the
+/** The GET-only reads, with the query each needs to reach its auth (the
  *  status poll answers 400 before auth without `since`). The rest act on POST. */
 const READS: Record<string, string> = {
   "/api/backlog": "",

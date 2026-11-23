@@ -139,6 +139,13 @@ describe("topBacklogItems", () => {
     expect(d.status).toBeNull();
   });
 
+  it("reads a title that only begins with the word Status as a title", () => {
+    const row = "| P1-909 | **Status page for clients** | 🟢 |";
+    const it9 = topBacklogItems(backlog([row])).items[0]!;
+    expect(it9.title).toBe("Status page for clients");
+    expect(it9.status).toBeNull();
+  });
+
   it("gives a one-cell row a null tier rather than failing", () => {
     const e = topBacklogItems(backlog(ALL)).items[4]!;
     expect(e.title).toBe("Mend the shed roof");
