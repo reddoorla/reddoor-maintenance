@@ -542,16 +542,20 @@ export type CockpitModel = {
   /** All visible sites, ordered: attention (worst-first) → watch (A-Z) → healthy (A-Z). */
   cards: SiteCard[];
   pending: PendingEntry[];
-  /** NEW submissions across the fleet, newest-first (optional for back-compat). */
+  /** NEW submissions across the fleet, newest-first (optional for back-compat).
+   *  No page renders this, `spam` or `autoFiltered` since the /triage inbox lane
+   *  went (#2241; /submissions reads its own rows). Kept in place: removing them
+   *  reaches the snapshot schema, and no client or visitor sees the choice. */
   submissions?: SubmissionEntry[];
   /** Fleet spam totals over the window (optional; populated by buildCockpitModel). */
   /** `computedAt` present ⇒ these came from the nightly roll-up and are up to
-   *  24h old; the strip labels them so a stale number is never read as live. */
+   *  24h old; anything that shows them must say so. */
   spam?: { caught: number; through: number; computedAt?: string } | null;
   /** Recent fleet-activity events for the "Recently" lane (optional for back-compat). */
   recent?: RecentEntry[];
   /** Fleet-wide count of submissions auto-filtered as spam in the affordance window
-   *  (optional for back-compat). Drives the cockpit "N auto-filtered this week" line. */
+   *  (optional for back-compat). Drove the /triage "N auto-filtered this week" line
+   *  until #2241. */
   autoFiltered?: number;
   /** Archived (legacy/deprecated) rows — excluded from every fleet op, listed on a
    *  neutral collapsed lane so a row can never silently vanish (optional for back-compat). */
