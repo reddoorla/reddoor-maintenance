@@ -29,7 +29,9 @@ describe("W1 — review state of a prospect audit", () => {
     const db = await fresh();
     const { token } = await make(db);
     const at = new Date("2026-11-23T20:00:00.000Z");
-    expect((await approveProspectAudit(db, token, "  Reviewer  ", at)).status).toBe("approved");
+    expect((await approveProspectAudit(db, token, "  Reviewer  ", { now: at })).status).toBe(
+      "approved",
+    );
     const row = await getProspectAuditByToken(db, token);
     expect(row).toMatchObject({ approved_at: at.toISOString(), approved_by: "Reviewer" });
     expect(reviewState(row!)).toBe("live");
@@ -64,10 +66,37 @@ describe("W1 — review state of a prospect audit", () => {
     expect(reviewState((await getProspectAuditByToken(db, token))!)).toBe("withdrawn");
   });
 
+  it("refuses to approve a partial run unless told to", async () => {
+    const db = await fresh();
+    const { token } = await createProspectAudit(db, {
+      url: "https://acme.test/",
+      business: "Acme",
+      resultJson: "{}",
+      status: "partial",
+    });
+    expect((await approveProspectAudit(db, token, "Reviewer")).status).toBe("refused");
+    expect(reviewState((await getProspectAuditByToken(db, token))!)).toBe("draft");
+    expect((await approveProspectAudit(db, token, "Reviewer", { allowPartial: true })).status).toBe(
+      "approved",
+    );
+  });
+
+  it("refuses to supersede with a report that is not live: the old link would show nothing", async () => {
+    const db = await fresh();
+    const old = await make(db, "https://acme.test/");
+    await approveProspectAudit(db, old.token, "Reviewer");
+    const next = await make(db, "https://www.acme.test");
+    expect((await supersedeProspectAudit(db, old.token, next.token, "Reviewer")).status).toBe(
+      "refused",
+    );
+    expect(reviewState((await getProspectAuditByToken(db, old.token))!)).toBe("live");
+  });
+
   it("supersede points the old row at the newer one of the same site and withdraws it", async () => {
     const db = await fresh();
     const old = await make(db, "https://acme.test/");
     const next = await make(db, "https://www.acme.test");
+    await approveProspectAudit(db, next.token, "Reviewer");
     expect((await supersedeProspectAudit(db, old.token, next.token, "Reviewer")).status).toBe(
       "superseded",
     );
@@ -80,6 +109,7 @@ describe("W1 — review state of a prospect audit", () => {
     const db = await fresh();
     const old = await make(db, "https://acme.test/");
     const other = await make(db, "https://other.test/");
+    await approveProspectAudit(db, other.token, "Reviewer");
     const res = await supersedeProspectAudit(db, old.token, other.token, "Reviewer");
     expect(res.status).toBe("refused");
     expect((await getProspectAuditByToken(db, old.token))!.superseded_by).toBeNull();

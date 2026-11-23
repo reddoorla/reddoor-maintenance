@@ -190,7 +190,7 @@ export function reviewLine(result: ProspectAuditResult, token: string | null): s
   }
   return (
     "Draft, not approved: the link 404s for anyone but the editor. Read it, then run " +
-    `\`prospect-audit-review ${token} --approve --by <your name>\` to make it live.`
+    `\`prospect-audit-review --token=${token} --approve --by <your name>\` to make it live.`
   );
 }
 

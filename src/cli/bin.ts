@@ -894,34 +894,34 @@ cli
 
 cli
   .command(
-    "prospect-audit-review <token>",
+    "prospect-audit-review",
     "Approve a prospect audit report (its link goes live), withdraw one (it 404s), or point it at a newer one.",
   )
+  // A flag, not a positional, and written --token=<token>: about one token in
+  // 64 starts with "-", which cac reads as an option when it stands alone.
+  .option("--token <token>", "The report's token. Write it as --token=<token>.")
   .option("--approve", "Make the report's link live. Read it first.")
   .option("--withdraw", "Take the report down: its link 404s for everyone.")
   .option(
     "--supersede-by <token>",
-    "The newer report for the same site. The old link points there while it is live.",
+    "The newer report for the same site, already approved. Write it as --supersede-by=<token>.",
   )
+  .option("--partial", "Approve a partial run anyway. A partial run is normally not sent.")
   .option("--by <name>", "Who is doing this. Recorded on the row.")
   .action(
-    async (
-      token: string,
-      opts: {
-        approve?: boolean;
-        withdraw?: boolean;
-        supersedeBy?: string;
-        by?: string;
-        cwd?: string;
-        verbose?: boolean;
-      },
-    ) =>
+    async (opts: {
+      token?: unknown;
+      approve?: boolean;
+      withdraw?: boolean;
+      partial?: boolean;
+      supersedeBy?: unknown;
+      by?: unknown;
+      cwd?: string;
+      verbose?: boolean;
+    }) =>
       runOrExit(
         async () =>
-          (await import("./commands/prospect-audit-review.js")).runProspectAuditReviewCommand(
-            token,
-            opts,
-          ),
+          (await import("./commands/prospect-audit-review.js")).runProspectAuditReviewCommand(opts),
         opts,
       ),
   );

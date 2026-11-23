@@ -611,26 +611,40 @@ function who(by: string): string | null {
  *
  * Refuses a withdrawn report rather than reviving it: putting a withdrawn
  * report back is a deliberate act, done by clearing `withdrawn_at` by hand, not
- * a side effect of approving the wrong token. Re-approving a live report
- * re-stamps it, which is harmless and keeps the latest reviewer on record.
+ * a side effect of approving the wrong token. Refuses a `partial` run unless
+ * `allowPartial`: everything else that shows one says "do not send", and the
+ * one gate should not let it through without being told to. Re-approving a
+ * live report re-stamps it, which keeps the latest reviewer on record.
+ *
+ * The UPDATE carries the same conditions, and its row count is the answer, so
+ * a withdraw landing between the read and the write is reported, not hidden.
  */
 export async function approveProspectAudit(
   db: Db,
   token: string,
   by: string,
-  now: Date = new Date(),
+  opts: { allowPartial?: boolean; now?: Date } = {},
 ): Promise<ReviewActionResult> {
   const name = who(by);
   if (!name) return { status: "refused", token, reason: "say who is approving (--by)" };
   const row = await getProspectAuditByToken(db, token);
   if (!row) return { status: "not-found", token };
   if (row.withdrawn_at) return { status: "refused", token, reason: "the report is withdrawn" };
-  await db
+  if (row.status === "partial" && !opts.allowPartial)
+    return {
+      status: "refused",
+      token,
+      reason: "part of this run did not run; re-run it, or pass --partial to approve it anyway",
+    };
+  const res = await db
     .updateTable("prospect_audits")
-    .set({ approved_at: now.toISOString(), approved_by: name })
+    .set({ approved_at: (opts.now ?? new Date()).toISOString(), approved_by: name })
     .where("token", "=", token)
     .where("withdrawn_at", "is", null)
-    .execute();
+    .where("status", "not in", NO_REPORT_STATUSES)
+    .executeTakeFirst();
+  if (Number(res.numUpdatedRows) !== 1)
+    return { status: "refused", token, reason: "the report changed while approving; look again" };
   return { status: "approved", token };
 }
 
@@ -679,7 +693,7 @@ export async function supersedeProspectAudit(
     return { status: "refused", token: oldToken, reason: "a report cannot supersede itself" };
   const keys = await db
     .selectFrom("prospect_audits")
-    .select(["token", "site_key"])
+    .select(["token", "site_key", "approved_at", "withdrawn_at", "superseded_by"])
     .where("token", "in", [oldToken, newToken])
     .where("status", "not in", NO_REPORT_STATUSES)
     .execute();
@@ -692,6 +706,11 @@ export async function supersedeProspectAudit(
       token: oldToken,
       reason: "the two reports are not for the same site",
     };
+  // The old link stops serving its own report at once, so the newer one must
+  // already be live: superseding with a draft would take a live report down
+  // and leave its reader nothing.
+  if (reviewState(newRow) !== "live" || newRow.superseded_by)
+    return { status: "refused", token: oldToken, reason: "approve the newer report first" };
   await db
     .updateTable("prospect_audits")
     .set((eb) => ({

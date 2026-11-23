@@ -387,9 +387,13 @@ describe("audit-report-json — W1 drafts, withdrawn and superseded reports", ()
     const db = await openDb(readDbConfig());
     const { token } = await draft(db);
     const spoof = new Request("https://ops.reddoor.test/api/audit-report/x", {
-      headers: { "x-reddoor-edit-session": "1", authorization: "Bearer wrong" },
+      headers: { "x-reddoor-edit-session": "1" },
     });
     expect((await auditReportJson(spoof, ctxFor(token))).status).toBe(404);
+    const wrong = new Request("https://ops.reddoor.test/api/audit-report/x", {
+      headers: { "x-reddoor-edit-session": "1", authorization: "Bearer wrong" },
+    });
+    expect((await auditReportJson(wrong, ctxFor(token))).status).toBe(404);
   });
 
   it("serves a draft to the editor, marked not approved", async () => {
@@ -439,18 +443,16 @@ describe("audit-report-json — W1 drafts, withdrawn and superseded reports", ()
     const old = await draft(db);
     await approveProspectAudit(db, old.token, "tester");
     const next = await draft(db, "https://www.acme.example");
+    await approveProspectAudit(db, next.token, "tester");
     expect((await supersedeProspectAudit(db, old.token, next.token, "tester")).status).toBe(
       "superseded",
     );
 
-    // The newer one is still a draft: the old link must not point into it.
-    expect((await auditReportJson(req(), ctxFor(old.token))).status).toBe(404);
-
-    await approveProspectAudit(db, next.token, "tester");
     const res = await auditReportJson(req(), ctxFor(old.token));
     expect(res.status).toBe(410);
     expect(await res.json()).toEqual({ error: "superseded", supersededBy: next.token });
 
+    // Once the newer one is taken down too, the old link points nowhere.
     await withdrawProspectAudit(db, next.token, "tester");
     expect((await auditReportJson(req(), ctxFor(old.token))).status).toBe(404);
   });
