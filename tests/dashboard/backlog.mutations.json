@@ -281,8 +281,8 @@
     "edits": [
       {
         "file": "src/dashboard/backlog.ts",
-        "find": "      if (!labelOnly || pending === \"\" || /\\S[.!?][\"'’”)]*$/.test(pending)) {",
-        "replace": "      if (true || pending === \"\" || /\\S[.!?][\"'’”)]*$/.test(pending)) {"
+        "find": "      if (!labelOnly || pending.text.trim() === \"\" || findSentenceEnd(pending) !== -1) {",
+        "replace": "      if (true || pending.text.trim() === \"\" || findSentenceEnd(pending) !== -1) {"
       }
     ],
     "test": "tests/dashboard/backlog.test.ts",
