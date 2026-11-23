@@ -6,37 +6,59 @@
 
 **The rule now.** Code may only move a verdict down. `doubtingTerm` takes a `contradicted` down to `unverified` only when "your site does say this" really is a reason to doubt the model:
 
-- the claim denies nothing (`NEGATED`: no, not, never, none, nobody, nothing, without, cannot, neither, nor, n't with either apostrophe). "No business has the name X" is refuted by the site saying X, not put in doubt;
-- the term carries every name the claim asserts other than the business's own, taken from the query that produced the answer. "Based in Lakeside, Oregon" is not in doubt because the site says "Oregon", and a business's name on its own site says nothing about a claim that opens with that name;
-- the claim asserts at least one such name, because a term made only of common words is a subject, not the claim;
-- the model's own quote does not already contain the term, since then it saw the term and still judged the claim wrong.
+- **The claim denies nothing.** `NEGATED` covers no, not, never, none, nobody, nothing, without, cannot, neither, nor, and n't with either apostrophe. "No business has the name X" is refuted by the site saying X, not put in doubt.
+- **The term carries every name the claim asserts**, apart from the business's own name. That name is taken from the branded query (`who is <name>`, `<name> reviews`) and removed only where the whole name appears as a run in the claim. Three cases this rules out:
+  - "Based in Lakeside, Oregon" is not in doubt because the site says "Oregon".
+  - A business's name on its own site says nothing about a claim that opens with it.
+  - "Rosewood Bakery" is a different business, not "Bakery" sitting next to our "Rosewood".
+- **The claim asserts at least one such name.** A term made only of common words is a subject, not the claim.
+- **The model's own quote does not already contain the term.** If it did, the model saw the term and still judged the claim wrong.
+- **The site uses the term as whole words.** "Salem" is not in "Jerusalem".
 
-The verdict then quotes the site around the term, which is now located in the un-lowercased text itself, so the window is always a real substring. The reason gives the term in the site's own spelling: `Your site does say "<term>", so we have not called this wrong.` If the window still fails the quote check, the reason falls back to "We could not find the passage…". In every other case the model's verdict and its own quote stand, under the usual quote checks. Only the model can make a verdict `confirmed`.
+The term is searched for in the page text as it is, case-insensitively, so the quoted window and the reason's spelling are the site's own, and no lowercased copy shifts the offsets. In every other case the model's verdict and its own quote stand, under the usual quote checks. Only the model can make a verdict `confirmed`.
 
 **Review rounds.**
 
-- **Round 1** found two problems in the first version, which only swapped `confirmed` for `unverified`. It still printed "your site does say <the model's counter-evidence>" on exactly the two claims that started this. And the fixture reused the stored site's sentences closely enough to search for.
-- **Round 2** found that the term-in-claim guard added in round 1 still fired whenever a claim opened with the business's own name, which is the common case. It also found that "Texas" was enough to doubt "Dallas, Texas", that `NEGATED` missed "cannot", "nor" and a curly apostrophe, and that the paraphrased fixture still carried the sector and state.
-- The fixtures are now an invented florist mistaken for a bakery. Round 1's commit, with the stored site's sentences, was already on the public branch before round 2 found it; whether to purge it is the operator's call, recorded in the workspace.
+- **Round 1** found two problems with the first version, which only swapped `confirmed` for `unverified`:
+  - It still printed "your site does say <the model's counter-evidence>" on exactly the two claims that started this.
+  - The fixture reused the stored site's sentences closely enough to search for.
+- **Round 2** found four more:
+  - The term-in-claim guard added in round 1 still fired whenever a claim opened with the business's own name, which is the common case.
+  - "Texas" was enough to doubt "Dallas, Texas".
+  - `NEGATED` missed "cannot", "nor" and the curly apostrophe.
+  - The paraphrased fixture still carried the sector and the state.
+- **Round 3** found three more:
+  - The business's name was removed word by word, so "Rosewood Bakery" shrank to "Bakery".
+  - Every word of the query counted as the name, including "who", "is" and "reviews".
+  - `findTerm` matched inside words, and the window index came from a lowercased copy.
+- The fixtures are now an invented florist mistaken for a bakery.
+- Round 1's commit was already on the public branch before round 2 found its wording. Whether to purge it is the operator's call, recorded in the workspace.
 
 **Tests.**
 
 - The old test "flips contradicted to confirmed when the site uses the claim's own terms" pinned the behaviour this change removes. It now expects `unverified`, the site passage and the full reason.
 - Further tests cover:
-  - a lowercase, double-spaced term, quoted back in the site's own spelling;
+  - a lower-case, double-spaced term, quoted back in the site's spelling;
   - a supported contradiction that must stay `contradicted` with no reason;
-  - one case per guard (counter-evidence term, negated claim, the business's own name, a partial place, the term already in the model's quote);
-  - twelve negation forms.
-- Mutations:
-  - the whole old `accuracy.ts`, 5 red;
-  - `confirmed` restored in the downgrade, 2 red;
-  - the negation guard removed, 11 red;
-  - `NEGATED` cut to `\bno\b`, 2 red;
-  - the asserted-name cover removed, 1 red;
-  - the business's own name kept as asserted, 3 red;
-  - the empty-names guard removed, 1 red;
-  - the model-quote guard removed, 1 red;
-  - the reason dropped, 2 red;
-  - every `contradicted` downgraded, 1 red.
+  - one case per guard;
+  - twelve negation forms;
+  - another business sharing a word with ours;
+  - a `reviews` query;
+  - a name inside another word;
+  - a site text that starts with characters whose lower case is longer.
+- Every guard has a mutation that turns a test red:
+  - the whole old `accuracy.ts`: 7 red;
+  - `confirmed` restored: 3;
+  - the negation guard removed: 12;
+  - "nor" removed: 1;
+  - the name cover removed: 3;
+  - the name matched word by word: 1;
+  - no `reviews` strip: 1;
+  - the empty-names guard removed: 1;
+  - the word boundary dropped: 1;
+  - the model-quote guard removed: 1;
+  - the index taken from a lowercased copy: 3;
+  - the reason dropped: 3;
+  - every `contradicted` downgraded: 1.
 
 **Stored reports.** The stored rows keep only the final verdict, so a past flip cannot be read off a row directly. It leaves a signature: a `confirmed` site quote that is exactly the ±80-character window around a term's first exact occurrence in the stored crawl's site text. A read-only sweep of all 74 rows (8 carry accuracy assertions, 39 of those assertions `confirmed` with a quote) found that signature on 7 assertions in 4 rows, ours among them. Under the final rule, 1 of the 7 would come down to `unverified` and 6 would stay with the model, whose original quote the row no longer holds. Changing them changes no headline and no fix on any of the 4 reports (`toReportView` → `headlineFinding` / `allFixes`, before and after); only the "checked and fine" list changes. The per-report table is in the workspace decision file, since the rows name prospects. This PR writes nothing to Turso.

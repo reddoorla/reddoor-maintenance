@@ -711,9 +711,19 @@ function scanWords(text: string): ScannedWord[] {
  *  a false match only leaves the model's verdict alone. */
 const NEGATED = /\b(no|not|never|none|nobody|nothing|without|cannot|neither|nor)\b|n['\u2019]t\b/i;
 
+/** The business name a branded query asks about (`probes.ts`: "who is <name>",
+ *  "<name> reviews"). */
+function businessNameOf(query: string): string {
+  return query
+    .trim()
+    .replace(/^who is\s+/i, "")
+    .replace(/\s+reviews$/i, "");
+}
+
 /**
  * The one term, if any, that justifies taking a "contradicted" down to
- * unverified: the site uses it exactly, and it IS what the claim asserts.
+ * unverified, and where the site says it: the site uses it as a whole word or
+ * phrase, and it IS what the claim asserts.
  *
  * "Acme Design is based in Los Angeles", contradicted on a Texas mailing
  * address, while another page says "near the Los Angeles metro": the site says
@@ -722,35 +732,52 @@ const NEGATED = /\b(no|not|never|none|nobody|nothing|without|cannot|neither|nor)
  *
  * - The claim must not deny anything. "No business has the name X" is refuted
  *   by the site saying X, not cast into doubt.
- * - The term must carry every name the claim asserts, other than the
- *   business's own (taken from the query that produced the answer). "Based in
- *   Dallas, Texas" is not in doubt because the site says "Texas", and the
- *   business's name on its own site says nothing about the claim.
+ * - The term must carry every name the claim asserts, other than the business's
+ *   own name, removed only where it appears whole. "Based in Dallas, Texas" is
+ *   not in doubt because the site says "Texas"; the business's name on its own
+ *   site says nothing about a claim that opens with it; and "called Rosewood
+ *   Bakery" is a different business, not "Bakery" next to our "Rosewood".
  * - The claim must assert at least one such name: a term that is only common
  *   words is a subject, not the claim.
  * - The model's own quote must not contain the term: then it saw the term and
  *   still judged the claim wrong.
+ * - The site must use the term as words, not inside one: "Salem" is not in
+ *   "Jerusalem".
  */
 function doubtingTerm(
   claim: string,
   terms: string[],
   modelQuote: string | null,
   query: string,
-  site: string,
-): string | null {
+  flat: string,
+): { term: string; at: number; said: string } | null {
   if (NEGATED.test(claim)) return null;
-  const own = new Set(scanWords(query).map((w) => w.lower));
-  const asserted = scanWords(claim)
-    .filter((w) => w.capitalised && !w.opensSentence && !own.has(w.lower))
+  const words = scanWords(claim);
+  const name = scanWords(businessNameOf(query)).map((w) => w.lower);
+  const own = new Set<number>();
+  if (name.length > 0) {
+    for (let i = 0; i + name.length <= words.length; i++) {
+      if (name.every((n, k) => words[i + k]?.lower === n)) {
+        for (let k = 0; k < name.length; k++) own.add(i + k);
+      }
+    }
+  }
+  const asserted = words
+    .filter((w, i) => w.capitalised && !w.opensSentence && !own.has(i))
     .map((w) => w.lower);
   if (asserted.length === 0) return null;
   const quote = modelQuote === null ? "" : normalize(modelQuote);
-  for (const term of distinctive(terms, claim)) {
-    const words = new Set(scanWords(term).map((w) => w.lower));
-    if (!asserted.every((n) => words.has(n))) continue;
-    if (quote.includes(normalize(term))) continue;
-    if (findTerm(site, term) !== "exact") continue;
-    return term.trim();
+  for (const raw of distinctive(terms, claim)) {
+    const term = normalize(raw);
+    const carried = new Set(scanWords(term).map((w) => w.lower));
+    if (!asserted.every((n) => carried.has(n))) continue;
+    if (quote.includes(term)) continue;
+    // Searched in `flat` itself, case-insensitively, so `at` and the quoted
+    // window are offsets into the page text as it is, never a lowercased copy.
+    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const m = new RegExp(`(?<![A-Za-z0-9])${escaped}(?![A-Za-z0-9])`, "i").exec(flat);
+    if (m === null) continue;
+    return { term, at: m.index, said: m[0] };
   }
   return null;
 }
@@ -782,23 +809,19 @@ function verifyQuotes(
     let siteQuote: string | null = a.siteQuote;
     let downgradeReason: string | null = null;
     if (a.verdict === "contradicted") {
-      const term = doubtingTerm(
+      const hit = doubtingTerm(
         a.claim,
         searchTermsByClaim.get(a.claim) ?? [],
         a.siteQuote,
         answerOf.get(normalize(a.engineQuote))?.query ?? "",
-        site,
+        flat,
       );
-      if (term !== null) {
-        // Located in `flat` itself, so the window is a real substring of the
-        // page; no ellipses, which are not in the page and would fail the
-        // quote check.
-        const at = flat.toLowerCase().indexOf(normalize(term));
+      if (hit !== null) {
+        // No ellipses: they are not in the page and would fail the quote check.
         verdict = "unverified";
-        siteQuote = at < 0 ? null : flat.slice(Math.max(0, at - 80), at + term.length + 80).trim();
+        siteQuote = flat.slice(Math.max(0, hit.at - 80), hit.at + hit.said.length + 80).trim();
         // In the site's own spelling, not however the model typed the term.
-        const said = at < 0 ? term : flat.slice(at, at + normalize(term).length);
-        downgradeReason = `Your site does say "${said}", so we have not called this wrong.`;
+        downgradeReason = `Your site does say "${hit.said}", so we have not called this wrong.`;
       }
     }
 

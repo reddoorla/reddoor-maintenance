@@ -748,6 +748,118 @@ describe("code never upgrades a verdict to 'confirmed'", () => {
   });
 });
 
+describe("a downgrade needs the claim's own names, as words on the site", () => {
+  const offline = { fetchPage: async () => null };
+  const run = async (opts: {
+    siteText: string;
+    query: string;
+    fullAnswer: string;
+    claim: string;
+    engineQuote: string;
+    term: string;
+  }) =>
+    (
+      await checkAccuracy(
+        "https://rosewood.example/",
+        crawl([page("https://rosewood.example/", opts.siteText)]),
+        [branded({ query: opts.query, citedDomains: [], fullAnswer: opts.fullAnswer })],
+        [],
+        {
+          run: async () => ({
+            assertions: [
+              {
+                claim: opts.claim,
+                engineQuote: opts.engineQuote,
+                verdict: "contradicted",
+                siteQuote: null,
+                searchTerms: [opts.term],
+              },
+            ],
+          }),
+          ownership: offline,
+        },
+      )
+    ).assertions[0];
+
+  it("does not read another business that shares a word with ours as ours", async () => {
+    const r = await run({
+      siteText: "We sit beside the Lakeside Bakery on Main Street.",
+      query: "who is Rosewood Market",
+      fullAnswer: 'The business is called "Rosewood Bakery".',
+      claim: 'The business is called "Rosewood Bakery".',
+      engineQuote: 'The business is called "Rosewood Bakery".',
+      term: "Bakery",
+    });
+    expect(r?.unverifiedReason ?? "").not.toMatch(/^Your site does say/);
+  });
+
+  it("takes the name from a 'reviews' query too, and only as a whole", async () => {
+    const r = await run({
+      siteText: "Find us on Google any time.",
+      query: "Rosewood Market reviews",
+      fullAnswer: "Rosewood Market has 5-star Google Reviews.",
+      claim: "Rosewood Market has 5-star Google Reviews.",
+      engineQuote: "Rosewood Market has 5-star Google Reviews.",
+      term: "Google",
+    });
+    expect(r?.unverifiedReason ?? "").not.toMatch(/^Your site does say/);
+  });
+
+  it("does not strip part of a different business's name as if it were ours", async () => {
+    const r = await run({
+      siteText: "Stay near the Salem waterfront, all week.",
+      query: "who is Rosewood Market",
+      fullAnswer: "Rosewood Bakery is in Salem.",
+      claim: "Rosewood Bakery is in Salem.",
+      engineQuote: "Rosewood Bakery is in Salem.",
+      term: "Salem",
+    });
+    expect(r?.unverifiedReason ?? "").not.toMatch(/^Your site does say/);
+  });
+
+  it("knows our name from a 'reviews' query", async () => {
+    const r = await run({
+      siteText: "Stay near the Salem waterfront, all week.",
+      query: "Rosewood Market reviews",
+      fullAnswer: "Rosewood Market is based in Salem.",
+      claim: "Rosewood Market is based in Salem.",
+      engineQuote: "Rosewood Market is based in Salem.",
+      term: "Salem",
+    });
+    expect(r?.unverifiedReason).toBe(
+      'Your site does say "Salem", so we have not called this wrong.',
+    );
+  });
+
+  it("does not find a name inside another word", async () => {
+    const r = await run({
+      siteText: "Seasonal Jerusalem artichoke bouquets, all week.",
+      query: "who is Rosewood Market",
+      fullAnswer: "Rosewood Market is based in Salem.",
+      claim: "Rosewood Market is based in Salem.",
+      engineQuote: "Rosewood Market is based in Salem.",
+      term: "Salem",
+    });
+    expect(r?.unverifiedReason ?? "").not.toMatch(/^Your site does say/);
+  });
+
+  it("downgrades when the claim's only other name is the term, quoting the site's own text", async () => {
+    const r = await run({
+      siteText: "\u0130\u0130\u0130\u0130 Stay near the Salem waterfront, all week.",
+      query: "who is Rosewood Market",
+      fullAnswer: "Rosewood Market is based in Salem.",
+      claim: "Rosewood Market is based in Salem.",
+      engineQuote: "Rosewood Market is based in Salem.",
+      term: "salem",
+    });
+    expect(r).toMatchObject({
+      verdict: "unverified",
+      siteQuote: expect.stringContaining("Salem waterfront"),
+      unverifiedReason: 'Your site does say "Salem", so we have not called this wrong.',
+    });
+  });
+});
+
 describe("a negated claim is never downgraded on the site using its term", () => {
   const site = crawl([
     page("https://acme.example/", "HQ mailing address: 1 Main St, Fair Oaks Ranch, TX."),
@@ -770,7 +882,7 @@ describe("a negated claim is never downgraded on the site using its term", () =>
     "Nothing ties Acme Design to Los Angeles.",
     "Acme Design operates without a Los Angeles office.",
     "Acme Design is neither in Los Angeles nor nearby.",
-    "Acme Design is in San Diego nor Los Angeles.",
+    "Acme Design is in Los Angeles nor nearby.",
   ])("%s", async (claim) => {
     const r = await checkAccuracy("https://acme.example/", site, [answer], [], {
       run: async () => ({
