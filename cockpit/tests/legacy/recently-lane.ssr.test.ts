@@ -8,7 +8,7 @@ import { buildFleetTableModel, parseFleetTableQuery } from "../../../src/dashboa
 import { snapshot } from "../overview/fixtures.js";
 
 function modelWith(events: FleetEvent[]) {
-  return buildCockpitModel([], [], {}, "https://d.test", new Date(), [], null, events);
+  return buildCockpitModel([], [], {}, "https://d.test", new Date(), [], events);
 }
 
 describe("renderRecentlyLane (via renderCockpitHtml)", () => {
