@@ -146,22 +146,34 @@ export type AccuracyResult = {
   /** Which branded answers we had full text for. A run whose probes predate
    *  `fullAnswer` reports zero and no assertions, rather than "nothing wrong". */
   answersRead: number;
-  /** The engine confused this business with others of the same name. For a
-   *  common name this is the headline of the branded search, and it was only
-   *  ever visible inside a truncated quote. `engineQuote` is verified against
+  /** The engine gave this business's name to something else too, and whether
+   *  it settled which one this business is. Only `detected && !settled` is a
+   *  finding: an answer that names this business first and sets an unrelated
+   *  namesake apart has done its job. `engineQuote` is verified against
    *  the answer text like every other quote; a conflation whose quote is not
    *  in the answer is discarded, not trusted. */
   conflation: Conflation;
 };
 
 export type Conflation = {
+  /** The answer gave this name to something besides this business. */
   detected: boolean;
-  /** The OTHER businesses the engine named — never this one. */
+  /** The answer still said which one this business is, and kept the others
+   *  apart. True whenever `detected` is false: there was nothing to settle. */
+  settled: boolean;
+  /** The OTHER things the answer gave the name to — never this one — each with
+   *  what it is in the answer's own words. Not necessarily businesses: one
+   *  stored answer's were a cancer biomarker and a billing credential. */
   otherNames: string[];
   engineQuote: string | null;
 };
 
-const NO_CONFLATION: Conflation = { detected: false, otherNames: [], engineQuote: null };
+const NO_CONFLATION: Conflation = {
+  detected: false,
+  settled: true,
+  otherNames: [],
+  engineQuote: null,
+};
 
 export const AccuracySchema = z.object({
   assertions: z
@@ -181,16 +193,18 @@ export const AccuracySchema = z.object({
       }),
     )
     .max(MAX_ASSERTIONS),
-  /** Does the answer describe MORE THAN ONE business under this name, or a
-   *  different business first? Defaulted, so a model that omits it reads as
-   *  "not detected" rather than failing the whole stage. */
+  /** Did the answer give this name to something else too, and did it still
+   *  settle which one this business is? Defaulted, so a model that omits the
+   *  block reads as "not detected", and one that omits `settled` reads as
+   *  settled: either way, no finding rather than a failed stage. */
   conflation: z
     .object({
       detected: z.boolean(),
+      settled: z.boolean().default(true),
       otherNames: z.array(z.string()).max(6),
       engineQuote: z.string().nullable(),
     })
-    .default({ detected: false, otherNames: [], engineQuote: null }),
+    .default({ detected: false, settled: true, otherNames: [], engineQuote: null }),
 });
 
 /** Fresh per call, so nothing inside the fenced data can predict the tag and
@@ -233,13 +247,22 @@ For each assertion return:
 - searchTerms: 1-6 distinctive words or short phrases you would search the site for to find this fact —
   proper nouns, numbers, street names. These are used to re-check "absent" verdicts across pages you were
   not shown, so choose terms that would actually appear if the fact were stated somewhere else on the site.
-
-Separately, return "conflation": does the answer describe MORE THAN ONE business under this name, or
-describe a different business first? If so, detected is true, otherNames lists the OTHER businesses
-named (never this one), and engineQuote is the exact sentence that says the name belongs to several
-businesses — copied verbatim, it is checked against the answer character by character. Otherwise
-detected is false with an empty otherNames and a null engineQuote.
   Avoid generic words ("dental", "services") that appear on every page.
+
+Separately, return "conflation", about the name only:
+- detected: does the answer give this name (or the same initials) to anything besides this business — a
+  company, a product, a credential, a term, a person? False if it only ever means this business.
+- settled: when detected, did the answer still say which one this business is — naming it by its own
+  place, work or website — and keep the others apart? An answer that describes this business and then
+  notes that an unrelated thing shares the name is settled. It is NOT settled when the answer says it
+  cannot tell which one is meant, asks which one is meant, describes something else as if it were this
+  business, or mixes their facts. True when detected is false.
+- otherNames: the OTHER things the answer gave the name to (never this business), each followed by what
+  it is in the answer's own words, in parentheses. Do not call them businesses unless the answer does.
+- engineQuote: when detected, the exact sentence that shows whether it was settled — the one that says
+  it cannot tell or asks which is meant, or the one that sets the others apart. Copied verbatim; it is
+  checked against the answer character by character. Null when detected is false, with an empty
+  otherNames.
 
 Be conservative about "confirmed": if the site only gestures at the fact, that is "absent". Being wrong in
 that direction costs a client a conversation. Being wrong the other way tells them their own website says
@@ -848,7 +871,7 @@ export async function checkAccuracy(
   const c = parsed.conflation;
   const conflation: Conflation =
     c.detected && c.engineQuote !== null && normalize(answerText).includes(normalize(c.engineQuote))
-      ? { detected: true, otherNames: c.otherNames, engineQuote: c.engineQuote }
+      ? { detected: true, settled: c.settled, otherNames: c.otherNames, engineQuote: c.engineQuote }
       : NO_CONFLATION;
 
   const sources = await classifyDomains(
