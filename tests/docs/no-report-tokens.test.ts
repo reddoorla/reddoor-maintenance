@@ -16,13 +16,21 @@ import { readFileSync, statSync } from "node:fs";
 
 // Built from parts, so this file never matches itself.
 const TOKEN_CHARS = "[A-Za-z0-9_-]";
-const REPORT_URL = new RegExp(`/audit/${TOKEN_CHARS}{22}(?!${TOKEN_CHARS})`, "g");
+// Every route that takes a token (`/audit/`, the `/r/` redirect, the JSON
+// route), with slashes optionally JSON-escaped, and a stored row's `"token"`.
+const SLASH = String.raw`\\?/`;
+const REPORT_URL = new RegExp(
+  `(?:${SLASH}(?:audit|r|api${SLASH}audit-report)${SLASH}|"token"\\s*:\\s*")${TOKEN_CHARS}{22}(?!${TOKEN_CHARS})`,
+  "g",
+);
 
-/** Fake tokens a test may carry on purpose. Empty here. */
-const ALLOWED = new Set<string>();
+/** Fake tokens tests carry on purpose: the shared fixture token, and any token
+ *  of one repeated character (`AAAA…`), which `generateToken()` never makes. */
+const FAKE = new Set(["aB3-_xY9zQ1rS2tU4vW6xY"]);
+const isFake = (token: string) => FAKE.has(token) || /^(.)\1+$/.test(token);
 
 export function reportTokenHits(text: string): string[] {
-  return [...text.matchAll(REPORT_URL)].map((m) => m[0]).filter((hit) => !ALLOWED.has(hit));
+  return [...text.matchAll(REPORT_URL)].map((m) => m[0]).filter((hit) => !isFake(hit.slice(-22)));
 }
 
 describe("reportTokenHits", () => {
@@ -33,10 +41,23 @@ describe("reportTokenHits", () => {
     expect(reportTokenHits(`see https://reddoorla.com${fake}/print today`)).toEqual([fake]);
   });
 
-  it("ignores placeholders and wrong lengths", () => {
+  it("finds the same token on the other routes and in a stored row", () => {
+    const t = fake.slice("/audit/".length);
+    for (const shape of [
+      `/r/${t}`,
+      `/api/audit-report/${t}`,
+      `\\/audit\\/${t}`,
+      `"token": "${t}"`,
+    ]) {
+      expect(reportTokenHits(`x ${shape} y`), shape).toHaveLength(1);
+    }
+  });
+
+  it("ignores placeholders, wrong lengths and fake tokens", () => {
     expect(reportTokenHits("/audit/{token} and /audit/<token> and /audit/[token]")).toEqual([]);
     expect(reportTokenHits(fake.slice(0, -1))).toEqual([]);
     expect(reportTokenHits(fake + "x")).toEqual([]);
+    expect(reportTokenHits(`/audit/${[...FAKE][0]} /r/${"A".repeat(22)}`)).toEqual([]);
   });
 });
 
