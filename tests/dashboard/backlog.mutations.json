@@ -131,5 +131,44 @@
     ],
     "test": "tests/dashboard/backlog.test.ts",
     "expect": "red"
+  },
+  {
+    "id": "11-other-columns-ignored",
+    "why": "The operator's answer (b), 2026-11-23: statuses are read from every cell. With the columns after the item cell no longer scanned, P1-93's status in the \"Start here\" column shows as no status.",
+    "edits": [
+      {
+        "file": "src/dashboard/backlog.ts",
+        "find": "  cells.slice(2).forEach((cell, k) => statuses.push(...statusesIn(id, k + 3, cell)));\n",
+        "replace": ""
+      }
+    ],
+    "test": "tests/dashboard/backlog.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "12-struck-status-read",
+    "why": "Answer (b): a status outside the item cell must stand at the start, after a space or after a bold opener. With that check gone, `~~Status …~~` and a status in a code span are read as live statuses instead of failing loudly.",
+    "edits": [
+      {
+        "file": "src/dashboard/backlog.ts",
+        "find": "if (!m || !STATUS_BEFORE.test(text.slice(0, start)) || !validDate(m[1]!)) {",
+        "replace": "if (!m || !validDate(m[1]!)) {"
+      }
+    ],
+    "test": "tests/dashboard/backlog.test.ts",
+    "expect": "red"
+  },
+  {
+    "id": "13-older-status-wins",
+    "why": "Answer (b): the newest status by date wins across cells. Taking the last one found instead shows an older status from a later column.",
+    "edits": [
+      {
+        "file": "src/dashboard/backlog.ts",
+        "find": "(best === null || s.date > best.date ? s : best)",
+        "replace": "(s)"
+      }
+    ],
+    "test": "tests/dashboard/backlog.test.ts",
+    "expect": "red"
   }
 ]

@@ -133,10 +133,56 @@ describe("topBacklogItems", () => {
     expect(it7.title).toBe("Title");
   });
 
-  it("reads a bold Status line later in the cell as text, not as a status prefix", () => {
+  it("reads a status later in the item cell, after the title", () => {
     const d = topBacklogItems(backlog(ALL)).items[3]!;
     expect(d.title).toBe("Prune the hedge.");
-    expect(d.status).toBeNull();
+    expect(d.status).toEqual({
+      date: "2026-11-22",
+      sentence: "not a prefix, so not read.",
+      refs: [],
+    });
+  });
+
+  describe("reads statuses from every cell, the newest by date winning (the operator, 2026-11-23, answer (b))", () => {
+    it("a status in another column, whose bold holds only the label", () => {
+      const row =
+        "| P1-911 | **Rake the leaves** | 🟢 | S | Begin at the gate. **Status 2026-11-01:** the rake is in the shed (#77). More. | done |";
+      const item = topBacklogItems(backlog([row])).items[0]!;
+      expect(item.title).toBe("Rake the leaves");
+      expect(item.status).toEqual({
+        date: "2026-11-01",
+        sentence: "the rake is in the shed (#77).",
+        refs: [
+          { label: "#77", href: "https://github.com/reddoorla/reddoor-maintenance/issues/77" },
+        ],
+      });
+    });
+
+    it("a newer status in another column beats an older item-cell prefix", () => {
+      const row =
+        "| P1-912 | **Status 2026-11-02: older.** **Title** | 🟢 | S | ev | **Status 2026-11-20 [M]: newer.** | done |";
+      expect(topBacklogItems(backlog([row])).items[0]!.status?.sentence).toBe("newer.");
+    });
+
+    it("an older status in another column loses to a newer item-cell prefix", () => {
+      const row =
+        "| P1-913 | **Status 2026-11-20: newer.** **Title** | 🟢 | S | ev | Status 2026-11-02: older. | done |";
+      expect(topBacklogItems(backlog([row])).items[0]!.status?.sentence).toBe("newer.");
+    });
+
+    it("two statuses in one cell are two lines, each ending where the next begins", () => {
+      const row =
+        "| P1-914 | **Title** | 🟢 | S | Status 2026-11-03: first #1 Status 2026-11-04: second #2 | done |";
+      const status = topBacklogItems(backlog([row])).items[0]!.status!;
+      expect(status.date).toBe("2026-11-04");
+      expect(status.sentence).toBe("second #2");
+      expect(status.refs.map((r) => r.label)).toEqual(["#2"]);
+    });
+
+    it("a word that only contains status is not one", () => {
+      const row = "| P1-915 | **Title** statuses noted | 🟢 | S | Statuses wait. | done |";
+      expect(topBacklogItems(backlog([row])).items[0]!.status).toBeNull();
+    });
   });
 
   it("keeps a leading link's text in the sentence, and drops a dash after the date", () => {
@@ -266,6 +312,51 @@ describe("topBacklogItems", () => {
         "a status that never closes",
         "| P1-908 | **Status 2026-11-20: open bold, no title | 🟢 |",
         /^P1-908: .*no bold title/,
+      ],
+      [
+        "a lower-case status in another column",
+        "| P1-908 | **Title** | 🟢 | S | status 2026-11-11: shipped. | done |",
+        /^P1-908: column 5 .*Status YYYY-MM-DD/,
+      ],
+      [
+        "a struck-through status in another column",
+        "| P1-908 | **Title** | 🟢 | S | ~~Status 2026-11-11: shipped.~~ | done |",
+        /^P1-908: column 5 /,
+      ],
+      [
+        "a status in a code span in another column",
+        "| P1-908 | **Title** | 🟢 | S | `Status 2026-11-11`: shipped. | done |",
+        /^P1-908: column 5 /,
+      ],
+      [
+        "a status with no space before its date in another column",
+        "| P1-908 | **Title** | 🟢 | S | ev | Status2026-11-11: shipped. |",
+        /^P1-908: column 6 /,
+      ],
+      [
+        "a status with a month name in another column",
+        "| P1-908 | **Title** | 🟢 | S | **Status Nov 12:** shipped. | done |",
+        /^P1-908: column 5 /,
+      ],
+      [
+        "a status with an impossible date in another column",
+        "| P1-908 | **Title** | 🟢 | S | Status 2026-13-40: shipped. | done |",
+        /^P1-908: column 5 /,
+      ],
+      [
+        "a status with nothing after its date in another column",
+        "| P1-908 | **Title** | 🟢 | S | **Status 2026-11-11:** | done |",
+        /^P1-908: .*no text/,
+      ],
+      [
+        "the word status in prose in another column",
+        "| P1-908 | **Title** | 🟢 | S | Check the status of it, shipped. | done |",
+        /^P1-908: column 5 /,
+      ],
+      [
+        "a malformed status in the item cell after the title",
+        "| P1-908 | **Title** then Status: shipped. | 🟢 |",
+        /^P1-908: column 2 /,
       ],
       ["no bold title", "| P1-908 | Plain title | 🟢 |", /^P1-908: .*no bold title/],
       ["no ID", "| | **Title** | 🟢 |", /^line \d+: .*P1-NNN/],

@@ -35,7 +35,7 @@ export type BacklogItem = {
   title: string;
   /** The tier cell as written, markdown stripped; null when the row has no tier cell. */
   tier: string | null;
-  /** The newest `**Status <date> …**` line in the title cell, or null when there is none. */
+  /** The newest `Status <date> …` line in any cell of the row, or null when there is none. */
   status: BacklogStatus | null;
 };
 
@@ -167,7 +167,12 @@ export function refsIn(text: string): BacklogRef[] {
  * which shifts every later pair. The title is the text after the prefixes, up
  * to the next `**`, and must itself open with `**`.
  */
-function leadingParts(cell: string): { statuses: string[]; title: string | null } {
+function leadingParts(cell: string): {
+  statuses: string[];
+  title: string | null;
+  /** The cell's text after the title's closing `**`. */
+  after: string;
+} {
   const statuses: string[] = [];
   let rest = cell;
   for (;;) {
@@ -180,7 +185,8 @@ function leadingParts(cell: string): { statuses: string[]; title: string | null 
       rest = close === -1 ? "" : rest.slice(close + 2);
       continue;
     }
-    return { statuses, title: opened && close !== -1 ? segment.trim() : null };
+    const title = opened && close !== -1 ? segment.trim() : null;
+    return { statuses, title, after: title === null ? "" : rest.slice(close + 2) };
   }
 }
 
@@ -191,14 +197,59 @@ function parseStatus(id: string, span: string): BacklogStatus {
       `${id}: a status line is not "Status YYYY-MM-DD" with a valid date`,
     );
   }
-  // Drop the provenance tag (`[M, merge commits]:`, not a leading `[link](url)`)
-  // and a bare `:` or dash after the date.
-  const body = m[2]!.replace(/^\[[^\]]*\](?!\()\s*/, "").replace(/^[:\u2014\u2013-]\s*/, "");
+  return statusFrom(id, m[1]!, m[2]!);
+}
+
+/** A status's date and the raw text after it, as a status. */
+function statusFrom(id: string, date: string, raw: string): BacklogStatus {
+  // Drop the provenance tag (`[M, merge commits]:`, not a leading `[link](url)`),
+  // a bare `:` or dash after the date, and the bold markers around either
+  // (`**Status 2026-11-01 [M]:** text`, where the bold holds only the label).
+  const bold = /^(?:\*\*|__)\s*/;
+  const body = raw
+    .trim()
+    .replace(bold, "")
+    .replace(/^\[[^\]]*\](?!\()\s*/, "")
+    .replace(bold, "")
+    .replace(/^[:\u2014\u2013-]\s*/, "")
+    .replace(bold, "");
   const sentence = plain(firstSentence(body));
   if (sentence === "") {
-    throw new BacklogParseError(`${id}: its status line dated ${m[1]} has no text after the date`);
+    throw new BacklogParseError(`${id}: its status line dated ${date} has no text after the date`);
   }
-  return { date: m[1]!, sentence, refs: refsIn(body) };
+  return { date, sentence, refs: refsIn(body) };
+}
+
+/** The word status, in any case, not inside a longer word ("Statuses" is not it). */
+const STATUS_WORD = /(?<!\p{L})status(?!\p{L})/giu;
+/** What a status may stand after: the cell's start, a space, or a bold opener that does. */
+const STATUS_BEFORE = /(?:^|\s)(?:\*\*|__)?$/;
+/** A well-formed status at the word: `Status YYYY-MM-DD`, then a space, `[`, `:`, `*` or the end. */
+const STATUS_AT = /^Status (\d{4}-\d{2}-\d{2})(?=[\s[:*]|$)/;
+
+/**
+ * Every status in a cell's text, wherever it stands (P1-111, the operator's
+ * answer (b) on 2026-11-23: P1-93 writes its status in the "Start here"
+ * column). Every whole word "status" must open an exact `Status YYYY-MM-DD`
+ * with a valid date, standing at the start, after a space or after a bold
+ * opener; any other use of the word (`status 2026-…`, `~~Status …`,
+ * `` `Status …` ``, prose such as "the status of") fails loudly, naming the row
+ * and the column, for the same reason as a title beginning with the word: each
+ * guess at which spellings are prose was a hole in the last.
+ */
+function statusesIn(id: string, column: number, text: string): BacklogStatus[] {
+  const at = [...text.matchAll(STATUS_WORD)].map((m) => m.index!);
+  return at.map((start, k) => {
+    const m = STATUS_AT.exec(text.slice(start));
+    if (!m || !STATUS_BEFORE.test(text.slice(0, start)) || !validDate(m[1]!)) {
+      throw new BacklogParseError(
+        `${id}: column ${column} uses the word status other than as "Status YYYY-MM-DD" with a valid date`,
+      );
+    }
+    // The line runs to the next status in the cell, or the cell's end.
+    const end = at[k + 1] ?? text.length;
+    return statusFrom(id, m[1]!, text.slice(start + m[0].length, end));
+  });
 }
 
 function parseItem(rank: number, cells: string[], lineNo: number): BacklogItem {
@@ -208,7 +259,7 @@ function parseItem(rank: number, cells: string[], lineNo: number): BacklogItem {
       `line ${lineNo}: the P1 table's row has no P1-NNN ID in its first cell`,
     );
   }
-  const { statuses: spans, title: lead } = leadingParts(cells[1] ?? "");
+  const { statuses: spans, title: lead, after } = leadingParts(cells[1] ?? "");
   const statuses = spans.map((s) => parseStatus(id, s));
   const title = lead === null ? "" : plain(lead);
   if (title === "") {
@@ -219,6 +270,10 @@ function parseItem(rank: number, cells: string[], lineNo: number): BacklogItem {
       `${id}: its title begins with the word Status; a status line must read "Status YYYY-MM-DD"`,
     );
   }
+  // The rest of the item cell, after its title, and every cell after it
+  // (column 1 is the ID; the title is checked above, by its own rule).
+  statuses.push(...statusesIn(id, 2, after));
+  cells.slice(2).forEach((cell, k) => statuses.push(...statusesIn(id, k + 3, cell)));
   const newest = statuses.reduce<BacklogStatus | null>(
     (best, s) => (best === null || s.date > best.date ? s : best),
     null,
