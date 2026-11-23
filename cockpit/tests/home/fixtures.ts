@@ -216,6 +216,8 @@ export function cases(): Array<[string, CockpitModel]> {
         deadLetters: new Map([["ghost-co", 2]]),
       }),
     ],
+    // The name predates #2248: this case now carries no spam or auto-filtered
+    // data. It keeps the name because the snapshots are keyed on it.
     [
       "inbox with overflow, spam and auto-filtered, and the Recently lane",
       built([siteRow({ id: "recSITE", name: "Acme Co" })], [], {

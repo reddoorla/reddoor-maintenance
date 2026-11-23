@@ -23,7 +23,7 @@ const NOW = new Date("2026-09-15T12:00:00.000Z");
 
 const acme = makeWebsiteRow({ id: "recACME", name: "Acme Co", status: "maintained" });
 
-/** buildCockpitModel's dead-letter argument is the 11th positional. */
+/** buildCockpitModel's dead-letter argument is the 9th positional. */
 function modelWithDeadLetters(deadLetters: Map<string, number>) {
   return buildCockpitModel([acme], [], {}, BASE, NOW, [], [], new Map(), deadLetters);
 }
