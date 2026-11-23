@@ -195,8 +195,10 @@ export const AccuracySchema = z.object({
     .max(MAX_ASSERTIONS),
   /** Did the answer give this name to something else too, and did it still
    *  settle which one this business is? Defaulted, so a model that omits the
-   *  block reads as "not detected", and one that omits `settled` reads as
-   *  settled: either way, no finding rather than a failed stage. */
+   *  block reads as "not detected". Under structured output `settled` is
+   *  required (z.toJSONSchema lists a defaulted field as required), so the
+   *  model always judges it; the default covers an unschema'd run, where an
+   *  omission reads as settled: no finding rather than a failed stage. */
   conflation: z
     .object({
       detected: z.boolean(),
