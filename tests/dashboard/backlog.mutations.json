@@ -190,8 +190,8 @@
     "edits": [
       {
         "file": "src/dashboard/backlog.ts",
-        "find": "    if (!opened && statuses.length > 0 && segment.trim() !== \"\") {",
-        "replace": "    if (false && !opened && statuses.length > 0 && segment.trim() !== \"\") {"
+        "find": "    if (!opened && statuses.length > 0 && rest.trim() !== \"\") {",
+        "replace": "    if (false && !opened && statuses.length > 0 && rest.trim() !== \"\") {"
       }
     ],
     "test": "tests/dashboard/backlog.test.ts",
