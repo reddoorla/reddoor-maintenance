@@ -126,6 +126,7 @@ function rowFromJoined(r: JoinedRow): WebsiteRow {
     gitRepo: str(r.git_repo),
     reportRecipientsTo: str(r.report_recipients_to),
     reportRecipientsCc: str(r.report_recipients_cc),
+    reddoorContact: str(r.reddoor_contact),
     acceptedWatchConditions: parseAwc(r.accepted_watch_conditions),
     headerImage:
       headerFilename !== null && headerType !== null
@@ -232,6 +233,7 @@ const SITE_COLUMNS = [
   "sites.netlify_id",
   "sites.report_recipients_to",
   "sites.report_recipients_cc",
+  "sites.reddoor_contact",
   "sites.copy_intro",
   "sites.copy_contact",
   "sites.copy_footer",

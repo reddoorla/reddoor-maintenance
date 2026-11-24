@@ -28,6 +28,39 @@ export function withGlobalCc(perSiteCc: string[] | null, to: string[]): string[]
   return cc;
 }
 
+/** The site cells a report's addressing reads. */
+export type RecipientCells = {
+  reportRecipientsTo: string | null;
+  pointOfContact: string | null;
+  reportRecipientsCc: string | null;
+  reddoorContact: string | null;
+};
+
+/**
+ * Who a report goes to: the one rule the send, the approve gate and the cockpit
+ * share. PURE.
+ *
+ * To is "Report recipients (To)" when set, else "point of contact" (the client).
+ * CC is the per-site CC, then the site's Reddoor contact, then
+ * {@link GLOBAL_REPORT_CC}, each added once and never repeating a To address.
+ * The Reddoor contact sits in CC, not To, so no To override can remove it: a
+ * Reddoor person always receives what the client receives (P1-127, Tim
+ * 2026-11-23: "we should always have a RD POC as well so we see what the
+ * clients sees").
+ */
+export function reportRecipients(site: RecipientCells): { to: string[]; cc: string[] } {
+  const to = parseAddresses(site.reportRecipientsTo) ?? parseAddresses(site.pointOfContact) ?? [];
+  const cc = [...(parseAddresses(site.reportRecipientsCc) ?? [])];
+  const present = new Set([...to, ...cc]);
+  for (const addr of parseAddresses(site.reddoorContact) ?? []) {
+    if (!present.has(addr)) {
+      cc.push(addr);
+      present.add(addr);
+    }
+  }
+  return { to, cc: withGlobalCc(cc, to) };
+}
+
 /**
  * Split a comma/newline-separated address field into a clean array.
  * Lowercases (case-insensitive dedupe) and removes empty entries. Returns

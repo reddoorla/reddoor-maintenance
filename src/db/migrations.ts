@@ -848,4 +848,11 @@ export const MIGRATIONS: Migration[] = [
     id: "0063_prospect_audits_superseded_by",
     sql: `ALTER TABLE prospect_audits ADD COLUMN superseded_by TEXT;`,
   },
+  {
+    // P1-127: the site's Reddoor contact (Nicole, Tim or Erik), CC'd on every
+    // report so a Reddoor person receives exactly what the client receives.
+    // `point_of_contact` is the CLIENT; this is ours. Add-only.
+    id: "0064_sites_reddoor_contact",
+    sql: `ALTER TABLE sites ADD COLUMN reddoor_contact TEXT;`,
+  },
 ];

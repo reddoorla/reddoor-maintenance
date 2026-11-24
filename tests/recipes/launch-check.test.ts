@@ -28,6 +28,7 @@ function row(fields: Record<string, unknown> = {}): WebsiteRow {
         url: URL_,
         Status: "building",
         "point of contact": "owner@example.com",
+        "Reddoor contact": "tim@reddoorla.com",
         "maintenence freq": "Quarterly",
         "maintenance day": "2026-10-14",
         "GA4 property ID": "123456789",

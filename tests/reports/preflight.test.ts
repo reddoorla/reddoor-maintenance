@@ -61,6 +61,7 @@ function cleanSite(over: Parameters<typeof makeWebsiteRow>[0] = {}) {
     url: "https://acme.example.com",
     status: "maintained",
     pointOfContact: "owner@acme.example.com",
+    reddoorContact: "tim@reddoorla.com",
     maintenanceFreq: "Monthly",
     maintenanceFreqRaw: "Monthly",
     testingFreq: "None",

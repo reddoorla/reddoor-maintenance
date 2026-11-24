@@ -86,6 +86,9 @@ export type WebsiteRow = {
   gitRepo: string | null;
   reportRecipientsTo: string | null;
   reportRecipientsCc: string | null;
+  /** The site's Reddoor contact (`sites.reddoor_contact`), CC'd on every report
+   *  whatever Report recipients say (P1-127). `pointOfContact` is the client. */
+  reddoorContact: string | null;
   acceptedWatchConditions: string[];
   /** Header plate metadata (`sites.header_image*`). `url` is "" on a Turso row — the
    *  bytes come from `loadHeaderImage` (src/db/header-images.ts). */

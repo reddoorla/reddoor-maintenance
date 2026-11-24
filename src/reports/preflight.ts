@@ -169,6 +169,7 @@ export function preflightSite(
       });
     }
   }
+  if (scheduledForType) findings.push(...reddoorContactFindings(site));
   if (!isOperatorSite(site)) {
     const operatorAddrs = to.filter((a) => OPERATOR_DOMAINS.includes(domainOf(a)));
     if (operatorAddrs.length > 0) {
@@ -439,6 +440,44 @@ export function healthBlockers(report: ReportRow): PreflightFinding[] {
  * To or CC, and the operator-only To warning. Exported so `launch-check` asks
  * the same question before a launch that the approve gate asks after it.
  */
+/**
+ * The site's Reddoor contact (P1-127): CC'd on every report so a Reddoor person
+ * gets what the client gets. Empty warns (the send still goes, to the client and
+ * the ops inbox); a malformed address fails, as a malformed CC does; an address
+ * outside Reddoor's domains warns, since this field is ours and the client's
+ * belongs in point of contact.
+ */
+export function reddoorContactFindings(site: WebsiteRow): PreflightFinding[] {
+  const addrs = parseAddresses(site.reddoorContact) ?? [];
+  if (addrs.length === 0) {
+    return [
+      {
+        level: "warn",
+        check: "reddoor-contact-missing",
+        message:
+          "no Reddoor contact — set one in the site's details so a Reddoor person is CC'd on what the client receives",
+      },
+    ];
+  }
+  const findings: PreflightFinding[] = [];
+  for (const addr of addrs) {
+    if (!isProbablyEmail(addr)) {
+      findings.push({
+        level: "fail",
+        check: "recipients-malformed",
+        message: `Reddoor contact '${addr}' is malformed — fix Reddoor contact in the site's details`,
+      });
+    } else if (!OPERATOR_DOMAINS.includes(domainOf(addr))) {
+      findings.push({
+        level: "warn",
+        check: "reddoor-contact-not-reddoor",
+        message: `Reddoor contact '${addr}' is not a Reddoor address — the client's address belongs in point of contact`,
+      });
+    }
+  }
+  return findings;
+}
+
 export function recipientFindings(site: WebsiteRow): PreflightFinding[] {
   const findings: PreflightFinding[] = [];
   const explicitTo = parseAddresses(site.reportRecipientsTo);
@@ -470,6 +509,7 @@ export function recipientFindings(site: WebsiteRow): PreflightFinding[] {
       });
     }
   }
+  findings.push(...reddoorContactFindings(site));
   if (!isOperatorSite(site)) {
     const operatorAddrs = to.filter((a) => OPERATOR_DOMAINS.includes(domainOf(a)));
     if (operatorAddrs.length > 0 && operatorAddrs.length === to.length) {

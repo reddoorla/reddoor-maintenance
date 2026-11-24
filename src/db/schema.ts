@@ -110,6 +110,7 @@ export interface SitesTable {
   netlify_id: string | null;
   report_recipients_to: string | null;
   report_recipients_cc: string | null;
+  reddoor_contact: string | null;
   copy_intro: string | null;
   copy_contact: string | null;
   copy_footer: string | null;

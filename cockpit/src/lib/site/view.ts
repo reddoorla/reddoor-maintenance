@@ -17,7 +17,7 @@ import {
 import { rendersCommentary } from "../../../../src/reports/template-for.js";
 import { heldUntilDue, sendDayLabel } from "../../../../src/reports/due.js";
 import { approveBlockers, type PreflightFinding } from "../../../../src/reports/preflight.js";
-import { parseAddresses, withGlobalCc } from "../../../../src/reports/send/addresses.js";
+import { reportRecipients } from "../../../../src/reports/send/addresses.js";
 import { isVisibleInStrip } from "../../../../src/dashboard/submission-rules.js";
 import { SUBMISSION_FORM_TYPES } from "../../../../src/forms/types.js";
 import {
@@ -249,9 +249,8 @@ function sendTimingLine(now: Date, r: Pick<ReportRow, "dueOn">): string {
 }
 
 function recipients(site: WebsiteRow): PendingView["recipients"] {
-  const to = parseAddresses(site.reportRecipientsTo) ?? parseAddresses(site.pointOfContact) ?? [];
+  const { to, cc } = reportRecipients(site);
   if (to.length === 0) return { missing: true };
-  const cc = withGlobalCc(parseAddresses(site.reportRecipientsCc), to);
   const ccPart = cc.length > 0 ? ` · CC ${cc.join(", ")}` : "";
   return { missing: false, text: `To ${to.join(", ")}${ccPart}` };
 }
@@ -478,6 +477,7 @@ function detailRows(site: WebsiteRow, now: Date): DetailRowView[] {
     input("Report recipients (To)", "reportRecipientsTo", site.reportRecipientsTo),
     input("Report recipients (CC)", "reportRecipientsCc", site.reportRecipientsCc),
     input("Point of contact", "pointOfContact", site.pointOfContact),
+    input("Reddoor contact (always CC)", "reddoorContact", site.reddoorContact),
     input("GA4 property", "ga4PropertyId", site.ga4PropertyId),
     input("Search query", "searchQuery", site.searchQuery),
     input("Git repo", "gitRepo", site.gitRepo),
