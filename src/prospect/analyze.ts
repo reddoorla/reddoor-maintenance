@@ -252,6 +252,7 @@ export function buildAnalyzeInput(
   checks: ChecksResult,
   questions: QuestionSet,
   goalFit: GoalFit | null = null,
+  now: Date = new Date(),
 ): { system: string; user: string } {
   const fence = makeFenceTag();
   const pages = selectPages(crawl.pages).map((p) => {
@@ -276,6 +277,7 @@ export function buildAnalyzeInput(
 
   const user = [
     `Site: ${url}`,
+    `Today's date is ${now.toISOString().slice(0, 10)}.`,
     "",
     "## What the automated checks found",
     summarizeFindings(checks),
