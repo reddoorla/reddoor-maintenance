@@ -211,10 +211,12 @@ describe("prospect-audit CLI — --email", () => {
     expect(payload.email).toEqual(emailOverride);
   });
 
-  // #1487: the --email PDF branch. renderReportPdf is stubbed to throw (above),
-  // so the command must have asked for the print route once, recorded the
-  // missing PDF as a warning, and still sent the email with no attachment.
-  it("prints the PDF from the report's print route, and a render failure is a warning with pdf: null", async () => {
+  // #1487 tested the --email PDF branch here: the command printed the print
+  // route and recorded a render failure as a warning.
+  // W1 changed this: the saved report is a draft, and the print route 404s a
+  // draft to the renderer, so no PDF is attempted at save time. The email still
+  // goes, says why there is no PDF, and is told the run was partial.
+  it("W1: renders no PDF for a draft, warns why, and tells the email the run was partial", async () => {
     process.env.TURSO_DATABASE_URL = ":memory:";
     process.env.PROSPECT_AUDIT_RECIPIENTS = "tucker@reddoorla.com";
     delete process.env.REPORT_BASE_URL;
@@ -230,12 +232,11 @@ describe("prospect-audit CLI — --email", () => {
     expect(code).toBe(0);
     const payload = JSON.parse(output) as { token: string | null; warnings: string[] };
     expect(payload.token).toMatch(/^[A-Za-z0-9_-]{22}$/);
-    expect(renderReportPdf).toHaveBeenCalledTimes(1);
-    expect(renderReportPdf).toHaveBeenCalledWith(
-      `https://reddoorla.com/audit/${payload.token}/print`,
+    expect(renderReportPdf).not.toHaveBeenCalled();
+    expect(payload.warnings).toContain(
+      "No PDF attached: the report is a draft, and its print page opens only once it is approved.",
     );
-    expect(payload.warnings).toContain("Could not attach the PDF: PDF rendering disabled in tests");
     expect(sendAuditEmail).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(sendAuditEmail).mock.calls[0]![1]).toMatchObject({ pdf: null });
+    expect(vi.mocked(sendAuditEmail).mock.calls[0]![1]).toMatchObject({ pdf: null, partial: true });
   });
 });

@@ -93,6 +93,11 @@ describe("openDb", () => {
       "0056_sites_form_webhook",
       "0057_sites_form_webhook_types",
       "0058_reports_due_on",
+      "0059_prospect_audits_approved_at",
+      "0060_prospect_audits_approved_by",
+      "0061_prospect_audits_withdrawn_at",
+      "0062_prospect_audits_withdrawn_by",
+      "0063_prospect_audits_superseded_by",
     ]);
     await db.destroy();
   });

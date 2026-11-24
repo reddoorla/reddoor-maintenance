@@ -544,3 +544,27 @@ describe("setProspectAuditOverrides — __proto__", () => {
     expect(row!.edited_at).toBeNull();
   });
 });
+
+describe("W1 — a hidden flag on an override entry", () => {
+  it("stores hidden: true, and drops hidden: false as the same as absent", async () => {
+    const { db, token } = await seed();
+    const res = await setProspectAuditOverrides(db, token, {
+      "analyze.data.fixes[0]": { original: "Fix one", text: "", hidden: true },
+      "analyze.data.fixes[1].title": { original: "a", text: "b", hidden: false },
+    } as unknown as OverrideMap);
+    expect(res.status).toBe("updated");
+    const row = await getProspectAuditByToken(db, token);
+    expect(JSON.parse(row!.overrides_json!)).toEqual({
+      "analyze.data.fixes[0]": { original: "Fix one", text: "", hidden: true },
+      "analyze.data.fixes[1].title": { original: "a", text: "b" },
+    });
+  });
+
+  it("refuses a hidden that is not a boolean: it is a known key, not an extra one", async () => {
+    const { db, token } = await seed();
+    const res = await setProspectAuditOverrides(db, token, {
+      "analyze.data.fixes[0]": { original: "Fix one", text: "", hidden: "yes" },
+    } as unknown as OverrideMap);
+    expect(res.status).toBe("invalid");
+  });
+});

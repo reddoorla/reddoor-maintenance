@@ -818,4 +818,34 @@ export const MIGRATIONS: Migration[] = [
     id: "0058_reports_due_on",
     sql: `ALTER TABLE reports ADD COLUMN due_on TEXT;`,
   },
+  {
+    // W1 (audit-system review, 2026-11-23): a finished prospect audit is a DRAFT
+    // until a person approves it. NULL is a draft, and the JSON route 404s a
+    // draft to anyone not carrying PROSPECT_EDIT_TOKEN. One column per
+    // migration, for the reason 0015 gives.
+    id: "0059_prospect_audits_approved_at",
+    sql: `ALTER TABLE prospect_audits ADD COLUMN approved_at TEXT;`,
+  },
+  {
+    // W1: who approved it, as typed at `prospect-audit-review --approve --by`.
+    id: "0060_prospect_audits_approved_by",
+    sql: `ALTER TABLE prospect_audits ADD COLUMN approved_by TEXT;`,
+  },
+  {
+    // W1: set when a report is taken down. A withdrawn report 404s to everyone;
+    // the row and its result_json stay, so what was shown is still on record.
+    id: "0061_prospect_audits_withdrawn_at",
+    sql: `ALTER TABLE prospect_audits ADD COLUMN withdrawn_at TEXT;`,
+  },
+  {
+    id: "0062_prospect_audits_withdrawn_by",
+    sql: `ALTER TABLE prospect_audits ADD COLUMN withdrawn_by TEXT;`,
+  },
+  {
+    // W1: the token of the newer report for the same site. The old link answers
+    // with a pointer to it, but only while that newer report is approved and
+    // not withdrawn; otherwise the old link 404s.
+    id: "0063_prospect_audits_superseded_by",
+    sql: `ALTER TABLE prospect_audits ADD COLUMN superseded_by TEXT;`,
+  },
 ];
