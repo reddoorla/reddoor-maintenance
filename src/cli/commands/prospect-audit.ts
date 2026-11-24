@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { hostnameOf, isHttpUrl, isPrivateOrLoopbackHost } from "../../util/url.js";
-import { reportUrl, reportPrintUrl } from "../../prospect/report-url.js";
+import { reportUrl } from "../../prospect/report-url.js";
 import type { FinishedProspectAuditStatus } from "../../db/prospect-audits.js";
 import type { Db } from "../../db/client.js";
 import type { PipelineDeps, StageName } from "../../prospect/pipeline.js";
@@ -102,7 +102,7 @@ function scoreLine(label: string, value: number | null): string {
  *  (--no-probes, the checks→analyze cascade) into the same `ok: false` — both
  *  mean the report has a "not measured" section, so both count as partial
  *  here too. */
-function auditStatus(result: ProspectAuditResult): FinishedProspectAuditStatus {
+export function auditStatus(result: ProspectAuditResult): FinishedProspectAuditStatus {
   const allStagesOk =
     result.checks.ok && result.lighthouse.ok && result.analyze.ok && result.probes.ok;
   return allStagesOk ? "complete" : "partial";
@@ -133,6 +133,7 @@ async function writeRecoveryFiles(
 
 function summarize(
   result: ProspectAuditResult,
+  token: string | null,
   link: string | null,
   file: string | null,
   warnings: string[],
@@ -158,7 +159,7 @@ function summarize(
     if (!stage.ok) lines.push(`  ! ${name} not measured — ${stage.error}`);
   }
   if (file) lines.push("", `Report written to ${file}`);
-  if (link) lines.push("", `Shareable link: ${link}`);
+  if (link) lines.push("", `Link (a draft: it 404s until approved): ${link}`);
   if (email?.sent) {
     lines.push("", `Emailed to ${email.recipients.join(", ")} (${email.messageId})`);
   }
@@ -171,7 +172,29 @@ function summarize(
       `  ${recovery.jsonPath}`,
     );
   }
+  const verdict = reviewLine(result, token);
+  if (verdict) lines.push("", verdict);
   return lines.join("\n");
+}
+
+/**
+ * W1. The LAST line of the summary, because it is the line an operator acts
+ * on: a saved report is a draft that nobody outside the editor can open, and a
+ * partial one must not be sent at all. Null when nothing was saved (there is
+ * no link to approve).
+ */
+export function reviewLine(result: ProspectAuditResult, token: string | null): string | null {
+  if (!token) return null;
+  if (auditStatus(result) === "partial") {
+    return (
+      'DO NOT SEND: part of this audit did not run (see "not measured" above). ' +
+      "It is saved as a draft, not approved; its link 404s for anyone but the editor."
+    );
+  }
+  return (
+    "Draft, not approved: the link 404s for anyone but the editor. Read it, then run " +
+    `\`prospect-audit-review --token=${token} --approve --by <your name>\` to make it live.`
+  );
 }
 
 /** What the runaway brake concluded before any money was spent. */
@@ -519,23 +542,14 @@ export async function runProspectAuditCommand(
   // prospect/render.js are above: it reaches `resend` (a devDependency) and
   // must stay out of bin.js's static import graph (see bin.ts's
   // central-dep-blocker comment).
-  // The PDF leave-behind, printed from the website's print route — a document
-  // designed for paper, not the interactive report with its evidence folded
-  // away behind disclosures.
-  //
-  // Best-effort by design. Every other stage in this pipeline degrades rather
-  // than throwing, and an attachment is not worth losing a delivered report
-  // over: if this fails the email still goes, with the link, and a warning says
-  // the PDF is missing. It also needs a token — with no persisted report there
-  // is no page to print.
-  let pdf: Buffer | null = null;
+  // The PDF leave-behind used to be printed here, from the website's print
+  // route. W1: every report this saves is a draft, and the print route 404s a
+  // draft to anything without the edit session, the PDF renderer included. So
+  // no PDF is attempted at save time; the email says so.
   if (opts.email && token) {
-    try {
-      const { renderReportPdf } = await import("../../prospect/pdf.js");
-      pdf = await renderReportPdf(reportPrintUrl(token));
-    } catch (err) {
-      warnings.push(`Could not attach the PDF: ${errorMessage(err)}`);
-    }
+    warnings.push(
+      "No PDF attached: the report is a draft, and its print page opens only once it is approved.",
+    );
   }
 
   let email: SendAuditEmailResult | null = null;
@@ -544,7 +558,13 @@ export async function runProspectAuditCommand(
       const { sendAuditEmail, parseProspectAuditRecipients } =
         await import("../../prospect/email.js");
       const recipients = parseProspectAuditRecipients(process.env.PROSPECT_AUDIT_RECIPIENTS);
-      email = await sendAuditEmail(result, { link, recipients, auditId, pdf });
+      email = await sendAuditEmail(result, {
+        link,
+        recipients,
+        auditId,
+        pdf: null,
+        partial: auditStatus(result) === "partial",
+      });
       if (!email.sent) {
         warnings.push(`Could not email the audit sheet: ${email.reason}`);
       }
@@ -564,5 +584,5 @@ export async function runProspectAuditCommand(
     };
   }
 
-  return { output: summarize(result, link, file, warnings, recovery, email), code };
+  return { output: summarize(result, token, link, file, warnings, recovery, email), code };
 }

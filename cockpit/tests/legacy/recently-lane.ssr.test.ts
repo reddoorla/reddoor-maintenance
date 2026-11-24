@@ -7,8 +7,8 @@ import { buildSitesView } from "../../src/lib/cockpit/view.js";
 import { buildFleetTableModel, parseFleetTableQuery } from "../../../src/dashboard/fleet-table.js";
 import { snapshot } from "../overview/fixtures.js";
 
-function modelWith(events: FleetEvent[]) {
-  return buildCockpitModel([], [], {}, "https://d.test", new Date(), [], events);
+function modelWith(events: FleetEvent[], now: Date = new Date()) {
+  return buildCockpitModel([], [], {}, "https://d.test", now, [], events);
 }
 
 describe("renderRecentlyLane (via renderCockpitHtml)", () => {
@@ -69,6 +69,9 @@ describe("renderRecentlyLane (via renderCockpitHtml)", () => {
 // no longer carries deploys; the snapshot's `feedDeploys` (already `deploysToShow`-filtered)
 // sit beside the recent events, newest first, under the lane's cut.
 describe("renderRecentlyLane: deploys follow the overview's rule (P1-87 PR 9, C1)", () => {
+  // The page's `now`, 55 minutes after the newest fixture (the 17:05Z deploy). The lane windows deploys at `now`, so
+  // leaving it to the real clock put these fixtures out of the window on 2026-11-24 (#2269).
+  const NOW = new Date("2026-11-17T18:00:00.000Z");
   const merge: FleetEvent = {
     id: "pr_automerged:reddoorla/caltex#20",
     ts: "2026-11-17T17:00:00.000Z",
@@ -89,14 +92,19 @@ describe("renderRecentlyLane: deploys follow the overview's rule (P1-87 PR 9, C1
   };
 
   it("shows a merge, and leaves out the deploy 5 minutes after it on the same site", () => {
-    const html = renderSitesHtml(modelWith([merge]), null, deploysToShow([merge, deploy]));
+    const html = renderSitesHtml(
+      modelWith([merge], NOW),
+      null,
+      deploysToShow([merge, deploy]),
+      NOW,
+    );
     expect(html).toContain("auto-merged vite→7.3.5");
     expect(html).not.toContain("Deploy published");
     expect(html).toContain("Recently (1)");
   });
 
   it("shows a deploy with no merge before it as Deploy published", () => {
-    const html = renderSitesHtml(modelWith([]), null, deploysToShow([deploy]));
+    const html = renderSitesHtml(modelWith([], NOW), null, deploysToShow([deploy]), NOW);
     expect(html).toContain("Deploy published");
     expect(html).toContain("Recently (1)");
     // The deploy row links to its site's page (P1-87 PR 9, T11): the slug of "Caltex".
@@ -120,7 +128,7 @@ describe("renderRecentlyLane: deploys follow the overview's rule (P1-87 PR 9, C1
       siteId: "recB",
       siteName: "Beta",
     }));
-    const html = renderSitesHtml(modelWith(recent), null, deploys);
+    const html = renderSitesHtml(modelWith(recent, NOW), null, deploys, NOW);
     expect(html).toContain("Recently (20)");
     // Which rows the cut keeps, not only how many (P1-87 PR 9, T10): the five deploys are the
     // newest, then the events from "cleared 19" down to "cleared 5"; "cleared 4" is cut.
