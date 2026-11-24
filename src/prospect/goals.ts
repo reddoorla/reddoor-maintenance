@@ -1,4 +1,12 @@
 import type { ChecksResult, CrawlResult, JourneyMap, PageCapture, PageExtract } from "./types.js";
+import {
+  isArchivePath,
+  isContactLike,
+  isDatedOrPaginated,
+  isFetchableCandidate,
+  sitePathKey,
+  toSameOrigin,
+} from "./crawl.js";
 
 /**
  * Can a visitor do the one thing this site needs them to do?
@@ -419,6 +427,9 @@ type Signals = {
    *  on reports stored before form extraction existed, and there a count of
    *  zero means we never looked, not that the site has no form. */
   formsMeasured: boolean;
+  /** A contact, quote, demo, booking or get-started page this site links to
+   *  that we did not read, or null when we read every one we saw a link to. */
+  contactUnread: string | null;
   /** Any phone written as a `tel:` link anywhere. */
   hasTappablePhone: boolean;
   /** False when there is no phone number at all, or when the report predates
@@ -515,6 +526,57 @@ function priceSignal(text: string): string | null {
   return null;
 }
 
+/** The address of a page, for "did we read it?": no scheme, no `www.`, no
+ *  fragment, no trailing slash, and no query. A link to `/contact?service=x` is
+ *  the contact page we read when `/contact` was read; the query selects content
+ *  on it, it does not make it another page to be unread. An `https://` link to
+ *  a page read over `http://` (or the reverse) is the same page, as in crawl.ts. */
+function pageKey(url: string): string {
+  return sitePathKey(new URL(url));
+}
+
+/**
+ * The first contact-like page (contact, quote, demo, book, get started) that a
+ * page we read links to and that we did not read ourselves.
+ *
+ * "We read your pages and none had an enquiry form" is only a finding when the
+ * page the site's own buttons point to was among them. One stored report told
+ * a site it lacks a qualifying form while its home page linked to an
+ * eight-field form on `/contact` seven times, and the crawl had spent its
+ * pages on blog posts instead.
+ */
+function contactPageUnread(crawl: CrawlResult): string | null {
+  const read = new Set<string>();
+  for (const p of crawl.pages) {
+    if (extractOf(p) === null) continue;
+    try {
+      read.add(pageKey(p.url));
+    } catch {
+      // A stored URL that does not parse cannot be compared; skip it.
+    }
+  }
+  // Only the links a visitor is shown first, which are the home page's own (its
+  // menu included). A link deep in a post is not what the site asks us to read,
+  // and counting it made "unread" a claim about the whole site.
+  const home = crawl.pages[0];
+  const anchors = home ? (extractOf(home)?.anchors ?? []) : [];
+  for (const a of anchors) {
+    let onSite: string | null;
+    try {
+      onSite = toSameOrigin(new URL(a.href, home!.url).toString(), crawl.origin);
+    } catch {
+      continue;
+    }
+    if (onSite === null || !isContactLike(onSite, a.text)) continue;
+    // A link the crawl can never read is not a page we failed to read: a PDF, a
+    // robots-disallowed path, infrastructure, a dated post or a blog entry.
+    if (!isFetchableCandidate(onSite, crawl.robotsTxt)) continue;
+    if (isDatedOrPaginated(onSite) || isArchivePath(onSite)) continue;
+    if (!read.has(pageKey(onSite))) return onSite;
+  }
+  return null;
+}
+
 function gather(crawl: CrawlResult, checks: ChecksResult | null): Signals {
   const text = siteText(crawl.pages);
   const phones = checks?.consistency?.phones ?? [];
@@ -530,6 +592,7 @@ function gather(crawl: CrawlResult, checks: ChecksResult | null): Signals {
   }
   return {
     text,
+    contactUnread: contactPageUnread(crawl),
     anchors: allAnchors(crawl.pages),
     schemaTypes: checks?.schema.typesFound ?? [],
     bestEnquiryFields,
@@ -744,8 +807,16 @@ export function checkGoal(
     "A name-and-email box produces enquiries you have to qualify by hand. Three or four more fields turn a lead into a briefed conversation.",
     "content",
     s.bestEnquiryFields >= 4 ? `enquiry form with ${s.bestEnquiryFields} fields` : null,
-    s.formsMeasured,
+    // Not measured, rather than missing, while a page the site's own links
+    // call "contact" (or quote, demo, book, get started) went unread: the
+    // form is most likely there. A form found elsewhere still counts as met.
+    s.formsMeasured && (s.bestEnquiryFields >= 4 || s.contactUnread === null),
   );
+
+  // No page left us anything to read (say, the home page answered as text/plain
+  // and nothing else was readable). Then every requirement is a gap in our data,
+  // and "missing" would print our blindness as the site's failing.
+  const readable = crawl.pages.some((p) => extractOf(p) !== null);
 
   switch (goal) {
     case "book":
@@ -870,6 +941,14 @@ export function checkGoal(
       // the result as their failing. The finding IS that we could not tell.
       requirements = [];
       break;
+  }
+
+  if (!readable) {
+    requirements = requirements.map((r) => ({
+      ...r,
+      status: "unmeasured" as const,
+      evidence: null,
+    }));
   }
 
   return {
