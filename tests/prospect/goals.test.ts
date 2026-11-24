@@ -575,10 +575,23 @@ describe("priceSignal — the phrasings real sites use", () => {
       "The statute is strict. Penalties include civil suits for no less than $1,000 to $5,000 for the first offense and fines ranging from $5,000 to $10,000 after that.";
     expect(met(checkGoal("enquire", "inferred", crawl(statute), null), "price-signal")).toBe(false);
 
-    // "fines" alone, with no other penalty word, is still a penalty.
+    // A fine framed as a penalty ("fines of", "ranging", "up to") is not a price.
     expect(
-      met(checkGoal("enquire", "inferred", crawl("Fines from $50 apply."), null), "price-signal"),
+      met(
+        checkGoal("enquire", "inferred", crawl("Fines of up to $50 apply."), null),
+        "price-signal",
+      ),
     ).toBe(false);
+    // The word on its own is not a penalty: herbs, dashes, place names (round 5).
+    for (const text of [
+      "Fines–herbes salmon from $28.",
+      "Fines herbs salmon from $28.",
+      "Stay in Fines Creek cabins from $120 a night.",
+    ]) {
+      expect(met(checkGoal("enquire", "inferred", crawl(text), null), "price-signal"), text).toBe(
+        true,
+      );
+    }
 
     // "a fine of" is a penalty; the adjective "fine" is not.
     expect(
