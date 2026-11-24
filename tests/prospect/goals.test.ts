@@ -570,28 +570,27 @@ describe("priceSignal — the phrasings real sites use", () => {
     }
   });
 
-  it("does not read legal penalties (fines) as prices", () => {
-    const statute =
-      "The statute is strict. Penalties include civil suits for no less than $1,000 to $5,000 for the first offense and fines ranging from $5,000 to $10,000 after that.";
-    expect(met(checkGoal("enquire", "inferred", crawl(statute), null), "price-signal")).toBe(false);
-
-    // A fine framed as a penalty ("fines of", "ranging", "up to") is not a price.
-    expect(
-      met(
-        checkGoal("enquire", "inferred", crawl("Fines of up to $50 apply."), null),
-        "price-signal",
-      ),
-    ).toBe(false);
-    // The word on its own is not a penalty: herbs, dashes, place names (round 5).
+  it("reads a fine as a penalty only in the forms no price uses (fined, a fine of)", () => {
+    // B-09's bare word "fines" was split out of this PR (the operator, 11-24,
+    // workspace decisions/2026-11-24-1749-qw-checks-round-6-dirty.md): review
+    // rounds 3 to 6 found it hiding real prices in four senses. These stay prices.
     for (const text of [
+      "Omelette aux fines herbes from $14.",
       "Fines–herbes salmon from $28.",
-      "Fines herbs salmon from $28.",
       "Stay in Fines Creek cabins from $120 a night.",
+      "Crusher fines starting at $38 per yard, delivered.",
+      "Screened fines ranging from $30 to $55 a yard.",
     ]) {
       expect(met(checkGoal("enquire", "inferred", crawl(text), null), "price-signal"), text).toBe(
         true,
       );
     }
+    expect(
+      met(
+        checkGoal("enquire", "inferred", crawl("Violators are fined starting at $500."), null),
+        "price-signal",
+      ),
+    ).toBe(false);
 
     // "a fine of" is a penalty; the adjective "fine" is not.
     expect(
@@ -605,19 +604,6 @@ describe("priceSignal — the phrasings real sites use", () => {
         "price-signal",
       ),
     ).toBe(false);
-    // "fines herbes" is a herb mix, not a penalty (review round 3).
-    expect(
-      met(
-        checkGoal("enquire", "inferred", crawl("Omelette aux fines herbes from $14."), null),
-        "price-signal",
-      ),
-    ).toBe(true);
-    expect(
-      met(
-        checkGoal("enquire", "inferred", crawl("Omelette fines-herbes from $14."), null),
-        "price-signal",
-      ),
-    ).toBe(true);
     // A legal practice's own fees are prices, even beside the words a statute uses.
     expect(
       met(
