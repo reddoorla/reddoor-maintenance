@@ -17,15 +17,18 @@ At the fifth dirty round the operator chose to narrow, not patch. Now only exact
 **The BR-06 departure.** The round-5 answer asked for a one-word own name to count, so that "Austin Dental is located in Austin" would confirm. That rule also confirms "Calder" plus one shared word, which is the stored defect item 8 exists to stop, and the two cases have the same shape. `80e916d0` reverted it. The business's own name is never evidence.
 
 **Residuals, named.**
+
 - Military hours from 1900 to 2099 ("1930") read as years.
 - "Founded in 2001 by Dr. Dana Reyes" loses a true year, because "Dr" is a street word: the safe direction.
 - `TOPIC_TEXT`, a verbatim copy of the website's (107 of 107 lines, `named_person` and `ownership` omitted by decision), still misses inflections (#2284).
 
 **Beliefs corrected on contact.**
+
 - I expected a wider comparer to catch more same values. Each widening bought the next round's majors; narrowing to exact kinds closed them.
 - A hand-off said "CI passed" on the website's `8b241c2`; it was the Netlify preview. Both PRs had conflicted with their bases since about 11:40pm PT on 11-23, and a conflicted PR runs no `pull_request` workflows. No `ci` ran on four commits here until the `main` merge `fe1944f2` at 11:24am PT on 11-24. Read `mergeable_state` before trusting a green row.
 
 **Honest accounting.**
+
 - The old sitemap-index gap (skipped index children left `truncated: false`) was closed by W3's crawl (#2275, `fetchSidecars`), not by this PR.
 - Haiku fixers wrote most of the fix commits from written briefs, and Opus lenses found every defect above.
 - One fixer bypassed the pre-commit hook (`e90e034f`); lint and tsc were clean on its content.
