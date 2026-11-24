@@ -3775,6 +3775,39 @@ describe("review round 6: uncomparable pairs keep values only on the client's ow
       });
       expect(row).toMatchObject({ verdict: "contradicted", unverifiedReason: null });
     });
+
+    // Fix-only round on 4ef7571c: the site-says-it guard reads an ambiguous date both
+    // ways, so a site quote holding the engine's date as 03/04/2001 next to another
+    // date does not contradict it.
+    it("March 4, 2001 against a site quote holding 03/04/2001 and April 5, 2001 is not contradicted", async () => {
+      const row = await rowOf({
+        engineQuote: "Northwind opened March 4, 2001.",
+        engineValue: "March 4, 2001",
+        siteQuote: "Opened 03/04/2001, moved to the new shop April 5, 2001.",
+        siteValue: "April 5, 2001",
+      });
+      expect(row).toMatchObject({ verdict: "unverified" });
+    });
+
+    it("mirror: April 3, 2001 against a site quote holding 03/04/2001 and May 5, 2001 is not contradicted", async () => {
+      const row = await rowOf({
+        engineQuote: "Northwind opened April 3, 2001.",
+        engineValue: "April 3, 2001",
+        siteQuote: "Opened 03/04/2001, moved to the new shop May 5, 2001.",
+        siteValue: "May 5, 2001",
+      });
+      expect(row).toMatchObject({ verdict: "unverified" });
+    });
+
+    it("control: 05/06/2001 reads as neither March 4, so April 5, 2001 still contradicts it", async () => {
+      const row = await rowOf({
+        engineQuote: "Northwind opened March 4, 2001.",
+        engineValue: "March 4, 2001",
+        siteQuote: "Opened 05/06/2001, moved to the new shop April 5, 2001.",
+        siteValue: "April 5, 2001",
+      });
+      expect(row).toMatchObject({ verdict: "contradicted", unverifiedReason: null });
+    });
   });
 
   // ---- Section 5: three headcount and revenue wordings are withheld ----

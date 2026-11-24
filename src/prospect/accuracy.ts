@@ -1175,7 +1175,19 @@ function valuesOfKind(text: string, form: Typed["form"]): Typed[] {
   if (form === "phone") {
     for (const m of t.matchAll(PHONE_CANDIDATE)) add(m[0]);
   } else if (form === "date") {
-    for (const m of t.matchAll(DATE_CANDIDATE)) add(m[0]);
+    for (const m of t.matchAll(DATE_CANDIDATE)) {
+      add(m[0]);
+      // Fix-only round on 4ef7571c: a d/m/y date that reads either way is untyped for
+      // the comparison, but here it is a candidate for the engine's own date in both
+      // readings, so the guard counts it if either one matches.
+      const amb = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(m[0]);
+      if (amb !== null && typedOf(m[0]) === null) {
+        const [a, b, y] = [Number(amb[1]), Number(amb[2]), Number(amb[3])];
+        for (const reading of [dateOf(y, a, b), dateOf(y, b, a)]) {
+          if (reading !== null) out.push(reading);
+        }
+      }
+    }
   } else {
     for (const m of t.matchAll(FIGURE_CANDIDATE)) {
       add(m[0]);
