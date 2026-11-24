@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { renderProspectReport } from "../../src/prospect/render.js";
-import { PROBES_SKIPPED, ANALYZE_SKIPPED } from "../../src/prospect/pipeline.js";
+import {
+  PROBES_SKIPPED,
+  ANALYZE_SKIPPED,
+  ANALYZE_FAILED_SKIP,
+} from "../../src/prospect/pipeline.js";
 import type {
   AnalyzeResult,
   ChecksResult,
@@ -395,6 +399,22 @@ describe("renderProspectReport", () => {
     expect(skipped).toMatch(/did not run|skipped/i);
     expect(skipped).not.toMatch(/you asked/i);
     expect(skipped).not.toContain("Not measured");
+  });
+
+  it("says the paid stages were skipped because analyze failed, not that the probes were not measured", () => {
+    const html = renderProspectReport(
+      result({ probes: { ok: false, error: ANALYZE_FAILED_SKIP } }),
+    );
+    expect(html).toContain(
+      "the analyze stage failed, so the paid AI-visibility stages were not run",
+    );
+    expect(html).not.toContain("Not measured");
+  });
+
+  it("keeps the generic not-measured note for an unexplained probes failure", () => {
+    const html = renderProspectReport(result({ probes: { ok: false, error: "engine timed out" } }));
+    expect(html).toContain("Not measured");
+    expect(html).not.toContain("paid AI-visibility stages were not run");
   });
 
   it("reads a requested analyze skip differently from an attempted analyze failure", () => {
