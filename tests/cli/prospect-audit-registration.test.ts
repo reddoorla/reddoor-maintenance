@@ -51,6 +51,8 @@ const FLAGS = {
   "--goal": "goal",
   "--competitors": "competitors",
   "--no-probes": "probes",
+  // Off by default; the "<name> reviews" probe is an operator option.
+  "--reviews": "reviews",
   // W4. The unpaid stages only, for the Technical report.
   "--technical": "technical",
   "--out": "out",

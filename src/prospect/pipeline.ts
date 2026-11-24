@@ -252,6 +252,8 @@ export type ProspectAuditOptions = {
   competitors?: string[];
   /** false → tier 3 is skipped deliberately (`--no-probes`). */
   probes?: boolean;
+  /** Also ask "<name> reviews" (`--reviews`). Off by default: see `ProbeInput`. */
+  reviews?: boolean;
   /** true → analyze, probes and (with them) accuracy are skipped: the paid
    *  stages. What is left is everything the Technical report reads. */
   technical?: boolean;
@@ -520,6 +522,7 @@ export async function runProspectAudit(
           business: businessName ?? "",
           categoryQueries: analyze.ok ? analyze.data.categoryQueries : [],
           competitors: opts.competitors ?? [],
+          ...(opts.reviews === true ? { reviews: true } : {}),
         },
         deps.engines ?? envEngines(),
         probeOpts,

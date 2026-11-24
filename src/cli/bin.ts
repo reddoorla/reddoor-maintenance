@@ -857,6 +857,10 @@ cli
   )
   .option("--no-probes", "Skip the live AI-visibility probes (tier 3).")
   .option(
+    "--reviews",
+    'Also ask "<name> reviews". Off by default: what comes back is reputational material nobody has checked, so use it only for a report a person reads before it goes out.',
+  )
+  .option(
     "--technical",
     "Run only the unpaid stages a Technical report reads: skips analyze, probes and accuracy, so no model tokens are spent.",
   )

@@ -44,6 +44,8 @@ export type ProspectAuditCliOptions = {
   competitors?: string;
   /** cac sets this false for `--no-probes`. */
   probes?: boolean;
+  /** `--reviews`: also ask "<name> reviews". Off by default. */
+  reviews?: boolean;
   /** `--technical`: skip analyze, probes and accuracy — the paid stages — so
    *  the run costs no model tokens and stores what the Technical report reads. */
   technical?: boolean;
@@ -439,6 +441,7 @@ export async function runProspectAuditCommand(
             }
           : {}),
         ...(opts.probes === false ? { probes: false } : {}),
+        ...(opts.reviews === true ? { reviews: true } : {}),
         ...(opts.technical ? { technical: true } : {}),
         ...(chosenTerms.length > 0 ? { terms: chosenTerms } : {}),
         ...(chosenQuestions.length > 0 ? { questions: chosenQuestions } : {}),

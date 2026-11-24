@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  AccuracySchema,
   backstopAbsent,
   quoteSupportsClaim,
   buildAccuracyInput,
   checkAccuracy,
   fullSiteText,
   selectPages,
+  siteCoverage,
   type Assertion,
 } from "../../src/prospect/accuracy.js";
 import type {
@@ -34,12 +36,17 @@ function page(url: string, text: string): PageCapture {
   return { url, status: 200, raw: extract({ text }), rendered: null, error: null };
 }
 
-function crawl(pages: PageCapture[]): CrawlResult {
+/** `sitemapUrls` is the site's own size. Pass the page count for a site we read
+ *  whole; leave it out for a site with no sitemap, whose size we never learn. */
+function crawl(pages: PageCapture[], sitemapUrls?: number): CrawlResult {
   return {
     origin: "https://example.com",
     robotsTxt: null,
     agentAccess: [],
-    sitemap: { present: false, urlCount: 0 },
+    sitemap:
+      sitemapUrls === undefined
+        ? { present: false, urlCount: 0 }
+        : { present: true, urlCount: sitemapUrls },
     llmsTxt: { present: false, firstLine: null },
     sidecarErrors: { robots: null, llms: null, sitemap: null },
     homeHeaders: {},
@@ -206,16 +213,27 @@ describe("backstopAbsent — never accuse an engine of inventing what the site p
 });
 
 describe("checkAccuracy — quotes are verified, not trusted", () => {
-  const site = crawl([
-    page(
-      "https://seaviewdental.example/",
-      "Beachfront Dentistry in Riviera Village, Redondo Beach.",
-    ),
-    page(
-      "https://seaviewdental.example/team",
-      "Meet Your Team Dr. Priya Raman Dr. Marcus Whitfield",
-    ),
-  ]);
+  // A two-page site whose sitemap lists two pages, complete and read whole, so
+  // `absent` can stand. The sitemap must say it is untruncated and give its full
+  // sample, or the site is not known to be read whole (review round 1, fix 3).
+  const site: CrawlResult = {
+    ...crawl([
+      page(
+        "https://seaviewdental.example/",
+        "Beachfront Dentistry in Riviera Village, Redondo Beach.",
+      ),
+      page(
+        "https://seaviewdental.example/team",
+        "Meet Your Team Dr. Priya Raman Dr. Marcus Whitfield",
+      ),
+    ]),
+    sitemap: {
+      present: true,
+      urlCount: 2,
+      truncated: false,
+      sample: ["https://seaviewdental.example/", "https://seaviewdental.example/team"],
+    },
+  };
   const answer = branded({
     fullAnswer:
       "Beachfront Dentistry is a dental practice in the Riviera Village neighborhood of Redondo Beach. " +
@@ -560,6 +578,9 @@ describe("quoteSupportsClaim — a related passage is not a supporting one", () 
   });
 });
 
+const NO_SECOND_VALUE =
+  "The passage we found does not show a different value for this, so we have not stated it either way.";
+
 describe("a place the site itself names", () => {
   // The audited site listed a Texas mailing address on one page and "near the
   // Los Angeles metro" on another. The model called "Los Angeles-based"
@@ -601,13 +622,10 @@ describe("a place the site itself names", () => {
     const [a] = r.assertions;
     expect(a?.verdict).not.toBe("confirmed");
     expect(a?.siteQuote).toBe("HQ mailing address: 1 Main St, Fair Oaks Ranch, TX.");
-    // The model's verdict stands; only the usual quote check moves it, because
-    // the address does not say where the studio is based.
-    expect(a).toMatchObject({
-      verdict: "unverified",
-      unverifiedReason:
-        "The passage we found is about the same subject but does not actually say this, so we have not stated it either way.",
-    });
+    // The model's verdict stands; only the quote check moves it: a
+    // contradiction must name the two values it rests on, and this one names
+    // none.
+    expect(a).toMatchObject({ verdict: "unverified", unverifiedReason: NO_SECOND_VALUE });
   });
 
   it("keeps contradicted when the site never uses the claim's terms", async () => {
@@ -629,49 +647,68 @@ describe("a place the site itself names", () => {
     expect(r.assertions[0]?.unverifiedReason ?? "").not.toMatch(/^Your site does say/);
   });
 
-  it("keeps a supported contradiction as contradicted, with no reason added", async () => {
+  it("a place against a place is not compared, so it is unverified with both values kept", async () => {
     const r = await checkAccuracy("https://acme.example/", site, [answer], [], {
       run: async () => ({
         assertions: [
           {
-            claim: "Acme Design is located in the Portland metro area.",
+            claim: "Acme Design is based in Los Angeles.",
             engineQuote: "Acme Design (Los Angeles-based)",
             verdict: "contradicted",
-            siteQuote: "We are conveniently located near the Los Angeles metro area.",
+            siteQuote: "HQ mailing address: 1 Main St, Fair Oaks Ranch, TX.",
             searchTerms: ["Portland"],
+            subject: "prospect",
+            contradiction: {
+              attribute: "location",
+              engineValue: "Los Angeles",
+              siteValue: "Fair Oaks Ranch",
+            },
           },
         ],
       }),
       ownership: offline,
     });
     expect(r.assertions[0]).toMatchObject({
-      verdict: "contradicted",
-      siteQuote: "We are conveniently located near the Los Angeles metro area.",
-      unverifiedReason: null,
+      verdict: "unverified",
+      unverifiedReason: "We could not compare the two values directly.",
+      siteQuote: "HQ mailing address: 1 Main St, Fair Oaks Ranch, TX.",
     });
   });
 
-  it("keeps a supported contradiction even when the site uses its search term", async () => {
-    const r = await checkAccuracy("https://acme.example/", site, [answer], [], {
+  it("a place against a place is unverified even when the site uses its search term", async () => {
+    // Portland and Los Angeles are places, which are not compared exactly (R5 fix 1). The
+    // site also uses the claim's search term ("metro area"), and that hit changes nothing.
+    const portland = branded({
+      query: "who is Acme Design",
+      citedDomains: ["yelp.com"],
+      fullAnswer: "Acme Design (Los Angeles-based) is a studio. Acme Design is based in Portland.",
+    });
+    const r = await checkAccuracy("https://acme.example/", site, [portland], [], {
       run: async () => ({
         assertions: [
           {
             claim: "Acme Design is located in the Portland metro area.",
-            engineQuote: "Acme Design (Los Angeles-based)",
+            engineQuote: "Acme Design is based in Portland",
             verdict: "contradicted",
             siteQuote: "We are conveniently located near the Los Angeles metro area.",
             searchTerms: ["metro area"],
+            subject: "prospect",
+            contradiction: {
+              attribute: "location",
+              engineValue: "Portland",
+              siteValue: "Los Angeles",
+            },
           },
         ],
       }),
       ownership: offline,
     });
-    expect(r.assertions[0]).toMatchObject({ verdict: "contradicted", unverifiedReason: null });
+    expect(r.assertions[0]).toMatchObject({
+      verdict: "unverified",
+      unverifiedReason: "We could not compare the two values directly.",
+    });
   });
 });
-
-const SAME_SUBJECT =
-  "The passage we found is about the same subject but does not actually say this, so we have not stated it either way.";
 
 describe("code never upgrades a verdict to 'confirmed'", () => {
   // Invented. A rule here once turned the model's "contradicted" into
@@ -710,7 +747,7 @@ describe("code never upgrades a verdict to 'confirmed'", () => {
     {
       why: "the term is the model's counter-evidence, not in the claim",
       verdict: "unverified",
-      reason: SAME_SUBJECT,
+      reason: NO_SECOND_VALUE,
       claim: "The business is a bakery known for sourdough bread.",
       engineQuote: "a bakery known for sourdough bread",
       searchTerms: ["fresh flowers"],
@@ -718,8 +755,8 @@ describe("code never upgrades a verdict to 'confirmed'", () => {
     },
     {
       why: "the claim denies the name the site uses",
-      verdict: "contradicted",
-      reason: null,
+      verdict: "unverified",
+      reason: NO_SECOND_VALUE,
       claim: 'No business operates under the name "Rosewood Market".',
       engineQuote: 'I couldn\'t find a company called "Rosewood Market"',
       searchTerms: ["Rosewood Market"],
@@ -728,7 +765,7 @@ describe("code never upgrades a verdict to 'confirmed'", () => {
     {
       why: "the term is only the business's own name",
       verdict: "unverified",
-      reason: SAME_SUBJECT,
+      reason: NO_SECOND_VALUE,
       claim: "Rosewood Market is a bakery known for sourdough bread.",
       engineQuote: "Rosewood Market is a bakery known for sourdough bread",
       searchTerms: ["Rosewood Market"],
@@ -737,7 +774,7 @@ describe("code never upgrades a verdict to 'confirmed'", () => {
     {
       why: "the term carries only part of the place the claim asserts",
       verdict: "unverified",
-      reason: SAME_SUBJECT,
+      reason: NO_SECOND_VALUE,
       claim: "Rosewood Market is based in Lakeside, Oregon.",
       engineQuote: "based in Lakeside, Oregon",
       searchTerms: ["Oregon"],
@@ -747,7 +784,7 @@ describe("code never upgrades a verdict to 'confirmed'", () => {
     {
       why: "the term is the claim's own opening words",
       verdict: "unverified",
-      reason: SAME_SUBJECT,
+      reason: NO_SECOND_VALUE,
       claim: "The business is a bakery known for sourdough bread.",
       engineQuote: "a bakery known for sourdough bread",
       searchTerms: ["The business"],
@@ -756,8 +793,9 @@ describe("code never upgrades a verdict to 'confirmed'", () => {
   ] as const)("leaves the model's verdict alone when $why", async (c) => {
     const { why: _why, verdict, reason, ...a } = c;
     const [r] = await judge({ ...a, searchTerms: [...a.searchTerms] });
-    // Exactly what main's quote checks give the model's "contradicted": kept
-    // where its own quote supports it, unverified where it does not.
+    // Exactly what the quote checks give the model's "contradicted": none of
+    // these names its two values, so each is unverified, and none is ever
+    // confirmed.
     expect(r).toMatchObject({ verdict, unverifiedReason: reason, siteQuote: a.siteQuote });
   });
 
@@ -970,5 +1008,2899 @@ describe("a crawl stored before sitemap was tracked", () => {
       { run: async () => ({ assertions: [] }), ownership: { fetchPage: async () => null } },
     );
     expect(r.siteUrlCount).toBeNull();
+  });
+});
+
+describe("W2: what the assistant said, about the right company", () => {
+  const offline = { fetchPage: async () => null };
+  const run = (assertions: unknown[]) => ({
+    run: async () => ({ assertions }),
+    ownership: offline,
+  });
+
+  // The stored shape, renamed: the site says it was founded in 2022, the answer
+  // says 2001. The passage contradicts the claim in exactly the word that
+  // matters, so it shares too few words with it to pass a resemblance test.
+  describe("a contradiction is checked on its two values, not on shared words", () => {
+    const site = crawl(
+      [page("https://north.example/", "Northwind Supply opened its first warehouse in 2022.")],
+      1,
+    );
+    const answer = branded({
+      query: "who is Northwind Supply",
+      fullAnswer: "Northwind Supply was established in 2001 and serves contractors.",
+    });
+    const base = {
+      claim: "The business was founded in 2001.",
+      engineQuote: "Northwind Supply was established in 2001",
+      verdict: "contradicted",
+      siteQuote: "opened its first warehouse in 2022",
+      searchTerms: ["2001"],
+      subject: "prospect",
+    };
+
+    it("keeps 2001 against 2022 as contradicted, with both values", async () => {
+      const r = await checkAccuracy(
+        "https://north.example/",
+        site,
+        [answer],
+        [],
+        run([
+          {
+            ...base,
+            contradiction: { attribute: "founding year", engineValue: "2001", siteValue: "2022" },
+          },
+        ]),
+      );
+      expect(r.assertions[0]).toMatchObject({
+        verdict: "contradicted",
+        unverifiedReason: null,
+        contradiction: { attribute: "founding year", engineValue: "2001", siteValue: "2022" },
+      });
+    });
+
+    it("does not stand without the two values", async () => {
+      const r = await checkAccuracy("https://north.example/", site, [answer], [], run([base]));
+      expect(r.assertions[0]?.verdict).toBe("unverified");
+      expect(r.assertions[0]?.contradiction).toBeNull();
+    });
+
+    it("does not stand when a value is not in its own quote", async () => {
+      const r = await checkAccuracy(
+        "https://north.example/",
+        site,
+        [answer],
+        [],
+        run([
+          {
+            ...base,
+            contradiction: { attribute: "founding year", engineValue: "2001", siteValue: "2019" },
+          },
+        ]),
+      );
+      expect(r.assertions[0]?.verdict).toBe("unverified");
+    });
+
+    it("does not stand when the two values are the same", async () => {
+      const r = await checkAccuracy(
+        "https://north.example/",
+        crawl([page("https://north.example/", "Founded in 2001 in Ohio.")], 1),
+        [answer],
+        [],
+        run([
+          {
+            ...base,
+            siteQuote: "Founded in 2001 in Ohio.",
+            contradiction: { attribute: "founding year", engineValue: "2001", siteValue: "2001" },
+          },
+        ]),
+      );
+      expect(r.assertions[0]?.verdict).toBe("unverified");
+    });
+
+    it("matches a value as whole words: 022 is not in 2022", async () => {
+      const r = await checkAccuracy(
+        "https://north.example/",
+        site,
+        [answer],
+        [],
+        run([
+          {
+            ...base,
+            contradiction: { attribute: "founding year", engineValue: "2001", siteValue: "022" },
+          },
+        ]),
+      );
+      expect(r.assertions[0]?.verdict).toBe("unverified");
+    });
+
+    it("matches a value as whole words: 20 is not in 2022", async () => {
+      const r = await checkAccuracy(
+        "https://north.example/",
+        site,
+        [answer],
+        [],
+        run([
+          {
+            ...base,
+            contradiction: { attribute: "founding year", engineValue: "2001", siteValue: "20" },
+          },
+        ]),
+      );
+      expect(r.assertions[0]?.verdict).toBe("unverified");
+    });
+  });
+
+  describe("absent needs the whole site, by its own sitemap", () => {
+    const pages = Array.from({ length: 20 }, (_, i) =>
+      page(`https://north.example/${i === 0 ? "" : `p${i}`}`, `Page ${i} of Northwind Supply.`),
+    );
+    const answer = branded({
+      query: "who is Northwind Supply",
+      fullAnswer: "Northwind Supply is based at 12 Harbor Road.",
+    });
+    const absent = {
+      claim: "The business is based at 12 Harbor Road.",
+      engineQuote: "based at 12 Harbor Road",
+      verdict: "absent",
+      siteQuote: null,
+      searchTerms: ["12 Harbor Road"],
+    };
+
+    it("makes an absent on a partly read site unverified: 20 of 95 pages", async () => {
+      // The count is said only when the sitemap's size is complete (truncated
+      // is false), so this sitemap says so explicitly (review round 2, fix 6).
+      const r = await checkAccuracy(
+        "https://north.example/",
+        { ...crawl(pages, 95), sitemap: { present: true, urlCount: 95, truncated: false } },
+        [answer],
+        [],
+        run([absent]),
+      );
+      expect(r.siteFullyRead).toBe(false);
+      expect(r.assertions[0]).toMatchObject({
+        verdict: "unverified",
+        unverifiedReason:
+          "We read 20 of your 95 pages, so we cannot say this is absent from your site.",
+      });
+    });
+
+    it("makes it unverified when there is no sitemap to give the site's size", async () => {
+      const r = await checkAccuracy(
+        "https://north.example/",
+        crawl(pages),
+        [answer],
+        [],
+        run([absent]),
+      );
+      expect(r.siteFullyRead).toBe(false);
+      expect(r.assertions[0]?.verdict).toBe("unverified");
+      expect(r.assertions[0]?.unverifiedReason).toMatch(/could not learn how many/);
+    });
+
+    it("makes it unverified when we stopped reading the sitemap part way", async () => {
+      const c = crawl(pages, 20);
+      c.sitemap = { present: true, urlCount: 20, truncated: true };
+      const r = await checkAccuracy("https://north.example/", c, [answer], [], run([absent]));
+      expect(r.siteFullyRead).toBe(false);
+    });
+
+    // Changed in review round 1 (fix 3a): a crawl that took the 20-page cap is never
+    // read whole, so this fixture now stops one page short of it. Every page of a
+    // 19-page site is read, the sitemap is complete and untruncated, and its sample
+    // lists the pages we read.
+    it("keeps absent when the pages read cover the sitemap", async () => {
+      const nineteen = pages.slice(0, 19);
+      const c: CrawlResult = {
+        ...crawl(nineteen),
+        sitemap: {
+          present: true,
+          urlCount: 19,
+          truncated: false,
+          sample: nineteen.map((p) => p.url),
+        },
+      };
+      const r = await checkAccuracy("https://north.example/", c, [answer], [], run([absent]));
+      expect(r.siteFullyRead).toBe(true);
+      expect(r.assertions[0]?.verdict).toBe("absent");
+    });
+  });
+
+  describe("the business's own name is not evidence", () => {
+    it("does not confirm a claim whose only shared words are the client's name and one more", () => {
+      const claim =
+        "Calder's services include gutter repair, skylight installation and roof inspections for homeowners.";
+      const quote = "Calder provides custom solutions for the skylight needs of any client.";
+      expect(quoteSupportsClaim(claim, quote)).toBe(true); // the false pass, without the name
+      expect(quoteSupportsClaim(claim, quote, "Calder")).toBe(false);
+    });
+
+    it("still confirms a passage that says the claim in other words", () => {
+      expect(
+        quoteSupportsClaim(
+          "Calder offers gutter repair for homeowners.",
+          "Calder handles gutter repair for homeowners citywide.",
+          "Calder",
+        ),
+      ).toBe(true);
+    });
+
+    it("drops a confirmed whose quote shares only the name, through checkAccuracy", async () => {
+      const site = crawl(
+        [
+          page(
+            "https://calder.example/",
+            "Calder provides custom solutions for the skylight needs of any client.",
+          ),
+        ],
+        1,
+      );
+      const answer = branded({
+        query: "who is Calder",
+        fullAnswer: "Calder offers gutter repair and skylight installation for homeowners.",
+      });
+      const r = await checkAccuracy(
+        "https://calder.example/",
+        site,
+        [answer],
+        [],
+        run([
+          {
+            claim:
+              "Calder's services include gutter repair and skylight installation for homeowners.",
+            engineQuote: "Calder offers gutter repair and skylight installation for homeowners",
+            verdict: "confirmed",
+            siteQuote: "Calder provides custom solutions for the skylight needs of any client.",
+            searchTerms: ["skylight installation"],
+          },
+        ]),
+      );
+      expect(r.assertions[0]?.verdict).toBe("unverified");
+    });
+  });
+
+  describe("who a statement is about is recorded", () => {
+    // The stored shape, renamed: the answer hedges a "most likely match" to
+    // another firm, then gives that firm's rating.
+    const site = crawl([page("https://north.example/", "Northwind Supply serves contractors.")], 1);
+    const answer = branded({
+      query: "who is Northwind Supply",
+      fullAnswer:
+        "Most likely match: Southgate Outfitters (Riverton) — lists Northwind Supply as an alternate name. It holds a 2.1 out of 5 rating.",
+    });
+
+    it("carries subject, the other name and the topic", async () => {
+      const r = await checkAccuracy(
+        "https://north.example/",
+        site,
+        [answer],
+        [],
+        run([
+          {
+            claim: "Southgate Outfitters holds a 2.1 out of 5 rating.",
+            engineQuote: "It holds a 2.1 out of 5 rating.",
+            verdict: "absent",
+            siteQuote: null,
+            searchTerms: ["2.1 out of 5"],
+            subject: "other",
+            otherName: "Southgate Outfitters",
+            topic: "ratings_reviews",
+          },
+        ]),
+      );
+      expect(r.assertions[0]).toMatchObject({
+        subject: "other",
+        otherName: "Southgate Outfitters",
+        topic: "ratings_reviews",
+      });
+    });
+
+    it("reads an omitted subject as unclear, never as about the prospect", async () => {
+      const r = await checkAccuracy(
+        "https://north.example/",
+        site,
+        [answer],
+        [],
+        run([
+          {
+            claim: "It holds a 2.1 out of 5 rating.",
+            engineQuote: "It holds a 2.1 out of 5 rating.",
+            verdict: "absent",
+            siteQuote: null,
+            searchTerms: ["2.1 out of 5"],
+          },
+        ]),
+      );
+      expect(r.assertions[0]?.subject).toBe("unclear");
+      expect(r.assertions[0]?.otherName).toBeNull();
+    });
+  });
+
+  describe("the prompt asks for subject, topic and both values", () => {
+    it("names each field", () => {
+      const { system } = buildAccuracyInput(crawl([page("https://x.example/", "x")], 1), [
+        branded({ fullAnswer: "x" }),
+      ]);
+      for (const field of [
+        "subject:",
+        "otherName:",
+        "topic:",
+        "contradiction:",
+        "engineValue",
+        "siteValue",
+      ]) {
+        expect(system).toContain(field);
+      }
+    });
+  });
+});
+
+/**
+ * Review round 1 (reddoorla/reddoor-maintenance#2256).
+ */
+describe("review round 1: a contradiction needs the site to differ from the engine", () => {
+  const offline = { fetchPage: async () => null };
+  const run = (assertions: unknown[]) => ({
+    run: async () => ({ assertions }),
+    ownership: offline,
+  });
+
+  it("is unverified when the site quote also says the engine's value", async () => {
+    const site = crawl([page("https://acme.example/", "Founded in 2001. Copyright 2022.")], 1);
+    const answer = branded({
+      query: "who is Acme Design",
+      fullAnswer: "Acme was founded in 2001.",
+    });
+    const r = await checkAccuracy(
+      "https://acme.example/",
+      site,
+      [answer],
+      [],
+      run([
+        {
+          claim: "Acme was founded in 2001.",
+          engineQuote: "Acme was founded in 2001",
+          verdict: "contradicted",
+          siteQuote: "Founded in 2001. Copyright 2022.",
+          searchTerms: ["2001"],
+          contradiction: { attribute: "founding year", engineValue: "2001", siteValue: "2022" },
+        },
+      ]),
+    );
+    expect(r.assertions[0]).toMatchObject({ verdict: "unverified", contradiction: null });
+  });
+
+  describe("the same value written two ways is not a contradiction", () => {
+    const contradictionBetween = async (
+      engineQuote: string,
+      engineValue: string,
+      siteQuote: string,
+      siteValue: string,
+    ) => {
+      const r = await checkAccuracy(
+        "https://acme.example/",
+        crawl([page("https://acme.example/", siteQuote)], 1),
+        [branded({ query: "who is Acme Design", fullAnswer: engineQuote })],
+        [],
+        run([
+          {
+            claim: "Acme Design's figure is the one the site gives.",
+            engineQuote,
+            verdict: "contradicted",
+            siteQuote,
+            searchTerms: ["Acme"],
+            subject: "prospect",
+            contradiction: { attribute: "figure", engineValue, siteValue },
+          },
+        ]),
+      );
+      return r.assertions[0]?.verdict;
+    };
+
+    it("LA and Los Angeles", async () => {
+      expect(
+        await contradictionBetween(
+          "Acme Design is based in LA.",
+          "LA",
+          "Acme Design is based in Los Angeles.",
+          "Los Angeles",
+        ),
+      ).toBe("unverified");
+    });
+
+    it("12 and twelve", async () => {
+      expect(
+        await contradictionBetween(
+          "Acme Design has 12 staff.",
+          "12",
+          "Acme Design has twelve staff.",
+          "twelve",
+        ),
+      ).toBe("unverified");
+    });
+
+    it("$1M and $1,000,000", async () => {
+      expect(
+        await contradictionBetween(
+          "Acme Design reports revenue of $1M.",
+          "$1M",
+          "Acme Design reports revenue of $1,000,000.",
+          "$1,000,000",
+        ),
+      ).toBe("unverified");
+    });
+
+    it("still stands for two different years: 2001 against 2022", async () => {
+      expect(
+        await contradictionBetween(
+          "Acme Design was founded in 2001.",
+          "2001",
+          "Acme Design opened in 2022.",
+          "2022",
+        ),
+      ).toBe("contradicted");
+    });
+  });
+
+  it("the engine half of the check: an engine value not in its own quote does not stand", async () => {
+    // "1999" is not in the engine's quote, so the contradiction is not held,
+    // even though the site's value is in its quote.
+    const site = crawl([page("https://north.example/", "Northwind Supply opened in 2022.")], 1);
+    const answer = branded({
+      query: "who is Northwind Supply",
+      fullAnswer: "Northwind Supply was established in 2001.",
+    });
+    const r = await checkAccuracy(
+      "https://north.example/",
+      site,
+      [answer],
+      [],
+      run([
+        {
+          claim: "Northwind Supply was founded in 1999.",
+          engineQuote: "established in 2001",
+          verdict: "contradicted",
+          siteQuote: "opened in 2022",
+          searchTerms: ["Northwind"],
+          subject: "prospect",
+          contradiction: { attribute: "founding year", engineValue: "1999", siteValue: "2022" },
+        },
+      ]),
+    );
+    expect(r.assertions[0]).toMatchObject({
+      verdict: "unverified",
+      unverifiedReason: NO_SECOND_VALUE,
+    });
+  });
+
+  it("the otherName is kept only for a statement about another business", async () => {
+    const site = crawl([page("https://acme.example/", "Acme Design is a studio.")], 1);
+    const answer = branded({
+      query: "who is Acme Design",
+      fullAnswer: "Acme Design is a studio run by Northwind.",
+    });
+    const r = await checkAccuracy(
+      "https://acme.example/",
+      site,
+      [answer],
+      [],
+      run([
+        {
+          claim: "Acme Design is run by Northwind.",
+          engineQuote: "Acme Design is a studio run by Northwind",
+          verdict: "absent",
+          siteQuote: null,
+          searchTerms: ["Northwind"],
+          subject: "prospect",
+          otherName: "Northwind",
+        },
+      ]),
+    );
+    expect(r.assertions[0]?.otherName).toBeNull();
+  });
+});
+
+describe("review round 1: unknown enum values do not fail the stage", () => {
+  const base = {
+    claim: "Acme is rated highly.",
+    engineQuote: "Acme is rated highly",
+    verdict: "absent",
+    siteQuote: null,
+    searchTerms: ["Acme"],
+  };
+
+  it("parses an unknown topic as other", () => {
+    const parsed = AccuracySchema.parse({ assertions: [{ ...base, topic: "ratings" }] });
+    expect(parsed.assertions[0]?.topic).toBe("other");
+  });
+
+  it("parses an unknown subject as unclear", () => {
+    const parsed = AccuracySchema.parse({ assertions: [{ ...base, subject: "the business" }] });
+    expect(parsed.assertions[0]?.subject).toBe("unclear");
+  });
+});
+
+describe("review round 1: the site counts as read whole only when its pages were read", () => {
+  const ORIGIN = "https://example.com";
+  const urls = (n: number) => Array.from({ length: n }, (_, i) => `${ORIGIN}/p${i}`);
+  /** A crawl that took `n` pages, all read, with the sitemap as given. */
+  const taken = (
+    n: number,
+    sitemap: CrawlResult["sitemap"],
+  ): Pick<CrawlResult, "sitemap" | "pages"> => ({
+    sitemap,
+    pages: urls(n).map((u) => page(u, "Text.")),
+  });
+  const readAll = (n: number) => ({ crawlFullyRead: true, pagesRead: n, readUrls: urls(n) });
+
+  describe("(a) a crawl that reached its page cap is never read whole", () => {
+    it("is not full when the crawl took exactly the cap, even with a matching sitemap", () => {
+      const sitemap = { present: true, urlCount: 20, truncated: false, sample: urls(20) };
+      expect(siteCoverage(readAll(20), taken(20, sitemap), 20).full).toBe(false);
+    });
+
+    it("is full one page under the cap, on the same evidence", () => {
+      const sitemap = { present: true, urlCount: 19, truncated: false, sample: urls(19) };
+      expect(siteCoverage(readAll(19), taken(19, sitemap), 20).full).toBe(true);
+    });
+
+    it("takes the cap as a parameter, so a different cap is honoured", () => {
+      const sitemap = { present: true, urlCount: 5, truncated: false, sample: urls(5) };
+      expect(siteCoverage(readAll(5), taken(5, sitemap), 5).full).toBe(false);
+    });
+  });
+
+  describe("(b) a sitemap whose truncated flag is missing is not known to be complete", () => {
+    const sitemapSample = { present: true, urlCount: 3, sample: urls(3) };
+
+    it("is not full when truncated is absent", () => {
+      expect(siteCoverage(readAll(3), taken(3, sitemapSample), 20).full).toBe(false);
+    });
+
+    it("is full only once truncated is explicitly false", () => {
+      expect(
+        siteCoverage(readAll(3), taken(3, { ...sitemapSample, truncated: false }), 20).full,
+      ).toBe(true);
+    });
+  });
+
+  describe("(c) the sitemap's sample decides which pages were the site", () => {
+    it("is not full when the sample is incomplete (fewer URLs than the count)", () => {
+      const sitemap = { present: true, urlCount: 3, truncated: false, sample: urls(2) };
+      expect(siteCoverage(readAll(3), taken(3, sitemap), 20).full).toBe(false);
+    });
+
+    it("is not full when the sample is absent", () => {
+      const sitemap = { present: true, urlCount: 3, truncated: false };
+      expect(siteCoverage(readAll(3), taken(3, sitemap), 20).full).toBe(false);
+    });
+
+    it("is not full when a complete sample lists a URL we did not read", () => {
+      const sitemap = {
+        present: true,
+        urlCount: 3,
+        truncated: false,
+        sample: [...urls(2), `${ORIGIN}/never-read`],
+      };
+      expect(siteCoverage(readAll(3), taken(3, sitemap), 20).full).toBe(false);
+    });
+
+    it("is full when every sampled URL was read, after normalising scheme, www and a trailing slash", () => {
+      const sitemap = {
+        present: true,
+        urlCount: 3,
+        truncated: false,
+        sample: ["http://www.example.com/p0/", "https://example.com/p1", "https://example.com/p2/"],
+      };
+      expect(siteCoverage(readAll(3), taken(3, sitemap), 20).full).toBe(true);
+    });
+  });
+
+  describe("(d) the P-of-S reason comes first when the site size is known", () => {
+    it("says how many of the site's pages we read", () => {
+      const sitemap = { present: true, urlCount: 95, truncated: false, sample: [] };
+      const r = siteCoverage(
+        { crawlFullyRead: false, pagesRead: 20, readUrls: urls(20) },
+        taken(20, sitemap),
+        20,
+      );
+      expect(r).toEqual({
+        full: false,
+        reason: "We read 20 of your 95 pages, so we cannot say this is absent from your site.",
+      });
+    });
+
+    it("at the page cap, says the crawl stopped at its limit, not that the site is larger", () => {
+      const r = siteCoverage(
+        { crawlFullyRead: false, pagesRead: 20, readUrls: urls(20) },
+        taken(20, { present: false, urlCount: 0 }),
+        20,
+      );
+      expect(r.reason).toBe(
+        "Our crawl stopped at its page limit, so we cannot say this is absent from your site.",
+      );
+    });
+
+    it("below the cap with an unknown site size, says we could not learn the size", () => {
+      const r = siteCoverage(
+        { crawlFullyRead: false, pagesRead: 5, readUrls: urls(5) },
+        taken(5, { present: false, urlCount: 0 }),
+        20,
+      );
+      expect(r.reason).toBe(
+        "We could not learn how many pages your site has, so we cannot say this is absent from it.",
+      );
+    });
+  });
+
+  describe("(e) a one-page site reads grammatically", () => {
+    it("gives the sitemap-match reason, not 'larger' or the one-page wording, when a one-page site was not fully read", () => {
+      const sitemap = { present: true, urlCount: 1, truncated: false, sample: urls(1) };
+      const r = siteCoverage(
+        { crawlFullyRead: false, pagesRead: 1, readUrls: urls(1) },
+        taken(1, sitemap),
+        20,
+      );
+      expect(r.reason).toBe(
+        "We could not match the pages we read to your sitemap, so we cannot say this is absent from your site.",
+      );
+      expect(r.reason).not.toMatch(/1 of your 1/);
+    });
+
+    it("keeps the plural for a site of more than one page", () => {
+      const sitemap = { present: true, urlCount: 2, truncated: false, sample: urls(2) };
+      const r = siteCoverage(
+        { crawlFullyRead: false, pagesRead: 1, readUrls: urls(1) },
+        taken(1, sitemap),
+        20,
+      );
+      expect(r.reason).toBe(
+        "We read 1 of your 2 pages, so we cannot say this is absent from your site.",
+      );
+    });
+  });
+
+  it("through checkAccuracy: an absent on a 20-page crawl at the cap, with a 5-URL sitemap, is unverified", async () => {
+    const pages = urls(20).map((u, i) => page(u, `Page ${i} of Northwind Supply.`));
+    const c: CrawlResult = {
+      ...crawl(pages),
+      sitemap: { present: true, urlCount: 5, truncated: false },
+    };
+    const r = await checkAccuracy(
+      "https://example.com/",
+      c,
+      [
+        branded({
+          query: "who is Northwind Supply",
+          fullAnswer: "Northwind Supply is at 12 Harbor Road.",
+        }),
+      ],
+      [],
+      {
+        run: async () => ({
+          assertions: [
+            {
+              claim: "The business is based at 12 Harbor Road.",
+              engineQuote: "at 12 Harbor Road",
+              verdict: "absent",
+              siteQuote: null,
+              searchTerms: ["12 Harbor Road"],
+            },
+          ],
+        }),
+        ownership: { fetchPage: async () => null },
+      },
+    );
+    expect(r.siteFullyRead).toBe(false);
+    expect(r.assertions[0]?.verdict).toBe("unverified");
+  });
+});
+
+describe("review round 2: the stored verdicts", () => {
+  const offline = { fetchPage: async () => null };
+  const run = (assertions: unknown[]) => ({
+    run: async () => ({ assertions }),
+    ownership: offline,
+  });
+
+  /** One contradicted statement about Acme Design. The answer is the engine's
+   *  quote and the site is the site quote, so both quotes are real; the test
+   *  is about whether each value is held and whether the statement is stated. */
+  const storedContradiction = async (p: {
+    engineQuote: string;
+    engineValue: string;
+    siteQuote: string;
+    siteValue: string;
+    subject?: string;
+    topic?: string;
+  }) => {
+    const r = await checkAccuracy(
+      "https://acme.example/",
+      crawl([page("https://acme.example/", p.siteQuote)], 1),
+      [branded({ query: "who is Acme Design", fullAnswer: p.engineQuote })],
+      [],
+      run([
+        {
+          claim: `Acme Design: ${p.engineValue}, not ${p.siteValue}.`,
+          engineQuote: p.engineQuote,
+          verdict: "contradicted",
+          siteQuote: p.siteQuote,
+          searchTerms: ["Acme Design"],
+          subject: p.subject ?? "prospect",
+          topic: p.topic ?? "other",
+          contradiction: {
+            attribute: "figure",
+            engineValue: p.engineValue,
+            siteValue: p.siteValue,
+          },
+        },
+      ]),
+    );
+    return r.assertions[0];
+  };
+
+  // ---- Fix 1: a contradiction about another business, or a withheld topic ----
+  describe("a contradiction about another business, or on a withheld topic, is not stated", () => {
+    it("another business: unverified, with its reason, and both values kept", async () => {
+      const row = await storedContradiction({
+        engineQuote: "The most likely match is Northwind Studio, which was founded in 1994",
+        engineValue: "1994",
+        siteQuote: "Founded in 2004.",
+        siteValue: "2004",
+        subject: "other",
+      });
+      expect(row).toMatchObject({
+        verdict: "unverified",
+        unverifiedReason:
+          "The answer may be describing another business, so we have not set it against your site.",
+        contradiction: { attribute: "figure", engineValue: "1994", siteValue: "2004" },
+      });
+    });
+
+    // R6 §1 and §2: 3.2 and 4.8 are unitless, so the pair is unknown, and on a withheld
+    // topic an unknown pair keeps no values. (Was: "both values kept".)
+    it("a withheld topic: unverified, with its reason, and no values kept", async () => {
+      const row = await storedContradiction({
+        engineQuote: "Acme Design has a 3.2 rating on Glassdoor",
+        engineValue: "3.2",
+        siteQuote: "Rated 4.8 out of 5 by our clients.",
+        siteValue: "4.8",
+        topic: "ratings_reviews",
+      });
+      expect(row).toMatchObject({
+        verdict: "unverified",
+        unverifiedReason:
+          "This is a topic we do not check, so we have not set it against your site.",
+        contradiction: null,
+      });
+    });
+
+    it("control: a prospect's founding year, on an unwithheld topic, stays contradicted", async () => {
+      const row = await storedContradiction({
+        engineQuote: "Acme Design was founded in 2001.",
+        engineValue: "2001",
+        siteQuote: "Acme Design opened in 2022.",
+        siteValue: "2022",
+        subject: "prospect",
+        topic: "other",
+      });
+      expect(row).toMatchObject({ verdict: "contradicted", unverifiedReason: null });
+      expect(row?.contradiction).toEqual({
+        attribute: "figure",
+        engineValue: "2001",
+        siteValue: "2022",
+      });
+    });
+  });
+
+  // ---- Fix 2: the same value written two ways ----
+  describe("the same value written two ways is not a contradiction", () => {
+    it.each([
+      [
+        "a phone number, with and without brackets",
+        "Acme Design's office is at (555) 010-0100.",
+        "(555) 010-0100",
+        "Call Acme Design at 555-010-0100.",
+        "555-010-0100",
+      ],
+    ])(
+      "%s are the same value, so not contradicted",
+      async (_name, engineQuote, engineValue, siteQuote, siteValue) => {
+        const row = await storedContradiction({ engineQuote, engineValue, siteQuote, siteValue });
+        expect(row?.verdict).toBe("unverified");
+        expect(row?.unverifiedReason).toBe(
+          "The passage we found does not show a different value for this, so we have not stated it either way.",
+        );
+      },
+    );
+
+    // R6 §2: a word number and a digit are unitless figures, so the pair is unknown.
+    // (Moved here from the table above, which expected "the same value".)
+    it.each([
+      [
+        "thirty and 30",
+        "Acme Design has thirty staff.",
+        "thirty",
+        "Acme Design has 30 staff.",
+        "30",
+      ],
+      [
+        "twenty-five and 25",
+        "Acme Design has twenty-five staff.",
+        "twenty-five",
+        "Acme Design has 25 staff.",
+        "25",
+      ],
+    ])(
+      "%s are unknown, not contradicted",
+      async (_name, engineQuote, engineValue, siteQuote, siteValue) => {
+        const row = await storedContradiction({ engineQuote, engineValue, siteQuote, siteValue });
+        expect(row?.verdict).toBe("unverified");
+        expect(row?.unverifiedReason).toBe("We could not compare the two values directly.");
+      },
+    );
+
+    // R5 fix 1: a time, a place or a short text is not compared exactly, so it is unverified.
+    it.each([
+      [
+        "9am and 9:00 AM",
+        "Acme Design opens at 9am.",
+        "9am",
+        "Acme Design opens at 9:00 AM.",
+        "9:00 AM",
+      ],
+      [
+        "L.A. and Los Angeles",
+        "Acme Design is based in L.A.",
+        "L.A.",
+        "Acme Design is based in Los Angeles.",
+        "Los Angeles",
+      ],
+      [
+        "LA and Los Angeles, CA",
+        "Acme Design is based in LA.",
+        "LA",
+        "Acme Design is based in Los Angeles, CA.",
+        "Los Angeles, CA",
+      ],
+      [
+        "St. Louis and Saint Louis",
+        "Acme Design is on St. Louis Avenue.",
+        "St. Louis",
+        "Acme Design is on Saint Louis Avenue.",
+        "Saint Louis",
+      ],
+      ["Texas and TX", "Acme Design is in Texas.", "Texas", "Acme Design is in TX.", "TX"],
+    ])(
+      "%s cannot be compared exactly, so unverified",
+      async (_name, engineQuote, engineValue, siteQuote, siteValue) => {
+        const row = await storedContradiction({ engineQuote, engineValue, siteQuote, siteValue });
+        expect(row?.verdict).toBe("unverified");
+        expect(row?.unverifiedReason).toBe("We could not compare the two values directly.");
+      },
+    );
+
+    it.each([
+      [
+        "2001 and 2022",
+        "Acme Design was founded in 2001.",
+        "2001",
+        "Acme Design opened in 2022.",
+        "2022",
+      ],
+      [
+        "phone numbers one digit apart",
+        "Acme Design's office is at (555) 010-0100.",
+        "(555) 010-0100",
+        "Acme Design's office is at (555) 010-0199.",
+        "(555) 010-0199",
+      ],
+    ])("%s stay contradicted", async (_name, engineQuote, engineValue, siteQuote, siteValue) => {
+      const row = await storedContradiction({ engineQuote, engineValue, siteQuote, siteValue });
+      expect(row?.verdict).toBe("contradicted");
+    });
+
+    // R5 fix 1: these stayed contradicted under round 2 (Denver and Austin, 9am and 10am,
+    // Texas and CA). They are places, hours and short text, which are not compared exactly.
+    it.each([
+      [
+        "Denver and Austin",
+        "Acme Design is based in Denver.",
+        "Denver",
+        "Acme Design is based in Austin.",
+        "Austin",
+      ],
+      ["9am and 10am", "Acme Design opens at 9am.", "9am", "Acme Design opens at 10am.", "10am"],
+      ["Texas and CA", "Acme Design is in Texas.", "Texas", "Acme Design is in CA.", "CA"],
+    ])(
+      "%s cannot be compared exactly, so unverified",
+      async (_name, engineQuote, engineValue, siteQuote, siteValue) => {
+        const row = await storedContradiction({ engineQuote, engineValue, siteQuote, siteValue });
+        expect(row?.verdict).toBe("unverified");
+        expect(row?.unverifiedReason).toBe("We could not compare the two values directly.");
+      },
+    );
+  });
+
+  // ---- Fix 3: substring matching no longer drops real contradictions ----
+  describe("a real contradiction is not dropped by substring matching", () => {
+    it.each([
+      // R6 §2: unitless figures are unknown, so these carry their unit to stay a real difference.
+      [
+        "10 and 100",
+        "Acme Design has 10 locations.",
+        "10 locations",
+        "We have 100 locations.",
+        "100 locations",
+      ],
+      [
+        "200 and 20",
+        "Acme Design has 200 locations.",
+        "200 locations",
+        "We have 20 locations.",
+        "20 locations",
+      ],
+    ])("%s stay contradicted", async (_name, engineQuote, engineValue, siteQuote, siteValue) => {
+      const row = await storedContradiction({ engineQuote, engineValue, siteQuote, siteValue });
+      expect(row).toMatchObject({ verdict: "contradicted", unverifiedReason: null });
+    });
+  });
+
+  // ---- Fix 4: a support match cannot rest on the business's own name ----
+  describe("a support match does not rest on the business's own name and suffix", () => {
+    it("a suffix after the name is not shared support", () => {
+      expect(
+        quoteSupportsClaim(
+          "Acme Design Group is based in Calder.",
+          "© 2026 Acme Design Group. All rights reserved.",
+          "Acme Design",
+        ),
+      ).toBe(false);
+    });
+
+    it("the name is excluded only where it is the name, so a later word still counts", () => {
+      expect(
+        quoteSupportsClaim(
+          "Acme Dental places dental implants.",
+          "We place dental implants.",
+          "Acme Dental",
+        ),
+      ).toBe(true);
+    });
+
+    it("through checkAccuracy: a confirmed that shares only the name and its suffix is unverified", async () => {
+      const quote = "© 2026 Acme Design Group. All rights reserved.";
+      const r = await checkAccuracy(
+        "https://acme.example/",
+        crawl([page("https://acme.example/", quote)], 1),
+        [
+          branded({
+            query: "who is Acme Design",
+            fullAnswer: "Acme Design Group is based in Calder.",
+          }),
+        ],
+        [],
+        run([
+          {
+            claim: "Acme Design Group is based in Calder.",
+            engineQuote: "Acme Design Group is based in Calder.",
+            verdict: "confirmed",
+            siteQuote: quote,
+            searchTerms: ["Calder"],
+          },
+        ]),
+      );
+      expect(r.assertions[0]?.verdict).toBe("unverified");
+    });
+  });
+
+  // ---- Fix 5: a quote must sit inside one answer ----
+  describe("a quote must sit inside one answer", () => {
+    const twoAnswers = [
+      branded({ query: "who is Acme Design", fullAnswer: "Acme is a studio" }),
+      branded({ query: "who is Acme Design", fullAnswer: "in Calder with 4.9 stars." }),
+    ];
+    const site = crawl([page("https://acme.example/", "Acme is a studio in Calder.")], 1);
+
+    it("discards a quote that runs from one answer into the next", async () => {
+      const r = await checkAccuracy(
+        "https://acme.example/",
+        site,
+        twoAnswers,
+        [],
+        run([
+          {
+            claim: "Acme is a studio in Calder.",
+            engineQuote: "Acme is a studio in Calder",
+            verdict: "absent",
+            siteQuote: null,
+            searchTerms: ["Calder"],
+          },
+        ]),
+      );
+      expect(r.assertions).toHaveLength(0);
+    });
+
+    it("keeps a quote that sits inside one answer", async () => {
+      const r = await checkAccuracy(
+        "https://acme.example/",
+        site,
+        twoAnswers,
+        [],
+        run([
+          {
+            claim: "Acme has 4.9 stars.",
+            engineQuote: "in Calder with 4.9 stars",
+            verdict: "absent",
+            siteQuote: null,
+            searchTerms: ["4.9 stars"],
+          },
+        ]),
+      );
+      expect(r.assertions).toHaveLength(1);
+    });
+
+    it("a conflation quote that runs across two answers is not recorded", async () => {
+      const r = await checkAccuracy("https://acme.example/", site, twoAnswers, [], {
+        run: async () => ({
+          assertions: [],
+          conflation: {
+            detected: true,
+            settled: true,
+            otherNames: ["Acme Design Co"],
+            engineQuote: "Acme is a studio in Calder",
+          },
+        }),
+        ownership: offline,
+      });
+      expect(r.conflation.detected).toBe(false);
+    });
+
+    it("a conflation quote inside one answer is recorded", async () => {
+      const r = await checkAccuracy("https://acme.example/", site, twoAnswers, [], {
+        run: async () => ({
+          assertions: [],
+          conflation: {
+            detected: true,
+            settled: true,
+            otherNames: ["Acme Design Co"],
+            engineQuote: "in Calder with 4.9 stars",
+          },
+        }),
+        ownership: offline,
+      });
+      expect(r.conflation.detected).toBe(true);
+    });
+  });
+
+  // ---- Fix 6: the coverage reason says only what we know ----
+  describe("the coverage reason states only what we know", () => {
+    const ORIGIN = "https://example.com";
+    const urls = (n: number) => Array.from({ length: n }, (_, i) => `${ORIGIN}/p${i}`);
+    const taken = (n: number, sitemap: CrawlResult["sitemap"]) => ({
+      sitemap,
+      pages: urls(n).map((u) => page(u, "Text.")),
+    });
+    const generic =
+      "The site was larger than we read in one pass, so we cannot say this is absent from it.";
+
+    it("a crawl of 4 pages against a 3-page sitemap gives the sitemap-match reason, not 'larger'", () => {
+      const sitemap = { present: true, urlCount: 3, truncated: false, sample: [] };
+      const r = siteCoverage(
+        { crawlFullyRead: false, pagesRead: 4, readUrls: urls(4) },
+        taken(4, sitemap),
+        20,
+      );
+      expect(r.reason).toBe(
+        "We could not match the pages we read to your sitemap, so we cannot say this is absent from your site.",
+      );
+    });
+
+    it("a one-page site not fully read gives the sitemap-match reason, not 'larger' or the one-page wording", () => {
+      const sitemap = { present: true, urlCount: 1, truncated: false, sample: urls(1) };
+      const r = siteCoverage(
+        { crawlFullyRead: false, pagesRead: 1, readUrls: urls(1) },
+        taken(1, sitemap),
+        20,
+      );
+      expect(r.reason).toBe(
+        "We could not match the pages we read to your sitemap, so we cannot say this is absent from your site.",
+      );
+    });
+
+    it("a sitemap whose truncated flag is missing gives the generic reason, not the count", () => {
+      const sitemap = { present: true, urlCount: 95, sample: [] };
+      const r = siteCoverage(
+        { crawlFullyRead: false, pagesRead: 20, readUrls: urls(20) },
+        taken(20, sitemap as CrawlResult["sitemap"]),
+        20,
+      );
+      expect(r.reason).toBe(generic);
+    });
+
+    it("a truncated sitemap gives the generic reason, not 'of your 50000 pages'", () => {
+      const sitemap = { present: true, urlCount: 50000, truncated: true, sample: [] };
+      const r = siteCoverage(
+        { crawlFullyRead: false, pagesRead: 20, readUrls: urls(20) },
+        taken(20, sitemap),
+        20,
+      );
+      expect(r.reason).toBe(generic);
+    });
+  });
+
+  // ---- Fix 7: a malformed contradiction does not fail the stage ----
+  describe("a malformed contradiction does not fail the stage", () => {
+    it("parses, with the contradiction read as null", () => {
+      const parsed = AccuracySchema.parse({
+        assertions: [
+          {
+            claim: "Acme Design was founded in 2001.",
+            engineQuote: "Acme Design was founded in 2001",
+            verdict: "contradicted",
+            siteQuote: "Acme Design opened in 2022.",
+            searchTerms: ["2001"],
+            contradiction: { attribute: "founding year", engineValue: "2001" },
+          },
+        ],
+      });
+      expect(parsed.assertions[0]?.contradiction).toBeNull();
+    });
+
+    it("stores its row unverified and leaves the other rows as they were", async () => {
+      const site = crawl(
+        [
+          page(
+            "https://acme.example/",
+            "Acme Design is a studio in Calder. Acme Design opened in 2022.",
+          ),
+        ],
+        1,
+      );
+      const r = await checkAccuracy(
+        "https://acme.example/",
+        site,
+        [
+          branded({
+            query: "who is Acme Design",
+            fullAnswer: "Acme Design is a studio in Calder. Acme Design was founded in 2001.",
+          }),
+        ],
+        [],
+        run([
+          {
+            claim: "Acme Design was founded in 2001.",
+            engineQuote: "Acme Design was founded in 2001",
+            verdict: "contradicted",
+            siteQuote: "Acme Design opened in 2022.",
+            searchTerms: ["2001"],
+            contradiction: { attribute: "founding year", engineValue: "2001" },
+          },
+          {
+            claim: "Acme Design is a studio in Calder.",
+            engineQuote: "Acme Design is a studio in Calder",
+            verdict: "confirmed",
+            siteQuote: "Acme Design is a studio in Calder.",
+            searchTerms: ["Calder"],
+          },
+        ]),
+      );
+      expect(r.assertions).toHaveLength(2);
+      expect(r.assertions[0]).toMatchObject({
+        verdict: "unverified",
+        contradiction: null,
+        unverifiedReason: NO_SECOND_VALUE,
+      });
+      expect(r.assertions[1]).toMatchObject({ verdict: "confirmed" });
+    });
+  });
+});
+
+describe("review round 3: a stored verdict is held to its text and its values", () => {
+  const offline = { fetchPage: async () => null };
+  const run = (assertions: unknown[]) => ({
+    run: async () => ({ assertions }),
+    ownership: offline,
+  });
+  const WITHHELD = "This is a topic we do not check, so we have not set it against your site.";
+  const ANOTHER_BUSINESS =
+    "The answer may be describing another business, so we have not set it against your site.";
+  const SAME_VALUE =
+    "The passage we found does not show a different value for this, so we have not stated it either way.";
+  const SITEMAP_MATCH =
+    "We could not match the pages we read to your sitemap, so we cannot say this is absent from your site.";
+  const LARGER =
+    "The site was larger than we read in one pass, so we cannot say this is absent from it.";
+
+  /** A contradicted row about Acme Design, filed under `other` unless told
+   *  otherwise. Both quotes are real, so the row is judged on its values. */
+  const contradictionRow = async (p: {
+    engineQuote: string;
+    engineValue: string;
+    siteQuote: string;
+    siteValue: string;
+    subject?: string;
+    topic?: string;
+    attribute?: string;
+  }) => {
+    const r = await checkAccuracy(
+      "https://acme.example/",
+      crawl([page("https://acme.example/", p.siteQuote)], 1),
+      [branded({ query: "who is Acme Design", fullAnswer: p.engineQuote })],
+      [],
+      run([
+        {
+          claim: p.engineQuote,
+          engineQuote: p.engineQuote,
+          verdict: "contradicted",
+          siteQuote: p.siteQuote,
+          searchTerms: ["Acme Design"],
+          subject: p.subject ?? "prospect",
+          topic: p.topic ?? "other",
+          contradiction: {
+            attribute: p.attribute ?? "figure",
+            engineValue: p.engineValue,
+            siteValue: p.siteValue,
+          },
+        },
+      ]),
+    );
+    return r.assertions[0];
+  };
+
+  // ---- Fix 1: a withheld topic filed under `other` is read off its text ----
+  describe("1. a rating or headcount filed under other is withheld", () => {
+    // R6 §1 and §2: unitless figures are unknown, and a withheld topic keeps no values for them.
+    it("a rating filed under other is unverified, with no values kept", async () => {
+      const row = await contradictionRow({
+        engineQuote: "Acme Design has a 3.2 rating on Glassdoor",
+        engineValue: "3.2",
+        siteQuote: "Rated 4.8 out of 5 by our clients.",
+        siteValue: "4.8",
+      });
+      expect(row).toMatchObject({
+        verdict: "unverified",
+        unverifiedReason: WITHHELD,
+        contradiction: null,
+      });
+    });
+
+    it("a headcount filed under other is unverified, with no values kept", async () => {
+      const row = await contradictionRow({
+        engineQuote: "Acme Design has 10 employees",
+        engineValue: "10",
+        siteQuote: "Our team of 45 designers.",
+        siteValue: "45",
+      });
+      expect(row).toMatchObject({
+        verdict: "unverified",
+        unverifiedReason: WITHHELD,
+        contradiction: null,
+      });
+    });
+
+    it("control: a founding year filed under other stays contradicted", async () => {
+      const row = await contradictionRow({
+        engineQuote: "Acme Design was founded in 2001.",
+        engineValue: "2001",
+        siteQuote: "Founded in 2022.",
+        siteValue: "2022",
+      });
+      expect(row).toMatchObject({ verdict: "contradicted", unverifiedReason: null });
+    });
+
+    it("a city filed under other is not compared, so it is unverified", async () => {
+      const row = await contradictionRow({
+        engineQuote: "Acme Design is based in Denver.",
+        engineValue: "Denver",
+        siteQuote: "Our studio is in Austin.",
+        siteValue: "Austin",
+      });
+      expect(row).toMatchObject({
+        verdict: "unverified",
+        unverifiedReason: "We could not compare the two values directly.",
+      });
+    });
+  });
+
+  // ---- Fix 2: one location written two ways ----
+  describe("2. the same location written two ways is not a contradiction", () => {
+    // R5 fix 1: places are not compared exactly, so each pair is unverified with both values kept.
+    it.each([
+      ["Austin, Texas", "Austin, TX"],
+      ["Portland, Maine", "Portland, ME"],
+      ["NYC", "New York"],
+      ["NYC", "New York City"],
+    ])(
+      "%s and %s are places, which are not compared, so unverified",
+      async (engineValue, siteValue) => {
+        const row = await contradictionRow({
+          engineQuote: `Acme Design is based in ${engineValue}.`,
+          engineValue,
+          siteQuote: `Acme Design is based in ${siteValue}.`,
+          siteValue,
+        });
+        expect(row).toMatchObject({
+          verdict: "unverified",
+          unverifiedReason: "We could not compare the two values directly.",
+        });
+      },
+    );
+
+    it("SF against Santa Fe is a pair of places, so it is unverified", async () => {
+      const row = await contradictionRow({
+        engineQuote: "Acme Design is in SF.",
+        engineValue: "SF",
+        siteQuote: "Acme Design is in Santa Fe.",
+        siteValue: "Santa Fe",
+      });
+      expect(row).toMatchObject({
+        verdict: "unverified",
+        unverifiedReason: "We could not compare the two values directly.",
+      });
+    });
+
+    it.each([
+      ["Austin, Texas", "Dallas, TX"],
+      ["Portland, Maine", "Portland, OR"],
+      ["Denver", "Austin"],
+    ])(
+      "%s and %s are places, which are not compared, so unverified",
+      async (engineValue, siteValue) => {
+        const row = await contradictionRow({
+          engineQuote: `Acme Design is based in ${engineValue}.`,
+          engineValue,
+          siteQuote: `Acme Design is based in ${siteValue}.`,
+          siteValue,
+        });
+        expect(row).toMatchObject({
+          verdict: "unverified",
+          unverifiedReason: "We could not compare the two values directly.",
+        });
+      },
+    );
+  });
+
+  // ---- Fix 3: opening hours written two ways (R5 fix 1: hours are not compared) ----
+  describe("3. the same opening hours written two ways is not a contradiction", () => {
+    it.each([
+      ["9am-5pm", "9:00 AM - 5:00 PM"],
+      ["9-5", "9am to 5pm"],
+      ["Mon-Fri 9am-5pm", "Monday to Friday, 9:00 AM - 5:00 PM"],
+      ["9am-5pm", "10am-6pm"],
+      ["9am-5pm", "9am-6pm"],
+    ])(
+      "%s and %s are hours, which are not compared, so unverified",
+      async (engineValue, siteValue) => {
+        const row = await contradictionRow({
+          engineQuote: `Acme Design is open ${engineValue}.`,
+          engineValue,
+          siteQuote: `Acme Design is open ${siteValue}.`,
+          siteValue,
+        });
+        expect(row).toMatchObject({
+          verdict: "unverified",
+          unverifiedReason: "We could not compare the two values directly.",
+        });
+      },
+    );
+  });
+
+  // ---- Fix 4 (and lens B 10): figures with units or punctuation ----
+  describe("4. figures that differ in their numbers are contradicted", () => {
+    it.each([
+      ["$1,500/month", "$15.00/month"],
+      ["2.5 weeks", "25 weeks"],
+      // R6 §4 and §2: 1/12/2019 reads either way, and "2 million" against "2" is unitless,
+      // so both pairs are now unknown. These rows carry a date that reads one way and a unit.
+      ["1/13/2019", "11/14/2019"],
+      ["2 million dollars", "2 dollars"],
+    ])("%s and %s stay contradicted", async (engineValue, siteValue) => {
+      const row = await contradictionRow({
+        engineQuote: `Acme Design's figure is ${engineValue}.`,
+        engineValue,
+        siteQuote: `Acme Design's figure is ${siteValue}.`,
+        siteValue,
+      });
+      expect(row).toMatchObject({ verdict: "contradicted", unverifiedReason: null });
+    });
+
+    it.each([
+      ["$1,500/month", "$1500 per month"],
+      ["2.5 weeks", "2.5 wks"],
+    ])("%s and %s are the same figure, so not contradicted", async (engineValue, siteValue) => {
+      const row = await contradictionRow({
+        engineQuote: `Acme Design's figure is ${engineValue}.`,
+        engineValue,
+        siteQuote: `Acme Design's figure is ${siteValue}.`,
+        siteValue,
+      });
+      expect(row).toMatchObject({ verdict: "unverified", unverifiedReason: SAME_VALUE });
+    });
+  });
+
+  // ---- Fix 5: a confirmation rests on the name's words, not the legal suffix or "&" ----
+  describe("5. a confirmation does not rest on the business's own name", () => {
+    const confirmed = async (query: string, fullAnswer: string, siteQuote: string) =>
+      (
+        await checkAccuracy(
+          "https://northwind.example/",
+          crawl([page("https://northwind.example/", siteQuote)], 1),
+          [branded({ query, fullAnswer })],
+          [],
+          run([
+            {
+              claim: fullAnswer,
+              engineQuote: fullAnswer,
+              verdict: "confirmed",
+              siteQuote,
+              searchTerms: ["architecture"],
+            },
+          ]),
+        )
+      ).assertions[0];
+
+    it("a legal suffix on the query does not make the name's words support the claim", async () => {
+      const row = await confirmed(
+        "who is Northwind Acme, LLC",
+        "Northwind Acme is an architecture firm.",
+        "© 2026 Northwind Acme. All rights reserved.",
+      );
+      expect(row?.verdict).toBe("unverified");
+    });
+
+    it("an ampersand in the query is matched with its 'and' form in the text", async () => {
+      const row = await confirmed(
+        "who is Northwind & Acme",
+        "Northwind and Acme is an architecture firm.",
+        "© 2026 Northwind and Acme. All rights reserved.",
+      );
+      expect(row?.verdict).toBe("unverified");
+    });
+
+    it("control: a passage that says the claim stays confirmed under the suffixed name", async () => {
+      const row = await confirmed(
+        "who is Northwind Acme, LLC",
+        "Northwind Acme installs commercial skylights.",
+        "Northwind Acme installs commercial skylights.",
+      );
+      expect(row?.verdict).toBe("confirmed");
+    });
+  });
+
+  // ---- Fix 6: an empty engine quote is no quote ----
+  describe("6. an empty or whitespace engine quote is discarded", () => {
+    const site = crawl([page("https://acme.example/", "Acme Design is a studio in Calder.")], 1);
+    const answer = branded({
+      query: "who is Acme Design",
+      fullAnswer: "Acme Design is a studio in Calder. Acme Design is run by Northwind Studio.",
+    });
+
+    it.each([[""], ["   "]])("an absent row with engineQuote %j is discarded", async (quote) => {
+      const r = await checkAccuracy("https://acme.example/", site, [answer], [], {
+        run: async () => ({
+          assertions: [
+            {
+              claim: "Acme Design is run by Northwind Studio.",
+              engineQuote: quote,
+              verdict: "absent",
+              siteQuote: null,
+              searchTerms: ["Northwind"],
+            },
+          ],
+        }),
+        ownership: offline,
+      });
+      expect(r.assertions).toHaveLength(0);
+    });
+
+    it.each([[""], ["   "]])("a conflation with engineQuote %j is not detected", async (quote) => {
+      const r = await checkAccuracy("https://acme.example/", site, [answer], [], {
+        run: async () => ({
+          assertions: [],
+          conflation: {
+            detected: true,
+            settled: false,
+            otherNames: ["Northwind Studio"],
+            engineQuote: quote,
+          },
+        }),
+        ownership: offline,
+      });
+      // Round 4 fix 10: `settled` is true whenever `detected` is false (see Conflation).
+      // Round 5 nit 4: an empty quote is stored exactly as no conflation, so the other
+      // names go too (was `otherNames: ["Northwind Studio"]`, `engineQuote: ""`).
+      expect(r.conflation).toEqual({
+        detected: false,
+        settled: true,
+        otherNames: [],
+        engineQuote: null,
+      });
+    });
+
+    it("control: a real quote is kept", async () => {
+      const r = await checkAccuracy("https://acme.example/", site, [answer], [], {
+        run: async () => ({
+          assertions: [
+            {
+              claim: "Acme Design is a studio in Calder.",
+              engineQuote: "Acme Design is a studio in Calder",
+              verdict: "absent",
+              siteQuote: null,
+              searchTerms: ["Northwind"],
+            },
+          ],
+        }),
+        ownership: offline,
+      });
+      expect(r.assertions).toHaveLength(1);
+      expect(r.assertions[0]?.engineQuote).toBe("Acme Design is a studio in Calder");
+    });
+  });
+
+  // ---- Fix 9: a missing or unclear subject is out of scope ----
+  describe("9. a missing or unclear subject is another business", () => {
+    it.each([
+      ["no subject", {}],
+      ["subject unclear", { subject: "unclear" }],
+    ])(
+      "%s: the 2001 and 2022 contradiction is unverified, with its values kept",
+      async (_name, extra) => {
+        const r = await checkAccuracy(
+          "https://acme.example/",
+          crawl([page("https://acme.example/", "Acme Design opened in 2022.")], 1),
+          [
+            branded({
+              query: "who is Acme Design",
+              fullAnswer: "Acme Design was founded in 2001.",
+            }),
+          ],
+          [],
+          run([
+            {
+              claim: "Acme Design was founded in 2001.",
+              engineQuote: "Acme Design was founded in 2001",
+              verdict: "contradicted",
+              siteQuote: "Acme Design opened in 2022.",
+              searchTerms: ["2001"],
+              topic: "other",
+              ...extra,
+              contradiction: { attribute: "founding year", engineValue: "2001", siteValue: "2022" },
+            },
+          ]),
+        );
+        expect(r.assertions[0]).toMatchObject({
+          verdict: "unverified",
+          unverifiedReason: ANOTHER_BUSINESS,
+          contradiction: { attribute: "founding year", engineValue: "2001", siteValue: "2022" },
+        });
+      },
+    );
+  });
+
+  // ---- Fix 11 (and lens B 11): a bare number is not a time ----
+  describe("11. figures that only look alike are not the same value", () => {
+    it("900 against 9:00am is a figure and a time, not compared, so unverified; the phone pairs still match", async () => {
+      const row = await contradictionRow({
+        engineQuote: "Acme Design opens at 900.",
+        engineValue: "900",
+        siteQuote: "Acme Design opens at 9:00am.",
+        siteValue: "9:00am",
+      });
+      expect(row).toMatchObject({
+        verdict: "unverified",
+        unverifiedReason: "We could not compare the two values directly.",
+      });
+      // Round 4 fix 12: the phone pairs are checked here too, not only the 900 pair.
+      for (const [engineValue, siteValue] of [
+        ["5550100100", "(555) 010-0100"],
+        ["555.010.0100", "555-010-0100"],
+      ] as const) {
+        const same = await contradictionRow({
+          engineQuote: `Acme Design's phone is ${engineValue}.`,
+          engineValue,
+          siteQuote: `Acme Design's phone is ${siteValue}.`,
+          siteValue,
+        });
+        expect(same).toMatchObject({ verdict: "unverified", unverifiedReason: SAME_VALUE });
+      }
+    });
+  });
+
+  // ---- Fix 12: "larger than we read" only when the sitemap says so ----
+  describe("12. the coverage reason at the crawl cap is not 'larger'", () => {
+    const ORIGIN = "https://example.com";
+    const urls = (n: number) => Array.from({ length: n }, (_, i) => `${ORIGIN}/p${i}`);
+    const taken = (n: number, sitemap: CrawlResult["sitemap"]) => ({
+      sitemap,
+      pages: urls(n).map((u) => page(u, "Text.")),
+    });
+
+    it("a complete sitemap of 20 pages, all 20 read at a cap of 20, gives the cap reason", () => {
+      const sitemap = { present: true, urlCount: 20, truncated: false, sample: urls(20) };
+      const r = siteCoverage(
+        { crawlFullyRead: true, pagesRead: 20, readUrls: urls(20) },
+        taken(20, sitemap),
+        20,
+      );
+      expect(r).toEqual({
+        full: false,
+        reason:
+          "Our crawl stopped at its page limit, so we cannot say this is absent from your site.",
+      });
+    });
+
+    it("4 pages read against a 3-page sitemap gives the sitemap-match reason, not 'larger'", () => {
+      const sitemap = { present: true, urlCount: 3, truncated: false, sample: [] };
+      const r = siteCoverage(
+        { crawlFullyRead: false, pagesRead: 4, readUrls: urls(4) },
+        taken(4, sitemap),
+        20,
+      );
+      expect(r.reason).toBe(SITEMAP_MATCH);
+      expect(r.reason).not.toBe(LARGER);
+    });
+  });
+
+  // ---- Fix 7 is in scripts/gen-report-shapes.mts; its row is checked by the fixture run ----
+});
+
+// ---- Review round 4: a stored contradiction proves its difference, or is unverified ----
+describe("review round 4: a stored verdict proves its difference, and withheld topics agree with the website", () => {
+  const offline = { fetchPage: async () => null };
+  const WITHHELD = "This is a topic we do not check, so we have not set it against your site.";
+  const SAME_VALUE =
+    "The passage we found does not show a different value for this, so we have not stated it either way.";
+  const COULD_NOT_COMPARE = "We could not compare the two values directly.";
+  const CANNOT_FIND =
+    "We could not find the passage this was based on, so we have not stated it either way.";
+  const UNREAD =
+    "Some pages we found could not be read, so we cannot say this is absent from your site.";
+
+  type Row = {
+    claim?: string;
+    engineQuote: string;
+    engineValue: string;
+    siteQuote: string;
+    siteValue: string;
+    topic?: string;
+    attribute?: string;
+  };
+
+  /** A contradicted row about Acme Design, run through `checkAccuracy`. */
+  const rowOf = async (p: Row) => {
+    const r = await checkAccuracy(
+      "https://acme.example/",
+      crawl([page("https://acme.example/", p.siteQuote)], 1),
+      [branded({ query: "who is Acme Design", fullAnswer: p.engineQuote })],
+      [],
+      {
+        run: async () => ({
+          assertions: [
+            {
+              claim: p.claim ?? p.engineQuote,
+              engineQuote: p.engineQuote,
+              verdict: "contradicted",
+              siteQuote: p.siteQuote,
+              searchTerms: ["Acme Design"],
+              subject: "prospect",
+              topic: p.topic ?? "other",
+              contradiction: {
+                attribute: p.attribute ?? "figure",
+                engineValue: p.engineValue,
+                siteValue: p.siteValue,
+              },
+            },
+          ],
+        }),
+        ownership: offline,
+      },
+    );
+    return r.assertions[0];
+  };
+
+  // ---- Fix 5 and lens B 13: the withheld-topic text, as the website reads it ----
+  describe("5 and 13. the withheld topic is read off the claim and the engine quote, as the website reads it", () => {
+    // Each row: the sentence (claim and engine quote), the site's sentence, the two
+    // values, and the topic the website's TOPIC_TEXT gives the sentence (null: none).
+    it.each<[string, string, string, string, string | null]>([
+      [
+        "Acme Design has two complaints on file with the BBB.",
+        "Acme Design has zero complaints on file.",
+        "two",
+        "zero",
+        "complaints",
+      ],
+      [
+        "Acme Design is an LLC registered in Texas.",
+        "Acme Design is registered in Colorado.",
+        "Texas",
+        "Colorado",
+        "legal_entity",
+      ],
+      [
+        "Acme Design is a 12-person team.",
+        "Acme Design is a 40-person team.",
+        "12",
+        "40",
+        "revenue_headcount",
+      ],
+      [
+        "3 complaints filed against it.",
+        "Acme Design has zero complaints on file.",
+        "3",
+        "zero",
+        "complaints",
+      ],
+      [
+        "accredited since 2010.",
+        "Acme Design has been accredited since 2015.",
+        "2010",
+        "2015",
+        "accreditation",
+      ],
+      [
+        "4100 West Calder Boulevard.",
+        "88 Ocean Drive.",
+        "4100 West Calder Boulevard",
+        "88 Ocean Drive",
+        "street_address",
+      ],
+      [
+        "Acme Design has a 3.2 rating on Glassdoor.",
+        "Rated 4.8 out of 5 by our clients.",
+        "3.2",
+        "4.8",
+        "ratings_reviews",
+      ],
+    ])("%s is withheld as %s", async (sentence, siteQuote, engineValue, siteValue, topic) => {
+      const row = await rowOf({ engineQuote: sentence, engineValue, siteQuote, siteValue });
+      expect(row).toMatchObject({ verdict: "unverified", unverifiedReason: WITHHELD, topic });
+      expect(topic).not.toBe("other");
+    });
+
+    // Verb uses and the other sentences the website does not withhold stay as they were.
+    it.each<[string, string, string, string]>([
+      ["Acme Design's founder started it in 2001.", "Acme Design opened in 2022.", "2001", "2022"],
+      // Decided 2026-11-24: the website no longer reads named people or ownership off text.
+      ["Dana Reyes founded Acme Design in 2001.", "Acme Design opened in 2022.", "2001", "2022"],
+      [
+        "Acme Design reviews plans every 2 weeks.",
+        "Acme Design reviews plans every 4 weeks.",
+        "2 weeks",
+        "4 weeks",
+      ],
+      [
+        "Acme Design offers staff augmentation in 3 cities.",
+        "Acme Design offers staff augmentation in 5 cities.",
+        "3 cities",
+        "5 cities",
+      ],
+      ["Acme Design was founded in 2001.", "Founded in 2022.", "2001", "2022"],
+    ])("%s is not withheld", async (sentence, siteQuote, engineValue, siteValue) => {
+      const row = await rowOf({ engineQuote: sentence, engineValue, siteQuote, siteValue });
+      expect(row).toMatchObject({
+        verdict: "contradicted",
+        unverifiedReason: null,
+        topic: "other",
+      });
+    });
+
+    // R5 fix 1: these are not withheld, and their values are a name, a place or a short text,
+    // which are not compared exactly. Each is unverified with both values kept.
+    it.each<[string, string, string, string]>([
+      [
+        "acquired by Northwind Studio in 2019.",
+        "Acme Design is independently owned.",
+        "Northwind Studio",
+        "independently owned",
+      ],
+      [
+        "led by Dana Calder, its principal.",
+        "Acme Design is run by Jordan Lee.",
+        "Dana Calder",
+        "Jordan Lee",
+      ],
+      ["Acme Design's address is in Denver.", "Our studio is in Austin.", "Denver", "Austin"],
+      ["Acme Design is located in Denver.", "Our studio is in Austin.", "Denver", "Austin"],
+      ["Acme Design is a rising star in Denver.", "Our studio is in Austin.", "Denver", "Austin"],
+      ["Acme Design is based in Denver.", "Our studio is in Austin.", "Denver", "Austin"],
+    ])(
+      "%s is not withheld, and is not compared, so unverified",
+      async (sentence, siteQuote, engineValue, siteValue) => {
+        const row = await rowOf({ engineQuote: sentence, engineValue, siteQuote, siteValue });
+        expect(row).toMatchObject({
+          verdict: "unverified",
+          unverifiedReason: "We could not compare the two values directly.",
+          topic: "other",
+        });
+      },
+    );
+
+    it("the claim alone carries the topic, the engine quote carries none", async () => {
+      const row = await rowOf({
+        claim: "Acme Design has 3 complaints filed against it.",
+        engineQuote: "Acme Design is based in Denver.",
+        engineValue: "Denver",
+        siteQuote: "Our studio is in Austin.",
+        siteValue: "Austin",
+      });
+      expect(row).toMatchObject({
+        verdict: "unverified",
+        unverifiedReason: WITHHELD,
+        topic: "complaints",
+      });
+    });
+
+    it("the engine quote carries the topic, the claim alone does not", async () => {
+      const row = await rowOf({
+        claim: "Acme Design is based in Denver.",
+        engineQuote: "Acme Design is based in Denver, with 3 complaints filed against it.",
+        engineValue: "Denver",
+        siteQuote: "Our studio is in Austin.",
+        siteValue: "Austin",
+      });
+      expect(row).toMatchObject({
+        verdict: "unverified",
+        unverifiedReason: WITHHELD,
+        topic: "complaints",
+      });
+    });
+
+    it("control: an attribute alone does not withhold a row", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design opened in 2001.",
+        engineValue: "2001",
+        siteQuote: "Acme Design opened in 2022.",
+        siteValue: "2022",
+        attribute: "annual revenue",
+      });
+      expect(row).toMatchObject({
+        verdict: "contradicted",
+        unverifiedReason: null,
+        topic: "other",
+      });
+    });
+  });
+
+  // ---- Fix 1 (phones), lens B 12: the same phone number written two ways ----
+  describe("1 and 12. the same phone number written two ways is not a contradiction", () => {
+    it.each([
+      ["512.555.0100", "(512) 555-0100"],
+      ["+1 512 555 0100", "(512) 555-0100"],
+      ["1-800-555-0100", "(800) 555-0100"],
+      ["5550100100", "(555) 010-0100"],
+      ["555.010.0100", "555-010-0100"],
+    ])("%s and %s are the same number", async (engineValue, siteValue) => {
+      const row = await rowOf({
+        engineQuote: `Acme Design's phone is ${engineValue}.`,
+        engineValue,
+        siteQuote: `Acme Design's phone is ${siteValue}.`,
+        siteValue,
+      });
+      expect(row).toMatchObject({ verdict: "unverified", unverifiedReason: SAME_VALUE });
+    });
+
+    it("a dot followed by three digits is not a decimal point", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design's code is 3.456.",
+        engineValue: "3.456",
+        siteQuote: "Acme Design's code is 3.457.",
+        siteValue: "3.457",
+      });
+      expect(row).toMatchObject({ verdict: "unverified", unverifiedReason: COULD_NOT_COMPARE });
+    });
+
+    it("control: two numbers that end in different digits stay contradicted", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design's phone is 512-555-0100.",
+        engineValue: "512-555-0100",
+        siteQuote: "Acme Design's phone is 512-555-0199.",
+        siteValue: "512-555-0199",
+      });
+      expect(row).toMatchObject({ verdict: "contradicted", unverifiedReason: null });
+    });
+  });
+
+  // ---- Fix 2: one place written two ways ----
+  describe("2. the same place written two ways is not a contradiction", () => {
+    // R5 fix 1: a place is not compared exactly, so each pair is unverified with both values kept.
+    it.each([
+      ["New York City", "New York, NY"],
+      ["Austin TX", "Austin, Texas"],
+      ["Austin, Texas, USA", "Austin, TX"],
+      ["Austin, Texas", "Austin, TX 78701"],
+      ["Austin, Texas", "TX"],
+    ])(
+      "%s and %s are places, which are not compared, so unverified",
+      async (engineValue, siteValue) => {
+        const row = await rowOf({
+          engineQuote: `Acme Design is based in ${engineValue}.`,
+          engineValue,
+          siteQuote: `Acme Design is based in ${siteValue}.`,
+          siteValue,
+        });
+        expect(row).toMatchObject({
+          verdict: "unverified",
+          unverifiedReason: "We could not compare the two values directly.",
+        });
+      },
+    );
+
+    it("a bare city against a place with a state cannot be told apart from the values", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design is based in Denver.",
+        engineValue: "Denver",
+        siteQuote: "Acme Design is based in Austin, TX.",
+        siteValue: "Austin, TX",
+      });
+      expect(row).toMatchObject({
+        verdict: "unverified",
+        unverifiedReason: "We could not compare the two values directly.",
+      });
+    });
+
+    it("Austin, Texas against Dallas, TX is a pair of places, so unverified", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design is based in Austin, Texas.",
+        engineValue: "Austin, Texas",
+        siteQuote: "Acme Design is based in Dallas, TX.",
+        siteValue: "Dallas, TX",
+      });
+      expect(row).toMatchObject({
+        verdict: "unverified",
+        unverifiedReason: "We could not compare the two values directly.",
+      });
+    });
+  });
+
+  // ---- Fix 3: opening hours written two ways ----
+  describe("3 and 14. opening hours written two ways", () => {
+    // R5 fix 1: hours are not compared exactly, so each pair is unverified with both values kept.
+    it.each([
+      ["9am-noon", "9am-12pm"],
+      ["M-F 9-5", "Mon-Fri 9am-5pm"],
+      ["weekdays 9-5", "Mon-Fri 9am-5pm"],
+      ["9am-5pm, Monday-Friday", "Mon-Fri 9am-5pm"],
+      ["9-11", "9am to 11am"],
+      ["9-5pm", "9am-5pm"],
+      ["9am-5", "9am-5pm"],
+      ["9am until 5pm", "9am-5pm"],
+      ["1-5", "1pm-5pm"],
+      ["5-10", "5am-10am"],
+      ["9am-5pm Mon-Fri", "Monday to Friday, 9:00 AM - 5:00 PM"],
+    ])(
+      "%s and %s are hours, which are not compared, so unverified",
+      async (engineValue, siteValue) => {
+        const row = await rowOf({
+          engineQuote: `Acme Design is open ${engineValue}.`,
+          engineValue,
+          siteQuote: `Acme Design is open ${siteValue}.`,
+          siteValue,
+        });
+        expect(row).toMatchObject({
+          verdict: "unverified",
+          unverifiedReason: "We could not compare the two values directly.",
+        });
+      },
+    );
+
+    it("Mon-Fri against Mon-Sat with the same times is a pair of hours, so unverified", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design is open Mon-Fri 9am-5pm.",
+        engineValue: "Mon-Fri 9am-5pm",
+        siteQuote: "Acme Design is open Mon-Sat 9am-5pm.",
+        siteValue: "Mon-Sat 9am-5pm",
+      });
+      expect(row).toMatchObject({
+        verdict: "unverified",
+        unverifiedReason: "We could not compare the two values directly.",
+      });
+    });
+
+    it("a bare figure against an hour of the day is not the same value, and keeps both values", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design is open 9.",
+        engineValue: "9",
+        siteQuote: "Acme Design is open 9am.",
+        siteValue: "9am",
+      });
+      expect(row).toMatchObject({
+        verdict: "unverified",
+        unverifiedReason: "We could not compare the two values directly.",
+      });
+      expect(row?.contradiction).toEqual({
+        attribute: "figure",
+        engineValue: "9",
+        siteValue: "9am",
+      });
+    });
+  });
+
+  // ---- Fix 4: number words, "a month" and dates ----
+  describe("4. number words, 'a month' and dates written two ways", () => {
+    it.each([
+      ["5 years", "five years"],
+      ["10 days", "ten days"],
+      ["$1,500 a month", "$1500/month"],
+      ["March 3, 2019", "3/3/2019"],
+      ["2019-01-13", "1/13/2019"],
+    ])("%s and %s are the same value", async (engineValue, siteValue) => {
+      const row = await rowOf({
+        engineQuote: `Acme Design's figure is ${engineValue}.`,
+        engineValue,
+        siteQuote: `Acme Design's figure is ${siteValue}.`,
+        siteValue,
+      });
+      expect(row).toMatchObject({ verdict: "unverified", unverifiedReason: SAME_VALUE });
+    });
+
+    it.each([
+      ["$1,500/month", "$15.00/month"],
+      ["2.5 weeks", "25 weeks"],
+      // R6 §4 and §2: 1/12/2019 reads either way, and "2 million" against "2" is unitless,
+      // so both pairs are now unknown. These rows carry a date that reads one way and a unit.
+      ["1/13/2019", "11/14/2019"],
+      ["2 million dollars", "2 dollars"],
+    ])("%s and %s stay contradicted", async (engineValue, siteValue) => {
+      const row = await rowOf({
+        engineQuote: `Acme Design's figure is ${engineValue}.`,
+        engineValue,
+        siteQuote: `Acme Design's figure is ${siteValue}.`,
+        siteValue,
+      });
+      expect(row).toMatchObject({ verdict: "contradicted", unverifiedReason: null });
+    });
+
+    it("2 years against 2 months are different units, so not compared: unverified", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design's figure is 2 years.",
+        engineValue: "2 years",
+        siteQuote: "Acme Design's figure is 2 months.",
+        siteValue: "2 months",
+      });
+      expect(row).toMatchObject({
+        verdict: "unverified",
+        unverifiedReason: "We could not compare the two values directly.",
+      });
+    });
+
+    it("a value with words and a comma-free unit that cannot be read is unverified, not contradicted", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design has been around a long while.",
+        engineValue: "a long while, roughly 15 years",
+        siteQuote: "Acme Design has been around for 20 years.",
+        siteValue: "20 years",
+      });
+      expect(row).toMatchObject({ verdict: "unverified", unverifiedReason: COULD_NOT_COMPARE });
+    });
+  });
+
+  // ---- Lens B 15: the city table, bracket strip and "and" against "&" ----
+  describe("15. the city table, bracket strip, and 'and' in the query", () => {
+    // R5 fix 1: a city is a place, which is not compared exactly, so unverified.
+    it.each([
+      ["DC", "Washington"],
+      ["NOLA", "New Orleans"],
+      ["Philly", "Philadelphia"],
+      ["Washington (D.C.)", "DC"],
+    ])(
+      "%s and %s are places, which are not compared, so unverified",
+      async (engineValue, siteValue) => {
+        const row = await rowOf({
+          engineQuote: `Acme Design is based in ${engineValue}.`,
+          engineValue,
+          siteQuote: `Acme Design is based in ${siteValue}.`,
+          siteValue,
+        });
+        expect(row).toMatchObject({
+          verdict: "unverified",
+          unverifiedReason: "We could not compare the two values directly.",
+        });
+      },
+    );
+
+    it("a name written with 'and' in the query is not confirmed by a '&' page name alone", async () => {
+      const r = await checkAccuracy(
+        "https://northwind.example/",
+        crawl(
+          [page("https://northwind.example/", "© 2026 Northwind & Acme. All rights reserved.")],
+          1,
+        ),
+        [
+          branded({
+            query: "who is Northwind and Acme",
+            fullAnswer: "Northwind Acme is an architecture firm.",
+          }),
+        ],
+        [],
+        {
+          run: async () => ({
+            assertions: [
+              {
+                claim: "Northwind Acme is an architecture firm.",
+                engineQuote: "Northwind Acme is an architecture firm",
+                verdict: "confirmed",
+                siteQuote: "© 2026 Northwind & Acme. All rights reserved.",
+                searchTerms: ["architecture"],
+              },
+            ],
+          }),
+          ownership: offline,
+        },
+      );
+      expect(r.assertions[0]?.verdict).toBe("unverified");
+    });
+
+    it("'and' in the query is matched with '&' in the page text", async () => {
+      const r = await checkAccuracy(
+        "https://northwind.example/",
+        crawl(
+          [page("https://northwind.example/", "Northwind & Acme installs commercial skylights.")],
+          1,
+        ),
+        [
+          branded({
+            query: "who is Northwind and Acme",
+            fullAnswer: "Northwind Acme installs commercial skylights.",
+          }),
+        ],
+        [],
+        {
+          run: async () => ({
+            assertions: [
+              {
+                claim: "Northwind Acme installs commercial skylights.",
+                engineQuote: "Northwind Acme installs commercial skylights",
+                verdict: "confirmed",
+                siteQuote: "Northwind & Acme installs commercial skylights.",
+                searchTerms: ["skylights"],
+              },
+            ],
+          }),
+          ownership: offline,
+        },
+      );
+      expect(r.assertions[0]?.verdict).toBe("confirmed");
+    });
+  });
+
+  // ---- Fix 6: a legal form or a leading "The" on the query is not part of the name ----
+  describe("6. a confirmation does not rest on the name's suffix", () => {
+    const confirmed = async (query: string) =>
+      (
+        await checkAccuracy(
+          "https://northwind.example/",
+          crawl(
+            [page("https://northwind.example/", "© 2026 Northwind Acme. All rights reserved.")],
+            1,
+          ),
+          [branded({ query, fullAnswer: "Northwind Acme is an architecture firm." })],
+          [],
+          {
+            run: async () => ({
+              assertions: [
+                {
+                  claim: "Northwind Acme is an architecture firm.",
+                  engineQuote: "Northwind Acme is an architecture firm",
+                  verdict: "confirmed",
+                  siteQuote: "© 2026 Northwind Acme. All rights reserved.",
+                  searchTerms: ["architecture"],
+                },
+              ],
+            }),
+            ownership: offline,
+          },
+        )
+      ).assertions[0];
+
+    it.each([
+      "who is Northwind Acme Co.",
+      "who is Northwind Acme, L.L.C.",
+      "who is Northwind Acme Studio",
+      "who is The Northwind Acme",
+    ])("%s gives unverified", async (query) => {
+      expect((await confirmed(query))?.verdict).toBe("unverified");
+    });
+  });
+
+  // ---- Fix 7: an empty or whitespace site quote is no quote ----
+  describe("7. an empty or whitespace site quote is no quote", () => {
+    const site = crawl([page("https://acme.example/", "Acme Design is a studio in Calder.")], 1);
+    const answer = branded({
+      query: "who is Acme Design",
+      fullAnswer: "Acme Design is a studio in Calder.",
+    });
+    const offlineRun = (assertion: Record<string, unknown>) => ({
+      run: async () => ({ assertions: [assertion] }),
+      ownership: offline,
+    });
+
+    it.each([[""], ["   "]])(
+      "a confirmation with siteQuote %j is unverified, with no quote kept",
+      async (quote) => {
+        const r = await checkAccuracy(
+          "https://acme.example/",
+          site,
+          [answer],
+          [],
+          offlineRun({
+            claim: "Acme Design is a studio in Calder.",
+            engineQuote: "Acme Design is a studio in Calder",
+            verdict: "confirmed",
+            siteQuote: quote,
+            searchTerms: ["Calder"],
+          }),
+        );
+        expect(r.assertions[0]).toMatchObject({
+          verdict: "unverified",
+          unverifiedReason: CANNOT_FIND,
+          siteQuote: null,
+        });
+      },
+    );
+
+    it.each([[""], ["   "]])(
+      "a contradiction with siteQuote %j is unverified, with no quote kept",
+      async (quote) => {
+        const r = await checkAccuracy(
+          "https://acme.example/",
+          site,
+          [answer],
+          [],
+          offlineRun({
+            claim: "Acme Design is a studio in Calder.",
+            engineQuote: "Acme Design is a studio in Calder",
+            verdict: "contradicted",
+            siteQuote: quote,
+            searchTerms: ["Calder"],
+            contradiction: { attribute: "place", engineValue: "Calder", siteValue: "Austin" },
+          }),
+        );
+        expect(r.assertions[0]).toMatchObject({
+          verdict: "unverified",
+          unverifiedReason: CANNOT_FIND,
+          siteQuote: null,
+        });
+      },
+    );
+
+    it("control: a real site quote is kept", async () => {
+      const r = await checkAccuracy(
+        "https://acme.example/",
+        site,
+        [answer],
+        [],
+        offlineRun({
+          claim: "Acme Design is a studio in Calder.",
+          engineQuote: "Acme Design is a studio in Calder",
+          verdict: "confirmed",
+          siteQuote: "Acme Design is a studio in Calder.",
+          searchTerms: ["Calder"],
+        }),
+      );
+      expect(r.assertions[0]).toMatchObject({
+        verdict: "confirmed",
+        siteQuote: "Acme Design is a studio in Calder.",
+      });
+    });
+  });
+
+  // ---- Fix 8: a page the crawl took but could not read is not a page we matched ----
+  describe("8. the reason when a crawled page could not be read", () => {
+    const ORIGIN = "https://example.com";
+    const urls = (n: number) => Array.from({ length: n }, (_, i) => `${ORIGIN}/p${i}`);
+
+    it("10 sitemap URLs all read, plus a page with no text: the unread reason, not the sitemap-match one", () => {
+      const sitemap = { present: true, urlCount: 10, truncated: false, sample: urls(10) };
+      const pages = [...urls(10), `${ORIGIN}/privacy`].map((u) => page(u, "Text."));
+      const r = siteCoverage(
+        {
+          crawlFullyRead: false,
+          pagesRead: 11,
+          readUrls: [...urls(10), `${ORIGIN}/privacy`],
+          pagesUnread: 1,
+        },
+        { sitemap, pages: [...pages, page(`${ORIGIN}/brochure.pdf`, "")] },
+        20,
+      );
+      expect(r).toEqual({ full: false, reason: UNREAD });
+    });
+
+    it("through checkAccuracy: an absent row is held back with the unread reason", async () => {
+      const sitePages = [
+        ...urls(10).map((u) => page(u, "Acme Design is a studio in Calder.")),
+        page(`${ORIGIN}/privacy`, "Privacy policy text."),
+        page(`${ORIGIN}/brochure.pdf`, ""),
+      ];
+      const r = await checkAccuracy(
+        `${ORIGIN}/`,
+        {
+          origin: ORIGIN,
+          robotsTxt: null,
+          agentAccess: [],
+          sitemap: { present: true, urlCount: 10, truncated: false, sample: urls(10) },
+          llmsTxt: { present: false, firstLine: null },
+          sidecarErrors: { robots: null, llms: null, sitemap: null },
+          homeHeaders: {},
+          pages: sitePages,
+        },
+        [branded({ query: "who is Acme Design", fullAnswer: "Acme Design has a roofing team." })],
+        [],
+        {
+          run: async () => ({
+            assertions: [
+              {
+                claim: "Acme Design has a roofing team.",
+                engineQuote: "Acme Design has a roofing team",
+                verdict: "absent",
+                siteQuote: null,
+                searchTerms: ["roofing"],
+              },
+            ],
+          }),
+          ownership: offline,
+        },
+      );
+      expect(r.assertions[0]).toMatchObject({ verdict: "unverified", unverifiedReason: UNREAD });
+    });
+  });
+});
+
+describe("review round 5: a contradiction is stored only where its two values are compared exactly", () => {
+  const offline = { fetchPage: async () => null };
+  const COULD_NOT_COMPARE = "We could not compare the two values directly.";
+  const SAME_VALUE =
+    "The passage we found does not show a different value for this, so we have not stated it either way.";
+
+  /** A contradicted row about Acme Design, run through `checkAccuracy` with a
+   *  stubbed model row. Both values sit inside their quotes. */
+  const rowOf = async (p: {
+    engineQuote: string;
+    engineValue: string;
+    siteQuote: string;
+    siteValue: string;
+    topic?: string;
+    claim?: string;
+  }) => {
+    const r = await checkAccuracy(
+      "https://acme.example/",
+      crawl([page("https://acme.example/", p.siteQuote)], 1),
+      [branded({ query: "who is Acme Design", fullAnswer: p.engineQuote })],
+      [],
+      {
+        run: async () => ({
+          assertions: [
+            {
+              claim: p.claim ?? p.engineQuote,
+              engineQuote: p.engineQuote,
+              verdict: "contradicted",
+              siteQuote: p.siteQuote,
+              searchTerms: ["Acme Design"],
+              subject: "prospect",
+              topic: p.topic ?? "other",
+              contradiction: {
+                attribute: "figure",
+                engineValue: p.engineValue,
+                siteValue: p.siteValue,
+              },
+            },
+          ],
+        }),
+        ownership: offline,
+      },
+    );
+    return r.assertions[0];
+  };
+
+  /** A pair of values written in a sentence each, the engine's and the site's. */
+  const pairRow = (engineValue: string, siteValue: string) =>
+    rowOf({
+      engineQuote: `Acme Design's figure is ${engineValue}.`,
+      engineValue,
+      siteQuote: `Acme Design's figure is ${siteValue}.`,
+      siteValue,
+    });
+
+  // ---- Section 1: only a number with its unit, a full date, or a phone is compared ----
+  describe("1. exact kinds only", () => {
+    it.each([
+      ["2001", "2022"],
+      ["14 cities", "3 cities"],
+      ["512-555-0100", "512-555-0199"],
+      ["March 3, 2019", "March 5, 2019"],
+    ])(
+      "%s and %s are contradicted: both are exact kinds that differ",
+      async (engineValue, siteValue) => {
+        const row = await pairRow(engineValue, siteValue);
+        expect(row).toMatchObject({ verdict: "contradicted", unverifiedReason: null });
+        expect(row?.contradiction).toEqual({ attribute: "figure", engineValue, siteValue });
+      },
+    );
+
+    it.each([
+      ["6-10", "6pm-10pm"],
+      ["Monday through Friday", "Mon-Fri"],
+      ["Mon-Fri", "Mon-Sat"],
+      ["Texas", "Austin"],
+      ["Austin", "Dallas"],
+      ["Northwind & Acme", "Northwind and Acme"],
+      ["USA", "United States"],
+      ["a dozen business days", "twelve business days"],
+      ["9am", "9:00 AM - 5:00 PM"],
+      ["1 year", "12 months"],
+      ["3 days", "3 weeks"],
+      ["14 cities", "3 people"],
+    ])("%s and %s are unverified, with both values kept", async (engineValue, siteValue) => {
+      const row = await pairRow(engineValue, siteValue);
+      expect(row).toMatchObject({ verdict: "unverified", unverifiedReason: COULD_NOT_COMPARE });
+      expect(row?.contradiction).toEqual({ attribute: "figure", engineValue, siteValue });
+    });
+
+    it("a phone is compared by its digits, but a site quote that also gives the engine's number does not stand", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design's phone is 512-555-0100.",
+        engineValue: "512-555-0100",
+        siteQuote: "Call (512) 555-0100 or 512-555-0199.",
+        siteValue: "512-555-0199",
+      });
+      expect(row).toMatchObject({ verdict: "unverified", unverifiedReason: SAME_VALUE });
+    });
+  });
+
+  // ---- Section 2: a name that is also a place is still not evidence (BR-06 kept) ----
+  // The round-5 brief asked for a one-word name to count as evidence, which would
+  // also confirm "Calder" plus one shared word (the stored BR-06 defect). The two
+  // have the same shape, so the safe direction wins: these stay unverified.
+  describe("2. a name that is also a place stays unverified", () => {
+    const confirmedRow = async (query: string, engineQuote: string, siteQuote: string) => {
+      const r = await checkAccuracy(
+        "https://acme.example/",
+        crawl([page("https://acme.example/", siteQuote)], 1),
+        [branded({ query, fullAnswer: engineQuote })],
+        [],
+        {
+          run: async () => ({
+            assertions: [
+              {
+                claim: engineQuote,
+                engineQuote,
+                verdict: "confirmed",
+                siteQuote,
+                searchTerms: ["Austin Dental"],
+                subject: "prospect",
+                topic: "other",
+                contradiction: null,
+              },
+            ],
+          }),
+          ownership: offline,
+        },
+      );
+      return r.assertions[0];
+    };
+
+    it("Austin Dental: the name's own word is not evidence, so the row stays unverified", async () => {
+      const row = await confirmedRow(
+        "who is Austin Dental",
+        "Austin Dental is located in Austin.",
+        "Our practice is located in Austin, Texas.",
+      );
+      expect(row).toMatchObject({ verdict: "unverified" });
+    });
+
+    it("Denver Design: the name's own word is not evidence, so the row stays unverified", async () => {
+      const row = await confirmedRow(
+        "who is Denver Design",
+        "Denver Design has an office in Denver.",
+        "Visit our office in Denver, Colorado.",
+      );
+      expect(row).toMatchObject({ verdict: "unverified" });
+    });
+  });
+
+  // ---- Section 3: shared topic words, copied from the website ----
+  describe("3. the shared topic words the website reads", () => {
+    it.each([
+      ["Employees rate Acme Design 3.2.", "Clients rate us 4.9.", "3.2", "4.9", "ratings_reviews"],
+      [
+        "Acme Design has two open complaints.",
+        "We have zero complaints.",
+        "two",
+        "zero",
+        "complaints",
+      ],
+      ["Acme Design has 40 people.", "We are 12 people.", "40", "12", "revenue_headcount"],
+    ])(
+      "%s against %s is unverified, with the topic the website reads",
+      async (engineQuote, siteQuote, engineValue, siteValue, topic) => {
+        const row = await rowOf({ engineQuote, engineValue, siteQuote, siteValue });
+        expect(row).toMatchObject({ verdict: "unverified", topic });
+      },
+    );
+  });
+});
+
+describe("review round 6: uncomparable pairs keep values only on the client's own rows, years only as years, ambiguous dates unknown", () => {
+  const offline = { fetchPage: async () => null };
+  const COULD_NOT_COMPARE = "We could not compare the two values directly.";
+  const SAME_VALUE =
+    "The passage we found does not show a different value for this, so we have not stated it either way.";
+
+  /** A contradicted row about Acme Design, run through `checkAccuracy` with a
+   *  stubbed model row. `page` is the text the site serves; it defaults to the site quote. */
+  const rowOf = async (p: {
+    engineQuote: string;
+    engineValue: string;
+    siteQuote: string;
+    siteValue: string;
+    subject?: "prospect" | "unclear";
+    topic?: string;
+    page?: string;
+    claim?: string;
+  }) => {
+    const r = await checkAccuracy(
+      "https://acme.example/",
+      crawl([page("https://acme.example/", p.page ?? p.siteQuote)], 1),
+      [branded({ query: "who is Acme Design", fullAnswer: p.engineQuote })],
+      [],
+      {
+        run: async () => ({
+          assertions: [
+            {
+              claim: p.claim ?? p.engineQuote,
+              engineQuote: p.engineQuote,
+              verdict: "contradicted",
+              siteQuote: p.siteQuote,
+              searchTerms: ["Acme Design"],
+              subject: p.subject ?? "prospect",
+              topic: p.topic ?? "other",
+              contradiction: {
+                attribute: "figure",
+                engineValue: p.engineValue,
+                siteValue: p.siteValue,
+              },
+            },
+          ],
+        }),
+        ownership: offline,
+      },
+    );
+    return r.assertions[0];
+  };
+
+  // ---- Section 1: a pair the code could not compare keeps no values off the client's own other rows ----
+  describe("1. the unknown branch keeps values only for a prospect's other topic", () => {
+    const pairs: [string, string][] = [
+      ["Monday through Friday", "Mon-Fri"],
+      ["12 Elm St", "12 Elm Street"],
+      ["9am-5pm", "9 to 5"],
+      ["1 year", "12 months"],
+    ];
+
+    it.each(pairs)(
+      "%s and %s, on an unclear row, store no values",
+      async (engineValue, siteValue) => {
+        const row = await rowOf({
+          engineQuote: `Acme Design's hours are ${engineValue}.`,
+          engineValue,
+          siteQuote: `Acme Design's hours are ${siteValue}.`,
+          siteValue,
+          subject: "unclear",
+          topic: "street_address",
+        });
+        expect(row).toMatchObject({ verdict: "unverified", contradiction: null });
+      },
+    );
+
+    it.each(pairs)(
+      "%s and %s, on a prospect's withheld topic, store no values",
+      async (engineValue, siteValue) => {
+        const row = await rowOf({
+          engineQuote: `Acme Design's hours are ${engineValue}.`,
+          engineValue,
+          siteQuote: `Acme Design's hours are ${siteValue}.`,
+          siteValue,
+          topic: "street_address",
+        });
+        expect(row).toMatchObject({ verdict: "unverified", contradiction: null });
+      },
+    );
+
+    it("control: a prospect's other topic keeps both values for Monday through Friday and Mon-Fri", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design's hours are Monday through Friday.",
+        engineValue: "Monday through Friday",
+        siteQuote: "Acme Design's hours are Mon-Fri.",
+        siteValue: "Mon-Fri",
+      });
+      expect(row).toMatchObject({ verdict: "unverified", unverifiedReason: COULD_NOT_COMPARE });
+      expect(row?.contradiction).toEqual({
+        attribute: "figure",
+        engineValue: "Monday through Friday",
+        siteValue: "Mon-Fri",
+      });
+    });
+
+    // The three other keepsValues conditions, each pinned on its own.
+    it("the site quote is not on the page: no values are kept", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design's hours are Monday through Friday.",
+        engineValue: "Monday through Friday",
+        siteQuote: "Acme Design's hours are Mon-Fri.",
+        siteValue: "Mon-Fri",
+        page: "Acme Design is open every day of the year.",
+      });
+      expect(row).toMatchObject({ verdict: "unverified", siteQuote: null, contradiction: null });
+    });
+
+    it("the engine value is not in the engine quote: no values are kept", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design is open on weekdays.",
+        engineValue: "Monday through Friday",
+        siteQuote: "Acme Design is open Mon-Fri.",
+        siteValue: "Mon-Fri",
+      });
+      expect(row).toMatchObject({ verdict: "unverified", contradiction: null });
+    });
+
+    it("the site value is not in the site quote: no values are kept", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design is open Monday through Friday.",
+        engineValue: "Monday through Friday",
+        siteQuote: "Acme Design is open on weekdays.",
+        siteValue: "Mon-Fri",
+      });
+      expect(row).toMatchObject({ verdict: "unverified", contradiction: null });
+    });
+  });
+
+  // ---- Section 2: a unitless figure is a year only when both values are four-digit years ----
+  describe("2. a figure with no unit is compared only as a year", () => {
+    const unitless: [string, string, string, string][] = [
+      ["Acme Design opens at 9.", "9", "Acme Design is open at 10.", "10"],
+      ["Acme Design opens at 9.30.", "9.30", "Acme Design is open at 10.", "10"],
+      ["Acme Design was founded in 1700.", "1700", "Acme Design was founded in 1800.", "1800"],
+      ["Acme Design's ZIP is 78701.", "78701", "Acme Design's ZIP is 78704.", "78704"],
+      [
+        "Acme Design has 15 years of experience.",
+        "15",
+        "Acme Design has been open since 2011.",
+        "2011",
+      ],
+      ["Acme Design has 14 locations.", "14", "Acme Design has 3 doctors.", "3"],
+    ];
+
+    it.each(unitless)(
+      "%s against %s is unverified, with both values kept on a prospect's other topic",
+      async (engineQuote, engineValue, siteQuote, siteValue) => {
+        const row = await rowOf({ engineQuote, engineValue, siteQuote, siteValue });
+        expect(row).toMatchObject({ verdict: "unverified" });
+        expect(row?.contradiction).toEqual({ attribute: "figure", engineValue, siteValue });
+      },
+    );
+
+    it("control: 2001 against 2022 stays contradicted", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design was founded in 2001.",
+        engineValue: "2001",
+        siteQuote: "Acme Design was founded in 2022.",
+        siteValue: "2022",
+      });
+      expect(row).toMatchObject({ verdict: "contradicted", unverifiedReason: null });
+    });
+
+    it("control: 2,000 against 2000 is not contradicted", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design has 2,000 members.",
+        engineValue: "2,000",
+        siteQuote: "Acme Design has 2000 members.",
+        siteValue: "2000",
+      });
+      expect(row?.verdict).not.toBe("contradicted");
+    });
+  });
+
+  // ---- Section 3: a year counts only where it stands as its own number ----
+  describe("3. a year counts only where it stands as its own number", () => {
+    it("Call 512-555-2001 is not the year 2001: the row is unverified", async () => {
+      const row = await rowOf({
+        engineQuote: "Northwind was founded in 1998.",
+        engineValue: "1998",
+        siteQuote: "Call 512-555-2001 today.",
+        siteValue: "2001",
+      });
+      expect(row).toMatchObject({ verdict: "unverified", contradiction: null });
+    });
+
+    it("2001 Oak Street is not the year 2001: the row is unverified", async () => {
+      const row = await rowOf({
+        engineQuote: "Northwind was founded in 1998.",
+        engineValue: "1998",
+        siteQuote: "Visit us at 2001 Oak Street.",
+        siteValue: "2001",
+      });
+      expect(row).toMatchObject({ verdict: "unverified", contradiction: null });
+    });
+
+    it("control: founded in 2001, at 40 Oak Street, stays contradicted", async () => {
+      const row = await rowOf({
+        engineQuote: "Northwind was founded in 1998.",
+        engineValue: "1998",
+        siteQuote: "Founded in 2001, at 40 Oak Street.",
+        siteValue: "2001",
+      });
+      expect(row).toMatchObject({ verdict: "contradicted", unverifiedReason: null });
+    });
+  });
+
+  // ---- Section 4: a numeric date that reads either way is unknown ----
+  describe("4. a numeric date that reads either way is unknown", () => {
+    it("April 3, 2001 against 03/04/2001 is unverified", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design opened on April 3, 2001.",
+        engineValue: "April 3, 2001",
+        siteQuote: "Acme Design opened on 03/04/2001.",
+        siteValue: "03/04/2001",
+      });
+      expect(row).toMatchObject({ verdict: "unverified" });
+    });
+
+    it("April 3, 2001 against 04/03/2001 is not contradicted", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design opened on April 3, 2001.",
+        engineValue: "April 3, 2001",
+        siteQuote: "Acme Design opened on 04/03/2001.",
+        siteValue: "04/03/2001",
+      });
+      expect(row?.verdict).not.toBe("contradicted");
+    });
+
+    it("March 3, 2001 against 3/3/2001 is the same value", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design opened on March 3, 2001.",
+        engineValue: "March 3, 2001",
+        siteQuote: "Acme Design opened on 3/3/2001.",
+        siteValue: "3/3/2001",
+      });
+      expect(row).toMatchObject({ verdict: "unverified", unverifiedReason: SAME_VALUE });
+    });
+
+    it("April 30, 2001 against 04/13/2001 stays contradicted: 13 cannot be a month", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design opened on April 30, 2001.",
+        engineValue: "April 30, 2001",
+        siteQuote: "Acme Design opened on 04/13/2001.",
+        siteValue: "04/13/2001",
+      });
+      expect(row).toMatchObject({ verdict: "contradicted", unverifiedReason: null });
+    });
+
+    // Fix-only round on 4ef7571c: the site-says-it guard reads an ambiguous date both
+    // ways, so a site quote holding the engine's date as 03/04/2001 next to another
+    // date does not contradict it.
+    it("March 4, 2001 against a site quote holding 03/04/2001 and April 5, 2001 is not contradicted", async () => {
+      const row = await rowOf({
+        engineQuote: "Northwind opened March 4, 2001.",
+        engineValue: "March 4, 2001",
+        siteQuote: "Opened 03/04/2001, moved to the new shop April 5, 2001.",
+        siteValue: "April 5, 2001",
+      });
+      expect(row).toMatchObject({ verdict: "unverified" });
+    });
+
+    it("mirror: April 3, 2001 against a site quote holding 03/04/2001 and May 5, 2001 is not contradicted", async () => {
+      const row = await rowOf({
+        engineQuote: "Northwind opened April 3, 2001.",
+        engineValue: "April 3, 2001",
+        siteQuote: "Opened 03/04/2001, moved to the new shop May 5, 2001.",
+        siteValue: "May 5, 2001",
+      });
+      expect(row).toMatchObject({ verdict: "unverified" });
+    });
+
+    it("control: 05/06/2001 reads as neither March 4, so April 5, 2001 still contradicts it", async () => {
+      const row = await rowOf({
+        engineQuote: "Northwind opened March 4, 2001.",
+        engineValue: "March 4, 2001",
+        siteQuote: "Opened 05/06/2001, moved to the new shop April 5, 2001.",
+        siteValue: "April 5, 2001",
+      });
+      expect(row).toMatchObject({ verdict: "contradicted", unverifiedReason: null });
+    });
+  });
+
+  // ---- Section 5: three headcount and revenue wordings are withheld ----
+  describe("5. three headcount and revenue wordings are withheld", () => {
+    it.each([
+      ["About 40 people work at Northwind.", "40", "12 people work here.", "12"],
+      ["Northwind has a workforce of 40.", "40", "A workforce of 12.", "12"],
+      [
+        "Northwind makes 2.5 million dollars a year.",
+        "2.5 million",
+        "We make 3 million dollars a year.",
+        "3 million",
+      ],
+    ])(
+      "%s against %s is unverified, on the revenue_headcount topic, keeping no values",
+      async (engineQuote, engineValue, siteQuote, siteValue) => {
+        const row = await rowOf({ engineQuote, engineValue, siteQuote, siteValue });
+        expect(row).toMatchObject({ verdict: "unverified", topic: "revenue_headcount" });
+        expect(row?.contradiction).toBeNull();
+      },
+    );
+
+    it("control: Northwind serves 40 people a day is not withheld", async () => {
+      const row = await rowOf({
+        engineQuote: "Northwind serves 40 people a day.",
+        engineValue: "40",
+        siteQuote: "We serve 12 people a day.",
+        siteValue: "12",
+      });
+      expect(row?.topic).toBe("other");
+    });
+  });
+
+  // ---- Section 6: the guard reads dates and figures, not only phones; a mixed pair; ordinals ----
+  describe("6. the kind-aware guard, a mixed typed pair, and the ordinal exclusion", () => {
+    it("a date the site writes as 3/3/2019 is the engine's date: unverified", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design opened March 3, 2019.",
+        engineValue: "March 3, 2019",
+        siteQuote: "Opened 3/3/2019, moved March 5, 2019.",
+        siteValue: "March 5, 2019",
+      });
+      expect(row).toMatchObject({ verdict: "unverified" });
+    });
+
+    it("twelve cities against 12 cities, with 15 cities in the site quote: not contradicted", async () => {
+      const row = await rowOf({
+        engineQuote: "We served twelve cities.",
+        engineValue: "twelve cities",
+        siteQuote: "We served twelve cities, now 15 cities.",
+        siteValue: "12 cities",
+      });
+      expect(row?.verdict).not.toBe("contradicted");
+    });
+
+    it("a figure the site writes as twelve cities is the engine's figure: unverified", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design served 12 cities.",
+        engineValue: "12 cities",
+        siteQuote: "We served twelve cities, now 15 cities.",
+        siteValue: "15 cities",
+      });
+      expect(row).toMatchObject({ verdict: "unverified" });
+    });
+
+    it("2 years against Open 2 yrs here and 3 years in total: unverified", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design has been open 2 years.",
+        engineValue: "2 years",
+        siteQuote: "Open 2 yrs here and 3 years in total.",
+        siteValue: "3 years",
+      });
+      expect(row).toMatchObject({ verdict: "unverified" });
+    });
+
+    it("2018 against March 5, 2019 is a mixed pair: unverified", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design was founded in 2018.",
+        engineValue: "2018",
+        siteQuote: "Acme Design was founded on March 5, 2019.",
+        siteValue: "March 5, 2019",
+      });
+      expect(row).toMatchObject({ verdict: "unverified" });
+    });
+
+    it("1st against 21st is not contradicted: an ordinal is not a figure with a unit", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design ranks 1st in Austin.",
+        engineValue: "1st",
+        siteQuote: "Acme Design ranks 21st in Austin.",
+        siteValue: "21st",
+      });
+      expect(row?.verdict).not.toBe("contradicted");
+    });
   });
 });
