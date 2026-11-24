@@ -296,7 +296,7 @@ export function isSafeNestedSitemap(child: string, origin: string): boolean {
 }
 
 export function isSitemapIndex(xml: string): boolean {
-  return /<(?:[\w-]+:)?sitemapindex[\s>]/i.test(xml);
+  return /<(?:[\w-]+:)?sitemapindex[\s>/]/i.test(xml);
 }
 
 export type FetchResponse = {
@@ -964,22 +964,49 @@ const NON_CONTENT_QUERY_KEYS = new Set([
   "amp",
 ]);
 
+/** True for a query key that names no content (tracking, sorting, sharing). */
+function isNonContentKey(key: string): boolean {
+  const k = key.toLowerCase();
+  return k.startsWith("utm_") || NON_CONTENT_QUERY_KEYS.has(k);
+}
+
+/** Query keys that only track where a visit came from. Stripped from an address
+ *  when the page has no other address, but a sort or share key is never
+ *  stripped: `?orderby=price` shows a different page from `?` and is fetched
+ *  as listed (W3 review round 6, finding 2, narrowed by the operator). */
+const TRACKING_QUERY_KEYS = new Set(["gclid", "fbclid", "msclkid", "mc_cid", "mc_eid"]);
+
+function isTrackingKey(key: string): boolean {
+  const k = key.toLowerCase();
+  return k.startsWith("utm_") || TRACKING_QUERY_KEYS.has(k);
+}
+
+/** The URL with its tracking keys stripped. */
+function withoutTracking(u: URL): URL {
+  const copy = new URL(u.toString());
+  for (const key of [...copy.searchParams.keys()]) {
+    if (isTrackingKey(key)) copy.searchParams.delete(key);
+  }
+  return copy;
+}
+
 /** The URL with its non-content keys stripped, as a page identity. */
 function identityKey(u: URL): string {
   const copy = new URL(u.toString());
   for (const key of [...copy.searchParams.keys()]) {
-    const k = key.toLowerCase();
-    if (k.startsWith("utm_") || NON_CONTENT_QUERY_KEYS.has(k)) copy.searchParams.delete(key);
+    if (isNonContentKey(key)) copy.searchParams.delete(key);
   }
   return samePageKey(copy);
 }
 
+/** True when the URL's query carries at least one non-content key. */
+function hasNonContentQuery(u: URL): boolean {
+  return [...u.searchParams.keys()].some((key) => isNonContentKey(key));
+}
+
 /** True when the URL's query carries at least one key that can name content. */
 function hasContentQuery(u: URL): boolean {
-  return [...u.searchParams.keys()].some((key) => {
-    const k = key.toLowerCase();
-    return !k.startsWith("utm_") && !NON_CONTENT_QUERY_KEYS.has(k);
-  });
+  return [...u.searchParams.keys()].some((key) => !isNonContentKey(key));
 }
 
 /**
@@ -1012,13 +1039,15 @@ export function normalizeCandidates(
   // fetched from one address.
   const all: URL[] = [];
   for (const raw of urls) {
-    const onOrigin = toSameOrigin(raw, origin);
-    if (onOrigin === null) continue;
-    if (!isFetchableCandidate(onOrigin, robotsTxt)) continue;
-    const u = new URL(onOrigin);
-    u.hash = "";
-    all.push(u);
+    const u = fetchableOnSite(raw, origin, robotsTxt);
+    if (u !== null) all.push(u);
   }
+  // The home candidate is the first address rankCandidates gives, and it is
+  // page one whatever its query string (W3 review round 6, finding 1): a home
+  // that redirected to `?route=…` or `?lang=…` is still the home, and
+  // site-checks reads the first page as the home. Its identity takes its seat
+  // here, so a tracking or sort duplicate of it takes no second one.
+  const home = urls.length > 0 ? fetchableOnSite(urls[0] as string, origin, robotsTxt) : null;
   // The bare address of each path that has one. A sort or tracking variant of
   // such a path is that page's duplicate, so the bare page takes the variant's
   // place (W3 review round 5, finding 2).
@@ -1026,19 +1055,41 @@ export function normalizeCandidates(
   // A candidate's identity is its URL with the non-content keys stripped, so two
   // candidates with the same identity are one page: one seat, counted once.
   const seen = new Set<string>();
-  const uniq: URL[] = [];
+  const pages: string[] = [];
+  const placed = new Set<string>();
+  if (home !== null) {
+    seen.add(identityKey(home));
+    pages.push(home.toString());
+    if (!hasContentQuery(home)) placed.add(sitePathKey(home));
+  }
+  // Of the addresses that are one page, the clean one is the one fetched when
+  // the sitemap or a link lists it; otherwise the first one, with its tracking
+  // keys stripped (W3 review round 6, finding 2). The group keeps the rank of
+  // its first member.
+  const groups = new Map<string, URL[]>();
   for (const u of all) {
     const key = identityKey(u);
     if (seen.has(key)) continue;
-    seen.add(key);
-    uniq.push(u);
+    const group = groups.get(key);
+    if (group) group.push(u);
+    else groups.set(key, [u]);
+  }
+  const uniq: URL[] = [];
+  for (const members of groups.values()) {
+    uniq.push(members.find((m) => !hasNonContentQuery(m)) ?? withoutTracking(members[0] as URL));
   }
   // Distinct paths first: every address with no content key, one seat per path.
   // Then the content-keyed variants (`?page_id=7`, `?route=…`, `?page=2`), each
   // its own page, in their original relative order (W3 review round 5, finding 1).
-  const pages: string[] = [];
-  const placed = new Set<string>();
   for (const u of uniq) {
+    // A paginated or dated variant is not demoted with the other content
+    // variants: it keeps its place in the late tier rankCandidates gave it, so
+    // it is placed here in order, unrewritten and with a seat of its own
+    // (W3 review round 6, finding 4).
+    if (hasContentQuery(u) && isDatedOrPaginated(u.toString())) {
+      pages.push(u.toString());
+      continue;
+    }
     if (hasContentQuery(u)) continue;
     const path = sitePathKey(u);
     if (placed.has(path)) continue;
@@ -1051,8 +1102,21 @@ export function normalizeCandidates(
       pages.push(u.toString());
     }
   }
-  for (const u of uniq) if (hasContentQuery(u)) pages.push(u.toString());
+  for (const u of uniq) {
+    if (hasContentQuery(u) && !isDatedOrPaginated(u.toString())) pages.push(u.toString());
+  }
   return { chosen: pages.slice(0, max), considered: pages.length };
+}
+
+/** An address rankCandidates gave us, moved onto this site's origin, with its
+ *  fragment dropped; null when it is not a fetchable page of the site. */
+function fetchableOnSite(raw: string, origin: string, robotsTxt: string | null): URL | null {
+  const onOrigin = toSameOrigin(raw, origin);
+  if (onOrigin === null) return null;
+  if (!isFetchableCandidate(onOrigin, robotsTxt)) return null;
+  const u = new URL(onOrigin);
+  u.hash = "";
+  return u;
 }
 
 type Sidecars = {
@@ -1141,6 +1205,12 @@ async function fetchSidecars(
     if (at !== null && !candidates.includes(at)) candidates.push(at);
   }
   const namedCount = candidates.length;
+  const namedAddresses = new Set<string>();
+  for (const line of (robotsTxt ?? "").split(/\r?\n/)) {
+    const m = /^\s*sitemap\s*:\s*(\S+)/i.exec(line);
+    const at = m?.[1] ? toSameOrigin(m[1], origin) : null;
+    if (at !== null) namedAddresses.add(at);
+  }
   for (const path of ["/sitemap.xml", "/sitemap_index.xml", "/wp-sitemap.xml"]) {
     const at = `${origin}${path}`;
     if (!candidates.includes(at)) candidates.push(at);
@@ -1157,7 +1227,7 @@ async function fetchSidecars(
     // An address the owner named that answers 5xx is a sitemap we did not read.
     const tried = await optional(deps, at, i < namedCount);
     if (tried.error !== null && firstError === null) firstError = tried.error;
-    if (tried.res && /<(?:[\w-]+:)?(urlset|sitemapindex)[\s>]/i.test(tried.res.body)) {
+    if (tried.res && /<(?:[\w-]+:)?(urlset|sitemapindex)[\s>/]/i.test(tried.res.body)) {
       sitemap = tried;
       sitemapSource = at;
       break;
@@ -1179,17 +1249,20 @@ async function fetchSidecars(
   const sitemapPostUrls = new Set<string>();
   let sitemapPresent = false;
   let sitemapTruncated = false;
-  if (sitemap.res) {
+  if (sitemap.res && sitemapSource !== null) {
     sitemapPresent = true;
     // A gzipped sitemap the owner named was skipped (see above). When the sitemap
     // we did read is one they did not name, it is not the whole of their sitemap
     // (W3 review round 5, finding 5).
-    if (
-      namedGzipped > 0 &&
-      (sitemapSource === null || candidates.indexOf(sitemapSource) >= namedCount)
-    ) {
+    if (namedGzipped > 0 && candidates.indexOf(sitemapSource) >= namedCount) {
       sitemapTruncated = true;
     }
+    // Two or more sitemaps named in robots.txt, and one read: the read one is
+    // not the whole of their sitemaps. Only one top-level sitemap is ever read,
+    // so with two distinct named addresses at least one is unread. Counted over
+    // every named address, past the cap and .gz included, and no further
+    // sitemap is fetched to close the gap (W3 review round 6, finding a).
+    if (namedAddresses.size > 1) sitemapTruncated = true;
     if (isSitemapIndex(sitemap.res.body)) {
       // `child` is attacker-controlled: it comes out of the AUDITED site's
       // sitemap, and the audited site is a prospect we have not met. Without
@@ -1207,14 +1280,24 @@ async function fetchSidecars(
       //
       // A child on the other side of `www.` or the scheme is moved onto this
       // origin first (`toSameOrigin`), so the same-origin rule still binds.
-      const safe = parseSitemapLocs(sitemap.res.body)
-        .map((child) => toSameOrigin(child, origin))
-        .filter((child): child is string => child !== null && isSafeNestedSitemap(child, origin));
+      const safe = [
+        ...new Set(
+          parseSitemapLocs(sitemap.res.body)
+            .map((child) => toSameOrigin(child, origin))
+            .filter(
+              (child): child is string => child !== null && isSafeNestedSitemap(child, origin),
+            ),
+        ),
+      ];
       const children = safe.slice(0, MAX_SITEMAP_CHILDREN);
       // Every <loc> the index names counts, including one on another host that
       // `safe` dropped: an address we did not read is a child we did not read
       // (W3 review round 5, finding 4).
-      if (parseSitemapLocs(sitemap.res.body).length > children.length) sitemapTruncated = true;
+      // Distinct addresses: a child the index lists twice is one child.
+      const distinctChildren = new Set(
+        parseSitemapLocs(sitemap.res.body).map((child) => toSameOrigin(child, origin) ?? child),
+      );
+      if (distinctChildren.size > children.length) sitemapTruncated = true;
       for (const child of children) {
         await pace();
         const nested = await optional(deps, child);
@@ -1222,7 +1305,7 @@ async function fetchSidecars(
         // read, and the count that comes out is short by however much it held.
         // So is a child that is not a urlset: an index inside an index, or an
         // HTML page answering at a sitemap address. Its addresses are not pages.
-        if (nested.res && /<(?:[\w-]+:)?urlset[\s>]/i.test(nested.res.body)) {
+        if (nested.res && /<(?:[\w-]+:)?urlset[\s>/]/i.test(nested.res.body)) {
           const locs = parseSitemapLocs(nested.res.body);
           listed.push(...locs);
           if (isPostSitemap(child)) {
@@ -1240,7 +1323,12 @@ async function fetchSidecars(
   let sitemapOffOrigin = 0;
   let sitemapOffOriginExample: string | null = null;
   let sitemapAmbiguousOrigin = 0;
-  const sitemapUrls = listed.map((loc) => {
+  const sitemapUrls: string[] = [];
+  const listedOnce = new Set<string>();
+  for (const loc of listed) {
+    const onSite = toSameOrigin(loc, origin) ?? loc;
+    if (listedOnce.has(onSite)) continue;
+    listedOnce.add(onSite);
     const verdict = sitemapAddressVerdict(loc, origin, redirectedFrom);
     if (verdict === "off") {
       sitemapOffOrigin += 1;
@@ -1248,8 +1336,8 @@ async function fetchSidecars(
     } else if (verdict === "unsettled") {
       sitemapAmbiguousOrigin += 1;
     }
-    return toSameOrigin(loc, origin) ?? loc;
-  });
+    sitemapUrls.push(onSite);
+  }
 
   return {
     robotsTxt,

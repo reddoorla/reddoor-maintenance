@@ -1977,3 +1977,277 @@ describe("W3 review round 5 — a skipped named .gz sitemap truncates a default 
     expect(result.sitemap.truncated).toBe(false);
   });
 });
+
+// W3 review round 6, finding 1. The home page is page one whatever its query
+// string: a home that redirected to `?route=…` or `?lang=…` is still the home.
+describe("W3 review round 6 — the home page is always the first page (finding 1)", () => {
+  const BARE_PAGE = "<html><head><title>Acme</title></head><body><h1>Acme</h1></body></html>";
+  const ROUTE_HOME = "https://acme.example/index.php?route=common/home";
+  const LANG_HOME = "https://acme.example/?lang=en";
+  const SITEMAP_PAGES = Array.from({ length: 25 }, (_, i) => `https://acme.example/p${i}`);
+
+  it("repro A: a home redirected to a routed URL is pages[0], ahead of 25 sitemap pages", () => {
+    const { chosen } = normalizeCandidates(
+      rankCandidates({
+        home: ROUTE_HOME,
+        nav: [],
+        contact: [],
+        sitemap: SITEMAP_PAGES,
+        bodyLinks: [],
+      }),
+      "https://acme.example",
+      20,
+      null,
+    );
+    expect(chosen[0]).toBe(ROUTE_HOME);
+    expect(chosen).toHaveLength(20);
+  });
+
+  it("repro B: a home redirected to /?lang=en is pages[0], ahead of the menu", () => {
+    const about = "https://acme.example/about";
+    const services = "https://acme.example/services";
+    const { chosen } = normalizeCandidates(
+      rankCandidates({
+        home: LANG_HOME,
+        nav: [about, services],
+        contact: [],
+        sitemap: [],
+        bodyLinks: [],
+      }),
+      "https://acme.example",
+      20,
+      null,
+    );
+    expect(chosen).toEqual([LANG_HOME, about, services]);
+  });
+
+  it("through crawlSite: the home that redirected to a routed URL is the first page read", async () => {
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: { body: NO_MENU_HOME, url: ROUTE_HOME },
+      "https://acme.example/sitemap.xml": {
+        body: `<urlset>${SITEMAP_PAGES.map((u) => `<url><loc>${u}</loc></url>`).join("")}</urlset>`,
+      },
+    };
+    for (const u of SITEMAP_PAGES) routes[u] = { body: BARE_PAGE };
+    const result = await crawlSite(HOME, stubDeps(routes));
+    expect(result.pages[0]?.url).toBe(ROUTE_HOME);
+    expect(result.pages).toHaveLength(20);
+  });
+
+  it("a duplicate of the home page takes no second seat", () => {
+    const about = "https://acme.example/about";
+    const { chosen, considered } = normalizeCandidates(
+      [LANG_HOME, "https://acme.example/?lang=en&utm_source=news", about],
+      "https://acme.example",
+      20,
+      null,
+    );
+    expect(chosen).toEqual([LANG_HOME, about]);
+    expect(considered).toBe(2);
+  });
+});
+
+// W3 review round 6, finding 2. Of a group of addresses that are one page, the
+// clean one is fetched, never a tracking variant listed first.
+describe("W3 review round 6 — a tracking variant is not fetched in place of its clean page (finding 2)", () => {
+  const BARE_PAGE = "<html><head><title>Acme</title></head><body><h1>Acme</h1></body></html>";
+  const IDS = [2, 7, 9, 11];
+
+  it("normalizeCandidates: the utm variant listed before the clean page loses to it", () => {
+    const clean = "https://acme.example/?page_id=2";
+    const { chosen, considered } = normalizeCandidates(
+      [HOME, "https://acme.example/?page_id=2&utm_source=x", clean],
+      "https://acme.example",
+      20,
+      null,
+    );
+    expect(chosen).toEqual([HOME, clean]);
+    expect(considered).toBe(2);
+  });
+
+  it("through crawlSite: menu links carrying utm_source fetch the clean pages the sitemap lists", async () => {
+    const menu = IDS.map(
+      (id) => `<a href="/?page_id=${id}&amp;utm_source=nav">Page ${id}</a>`,
+    ).join("");
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: {
+        body: `<html><head><title>Acme</title></head><body><nav>${menu}</nav><h1>Acme</h1></body></html>`,
+      },
+      "https://acme.example/sitemap.xml": {
+        body: `<urlset>${IDS.map((id) => `<url><loc>https://acme.example/?page_id=${id}</loc></url>`).join("")}</urlset>`,
+      },
+    };
+    for (const id of IDS) routes[`https://acme.example/?page_id=${id}`] = { body: BARE_PAGE };
+    const base = stubDeps(routes);
+    const fetched: string[] = [];
+    const deps: CrawlDeps = {
+      ...base,
+      async fetchUrl(url) {
+        fetched.push(url);
+        return base.fetchUrl(url);
+      },
+    };
+    const result = await crawlSite(HOME, deps);
+    const cleanUrls = IDS.map((id) => `https://acme.example/?page_id=${id}`);
+    expect(result.pages.map((p) => p.url)).toEqual([HOME, ...cleanUrls]);
+    expect(fetched.filter((u) => u.includes("page_id"))).toEqual(cleanUrls);
+  });
+
+  it("a utm-only address with no clean member is fetched as its stripped address", () => {
+    const { chosen } = normalizeCandidates(
+      [HOME, "https://acme.example/?page_id=2&utm_source=nav"],
+      "https://acme.example",
+      20,
+      null,
+    );
+    expect(chosen).toEqual([HOME, "https://acme.example/?page_id=2"]);
+  });
+});
+
+// W3 review round 6, finding 3. A self-closing <urlset/> is a urlset: an empty
+// child is read, not a child we failed to read.
+describe("W3 review round 6 — an empty self-closing urlset is read, not truncated (finding 3)", () => {
+  it("an index whose second child is <urlset/> is read whole: not truncated", async () => {
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: { body: NO_MENU_HOME },
+      "https://acme.example/sitemap.xml": {
+        body: `<?xml version="1.0"?><sitemapindex><sitemap><loc>https://acme.example/a.xml</loc></sitemap><sitemap><loc>https://acme.example/b.xml</loc></sitemap></sitemapindex>`,
+      },
+      "https://acme.example/a.xml": {
+        body: `<urlset><url><loc>https://acme.example/services</loc></url></urlset>`,
+      },
+      "https://acme.example/b.xml": { body: `<?xml version="1.0"?><urlset/>` },
+    };
+    const result = await crawlSite(HOME, stubDeps(routes));
+    expect(result.sitemap.urlCount).toBe(1);
+    expect(result.sitemap.truncated).toBe(false);
+  });
+
+  it("a top-level <urlset/> is a sitemap that was read, not an absent one", async () => {
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: { body: NO_MENU_HOME },
+      "https://acme.example/sitemap.xml": { body: `<?xml version="1.0"?><urlset/>` },
+    };
+    const result = await crawlSite(HOME, stubDeps(routes));
+    expect(result.sitemap.present).toBe(true);
+    expect(result.sitemap.urlCount).toBe(0);
+    expect(result.sitemap.truncated).toBe(false);
+  });
+});
+
+// W3 review round 6, finding 4. A paginated or dated variant keeps its late-tier
+// place rather than being demoted behind the distinct paths.
+describe("W3 review round 6 — pagination keeps its late-tier order (finding 4)", () => {
+  it("normalizeCandidates: [HOME, /blog/?page=2, /2019/04/post] keeps that order", () => {
+    const blog2 = "https://acme.example/blog/?page=2";
+    const post = "https://acme.example/2019/04/post";
+    const { chosen } = normalizeCandidates([HOME, blog2, post], "https://acme.example", 20, null);
+    expect(chosen).toEqual([HOME, blog2, post]);
+  });
+
+  it("through rankCandidates: the late sitemap entries sort by depth, the page-2 listing first", () => {
+    const blog2 = "https://acme.example/blog/?page=2";
+    const post = "https://acme.example/2019/04/post";
+    const { chosen } = normalizeCandidates(
+      rankCandidates({ home: HOME, nav: [], contact: [], sitemap: [post, blog2], bodyLinks: [] }),
+      "https://acme.example",
+      20,
+      null,
+    );
+    expect(chosen).toEqual([HOME, blog2, post]);
+  });
+});
+
+// W3 review round 6, finding (a). Two or more robots-named sitemaps: we read one,
+// so the count is not the whole of their sitemaps.
+describe("W3 review round 6 — two robots-named sitemaps, one read, is truncated (finding a)", () => {
+  it("robots names a.xml.gz and b.xml; b.xml is read: truncated, and no further sitemap is fetched", async () => {
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: { body: NO_MENU_HOME },
+      "https://acme.example/robots.txt": {
+        body: "User-agent: *\nAllow: /\nSitemap: https://acme.example/a.xml.gz\nSitemap: https://acme.example/b.xml",
+      },
+      "https://acme.example/b.xml": {
+        body: `<urlset><url><loc>https://acme.example/services</loc></url></urlset>`,
+      },
+      "https://acme.example/sitemap.xml": {
+        body: `<urlset><url><loc>https://acme.example/about</loc></url></urlset>`,
+      },
+    };
+    const base = stubDeps(routes);
+    const fetched: string[] = [];
+    const deps: CrawlDeps = {
+      ...base,
+      async fetchUrl(url) {
+        fetched.push(url);
+        return base.fetchUrl(url);
+      },
+    };
+    const result = await crawlSite(HOME, deps);
+    expect(result.sitemap.urlCount).toBe(1);
+    expect(result.sitemap.truncated).toBe(true);
+    expect(fetched).not.toContain("https://acme.example/sitemap.xml");
+  });
+
+  it("control: robots names exactly one sitemap, which is read: not truncated", async () => {
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: { body: NO_MENU_HOME },
+      "https://acme.example/robots.txt": {
+        body: "User-agent: *\nAllow: /\nSitemap: https://acme.example/b.xml",
+      },
+      "https://acme.example/b.xml": {
+        body: `<urlset><url><loc>https://acme.example/services</loc></url></urlset>`,
+      },
+    };
+    const result = await crawlSite(HOME, stubDeps(routes));
+    expect(result.sitemap.urlCount).toBe(1);
+    expect(result.sitemap.truncated).toBe(false);
+  });
+});
+
+// W3 review round 6, finding (b). The same child listed twice is fetched once and
+// its URLs counted once.
+describe("W3 review round 6 — a repeated child or page is counted once (finding b)", () => {
+  it("an index listing /a.xml twice: one fetch of /a.xml, urlCount 1", async () => {
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: { body: NO_MENU_HOME },
+      "https://acme.example/sitemap.xml": {
+        body: `<sitemapindex><sitemap><loc>https://acme.example/a.xml</loc></sitemap><sitemap><loc>https://acme.example/a.xml</loc></sitemap></sitemapindex>`,
+      },
+      "https://acme.example/a.xml": {
+        body: `<urlset><url><loc>https://acme.example/services</loc></url></urlset>`,
+      },
+    };
+    const base = stubDeps(routes);
+    const fetched: string[] = [];
+    const deps: CrawlDeps = {
+      ...base,
+      async fetchUrl(url) {
+        fetched.push(url);
+        return base.fetchUrl(url);
+      },
+    };
+    const result = await crawlSite(HOME, deps);
+    expect(fetched.filter((u) => u === "https://acme.example/a.xml")).toHaveLength(1);
+    expect(result.sitemap.urlCount).toBe(1);
+    expect(result.sitemap.truncated).toBe(false);
+  });
+
+  it("a page listed by two children is counted once", async () => {
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: { body: NO_MENU_HOME },
+      "https://acme.example/sitemap.xml": {
+        body: `<sitemapindex><sitemap><loc>https://acme.example/a.xml</loc></sitemap><sitemap><loc>https://acme.example/b.xml</loc></sitemap></sitemapindex>`,
+      },
+      "https://acme.example/a.xml": {
+        body: `<urlset><url><loc>https://acme.example/news</loc></url></urlset>`,
+      },
+      "https://acme.example/b.xml": {
+        body: `<urlset><url><loc>https://acme.example/news</loc></url><url><loc>https://acme.example/about</loc></url></urlset>`,
+      },
+    };
+    const result = await crawlSite(HOME, stubDeps(routes));
+    expect(result.sitemap.urlCount).toBe(2);
+    expect(result.sitemap.truncated).toBe(false);
+  });
+});
