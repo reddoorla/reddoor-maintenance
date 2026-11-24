@@ -262,9 +262,12 @@ export async function draftReportForSite(
   const gaUsers = gaResult.value;
   const search = searchResult.value;
   // P1-127: leads in the same two windows, from the submissions table. Soft-fails
-  // to no LEADS block, like GA; the launch email shows neither.
+  // to no LEADS block, like GA. Only the maintenance template (Maintenance and
+  // Testing) renders the block.
   const leads =
-    shouldEnrich && store?.leadsForSite && reportType !== "Launch"
+    shouldEnrich &&
+    store?.leadsForSite &&
+    (reportType === "Maintenance" || reportType === "Testing")
       ? await measureLeads(siteRow, () => store.leadsForSite!(siteRow.id), today)
       : null;
   const softFailures: SoftFailure[] = [

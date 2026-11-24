@@ -1133,9 +1133,6 @@ export async function storeLighthouseScores(
   return res.numUpdatedRows > 0n;
 }
 
-/** P1-73: a re-measured analytics pair (engaged visits, last 30 complete days)
- *  into an unsent, unapproved report, guarded like `storeLighthouseScores`.
- *  The columns keep their `ga_users_*` names. Returns whether a row matched. */
 /** P1-127: a report's lead counts, on the same terms as {@link storeGaVisits}:
  *  only while the row is unsent and unapproved. Returns whether a row matched. */
 export async function storeLeadCounts(
@@ -1153,6 +1150,9 @@ export async function storeLeadCounts(
   return res.numUpdatedRows > 0n;
 }
 
+/** P1-73: a re-measured analytics pair (engaged visits, last 30 complete days)
+ *  into an unsent, unapproved report, guarded like `storeLighthouseScores`.
+ *  The columns keep their `ga_users_*` names. Returns whether a row matched. */
 export async function storeGaVisits(
   db: Db,
   reportId: string,

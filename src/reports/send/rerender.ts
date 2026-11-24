@@ -327,7 +327,8 @@ async function refreshLeads(
   report: ReportRow,
 ): Promise<ReportRow> {
   if (!deps.measureLeads || !deps.storeLeads) return report;
-  if (report.reportType === "Launch" || report.approvedToSend) return report;
+  if (report.reportType !== "Maintenance" && report.reportType !== "Testing") return report;
+  if (report.approvedToSend) return report;
   const value = await deps.measureLeads(site, deps.now());
   if (!value) return report;
   if (report.leadsCurrent === value.current && report.leadsPrevious === value.previous) {

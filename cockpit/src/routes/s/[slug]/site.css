@@ -81,7 +81,7 @@ button.approve:hover:not(:disabled) {
   opacity: 0.85;
 }
 button.approve:active:not(:disabled) {
-  color: var(--ink-muted);
+  opacity: 0.7;
 }
 button.approve:focus-visible {
   outline: 2px solid var(--focus);
@@ -334,7 +334,7 @@ button.override-submit:hover:not(:disabled) {
   opacity: 0.85;
 }
 button.override-submit:active:not(:disabled) {
-  color: var(--ink-muted);
+  opacity: 0.7;
 }
 button.override-submit:focus-visible {
   outline: 2px solid var(--focus);

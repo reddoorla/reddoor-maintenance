@@ -164,7 +164,7 @@ export function leadsSection(opts: {
         <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="75px">LEADS</mj-text>
         <mj-text color="${RED}" font-size="44px" font-weight="400">${fmtUsers(opts.current)} ${opts.current === 1 ? "Lead" : LEADS_LABEL}</mj-text>
         ${analyticsTrendLine(opts.current, opts.previous, opts.periodDays)}
-        ${footnoteLine("Form submissions from your site in the last 30 days, with spam and newsletter sign-ups left out.")}
+        ${footnoteLine("Form submissions from your site in the last 30 days, leaving out spam, newsletter sign-ups and RSVPs.")}
       </mj-column>
     </mj-section>`;
 }

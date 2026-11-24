@@ -91,3 +91,11 @@ describe("isCountedLead", () => {
     expect(isCountedLead({ status: "new", formType: "rsvp" })).toBe(false);
   });
 });
+
+describe("leadPeriods: a stored value that is not a date", () => {
+  it("is left out of every count instead of throwing", () => {
+    const p = leadPeriods(["", "not a date", "2026-11-10T19:00:00Z"], NOW);
+    expect(p.allTime).toBe(1);
+    expect(p.last30).toBe(1);
+  });
+});

@@ -4,16 +4,17 @@ import { renderReportHtml } from "../../src/reports/render.js";
 import type { ReportData } from "../../src/reports/types.js";
 
 /** P1-127: the client report's LEADS block. */
-const base = (over: Partial<ReportData> = {}): ReportData => ({
-  siteName: "Acme",
-  siteUrl: "https://acme.example.com",
-  reportType: "Maintenance",
-  completedOn: new Date("2026-11-24T20:00:00Z"),
-  lighthouse: { performance: 90, accessibility: 100, bestPractices: 100, seo: 100 },
-  lastTestedDate: null,
-  commentary: null,
-  ...over,
-});
+const base = (over: Partial<ReportData> = {}): ReportData =>
+  ({
+    siteName: "Acme",
+    siteUrl: "https://acme.example.com",
+    reportType: "Maintenance",
+    completedOn: new Date("2026-11-24T20:00:00Z"),
+    lighthouse: { performance: 90, accessibility: 100, bestPractices: 100, seo: 100 },
+    lastTestedDate: null,
+    commentary: null,
+    ...over,
+  }) as ReportData;
 
 describe("leadsSection", () => {
   it("states the last 30 days in big red and the change against the 30 before", () => {
@@ -21,7 +22,7 @@ describe("leadsSection", () => {
     expect(html).toContain(">LEADS<");
     expect(html).toContain(">12 Leads<");
     expect(html).toContain("▲ 50% vs the previous 30 days (8 → 12)");
-    expect(html).toContain("spam and newsletter sign-ups left out");
+    expect(html).toContain("leaving out spam, newsletter sign-ups and RSVPs");
   });
 
   it("reads the trend in the right direction (current vs previous, not swapped)", () => {

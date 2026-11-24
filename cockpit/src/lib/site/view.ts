@@ -478,7 +478,7 @@ function detailRows(site: WebsiteRow, now: Date): DetailRowView[] {
     input("Report recipients (To)", "reportRecipientsTo", site.reportRecipientsTo),
     input("Report recipients (CC)", "reportRecipientsCc", site.reportRecipientsCc),
     input("Point of contact", "pointOfContact", site.pointOfContact),
-    input("Reddoor contact (always CC)", "reddoorContact", site.reddoorContact),
+    input("Reddoor contact (always copied)", "reddoorContact", site.reddoorContact),
     input("GA4 property", "ga4PropertyId", site.ga4PropertyId),
     input("Search query", "searchQuery", site.searchQuery),
     input("Git repo", "gitRepo", site.gitRepo),

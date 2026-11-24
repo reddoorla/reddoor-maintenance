@@ -49,7 +49,8 @@ function monthBefore(ym: string, back: number): string {
   return `${Math.floor(total / 12)}-${String((total % 12) + 1).padStart(2, "0")}`;
 }
 
-/** Bucket lead timestamps (ISO instants, already filtered to leads). */
+/** Bucket lead timestamps (ISO instants, already filtered to leads). A value
+ *  that is not a date is left out of every count. */
 export function leadPeriods(submittedAt: readonly string[], now: Date): LeadPeriods {
   const { current, previous } = reportWindows(now, LEADS_TIME_ZONE, REPORT_WINDOW_DAYS);
   const thisMonth = pacificDate.format(now).slice(0, 7);
@@ -60,12 +61,18 @@ export function leadPeriods(submittedAt: readonly string[], now: Date): LeadPeri
   const byMonth = new Map(months.map((m) => [m.month, m]));
   let last30 = 0;
   let prior30 = 0;
+  let allTime = 0;
   for (const at of submittedAt) {
-    const day = pacificDate.format(new Date(at));
+    // A backfilled row keeps its stored text verbatim; one that is not a date is
+    // skipped rather than throwing the whole site page (review round 1).
+    const t = Date.parse(at);
+    if (Number.isNaN(t)) continue;
+    allTime++;
+    const day = pacificDate.format(new Date(t));
     if (day >= current.startDate && day <= current.endDate) last30++;
     else if (day >= previous.startDate && day <= previous.endDate) prior30++;
     const bucket = byMonth.get(day.slice(0, 7));
     if (bucket) bucket.count++;
   }
-  return { last30, prior30, allTime: submittedAt.length, current, previous, months };
+  return { last30, prior30, allTime, current, previous, months };
 }

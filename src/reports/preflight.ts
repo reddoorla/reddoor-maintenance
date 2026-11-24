@@ -3,7 +3,7 @@
 import { siteSlug } from "../fleet/site-row.js";
 import type { WebsiteRow } from "../fleet/site-row.js";
 import type { ReportRow } from "./report-row.js";
-import { parseAddresses, isProbablyEmail } from "./send/addresses.js";
+import { parseAddresses, isProbablyEmail, reportRecipients } from "./send/addresses.js";
 import { DAY_MS, DRAFT_LEAD_DAYS, ELIGIBLE_STATUSES, reportPeriodKey } from "./due.js";
 import type { ReportType } from "./types.js";
 import { gatingHealth, isSendOverridden } from "./checklist.js";
@@ -436,11 +436,6 @@ export function healthBlockers(report: ReportRow): PreflightFinding[] {
 }
 
 /**
- * The recipient half of {@link approveBlockers}: no resolvable To, a malformed
- * To or CC, and the operator-only To warning. Exported so `launch-check` asks
- * the same question before a launch that the approve gate asks after it.
- */
-/**
  * The site's Reddoor contact (P1-127): CC'd on every report so a Reddoor person
  * gets what the client gets. Empty warns (the send still goes, to the client and
  * the ops inbox); a malformed address fails, as a malformed CC does; an address
@@ -478,11 +473,15 @@ export function reddoorContactFindings(site: WebsiteRow): PreflightFinding[] {
   return findings;
 }
 
+/**
+ * The recipient half of {@link approveBlockers}: no resolvable To, a malformed
+ * To or CC, and the operator-only To warning. Exported so `launch-check` asks
+ * the same question before a launch that the approve gate asks after it.
+ */
 export function recipientFindings(site: WebsiteRow): PreflightFinding[] {
   const findings: PreflightFinding[] = [];
-  const explicitTo = parseAddresses(site.reportRecipientsTo);
-  const fallbackTo = parseAddresses(site.pointOfContact);
-  const to = explicitTo ?? fallbackTo ?? [];
+  // The send's own rule (P1-127), so the gate and the send cannot disagree on To.
+  const { to } = reportRecipients(site);
   if (to.length === 0) {
     findings.push({
       level: "fail",

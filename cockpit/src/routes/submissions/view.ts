@@ -2,10 +2,29 @@ import { reportWindows } from "../../../../src/reports/ga/window.js";
 import { LEADS_TIME_ZONE } from "../../../../src/reports/lead-periods.js";
 import type { SubmissionsPageModel } from "../../../../src/dashboard/submissions-page.js";
 
-/** Href for page `page` of the active filter. */
-/** The one-click periods beside the date inputs (P1-127): the start of the same
- *  Pacific window the site page's leads panel counts, every other filter kept,
- *  back to page 1. `null` days clears the dates (all time). PURE. */
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** The one-click periods beside the date inputs (P1-127), each labelled with
+ *  the date it sets. They set the page's own `from` filter, which compares that
+ *  date with the stored UTC time, so a link is "since <date>", not the site
+ *  page's Pacific 30-day window (which ends yesterday): the two can differ by
+ *  the leads in the hours around midnight, and the list holds every status and
+ *  form type the other filters allow. PURE. */
+export function periodLinks(
+  m: Pick<SubmissionsPageModel, "filter">,
+  now: Date,
+): Array<{ label: string; href: string }> {
+  const since = (days: number) => {
+    const ymd = reportWindows(now, LEADS_TIME_ZONE, days).current.startDate;
+    const [, mm, dd] = ymd.split("-").map(Number) as [number, number, number];
+    return { label: `Since ${MONTHS[mm - 1]} ${dd}`, href: periodHref(m, days, now) };
+  };
+  return [since(30), since(90), { label: "All time", href: periodHref(m, null, now) }];
+}
+
+/** The href for one period: `from` set to the first day of the `days` complete
+ *  Pacific days that ended yesterday (`reportWindows`), every other filter
+ *  kept, back to page 1. `null` days clears the dates (all time). PURE. */
 export function periodHref(
   m: Pick<SubmissionsPageModel, "filter">,
   days: number | null,
@@ -23,6 +42,7 @@ export function periodHref(
   return qs ? `/submissions?${qs}` : "/submissions";
 }
 
+/** Href for page `page` of the active filter. */
 export function pageHref(m: Pick<SubmissionsPageModel, "filter">, page: number): string {
   const p = new URLSearchParams();
   const f = m.filter;

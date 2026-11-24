@@ -71,7 +71,7 @@
 </form>
 {#if data.periods}
   <div class="periods muted">
-    Period:
+    Show:
     {#each data.periods as p, i (p.label)}{#if i > 0}{" · "}{/if}<a href={p.href}>
         {p.label}
       </a>{/each}
