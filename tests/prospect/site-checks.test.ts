@@ -1035,6 +1035,23 @@ describe("each check fires on the thing it is named for", () => {
     expect(byKey(afterGroup, "robots-not-blocking")?.status).toBe("fail");
   });
 
+  it("reads the wildcard rules the way the crawl does: longest match, and /* covers the root", () => {
+    const status = (robotsTxt: string) =>
+      byKey(
+        runSiteChecks(exemplary({ robotsTxt }), exemplaryChecks(), "Acme Roofing"),
+        "robots-not-blocking",
+      )?.status;
+    // Blocked for everyone, spelled two more ways.
+    expect(status("User-agent: *\nDisallow: /*\n")).toBe("fail");
+    expect(status("User-agent: *\nDisallow: / # closed\n")).toBe("fail");
+    // An Allow that covers the root and is at least as long wins.
+    expect(status("User-agent: *\nDisallow: /\nAllow: /*\n")).toBe("pass");
+    // An equal-length Allow wins a tie, whichever line came first.
+    expect(status("User-agent: *\nDisallow: /\nAllow: /\n")).toBe("pass");
+    // Two wildcard groups are one group.
+    expect(status("User-agent: *\nDisallow: /\n\nUser-agent: *\nAllow: /*\n")).toBe("pass");
+  });
+
   it("catches schema pointing at a domain they no longer use", () => {
     const old = JSON.stringify({
       "@type": "Organization",

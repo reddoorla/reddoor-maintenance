@@ -138,7 +138,12 @@ export function robotsAllowsUs(robotsTxt: string | null, url: string, agent: str
     if (!robotsPathMatches(rule.path, path)) continue;
     // An empty `Disallow:` is the conventional "nothing is disallowed" and
     // matches nothing, which `robotsPathMatches` already returns false for.
-    if (best === null || rule.path.length > best.length) {
+    // On a tie the Allow wins (RFC 9309 2.2.2), whichever line came first.
+    if (
+      best === null ||
+      rule.path.length > best.length ||
+      (rule.path.length === best.length && rule.type === "allow")
+    ) {
       best = { type: rule.type, length: rule.path.length };
     }
   }

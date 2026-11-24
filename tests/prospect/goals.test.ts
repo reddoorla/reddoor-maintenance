@@ -570,7 +570,7 @@ describe("priceSignal — the phrasings real sites use", () => {
     }
   });
 
-  it("does not read legal penalties (civil suits, fines, offences) as prices", () => {
+  it("does not read legal penalties (fines) as prices", () => {
     const statute =
       "The statute is strict. Penalties include civil suits for no less than $1,000 to $5,000 for the first offense and fines ranging from $5,000 to $10,000 after that.";
     expect(met(checkGoal("enquire", "inferred", crawl(statute), null), "price-signal")).toBe(false);
@@ -583,10 +583,27 @@ describe("priceSignal — the phrasings real sites use", () => {
     // "a fine of" is a penalty; the adjective "fine" is not.
     expect(
       met(
-        checkGoal("enquire", "inferred", crawl("Late returns carry a fine of $25."), null),
+        checkGoal(
+          "enquire",
+          "inferred",
+          crawl("Late returns carry a fine of $5 a day, from $5 per item."),
+          null,
+        ),
         "price-signal",
       ),
     ).toBe(false);
+    // A legal practice's own fees are prices, even beside the words a statute uses.
+    expect(
+      met(
+        checkGoal(
+          "enquire",
+          "inferred",
+          crawl("Defense for a first offense, from $2,500 flat fee. Civil suits from $5,000."),
+          null,
+        ),
+        "price-signal",
+      ),
+    ).toBe(true);
     expect(
       met(
         checkGoal("enquire", "inferred", crawl("Fine dining from $40 a plate."), null),

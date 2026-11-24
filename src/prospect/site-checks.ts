@@ -1,6 +1,6 @@
 import { resolveNavigable } from "./journey.js";
 import { usablePages } from "./pages.js";
-import { parseRobots } from "./crawl.js";
+import { robotsAllowsUs } from "./crawl.js";
 import type { Scope } from "./goals.js";
 import type { PageVitals } from "./accessibility.js";
 import type { FormProbe } from "./interaction.js";
@@ -1533,15 +1533,11 @@ function sidecarChecks(
       ),
     );
   } else {
-    // Only a `Disallow: /` under a group that applies to everyone, and not
-    // undone by an `Allow: /` in that same group. A rule aimed at one crawler
-    // is a policy, not an accident.
-    const blocked = parseRobots(crawl.robotsTxt).some(
-      (g) =>
-        g.agents.includes("*") &&
-        g.rules.some((r) => r.type === "disallow" && r.path === "/") &&
-        !g.rules.some((r) => r.type === "allow" && r.path === "/"),
-    );
+    // Only the rules that apply to everyone (the `*` groups, merged), read the
+    // way the crawl reads them: longest match wins, and `/`, `/*` and `/$` all
+    // cover the root. A rule aimed at one crawler is a policy, not an accident,
+    // and is reported per agent elsewhere.
+    const blocked = !robotsAllowsUs(crawl.robotsTxt, "https://robots.invalid/", "*");
     out.push(
       check(
         "robots-not-blocking",
