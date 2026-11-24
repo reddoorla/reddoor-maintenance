@@ -72,8 +72,9 @@ Standalone, outside the `[site]` loop above (it audits an external URL, not a fl
 
 - `prospect-audit <url>` — AEO/SEO audit an external prospect's site and publish
   a shareable report. Flags: `--business <name>`, `--competitors <list>`,
-  `--no-probes`, `--out <file>`, `--json`. Needs `ANTHROPIC_API_KEY` (or the
-  standard Anthropic auth chain) and, for tier 3, `PERPLEXITY_API_KEY`;
+  `--no-probes`, `--technical` (only the unpaid stages, no model tokens),
+  `--out <file>`, `--json`. Needs `ANTHROPIC_API_KEY` (or the
+  standard Anthropic auth chain; not with `--technical`) and, for tier 3, `PERPLEXITY_API_KEY`;
   persistence and the shareable link need the Turso vars.
 
 ### Common flags

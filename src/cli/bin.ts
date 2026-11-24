@@ -856,6 +856,10 @@ cli
     "What the site should get a visitor to do: book, enquire, call, visit, buy, demo or partner. Defaults to what the model reads off the site.",
   )
   .option("--no-probes", "Skip the live AI-visibility probes (tier 3).")
+  .option(
+    "--technical",
+    "Run only the unpaid stages a Technical report reads: skips analyze, probes and accuracy, so no model tokens are spent.",
+  )
   .option("--out <file>", "Also write the rendered report to this file.")
   .option("--json", "Print the raw result JSON instead of the report summary.")
   .option(
@@ -878,6 +882,7 @@ cli
         goal?: string;
         competitors?: string;
         probes?: boolean;
+        technical?: boolean;
         out?: string;
         json?: boolean;
         email?: boolean;

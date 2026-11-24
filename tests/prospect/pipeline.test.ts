@@ -9,6 +9,7 @@ import {
   ASSETS_SKIPPED,
   PROBES_SKIPPED,
   ANALYZE_SKIPPED,
+  TECHNICAL_SKIPPED,
   envAccuracyDeps,
   type PipelineDeps,
 } from "../../src/prospect/pipeline.js";
@@ -633,5 +634,31 @@ describe("runProspectAudit — the fix list is checked against the checklist", (
     const { deps: d, prompt } = spyDeps([]);
     await runProspectAudit(HOME, {}, d);
     expect(prompt()!.user).not.toContain("What we have already measured");
+  });
+});
+
+describe("W4: --technical runs only the unpaid stages", () => {
+  it("never calls the model or an answer engine, and stores every unpaid stage", async () => {
+    const analyzeRun = vi.fn(async () => analyzeOutput);
+    const ask = vi.fn(async () => ({ answer: "Acme Roofing", citedDomains: ["acme.example"] }));
+    const result = await runProspectAudit(
+      HOME,
+      { technical: true },
+      deps({ analyze: { run: analyzeRun }, engines: [{ name: "perplexity", ask }] }),
+    );
+    expect(analyzeRun).not.toHaveBeenCalled();
+    expect(ask).not.toHaveBeenCalled();
+    expect(result.analyze).toEqual({ ok: false, error: TECHNICAL_SKIPPED });
+    expect(result.probes).toEqual({ ok: false, error: TECHNICAL_SKIPPED });
+    expect(result.accuracy?.ok).toBe(false);
+    for (const stage of ["crawl", "checks", "siteChecks", "stack", "accessibility"] as const) {
+      expect(result[stage]?.ok, stage).toBe(true);
+    }
+  });
+
+  it("CONTROL: the same deps without the flag do call the model", async () => {
+    const analyzeRun = vi.fn(async () => analyzeOutput);
+    await runProspectAudit(HOME, {}, deps({ analyze: { run: analyzeRun } }));
+    expect(analyzeRun).toHaveBeenCalled();
   });
 });
