@@ -210,6 +210,33 @@ function analyzeJsonSchema(): string {
  * non-zero; and an explicit sentence when both are empty, so the message is
  * never a dangling colon that reads like a truncation bug in our own code.
  */
+/** Record what a `claude -p` call spent, from whatever it printed, before any
+ *  exit-code or envelope check. The CLI exits 1 on an error envelope
+ *  (`is_error: true` still carries `total_cost_usd`), so a cost read after the
+ *  exit check is never read for a failed call, and a failed call still spent
+ *  the money. Reads one JSON envelope (`--output-format json`) or the `result`
+ *  line of a stream (`stream-json`). Best effort: nothing parseable, nothing
+ *  recorded. */
+function recordSpend(stdout: string): void {
+  try {
+    const whole: unknown = JSON.parse(stdout);
+    if (whole && typeof whole === "object" && !Array.isArray(whole)) {
+      recordModelCost((whole as { total_cost_usd?: unknown }).total_cost_usd);
+      return;
+    }
+  } catch {
+    // Not one JSON value: a stream, or noise. Read it line by line.
+  }
+  for (const line of stdout.split("\n")) {
+    try {
+      const ev = JSON.parse(line) as { type?: unknown; total_cost_usd?: unknown };
+      if (ev && ev.type === "result") recordModelCost(ev.total_cost_usd);
+    } catch {
+      // Hook and wrapper noise.
+    }
+  }
+}
+
 function exitDetail(res: { stdout: string; stderr: string }): string {
   const stderr = res.stderr.trim();
   if (stderr) return stderr.slice(0, 400);
@@ -241,6 +268,7 @@ export function claudeCodeAnalyzeDeps(run: ClaudeCodeRun = defaultClaudeCodeRun)
         "5",
       ];
       const res = await run({ args, stdin: user, env: childEnv(), timeoutMs: ANALYZE_TIMEOUT_MS });
+      recordSpend(res.stdout);
       if (res.code !== 0) {
         throw new Error(`claude -p (analyze) exited ${res.code}: ${exitDetail(res)}`);
       }
@@ -252,9 +280,6 @@ export function claudeCodeAnalyzeDeps(run: ClaudeCodeRun = defaultClaudeCodeRun)
           `claude -p (analyze) printed something other than the JSON envelope: ${res.stdout.slice(0, 200)}`,
         );
       }
-      // Recorded before the error checks below: a call that reports an error
-      // still spent the money.
-      recordModelCost(envelope.total_cost_usd);
       if (envelope.is_error || envelope.subtype !== "success") {
         throw new Error(
           `claude -p (analyze) failed (${envelope.subtype ?? "unknown"}): ${String(envelope.result ?? "").slice(0, 400)}`,
@@ -364,6 +389,7 @@ export function claudeCodeAccuracyRun(run: ClaudeCodeRun = defaultClaudeCodeRun)
       "8",
     ];
     const res = await run({ args, stdin: user, env: childEnv(), timeoutMs: ANALYZE_TIMEOUT_MS });
+    recordSpend(res.stdout);
     if (res.code !== 0) {
       throw new Error(`claude -p (accuracy) exited ${res.code}: ${exitDetail(res)}`);
     }
@@ -375,7 +401,6 @@ export function claudeCodeAccuracyRun(run: ClaudeCodeRun = defaultClaudeCodeRun)
         `claude -p (accuracy) printed something other than the JSON envelope: ${res.stdout.slice(0, 200)}`,
       );
     }
-    recordModelCost(envelope.total_cost_usd);
     if (envelope.is_error || envelope.subtype !== "success") {
       throw new Error(
         `claude -p (accuracy) failed (${envelope.subtype ?? "unknown"}): ${String(envelope.result ?? "").slice(0, 400)}`,
@@ -415,6 +440,7 @@ export function claudeCodeEngine(run: ClaudeCodeRun = defaultClaudeCodeRun): Vis
         "2",
       ];
       const res = await run({ args, stdin: query, env: childEnv(), timeoutMs: PROBE_TIMEOUT_MS });
+      recordSpend(res.stdout);
       if (res.code !== 0) {
         throw new Error(`claude -p (probe) exited ${res.code}: ${exitDetail(res)}`);
       }
@@ -430,9 +456,6 @@ export function claudeCodeEngine(run: ClaudeCodeRun = defaultClaudeCodeRun): Vis
             return [];
           }
         });
-      for (const ev of events) {
-        if (ev.type === "result") recordModelCost(ev.total_cost_usd);
-      }
 
       // Only results of actual WebSearch calls count, and only successful
       // ones: a failed search's error prose can carry URLs (support pages,

@@ -18,12 +18,29 @@ import { createRequire } from "node:module";
  *  machine without the package installed still runs this version. */
 export const LHCI_VERSION = "^0.16.0";
 
+/** Does `version` satisfy the caret range `range` (`^X.Y.Z`), as npm reads it?
+ *  `^0.Y.Z` allows only 0.Y.*, at or above Z; `^X.Y.Z` with X > 0 allows X.*.*
+ *  at or above Y.Z. A prerelease or an unreadable version never satisfies. Only
+ *  the caret form a pin here uses; no semver dependency for one comparison. */
+export function satisfiesCaret(version: string | undefined, range: string): boolean {
+  const parse = (v: string) => /^(\d+)\.(\d+)\.(\d+)$/.exec(v)?.slice(1).map(Number);
+  const want = range.startsWith("^") ? parse(range.slice(1)) : undefined;
+  const have = version ? parse(version) : undefined;
+  if (!want || !have) return false;
+  const [wMaj, wMin, wPat] = want as [number, number, number];
+  const [hMaj, hMin, hPat] = have as [number, number, number];
+  if (hMaj !== wMaj) return false;
+  if (wMaj === 0) return hMin === wMin && hPat >= wPat;
+  return hMin > wMin || (hMin === wMin && hPat >= wPat);
+}
+
 /** The command that runs lhci. `REDDOOR_LHCI_BIN`, when set, is run directly
  *  and wins: it is the seam a test uses to supply a fake lhci, now that a bare
  *  `npx` on PATH is no longer what runs. Otherwise prefers the @lhci/cli this package resolves,
  *  run under node: `npx @lhci/cli` runs whatever the npm cache holds, which is
  *  not the version the repo pins. Falls back to npx pinned to LHCI_VERSION when
- *  the package is not installed (the published package runs on fleet sites). */
+ *  the package is not installed, or resolves outside LHCI_VERSION (a fleet
+ *  site's own older copy). */
 export function lhciInvocation(
   configPath: string,
   resolve: (id: string) => string = (id) => createRequire(import.meta.url).resolve(id),
@@ -34,10 +51,14 @@ export function lhciInvocation(
   try {
     const pkgPath = resolve("@lhci/cli/package.json");
     const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as {
+      version?: string;
       bin?: string | Record<string, string>;
     };
     const bin = typeof pkg.bin === "string" ? pkg.bin : pkg.bin?.lhci;
-    if (bin) return { cmd: process.execPath, args: [join(dirname(pkgPath), bin), ...tail] };
+    // On a fleet site this resolves the site's own @lhci/cli (onboarding pins
+    // an older range), so a copy outside the pin is passed over for the npx.
+    if (bin && satisfiesCaret(pkg.version, LHCI_VERSION))
+      return { cmd: process.execPath, args: [join(dirname(pkgPath), bin), ...tail] };
   } catch {
     // Not installed here: fall through to the pinned npx.
   }

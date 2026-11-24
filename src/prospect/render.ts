@@ -129,7 +129,7 @@ function skippableStageNote(error: string, skipConstant: string, skipMessage: st
     return `<p class="muted">${escapeHtml("A technical-only run: this section's model stages were not run.")}</p>`;
   }
   if (error === ANALYZE_FAILED_SKIP) {
-    return `<p class="muted">${escapeHtml("Skipped — the analyze stage failed, so the paid AI-visibility stages were not run.")}</p>`;
+    return `<p class="muted">${escapeHtml("Not run — the content analysis this test is built from could not be completed.")}</p>`;
   }
   if (error === skipConstant) {
     return `<p class="muted">${escapeHtml(skipMessage)}</p>`;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   childEnv,
+  claudeCodeAccuracyRun,
   claudeCodeAnalyzeDeps,
   claudeCodeEngine,
   llmAuthMode,
@@ -114,6 +115,58 @@ describe("claudeCodeAnalyzeDeps", () => {
     );
     expect(scoped.costUsd).toBe(0.31);
     expect(scoped.calls).toBe(1);
+  });
+
+  it("records what a failed call spent: the CLI exits 1 on an error envelope, and the money is gone", async () => {
+    // Measured on claude 2.1.331 (review round 1 of #2281): an error envelope
+    // ({is_error:true, total_cost_usd}) comes with exit code 1, so a cost read
+    // only after the exit-code check is never read for any real failure.
+    const envelope = JSON.stringify({
+      type: "result",
+      subtype: "error_max_budget_usd",
+      is_error: true,
+      total_cost_usd: 0.3,
+    });
+    const analyze = await withCostScope(() =>
+      claudeCodeAnalyzeDeps(fakeRun({ stdout: envelope, code: 1 }).run)
+        .run({ system: "S", user: "U" })
+        .catch(() => null),
+    );
+    expect([analyze.costUsd, analyze.calls]).toEqual([0.3, 1]);
+
+    const accuracy = await withCostScope(() =>
+      claudeCodeAccuracyRun(fakeRun({ stdout: envelope, code: 1 }).run)({
+        system: "S",
+        user: "U",
+      }).catch(() => null),
+    );
+    expect([accuracy.costUsd, accuracy.calls]).toEqual([0.3, 1]);
+
+    const stream = [
+      JSON.stringify({ type: "system", subtype: "init" }),
+      JSON.stringify({
+        type: "result",
+        subtype: "error_max_budget_usd",
+        is_error: true,
+        total_cost_usd: 2.1,
+      }),
+    ].join("\n");
+    const probe = await withCostScope(() =>
+      claudeCodeEngine(fakeRun({ stdout: stream, code: 1 }).run)
+        .ask("q")
+        .catch(() => null),
+    );
+    expect([probe.costUsd, probe.calls]).toEqual([2.1, 1]);
+  });
+
+  it("records a successful call's cost once, not twice", async () => {
+    const { run } = fakeRun({
+      stdout: JSON.stringify({ ...ANALYZE_ENVELOPE, total_cost_usd: 0.31 }),
+    });
+    const scoped = await withCostScope(() =>
+      claudeCodeAnalyzeDeps(run).run({ system: "S", user: "U" }),
+    );
+    expect([scoped.costUsd, scoped.calls]).toEqual([0.31, 1]);
   });
 
   it("runs claude -p with the analyze contract: our system prompt, opus, a schema, no tools", async () => {

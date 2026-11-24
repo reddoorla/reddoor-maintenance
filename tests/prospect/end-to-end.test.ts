@@ -157,6 +157,10 @@ const deps: PipelineDeps = {
 describe("end to end: runProspectAudit -> renderProspectReport", () => {
   it("renders a coherent, client-safe report from the real pipeline's output over a realistic fixture", async () => {
     const result = await runProspectAudit(HOME, {}, deps);
+    // The stubs must stay valid: a stub that drifts from AnalyzeSchema fails
+    // analyze, and that must fail here, not hide behind the assertions below.
+    expect(result.analyze.ok).toBe(true);
+    expect(result.probes.ok).toBe(true);
     const html = renderProspectReport(result);
 
     // The business name appears.

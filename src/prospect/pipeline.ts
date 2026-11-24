@@ -284,7 +284,7 @@ async function timedStage<T>(
   const store: CostStore = { costUsd: 0, calls: 0 };
   const started = clock();
   const record = (): StageRecord => ({
-    ms: clock() - started,
+    ms: Math.round(clock() - started),
     ...(store.calls > 0 ? { costUsd: store.costUsd, calls: store.calls } : {}),
   });
   deps.onStage?.(name, "start");

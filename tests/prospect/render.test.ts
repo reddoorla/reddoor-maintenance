@@ -401,20 +401,22 @@ describe("renderProspectReport", () => {
     expect(skipped).not.toContain("Not measured");
   });
 
-  it("says the paid stages were skipped because analyze failed, not that the probes were not measured", () => {
+  it("says the visibility test did not run because the content analysis failed, in client-safe words", () => {
     const html = renderProspectReport(
       result({ probes: { ok: false, error: ANALYZE_FAILED_SKIP } }),
     );
     expect(html).toContain(
-      "the analyze stage failed, so the paid AI-visibility stages were not run",
+      "Not run — the content analysis this test is built from could not be completed.",
     );
     expect(html).not.toContain("Not measured");
+    // A prospect reads this page: no stage names and no talk of what we pay for.
+    expect(html).not.toMatch(/analyze stage|paid/i);
   });
 
   it("keeps the generic not-measured note for an unexplained probes failure", () => {
     const html = renderProspectReport(result({ probes: { ok: false, error: "engine timed out" } }));
     expect(html).toContain("Not measured");
-    expect(html).not.toContain("paid AI-visibility stages were not run");
+    expect(html).not.toContain("Not run — the content analysis");
   });
 
   it("reads a requested analyze skip differently from an attempted analyze failure", () => {

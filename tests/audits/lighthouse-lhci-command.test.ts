@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createRequire } from "node:module";
-import { lhciInvocation, LHCI_VERSION } from "../../src/audits/lighthouse.js";
+import { lhciInvocation, LHCI_VERSION, satisfiesCaret } from "../../src/audits/lighthouse.js";
 
 const CONFIG = "/tmp/reddoor-lhci-test/lighthouserc.json";
 
@@ -24,6 +26,39 @@ describe("lhciInvocation (which lhci the audit runs)", () => {
       "autorun",
       `--config=${CONFIG}`,
     ]);
+  });
+
+  it("passes over a resolved lhci outside LHCI_VERSION (a fleet site's own 0.15) for the pinned npx", () => {
+    // Review round 1 of #2281: @lhci/cli is a devDependency here, so on a fleet
+    // site the resolver walks up to the site's own copy, which onboarding pins
+    // at ^0.15.1 (baseline-versions.ts). Running it would break the pin.
+    const pkgDir = mkdtempSync(join(tmpdir(), "lhci-site-"));
+    mkdirSync(join(pkgDir, "src"));
+    const pkgPath = join(pkgDir, "package.json");
+    writeFileSync(pkgPath, JSON.stringify({ version: "0.15.1", bin: { lhci: "./src/cli.js" } }));
+    expect(lhciInvocation(CONFIG, () => pkgPath, {})).toEqual({
+      cmd: "npx",
+      args: ["--yes", `@lhci/cli@${LHCI_VERSION}`, "autorun", `--config=${CONFIG}`],
+    });
+
+    // Control: the same package at a version inside the range is run directly.
+    writeFileSync(pkgPath, JSON.stringify({ version: "0.16.4", bin: { lhci: "./src/cli.js" } }));
+    expect(lhciInvocation(CONFIG, () => pkgPath, {})).toEqual({
+      cmd: process.execPath,
+      args: [join(pkgDir, "src/cli.js"), "autorun", `--config=${CONFIG}`],
+    });
+  });
+
+  it("reads a caret range the way npm does, for the ranges a pin uses", () => {
+    expect(satisfiesCaret("0.16.0", "^0.16.0")).toBe(true);
+    expect(satisfiesCaret("0.16.9", "^0.16.0")).toBe(true);
+    expect(satisfiesCaret("0.15.9", "^0.16.0")).toBe(false);
+    expect(satisfiesCaret("0.17.0", "^0.16.0")).toBe(false);
+    expect(satisfiesCaret("0.16.0-beta.1", "^0.16.0")).toBe(false);
+    expect(satisfiesCaret("1.4.0", "^1.2.0")).toBe(true);
+    expect(satisfiesCaret("2.0.0", "^1.2.0")).toBe(false);
+    expect(satisfiesCaret("1.1.9", "^1.2.0")).toBe(false);
+    expect(satisfiesCaret(undefined, "^0.16.0")).toBe(false);
   });
 
   it("runs REDDOOR_LHCI_BIN first when it is set, so a test can supply its own lhci", () => {
