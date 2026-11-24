@@ -123,12 +123,17 @@ function notMeasuredHtml(lines: NotMeasuredLine[]): string {
 /** analyze.error and fix titles/why are untrusted (LLM output, or text lifted
  *  from the prospect's own site) — every interpolation below is escaped. */
 
-function linkHtml(link: string | null): string {
+function linkHtml(link: string | null, partial: boolean): string {
   if (!link) {
     return `<p style="margin:24px 0 0;color:#8a857e;">No shareable link — the audit could not be saved to the database. Re-run it; there is nothing to forward from this email.</p>`;
   }
   const safe = safeUrl(link);
-  return `<p style="margin:24px 0 0;"><strong>Full report:</strong> <a href="${escapeHtml(safe)}">${escapeHtml(link)}</a></p>`;
+  // W1. Every saved report is a draft: the link 404s for anyone but the editor
+  // until a person approves it. A partial run must not be sent at all.
+  const status = partial
+    ? `<p style="margin:12px 0 0;padding:10px 12px;background:#fdecea;border-left:3px solid #d71920;color:#1a1a1a;"><strong>Do not send.</strong> Part of this audit did not run (below). It is saved as a draft, not approved.</p>`
+    : `<p style="margin:12px 0 0;color:#57544f;"><strong>Draft, not approved.</strong> The link opens only in the editor until someone reads it and approves it.</p>`;
+  return `<p style="margin:24px 0 0;"><strong>Full report (draft):</strong> <a href="${escapeHtml(safe)}">${escapeHtml(link)}</a></p>${status}`;
 }
 
 /** This sheet is for us, and it says so. It carries the real reasons a stage did
@@ -155,7 +160,7 @@ const INTERNAL_NOTE = `<p style="margin:24px 0 0;padding:12px 14px;background:#f
  */
 export function buildAuditEmail(
   result: ProspectAuditResult,
-  opts: { link: string | null },
+  opts: { link: string | null; partial?: boolean },
 ): AuditEmailContent {
   const name = resolveName(result);
   const subject = `Prospect audit — ${subjectSafe(name)}`;
@@ -168,7 +173,7 @@ export function buildAuditEmail(
   <p style="margin:0 0 16px;color:#57544f;">
     <a href="${escapeHtml(safeUrl(result.url))}">${escapeHtml(result.url)}</a> · audited ${escapeHtml(formatIsoDate(result.generatedAt))}
   </p>
-  ${linkHtml(opts.link)}
+  ${linkHtml(opts.link, opts.partial === true)}
   ${notMeasuredHtml(notMeasuredLines(result))}
   ${INTERNAL_NOTE}
 </body>
@@ -223,6 +228,8 @@ export type SendAuditEmailOptions = {
    * already recorded a warning saying why.
    */
   pdf?: Buffer | null;
+  /** W1. A partial run: the sheet says "do not send". */
+  partial?: boolean;
   /** Defaults to `defaultResendClient()`. */
   client?: ResendClient;
 };
@@ -249,7 +256,7 @@ export async function sendAuditEmail(
     };
   }
 
-  const built = buildAuditEmail(result, { link: opts.link });
+  const built = buildAuditEmail(result, { link: opts.link, partial: opts.partial === true });
   const client = opts.client ?? defaultResendClient();
   const idempotencyKey = `prospect-audit:${opts.auditId ?? `${result.url}#${result.generatedAt}`}`;
 

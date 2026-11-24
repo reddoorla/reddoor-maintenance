@@ -3,18 +3,28 @@ import { openDb, readDbConfig } from "../../src/db/client.js";
 import {
   getProspectAuditByToken,
   isValidToken,
+  reviewState,
   touchProspectAuditOpened,
+  type ProspectAuditRow,
 } from "../../src/db/prospect-audits.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
+import { carriesEditToken } from "../../src/prospect/edit-token.js";
+import type { Db } from "../../src/db/client.js";
 
 // The JSON behind reddoorla.com/audit/{token}. The website renders the report
 // with its own components; this route exists so Turso credentials never have to
 // leave this repo.
 //
-// Deliberately NOT operator-gated, exactly like prospect-report.mts beside it:
-// the 128-bit token IS the credential. Anyone holding the link is the intended
-// audience, and there is no operator session to check on a server-to-server
-// call anyway.
+// NOT operator-gated for an approved report: the 128-bit token IS the
+// credential, and anyone holding the link is the intended audience.
+//
+// W1 (audit-system review, 2026-11-23): a report nobody has approved is a
+// DRAFT, and a draft is served only to a caller presenting PROSPECT_EDIT_TOKEN
+// as its bearer — the website's server, on behalf of an operator holding the
+// edit cookie. Everyone else gets the same 404 as a missing token, so a draft
+// link handed out by mistake shows nothing. A WITHDRAWN report 404s to
+// everyone. A SUPERSEDED one answers 410 with the newer token, while that one
+// is live, so the website can send the reader there.
 //
 // Keep this route's token handling identical to prospect-report.mts. The two
 // serve the same row to the same audience in different formats, and a
@@ -35,6 +45,8 @@ function fail(status: number, error: string): Response {
     headers: {
       "content-type": "application/json; charset=utf-8",
       "x-robots-tag": "noindex",
+      // Review round 3: a draft's 404 must not outlive its approval in a cache.
+      "cache-control": "private, no-store",
     },
   });
 }
@@ -55,6 +67,22 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     const db = await openDb(readDbConfig());
     const row = await getProspectAuditByToken(db, token);
     if (!row) return fail(404, "not-found");
+
+    if (row.superseded_by) {
+      const next = await liveSuccessor(db, row.superseded_by);
+      if (!next) return fail(404, "not-found");
+      return new Response(JSON.stringify({ error: "superseded", supersededBy: next }), {
+        status: 410,
+        headers: {
+          "content-type": "application/json; charset=utf-8",
+          "x-robots-tag": "noindex",
+          "cache-control": "private, no-store",
+        },
+      });
+    }
+    const state = reviewState(row);
+    if (state === "withdrawn") return fail(404, "not-found");
+    if (state === "draft" && !carriesEditToken(req)) return fail(404, "not-found");
 
     // Wrapped WITHOUT parsing. The reasoning that used to justify passing
     // `result_json` through untouched still holds: parsing and re-serialising
@@ -96,6 +124,9 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
       // undefined, not a string, and would interpolate the bare word
       // `undefined` into the body if either column ever became optional.
       `"editedAt":${JSON.stringify(row.edited_at ?? null)},` +
+      // W1. Null on a draft, which only the editor is ever served; the edit
+      // layer says "draft, not approved" from it.
+      `"approvedAt":${JSON.stringify(row.approved_at ?? null)},` +
       `"openedAt":${JSON.stringify(row.opened_at ?? null)}}`;
 
     // Awaited on purpose, with only its FAILURE swallowed. A Netlify function
@@ -122,7 +153,8 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     // scanners fetch links, so `opened_at` will sometimes say "opened" when
     // nobody read anything. That is a bigger threat to this field's honesty
     // than the fact that the header is trivially spoofable.
-    if (req.headers.get("x-reddoor-edit-session") !== "1") {
+    // A draft is only ever served to the editor, so it is never "opened".
+    if (state === "live" && req.headers.get("x-reddoor-edit-session") !== "1") {
       try {
         await touchProspectAuditOpened(db, token);
       } catch (err) {
@@ -147,3 +179,20 @@ export default async (req: Request, ctx: Context): Promise<Response> => {
     return handlerError("audit-report-json", err);
   }
 };
+
+/** Follow `superseded_by` to the newest live report, or null if the chain ends
+ *  at anything that is not live (a draft, a withdrawn report, a missing row).
+ *  Bounded, so a cycle typed by hand cannot spin the function. */
+async function liveSuccessor(db: Db, first: string): Promise<string | null> {
+  let token: string | null = first;
+  for (let hop = 0; hop < 5 && token && isValidToken(token); hop++) {
+    const row: ProspectAuditRow | null = await getProspectAuditByToken(db, token);
+    if (!row) return null;
+    if (row.superseded_by) {
+      token = row.superseded_by;
+      continue;
+    }
+    return reviewState(row) === "live" ? token : null;
+  }
+  return null;
+}

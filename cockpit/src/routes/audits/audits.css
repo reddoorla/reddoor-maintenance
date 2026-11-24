@@ -164,3 +164,15 @@ h2 {
   color: var(--ink);
   font-weight: var(--weight-bold);
 }
+
+/* W1: whether a prospect can open the report. */
+.audit-review {
+  margin-top: 0.2rem;
+  font-size: 0.85rem;
+  color: var(--ink-muted);
+}
+.review-do-not-send,
+.review-withdrawn {
+  color: var(--ink);
+  font-weight: var(--weight-bold);
+}

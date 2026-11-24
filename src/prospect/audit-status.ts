@@ -36,3 +36,23 @@ export const NO_REPORT_STATUSES = [
 export function hasNoReport(status: string): boolean {
   return (NO_REPORT_STATUSES as readonly string[]).includes(status);
 }
+
+/** W1. Where a finished report stands with the people who might send it.
+ *
+ *  - `draft`: nobody has approved it. Every finished run starts here, and the
+ *    JSON route serves it only to the editor (PROSPECT_EDIT_TOKEN).
+ *  - `live`: approved, and the link works for whoever holds it.
+ *  - `withdrawn`: taken down. 404 to everyone, the editor included; the row and
+ *    its `result_json` stay so what was shown is still on record.
+ *
+ *  Withdrawn wins over approved: taking a report down must not depend on
+ *  clearing its approval first. */
+export type ReviewState = "draft" | "live" | "withdrawn";
+
+export function reviewState(row: {
+  approved_at: string | null;
+  withdrawn_at: string | null;
+}): ReviewState {
+  if (row.withdrawn_at) return "withdrawn";
+  return row.approved_at ? "live" : "draft";
+}

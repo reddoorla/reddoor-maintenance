@@ -303,6 +303,17 @@ export interface ProspectAuditsTable {
    *  that job claim it instead of reserving a second slot for the same audit.
    *  NULL on every row written before the column existed. */
   claimed_at: string | null;
+  /** W1 (migrations 0059-0063). NULL `approved_at` is a DRAFT: the JSON route
+   *  serves it only to a caller carrying PROSPECT_EDIT_TOKEN. `approved_by` is
+   *  who pressed approve. */
+  approved_at: string | null;
+  approved_by: string | null;
+  /** Set when the report was taken down. A withdrawn report 404s to everyone. */
+  withdrawn_at: string | null;
+  withdrawn_by: string | null;
+  /** The token of the newer report for the same site, which the old link
+   *  points at while that one is live. */
+  superseded_by: string | null;
 }
 
 /** The digest's prior-run snapshot (migration 0011). One row, `id` = the
