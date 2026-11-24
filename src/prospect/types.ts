@@ -463,14 +463,15 @@ export type ProbeAnswer = {
   /** First ~300 chars of the engine's answer — the report's receipt. */
   snippet: string;
   /**
-   * The engine's answer in full, kept for BRANDED answers only.
+   * The engine's answer in full, for every kind of probe.
    *
-   * The accuracy stage reads these to work out which statements about the
-   * business its own site actually supports, and a 300-character snippet cuts
-   * off mid-sentence — every claim past it would be invisible, and invisible
-   * reads the same as absent. Branded answers are two or three per run, so
-   * keeping them whole costs little; category and competitor answers are many
-   * and nothing downstream reads them in full, so they do not carry it.
+   * The accuracy stage reads the BRANDED ones (and only those, by `kind`) to
+   * work out which statements about the business its own site actually
+   * supports, and a 300-character snippet cuts off mid-sentence — every claim
+   * past it would be invisible, and invisible reads the same as absent. Category
+   * answers are kept whole too, so a later re-cut of the report does not depend
+   * on the snippet: five of seven were cut to 300 characters and could not be
+   * recovered.
    *
    * Optional because reports stored before the accuracy stage existed do not
    * have it, and there the stage must report that it could not run rather than
