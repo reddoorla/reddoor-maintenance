@@ -1,6 +1,28 @@
+import { reportWindows } from "../../../../src/reports/ga/window.js";
+import { LEADS_TIME_ZONE } from "../../../../src/reports/lead-periods.js";
 import type { SubmissionsPageModel } from "../../../../src/dashboard/submissions-page.js";
 
 /** Href for page `page` of the active filter. */
+/** The one-click periods beside the date inputs (P1-127): the start of the same
+ *  Pacific window the site page's leads panel counts, every other filter kept,
+ *  back to page 1. `null` days clears the dates (all time). PURE. */
+export function periodHref(
+  m: Pick<SubmissionsPageModel, "filter">,
+  days: number | null,
+  now: Date,
+): string {
+  const p = new URLSearchParams();
+  const f = m.filter;
+  if (f.site) p.set("site", f.site);
+  if (f.type) p.set("type", f.type);
+  if (f.status) p.set("status", f.status);
+  if (f.q) p.set("q", f.q);
+  if (days !== null) p.set("from", reportWindows(now, LEADS_TIME_ZONE, days).current.startDate);
+  if (f.reason) p.set("reason", f.reason);
+  const qs = p.toString();
+  return qs ? `/submissions?${qs}` : "/submissions";
+}
+
 export function pageHref(m: Pick<SubmissionsPageModel, "filter">, page: number): string {
   const p = new URLSearchParams();
   const f = m.filter;

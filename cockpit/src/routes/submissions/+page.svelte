@@ -69,6 +69,14 @@
   <button type="submit">Apply</button>
   <a class="muted" href="/submissions">Clear</a>
 </form>
+{#if data.periods}
+  <div class="periods muted">
+    Period:
+    {#each data.periods as p, i (p.label)}{#if i > 0}{" · "}{/if}<a href={p.href}>
+        {p.label}
+      </a>{/each}
+  </div>
+{/if}
 {#if m.total === 0}
   <div class="empty">No submissions match these filters.</div>
 {:else if m.rows.length === 0}
