@@ -8,8 +8,9 @@ import { reportWindows, REPORT_WINDOW_DAYS, type GaDateRange } from "./ga/window
  * A lead is what the digest counts as one: a non-signup form, not bucketed as
  * spam (`countSubmissionsSinceBySite`). Days are Pacific, Reddoor's own, and
  * the 30-day windows are {@link reportWindows}: the 30 complete days that
- * ended yesterday and the 30 before, the same windows the report's analytics
- * block compares, so "vs the previous 30 days" means one thing in the email.
+ * ended yesterday and the 30 before. They are the same windows the report's
+ * analytics block compares where the GA property reports in Pacific time; a
+ * property in another time zone cuts its days a few hours apart from these.
  */
 export const LEADS_TIME_ZONE = "America/Los_Angeles";
 
