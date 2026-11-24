@@ -69,7 +69,7 @@ describe("renderRecentlyLane (via renderCockpitHtml)", () => {
 // no longer carries deploys; the snapshot's `feedDeploys` (already `deploysToShow`-filtered)
 // sit beside the recent events, newest first, under the lane's cut.
 describe("renderRecentlyLane: deploys follow the overview's rule (P1-87 PR 9, C1)", () => {
-  // The page's `now`, an hour after the newest fixture. The lane windows deploys at `now`, so
+  // The page's `now`, 55 minutes after the newest fixture (the 17:05Z deploy). The lane windows deploys at `now`, so
   // leaving it to the real clock put these fixtures out of the window on 2026-11-24 (#2269).
   const NOW = new Date("2026-11-17T18:00:00.000Z");
   const merge: FleetEvent = {
