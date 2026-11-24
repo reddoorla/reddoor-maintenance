@@ -48,7 +48,13 @@ Across all 78 rows, 14 would read at least one new page.
 - _"Contact-like" is a narrower class than it looks._ Unqualified prefixes matched `/contact-lenses`, "Consultation tips", `/events` labelled "Schedule" and `/blog/how-to-book-a-trip`. On one fixture, contact links ranked first with no cap filled all 19 seats.
 - _Query strings cut both ways._ Round 4 stopped `?orderby=` variants from filling seats, and round 5 found that the same rule dropped every plain-permalink WordPress site (`/?page_id=N`) to its home page alone. Round 5's fix then demoted a home page whose own address carries a query, and fetched utm URLs in place of clean ones. The fix that held is the identity-plus-allow-list rule above.
 
-**Review.** Seven Opus rounds. Rounds 1 to 5 were dirty, and the five-round stop asked the operator. He approved a sixth round, which was dirty with three regressions from round 5's own fix, and then a seventh. The record is in the workspace decision file `2026-11-23-2255-w3-maintenance-round-5-stop.md`.
+**Review.** Nine Opus rounds. Rounds 1 to 5 were dirty, and the five-round stop asked the operator. He then approved rounds 6, 7, 8 and 9 one at a time, each looking at the previous fix alone. Rounds 6, 7 and 8 were each dirty, and each time with regressions from the previous round's own fix:
+
+- round 6 found 3;
+- round 7 found 3 (the identity rebuilt through `URLSearchParams` re-encoded the query; over-truncation when robots.txt names an index and its child; an order-dependent `sitemap-same-host`);
+- round 8 found 2 small ones. The off-origin count was taken over raw spellings while `urlCount` was deduped by fetch address, so the report could read "2 of the 1 addresses it lists". And an empty query segment next to a tracking key made a second seat.
+
+Round 9 was clean, with one nit. Its reviewer fuzzed the counts over 120 random sitemaps across four entry origins, up to 24 orderings each. The control was round 7's code, where the same probe failed on all four origins (for example, off-origin 4 against a urlCount of 2). With the fix in place, every trial passed. The nit, and four older behaviours it reproduced, are filed as #2274. The record is in the workspace decision file `2026-11-23-2255-w3-maintenance-round-5-stop.md`.
 
 Fixers ran on Haiku from written finding lists. Three times a fixer stopped because a finding's rule contradicted an existing test, and I chose the narrower rule each time rather than edit an assertion:
 
@@ -56,11 +62,11 @@ Fixers ran on Haiku from written finding lists. Three times a fixer stopped beca
 - content variants rank after distinct paths;
 - a lone sort link is fetched as listed.
 
-Round 6's (c) is filed as #2270.
+Round 6's (c) is filed as #2270. Round 7's three older items are #2271.
 
 **Honest accounting.**
 
 - `cockpit/tests/legacy/recently-lane.ssr.test.ts` "keeps the lane at its cut of 20 rows" fails on `main` as well as here (checked 2026-11-24 06:15 UTC). It reads `new Date()`, so it is clock-dependent. Nothing in this change reaches it.
 - Generated report text changed on the website, so an operator override on a stored report that matched the old `original` text no longer applies (named in #387).
 
-Usage across the three sessions that built and reviewed this: about $18.28 (first session, which also built the website half) + $27.36 (second, which also ran the website's seven rounds) + this session's figure in the workspace journal.
+Usage across the three sessions that built and reviewed this: about $18.28 (first session, which also built the website half) + $27.36 (second, which also ran the website's seven rounds) + $20.86 (third, rounds 4 to 8) + the fourth session's figure (round 8's fix and round 9) in the workspace journal.
