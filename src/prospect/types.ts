@@ -296,6 +296,30 @@ export type CrawlResult = {
      */
     truncated?: boolean;
   };
+  /**
+   * How the pages were chosen, so the report can state its denominator. Absent
+   * on reports stored before it was recorded: read absence as "not measured".
+   */
+  selection?: {
+    /** Distinct pages of this site the crawl knew of and was allowed to read
+     *  (the home page, its links, the sitemap) before the page cap. With
+     *  `pages.length`: "we read 20 of the 95 pages we found". */
+    pagesConsidered: number;
+    /** Where the sitemap was read from: a robots.txt `Sitemap:` line, else
+     *  `/sitemap.xml`, `/sitemap_index.xml` or `/wp-sitemap.xml`. Null when
+     *  none was found. */
+    sitemapSource: string | null;
+    /** Listed URLs written on another scheme or the other side of `www.` from
+     *  the address the site answers on. They are read as this site's pages
+     *  (older reports dropped them, uncounted); the mismatch is a finding. */
+    sitemapOffOrigin: number;
+    sitemapOffOriginExample: string | null;
+    /** Listed URLs on another scheme or `www.` host where nothing says which one
+     *  the site answers on (the entry we read was http, say, and the sitemap is
+     *  https). Not counted as a fault; the check that reads them is unmeasured.
+     *  Absent on reports stored before it existed. */
+    sitemapAmbiguousOrigin?: number;
+  };
   llmsTxt: { present: boolean; firstLine: string | null };
   /** Per sidecar, the error that stopped us fetching it, or null. A fetch that
    *  FAILED must never be reported as "the site has no robots.txt" — that would
@@ -378,6 +402,14 @@ export type BuyerQuestion = {
   quotable: boolean;
   page: string | null;
   evidence: string | null;
+  /**
+   * Set when the model said `no` and the question's key words are on a page
+   * we crawled: the verdict was then made `unknown`, because "your site does
+   * not answer this" is not ours to say about words the site does use. The
+   * report prints "we did not find a direct answer in the N pages we read".
+   * Absent on reports stored before the check existed.
+   */
+  notFound?: { term: string; page: string };
 };
 
 export type Fix = {
