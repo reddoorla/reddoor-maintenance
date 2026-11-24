@@ -14,6 +14,9 @@ export function item(over: Partial<ProspectAuditListItem> = {}): ProspectAuditLi
     opened_at: null,
     chosen_terms: null,
     claimed_at: null,
+    approved_at: null,
+    withdrawn_at: null,
+    superseded_by: null,
     ...over,
   };
 }

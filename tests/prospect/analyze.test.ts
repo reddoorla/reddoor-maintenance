@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { analyzeSite, buildAnalyzeInput, AnalyzeSchema } from "../../src/prospect/analyze.js";
-import { questionSetFor } from "../../src/prospect/questions.js";
+import {
+  analyzeSite,
+  buildAnalyzeInput,
+  AnalyzeSchema,
+  KEY_TERMS,
+} from "../../src/prospect/analyze.js";
+import { ALL_GOALS, questionSetFor } from "../../src/prospect/questions.js";
 import { runChecks } from "../../src/prospect/checks.js";
 import { extractPage } from "../../src/prospect/extract.js";
 import type { CrawlResult, PageCapture } from "../../src/prospect/types.js";
@@ -363,11 +368,13 @@ describe("analyzeSite", () => {
     expect(result.business).toContain("Acme Roofing");
     // The fixture's first question is `partial` citing a price range that does
     // not appear on the crawled page. Evidence verification nulls the quote,
-    // and an unsupported positive verdict is then downgraded — so `no`, not
-    // `partial`. This assertion used to read `partial`, which was the bug: a
-    // verdict survived the evidence that justified it being thrown away.
+    // and an unsupported positive verdict is then downgraded. This assertion
+    // first read `partial` (a verdict survived the evidence that justified it
+    // being thrown away), then `no`, which printed "your site does not answer
+    // this" about a question the model said it did answer (W3, B-04). It is
+    // `unknown` now: out of the score, and never an absence.
     expect(result.buyerQuestions[0]!.evidence).toBeNull();
-    expect(result.buyerQuestions[0]!.answered).toBe("no");
+    expect(result.buyerQuestions[0]!.answered).toBe("unknown");
   });
 
   it("rejects output that does not match the schema", async () => {
@@ -573,14 +580,16 @@ describe("verifyEvidence — a positive verdict must be supported", () => {
     return result.buyerQuestions[0]!;
   };
 
-  it("downgrades a `partial` with no evidence to `no`", async () => {
+  // W3: these four read `no` until the audit-system review. A verdict we cannot
+  // confirm is our gap, so it is `unknown`; `no` printed it as their absence.
+  it("downgrades a `partial` with no evidence to `unknown`", async () => {
     const q = await ask({ answered: "partial", page: null, evidence: null });
-    expect(q.answered).toBe("no");
+    expect(q.answered).toBe("unknown");
   });
 
-  it("downgrades a `yes` with no evidence to `no`", async () => {
+  it("downgrades a `yes` with no evidence to `unknown`", async () => {
     const q = await ask({ answered: "yes", page: null, evidence: null });
-    expect(q.answered).toBe("no");
+    expect(q.answered).toBe("unknown");
   });
 
   // The evidence was nulled out because it wasn't a real quote — so the verdict
@@ -592,7 +601,7 @@ describe("verifyEvidence — a positive verdict must be supported", () => {
       evidence: "a sentence that appears nowhere on the page",
     });
     expect(q.evidence).toBeNull();
-    expect(q.answered).toBe("no");
+    expect(q.answered).toBe("unknown");
   });
 
   it("downgrades when the cited page was never crawled", async () => {
@@ -601,7 +610,7 @@ describe("verifyEvidence — a positive verdict must be supported", () => {
       page: "https://acme.example/never-crawled",
       evidence: "Body copy number 0.",
     });
-    expect(q.answered).toBe("no");
+    expect(q.answered).toBe("unknown");
   });
 
   it("leaves a genuinely supported verdict alone", async () => {
@@ -643,5 +652,373 @@ describe("fix rationales may not promise engine outcomes", () => {
     expect(system).toMatch(
       /Never predict\s+what an answer engine will cite, repeat, rank or recommend/,
     );
+  });
+});
+
+// W3, from the audit-system review (B-04): a `no` is the commonest headline and
+// the one claim with no receipt. Before it stands, the question's key words are
+// looked for in everything we crawled; a hit makes it `unknown`, naming the
+// word and the page, so the report can say what it did not find, and where it
+// looked, instead of asserting an absence.
+describe("checkAbsence — a `no` is checked against everything we crawled", () => {
+  const withPages = (texts: string[]): CrawlResult => ({
+    ...crawl(0),
+    pages: texts.map((t, i) => page(`https://acme.example/q${i}`, html(`Page ${i}`, t))),
+  });
+  const askNo = async (c: CrawlResult, id = "cost") =>
+    (
+      await analyzeSite("https://acme.example/", c, runChecks(c), {
+        run: async () => ({
+          ...validOutput,
+          buyerQuestions: validOutput.buyerQuestions.map((q) =>
+            q.id === id ? { ...q, answered: "no" as const, page: null, evidence: null } : q,
+          ),
+        }),
+      })
+    ).buyerQuestions.find((q) => q.id === id)!;
+
+  it("makes a `no` unknown when the question's words are on a crawled page the model did not read, and names them", async () => {
+    // W3 review round 1: only text past what the model was shown can overturn
+    // its `no`, so the term sits past the 1,500 characters of page q1 that
+    // were sent. The assertion is the one it always was.
+    const after = `${"Filler sentence. ".repeat(120)}Our pricing starts with a free call.`;
+    const q = await askNo(withPages(["Welcome.", after]));
+    expect(q.answered).toBe("unknown");
+    expect(q.notFound).toEqual({ term: "pricing", page: "https://acme.example/q1" });
+  });
+
+  it("leaves a `no` standing when the term is inside the text the model read (W3 review round 1)", async () => {
+    const q = await askNo(withPages(["Welcome.", "Our pricing starts with a free call."]));
+    expect(q.answered).toBe("no");
+    expect(q.notFound).toBeUndefined();
+  });
+
+  it("leaves a `no` standing when only footer boilerplate matches (W3 review round 1)", async () => {
+    // Words that every footer and form carries, past the window the model read.
+    // None is a phrase the question's answer would use, so none may flip it.
+    const footer = `${"Filler sentence. ".repeat(120)}Terms apply. Our address is listed. Reviews from our staff and owner. Cash welcome. Open hours on the sign. Free quote form. We'll get back to you.`;
+    const q = await askNo(withPages([footer]), "where");
+    expect(q.answered).toBe("no");
+    expect(q.notFound).toBeUndefined();
+    const who = await askNo(withPages([footer]), "who-does-it");
+    expect(who.answered).toBe("no");
+  });
+
+  it("a chosen question needs two different words to flip a `no` (W3 review round 1)", async () => {
+    // "Do you assemble your trellises in-house?" has the words assemble, trellises, house.
+    const chosenNo = (c: CrawlResult) =>
+      analyzeSite(
+        "https://acme.example/",
+        c,
+        runChecks(c),
+        {
+          run: async () => ({
+            ...validOutput,
+            buyerQuestions: validOutput.buyerQuestions.map((q, i) =>
+              i === 0
+                ? { ...q, id: "chosen-1", answered: "no" as const, page: null, evidence: null }
+                : q,
+            ),
+          }),
+        },
+        "unknown",
+        null,
+        { questions: ["Do you assemble your trellises in-house?"] },
+      );
+    const after = (text: string) => `${"Filler sentence. ".repeat(120)}${text}`;
+
+    const one = await chosenNo(withPages(["Welcome.", after("Tenant house rules apply.")]));
+    const oneQ = one.buyerQuestions.find((q) => q.id === "chosen-1")!;
+    expect(oneQ.answered).toBe("no");
+    expect(oneQ.notFound).toBeUndefined();
+
+    const two = await chosenNo(withPages(["Welcome.", after("We assemble trellises here.")]));
+    const twoQ = two.buyerQuestions.find((q) => q.id === "chosen-1")!;
+    expect(twoQ.answered).toBe("unknown");
+    expect(twoQ.notFound?.page).toBe("https://acme.example/q1");
+  });
+
+  it("flips a `no` on a page the model was never sent (W3 review round 1)", async () => {
+    // Twelve pages go to the model; the thirteenth is not sent, so its text is
+    // unseen and may overturn the `no`.
+    const pages = Array.from({ length: 12 }, () => "Welcome.");
+    pages.push("Our fees are listed below.");
+    const q = await askNo(withPages(pages));
+    expect(q.answered).toBe("unknown");
+    expect(q.notFound).toEqual({ term: "fees", page: "https://acme.example/q12" });
+  });
+
+  it("leaves a `no` standing when none of the words is anywhere we read", async () => {
+    const q = await askNo(withPages(["Welcome.", "We roof buildings."]));
+    expect(q.answered).toBe("no");
+    expect(q.notFound).toBeUndefined();
+  });
+
+  it("finds words past the 1,500 characters the model was shown", async () => {
+    const long = `${"Filler sentence. ".repeat(120)}Our fees are listed below.`;
+    expect(long.indexOf("fees")).toBeGreaterThan(1500);
+    const q = await askNo(withPages([long]));
+    expect(q.answered).toBe("unknown");
+    expect(q.notFound?.term).toBe("fees");
+  });
+});
+
+// W3 review round 2. Boilerplate and bare words must not flip a `no`.
+describe("checkAbsence — boilerplate and bare words (W3 review round 2)", () => {
+  const withPages = (texts: string[]): CrawlResult => ({
+    ...crawl(0),
+    pages: texts.map((t, i) => page(`https://acme.example/q${i}`, html(`Page ${i}`, t))),
+  });
+  const askNo = async (c: CrawlResult, id: string) =>
+    (
+      await analyzeSite("https://acme.example/", c, runChecks(c), {
+        run: async () => ({
+          ...validOutput,
+          buyerQuestions: validOutput.buyerQuestions.map((q) =>
+            q.id === id ? { ...q, answered: "no" as const, page: null, evidence: null } : q,
+          ),
+        }),
+      })
+    ).buyerQuestions.find((q) => q.id === id)!;
+  const filler = "Filler sentence. ".repeat(120);
+
+  it("MAJOR (6): a footer repeated on every page, with only genuine boilerplate, leaves a `no` standing", async () => {
+    // The footer sits past the window the model read, on both pages. It is
+    // genuine non-answering boilerplate: nothing in it is a who-for phrase.
+    const footer = "Privacy policy · Cookie settings · © 2026 Example Co · Follow us";
+    const q = await askNo(
+      withPages([`${filler}Welcome. ${footer}`, `${filler}Our studio. ${footer}`]),
+      "who-for",
+    );
+    expect(q.answered).toBe("no");
+    expect(q.notFound).toBeUndefined();
+  });
+
+  it("MAJOR (6, round 3): a price repeated in the same footer on two pages past the window flips a `no` to unknown", async () => {
+    // Removing repeated runs hid this: the same sentence on two pages is
+    // exactly the text past the model's window that the check must search.
+    const price = "Starter plan costs $49 per month and Growth plan costs $99 per month.";
+    const q = await askNo(
+      withPages([`${filler}Welcome. ${price}`, `${filler}Our studio. ${price}`]),
+      "cost",
+    );
+    expect(q.answered).toBe("unknown");
+    expect(q.notFound?.page).toBe("https://acme.example/q0");
+  });
+
+  it("MAJOR (6, round 3): a who-for footer repeated on three pages past the window flips a `no` to unknown", async () => {
+    const footer = "We serve dental practices across the county.";
+    const q = await askNo(
+      withPages([
+        `${filler}Welcome. ${footer}`,
+        `${filler}Our studio. ${footer}`,
+        `${filler}Contact. ${footer}`,
+      ]),
+      "who-for",
+    );
+    expect(q.answered).toBe("unknown");
+    expect(q.notFound).toEqual({ term: "We serve", page: "https://acme.example/q0" });
+  });
+
+  it("MAJOR (6): a bare footer word such as Industries no longer flips a `no`", async () => {
+    const q = await askNo(
+      withPages([`${filler}Welcome. Industries Accredited 24/7 Directions`]),
+      "who-for",
+    );
+    expect(q.answered).toBe("no");
+    expect(q.notFound).toBeUndefined();
+  });
+
+  it("MAJOR (6) control: the same phrase on one page's body, past the window, still flips the `no`", async () => {
+    const q = await askNo(
+      withPages([`${filler}Welcome.`, `${filler}We work with Leeds businesses.`]),
+      "who-for",
+    );
+    expect(q.answered).toBe("unknown");
+    expect(q.notFound).toEqual({ term: "We work with", page: "https://acme.example/q1" });
+  });
+});
+
+// W3 review round 4, finding 1. A key term must be a phrase an answer would use:
+// a bare word is on pages that do not answer the question, and a hit past the
+// model's window then flips a real `no`.
+describe("checkAbsence — key terms are phrases, not bare words (W3 review round 4)", () => {
+  const withPages = (texts: string[]): CrawlResult => ({
+    ...crawl(0),
+    pages: texts.map((t, i) => page(`https://acme.example/q${i}`, html(`Page ${i}`, t))),
+  });
+  const askNo = async (c: CrawlResult, id: string) => {
+    const goal = ALL_GOALS.find((g) => questionSetFor(g).questions.some((q) => q.id === id))!;
+    const set = questionSetFor(goal);
+    return (
+      await analyzeSite(
+        "https://acme.example/",
+        c,
+        runChecks(c),
+        {
+          run: async () => ({
+            ...validOutput,
+            buyerQuestions: set.questions.map((q) => ({
+              id: q.id,
+              answered: "no" as const,
+              quotable: false,
+              page: null,
+              evidence: null,
+            })),
+          }),
+        },
+        goal,
+      )
+    ).buyerQuestions.find((q) => q.id === id)!;
+  };
+  const filler = "Filler sentence. ".repeat(120);
+
+  it("no key term matches a single bare word", () => {
+    const bare = [
+      "bring",
+      "demo",
+      "markets",
+      "stage",
+      "stages",
+      "phases",
+      "payment",
+      "delivery",
+      "accessible",
+      "API",
+      "tour",
+      "tours",
+      "regions",
+      "exclusive",
+      "discounts",
+      "margins",
+      "commissions",
+      "training",
+      "minimum",
+      "facility",
+      "amenities",
+      "showroom",
+      "bus",
+      "parking",
+      "transit",
+      "insurance",
+      "availability",
+      "inventory",
+      "compliance",
+      "compliant",
+      "hipaa",
+      "rates",
+      "fees",
+      "pricing",
+      "testimonials",
+      "returns",
+      "refunds",
+      "shipping",
+      "ships",
+      "visa",
+      "paypal",
+      "elevator",
+      "wheelchair",
+      "ada",
+      "urgent",
+      "emergency",
+      "timeline",
+      "turnaround",
+      "discovery",
+      "walkthrough",
+      "integration",
+      "waitlist",
+      "territory",
+      "complimentary",
+      "encrypted",
+      "headquarters",
+      "metro",
+      "subway",
+    ];
+    for (const [id, re] of Object.entries(KEY_TERMS)) {
+      for (const word of bare) {
+        expect(re.test(word), `${id} matched the bare word "${word}"`).toBe(false);
+      }
+    }
+  });
+
+  it.each([
+    ["my-input", "We bring twenty years of joinery know-how to every job."],
+    ["demo-content", "Book a demo."],
+    ["territory", "We are growing into new markets next year."],
+    ["process", "We move through every stage with you."],
+    ["payment", "Secure payment portal login is on the account page."],
+    ["shipping", "Fast delivery of great service to every door."],
+    ["accessibility", "Our team is accessible by phone all week."],
+    ["integration", "Read our API docs for the full reference."],
+    ["what-on-site", "Take a virtual tour from your sofa."],
+  ])(
+    "a bare word in a sentence on a page past the window does not flip a `no` (%s)",
+    async (id, sentence) => {
+      const q = await askNo(withPages([`${filler}${sentence}`]), id);
+      expect(q.answered).toBe("no");
+      expect(q.notFound).toBeUndefined();
+    },
+  );
+
+  it.each([
+    ["payment", "We accept insurance from most carriers."],
+    ["shipping", "Shipping is free on every order."],
+    ["getting-there", "Free parking is behind the building."],
+    ["minimum", "Our minimum order is ten units."],
+  ])(
+    "a phrase an answer would use still flips a `no` past the window (%s)",
+    async (id, sentence) => {
+      const q = await askNo(withPages([`${filler}${sentence}`]), id);
+      expect(q.answered).toBe("unknown");
+      expect(q.notFound?.page).toBe("https://acme.example/q0");
+    },
+  );
+});
+
+// W3 review round 4, finding 2. Navigation text the model was sent is not
+// evidence of anything unseen: a hit whose surroundings the model read is discarded.
+describe("checkAbsence — text the model was sent does not overturn a `no` (W3 review round 4)", () => {
+  const nav = "Home New Patients Services Contact";
+  const same = (i: number, body: string) =>
+    page(`https://acme.example/q${i}`, html("Acme Dental", body));
+  const askFirstVisit = async (pages: PageCapture[]) => {
+    const c: CrawlResult = { ...crawl(0), pages };
+    const set = questionSetFor("book");
+    return (
+      await analyzeSite(
+        "https://acme.example/",
+        c,
+        runChecks(c),
+        {
+          run: async () => ({
+            ...validOutput,
+            buyerQuestions: set.questions.map((q) => ({
+              id: q.id,
+              answered: "no" as const,
+              quotable: false,
+              page: null,
+              evidence: null,
+            })),
+          }),
+        },
+        "book",
+      )
+    ).buyerQuestions.find((q) => q.id === "first-visit")!;
+  };
+  const filler = "Filler sentence. ".repeat(120);
+
+  it("the same navigation on 13 pages, one of them not sent, leaves a `no` standing", async () => {
+    const pages = Array.from({ length: 13 }, (_, i) => same(i, `${nav}. Welcome.`));
+    const q = await askFirstVisit(pages);
+    expect(q.answered).toBe("no");
+    expect(q.notFound).toBeUndefined();
+  });
+
+  it("a hit whose surroundings the model was not sent still flips a `no`", async () => {
+    const pages = Array.from({ length: 12 }, (_, i) => same(i, `${nav}. Welcome.`));
+    pages.push(same(12, `${filler}Home New patients: our intake is online.`));
+    const q = await askFirstVisit(pages);
+    expect(q.answered).toBe("unknown");
+    expect(q.notFound).toEqual({ term: "New patients", page: "https://acme.example/q12" });
   });
 });

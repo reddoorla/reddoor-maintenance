@@ -1680,6 +1680,84 @@ function sidecarChecks(
     );
   }
 
+  // THE SITEMAP'S OWN ADDRESSES (W3, the audit-system review's TEC-01 and
+  // SEO-06). A sitemap listing `http://` or the other side of `www.` for the
+  // address the site answers on is read as this site's pages (crawl.ts
+  // `toSameOrigin`), so the crawl is not short of pages; it is still a fault,
+  // because every crawler that trusts the file is sent through a redirect, or
+  // to a host that may not answer, for every page it lists.
+  const WHY_SAME_HOST =
+    "A sitemap should list each page at the address it answers on. Listing another scheme or the other side of www. sends every crawler that reads it through a redirect for every page.";
+  const sel = crawl.selection;
+  const SAME_HOST = "A sitemap on the address your site answers on";
+  if (!sitemapMeasured) {
+    // A sitemap we could not read is our gap, never a finding and never "none".
+    out.push(
+      unknown(
+        "sitemap-same-host",
+        SAME_HOST,
+        WHY_SAME_HOST,
+        "quick",
+        "we could not read the sitemap on this run",
+      ),
+    );
+  } else if (!crawl.sitemap.present) {
+    out.push(
+      skip("sitemap-same-host", SAME_HOST, WHY_SAME_HOST, "quick", "this site has no sitemap"),
+    );
+  } else if (sel === undefined || crawl.sitemap.truncated !== false) {
+    // Without the stored selection, or from a sitemap we read only in part, a
+    // mismatch may be in the part we did not read: a truncated read may not
+    // become a finding.
+    out.push(
+      unknown(
+        "sitemap-same-host",
+        SAME_HOST,
+        WHY_SAME_HOST,
+        "quick",
+        sel === undefined ? undefined : "we did not read every sitemap the site lists",
+      ),
+    );
+  } else {
+    const off = sel.sitemapOffOrigin;
+    const ambiguous = sel.sitemapAmbiguousOrigin ?? 0;
+    if (off > 0) {
+      out.push(
+        check(
+          "sitemap-same-host",
+          SAME_HOST,
+          WHY_SAME_HOST,
+          "quick",
+          false,
+          `${off} of the ${crawl.sitemap.urlCount} addresses it lists are written like ${sel.sitemapOffOriginExample ?? "another host"}, not on ${crawl.origin}`,
+        ),
+      );
+    } else if (ambiguous > 0) {
+      // Another scheme or www. host, and nothing says which one the site uses:
+      // neither a pass nor a fault.
+      out.push(
+        unknown(
+          "sitemap-same-host",
+          SAME_HOST,
+          WHY_SAME_HOST,
+          "quick",
+          "we could not tell which address the site answers on",
+        ),
+      );
+    } else {
+      out.push(
+        check(
+          "sitemap-same-host",
+          SAME_HOST,
+          WHY_SAME_HOST,
+          "quick",
+          true,
+          "no address it lists is written on another scheme or www. host",
+        ),
+      );
+    }
+  }
+
   // REPORTED, NEVER FAILED — and this is a reconciliation, not a softening.
   //
   // `checks.ts` already took llms.txt out of the Findability score, on the
@@ -3358,7 +3436,18 @@ export function httpChecks(http: HttpFindings | null): SiteCheck[] {
  * form, a control we could not reach, a browser pass that never ran) and reads
  * as unmeasured. A form we could not press is our gap, never their defect.
  */
-function formInteractionChecks(probes: (FormProbe | null | undefined)[]): SiteCheck[] {
+/** A probe verdict's evidence, led by the form it is about when the probe
+ *  recorded one: "the 8-field form on /contact: the browser blocks it". */
+function namedForm(probe: FormProbe, how: string | null): string {
+  const said = how ?? "";
+  if (!probe.form) return said;
+  return said ? `${probe.form}: ${said}` : probe.form;
+}
+
+function formInteractionChecks(
+  pages: { extract: PageExtract; formProbe?: FormProbe | null | undefined }[],
+  probes: (FormProbe | null | undefined)[],
+): SiteCheck[] {
   const WHY_EMPTY =
     "Somebody who taps send too early should be told what is missing. A form that submits anyway puts a blank enquiry in your inbox and tells them it worked, so they never follow up and you have nothing to follow up on.";
   const WHY_EMAIL =
@@ -3375,6 +3464,35 @@ function formInteractionChecks(probes: (FormProbe | null | undefined)[]): SiteCh
   const neverTried = probes.every((p) => p === undefined);
   if (neverTried) {
     const NOTE = "we did not try a form on this run";
+    return [
+      unknown(
+        "form-rejects-empty",
+        "A form that catches an empty submission",
+        WHY_EMPTY,
+        "quick",
+        NOTE,
+      ),
+      unknown(
+        "form-rejects-bad-email",
+        "A form that catches a mistyped email",
+        WHY_EMAIL,
+        "quick",
+        NOTE,
+      ),
+    ];
+  }
+
+  // A page with an enquiry form whose probe never ran (a timeout, a mismatch)
+  // is a form we did not try. A null on another page is no answer for it, so
+  // "no enquiry form to try" would be false (W3 review round 4).
+  // Paired through each page's own probe, never by index: `pages` has had the
+  // unusable pages dropped, `probes` has not, so an index would read another
+  // page's probe after a drop (W3 review round 5, finding 3).
+  const untried = pages.some(
+    (p) => p.formProbe === undefined && (p.extract.forms ?? []).some((f) => f.kind === "enquiry"),
+  );
+  if (!probe && untried) {
+    const NOTE = "we could not try every form";
     return [
       unknown(
         "form-rejects-empty",
@@ -3424,7 +3542,7 @@ function formInteractionChecks(probes: (FormProbe | null | undefined)[]): SiteCh
           WHY_EMPTY,
           "quick",
           probe.emptyRefused,
-          probe.emptyHow ?? "",
+          namedForm(probe, probe.emptyHow),
         ),
   ];
 
@@ -3450,7 +3568,7 @@ function formInteractionChecks(probes: (FormProbe | null | undefined)[]): SiteCh
             WHY_EMAIL,
             "quick",
             probe.invalidEmailRefused,
-            probe.invalidEmailHow ?? "",
+            namedForm(probe, probe.invalidEmailHow),
           ),
   );
 
@@ -3537,6 +3655,7 @@ export const TIER0_CHECK_KEYS = [
   "robots-not-blocking",
   "robots-names-sitemap",
   "sitemap-coverage",
+  "sitemap-same-host",
   "llms-txt",
   "analytics",
 ] as const;
@@ -3560,6 +3679,7 @@ export function runSiteChecks(
   const pages = set.pages.map((p) => ({
     url: p.page.url,
     extract: p.extract,
+    formProbe: p.page.formProbe,
     // Carried through so the browser checks can read what the render pass
     // observed without a second traversal of the capture list.
     vitals: p.page.vitals,
@@ -3636,7 +3756,10 @@ export function runSiteChecks(
     ...browserChecks(pages),
     ...dnsChecks(dns),
     ...httpChecks(http),
-    ...formInteractionChecks(crawl.pages.map((p) => p.formProbe)),
+    ...formInteractionChecks(
+      pages,
+      crawl.pages.map((p) => p.formProbe),
+    ),
     ...headerChecks(crawl.homeHeaders ?? {}, headersMeasured),
     ...sidecarChecks(crawl, linked, aliasOf),
     analyticsCheck(pages),

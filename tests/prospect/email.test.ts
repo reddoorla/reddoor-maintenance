@@ -226,6 +226,21 @@ describe("buildAuditEmail", () => {
     expect(withoutLink.html).toContain("could not be saved");
   });
 
+  it("W1: says the linked report is a draft, not approved, and 'do not send' for a partial run", () => {
+    const draft = buildAuditEmail(result(), { link: "https://dash.example/audit/abc123" });
+    expect(draft.html).toContain("Draft, not approved.");
+    expect(draft.html).not.toContain("Do not send.");
+
+    const partial = buildAuditEmail(result(), {
+      link: "https://dash.example/audit/abc123",
+      partial: true,
+    });
+    expect(partial.html).toContain("Do not send.");
+
+    // No link, nothing saved: there is no draft to describe.
+    expect(buildAuditEmail(result(), { link: null }).html).not.toContain("Draft, not approved.");
+  });
+
   it("escapes untrusted business name, fix text and stage error text in the HTML body", () => {
     const r = result({
       businessName: "<img src=x onerror=alert(1)> & Sons",
