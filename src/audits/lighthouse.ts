@@ -1,6 +1,6 @@
 import { writeFile, mkdtemp, rm, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { AuditResult, Site } from "../types.js";
 import { siteLabel } from "../util/site.js";
 import { lighthouseConfig } from "../configs/lighthouse.js";
@@ -11,6 +11,34 @@ import { readSiteConfig } from "./util/site-config.js";
 import { withFreePort } from "../util/free-port.js";
 import { portInUse, spawnOutput, withPortRetry } from "../util/port-retry.js";
 import { readJsonIfExists } from "../util/fs.js";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+
+/** The range package.json pins for @lhci/cli. The npx fallback names it, so a
+ *  machine without the package installed still runs this version. */
+export const LHCI_VERSION = "^0.16.0";
+
+/** The command that runs lhci. Prefers the @lhci/cli this package resolves,
+ *  run under node: `npx @lhci/cli` runs whatever the npm cache holds, which is
+ *  not the version the repo pins. Falls back to npx pinned to LHCI_VERSION when
+ *  the package is not installed (the published package runs on fleet sites). */
+export function lhciInvocation(
+  configPath: string,
+  resolve: (id: string) => string = (id) => createRequire(import.meta.url).resolve(id),
+): { cmd: string; args: string[] } {
+  const tail = ["autorun", `--config=${configPath}`];
+  try {
+    const pkgPath = resolve("@lhci/cli/package.json");
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as {
+      bin?: string | Record<string, string>;
+    };
+    const bin = typeof pkg.bin === "string" ? pkg.bin : pkg.bin?.lhci;
+    if (bin) return { cmd: process.execPath, args: [join(dirname(pkgPath), bin), ...tail] };
+  } catch {
+    // Not installed here: fall through to the pinned npx.
+  }
+  return { cmd: "npx", args: ["--yes", `@lhci/cli@${LHCI_VERSION}`, ...tail] };
+}
 
 type ManifestEntry = {
   url: string;
@@ -308,7 +336,8 @@ async function runCheckoutLhci(
   let raw: SpawnResult;
   const checkedAt = new Date().toISOString();
   try {
-    raw = await spawn("npx", ["--yes", "@lhci/cli", "autorun", `--config=${configPath}`], {
+    const lhci = lhciInvocation(configPath);
+    raw = await spawn(lhci.cmd, lhci.args, {
       cwd: site.path,
       timeoutMs: 5 * 60_000,
     });
@@ -378,7 +407,8 @@ async function deployedLighthouse(
   let raw: SpawnResult;
   const checkedAt = new Date().toISOString();
   try {
-    raw = await spawn("npx", ["--yes", "@lhci/cli", "autorun", `--config=${configPath}`], {
+    const lhci = lhciInvocation(configPath);
+    raw = await spawn(lhci.cmd, lhci.args, {
       cwd: workDir,
       // 3 serial cold runs of a slow deployed site (lhci's own maxWaitForLoad
       // ~45-60s each) + first-use Chrome download can plausibly exceed 3 min →
