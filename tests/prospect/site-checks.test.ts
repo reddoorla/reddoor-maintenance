@@ -1050,6 +1050,11 @@ describe("each check fires on the thing it is named for", () => {
     expect(status("User-agent: *\nDisallow: /\nAllow: /\n")).toBe("pass");
     // Two wildcard groups are one group.
     expect(status("User-agent: *\nDisallow: /\n\nUser-agent: *\nAllow: /*\n")).toBe("pass");
+    // Only the home page open, every other page shut, is a blanket block
+    // (review round 3): the rule deciding an ordinary page covers the root.
+    expect(status("User-agent: *\nAllow: /$\nDisallow: /\n")).toBe("fail");
+    // RFC 9309 allows a lone CR as a line ending.
+    expect(status("User-agent: *\rDisallow: /\r")).toBe("fail");
     // Only the wildcard groups decide: a bot whose name holds a "*", or an
     // empty User-agent line, is not everyone.
     expect(status("User-agent: *\nDisallow: /\n\nUser-agent: bad*bot\nAllow: /\n")).toBe("fail");

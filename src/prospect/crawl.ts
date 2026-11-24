@@ -42,7 +42,8 @@ export function parseRobots(txt: string): RobotsGroup[] {
   const groups: RobotsGroup[] = [];
   let current: RobotsGroup | null = null;
   let lastWasAgent = false;
-  for (const rawLine of txt.split(/\r?\n/)) {
+  // RFC 9309: a line ends at CR, LF or CRLF.
+  for (const rawLine of txt.split(/\r\n|\r|\n/)) {
     const line = (rawLine.split("#")[0] ?? "").trim();
     if (!line) continue;
     const idx = line.indexOf(":");
@@ -141,7 +142,7 @@ export function robotsAllowsUs(robotsTxt: string | null, url: string, agent: str
 }
 
 /** The rule that decides `path`: the longest pattern that matches it, and on a
- *  tie the Allow (RFC 9309 2.2.2), whichever line came first. Null when no rule
+ *  tie the Allow (RFC 9309 2.2.2); between two equal Allows, the later line. Null when no rule
  *  matches. An empty `Disallow:` is the conventional "nothing is disallowed" and
  *  matches nothing, which `robotsPathMatches` already returns false for. */
 export function decidingRule(rules: RobotsRule[], path: string): RobotsRule | null {

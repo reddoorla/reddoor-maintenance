@@ -592,6 +592,13 @@ describe("priceSignal — the phrasings real sites use", () => {
         "price-signal",
       ),
     ).toBe(false);
+    // "fines herbes" is a herb mix, not a penalty (review round 3).
+    expect(
+      met(
+        checkGoal("enquire", "inferred", crawl("Omelette aux fines herbes from $14."), null),
+        "price-signal",
+      ),
+    ).toBe(true);
     // A legal practice's own fees are prices, even beside the words a statute uses.
     expect(
       met(
