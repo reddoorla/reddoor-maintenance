@@ -733,12 +733,17 @@ function shortDay(ymd: string): string {
 }
 
 export function leadsView(p: LeadPeriods): LeadsView {
-  let change = "";
-  if (p.prior30 === 0) change = p.last30 > 0 ? "new" : "";
-  else {
-    const pct = Math.round(((p.last30 - p.prior30) / p.prior30) * 100);
-    change = pct > 0 ? `up ${pct}%` : pct < 0 ? `down ${Math.abs(pct)}%` : "no change";
-  }
+  const pct = p.prior30 === 0 ? 0 : Math.round(((p.last30 - p.prior30) / p.prior30) * 100);
+  const change =
+    p.prior30 === 0
+      ? p.last30 > 0
+        ? "new"
+        : ""
+      : pct > 0
+        ? `up ${pct}%`
+        : pct < 0
+          ? `down ${Math.abs(pct)}%`
+          : "no change";
   return {
     last30: p.last30,
     prior30: p.prior30,
