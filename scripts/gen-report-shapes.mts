@@ -148,10 +148,12 @@ const deps: PipelineDeps = {
       ask: async (query: string) => ({
         answer:
           query.toLowerCase().includes("acme") || query.toLowerCase().includes("who is")
-            ? "Acme Roofing is a commercial roofer that has served Boise since 1994."
+            ? "Acme Roofing responds within five business days and works on residential roofs. Acme Roofing is rated five stars for responding within five business days."
             : "Treasure Valley Roofing and Boise Commercial Roofing are the usual names here.",
+        // The producer keeps `answer` as the branded `fullAnswer` (probes.ts), so the
+        // accuracy quotes are read from it.
         fullAnswer:
-          "Acme Roofing has served Boise since 1994 and works across the Treasure Valley.",
+          "Acme Roofing responds within five business days and works on residential roofs. Acme Roofing is rated five stars for responding within five business days.",
         citedDomains: ["yelp.com", "acme.example"],
       }),
     },
@@ -195,18 +197,35 @@ const deps: PipelineDeps = {
   accuracy: {
     run: async () => ({
       assertions: [
+        // R4 fix 9: the quotes are real. The site quote is in rich.html, and each engine
+        // quote is in the mocked fullAnswer, so one row is contradicted and one is
+        // unverified with its contradiction kept and a topic read off its text.
         {
-          claim: "Acme Roofing has served Boise since 1994",
-          engineQuote: "has served Boise since 1994",
+          claim: "Acme Roofing responds within five business days.",
+          engineQuote: "responds within five business days",
           verdict: "contradicted" as const,
-          siteQuote: "roofing across Boise since 2004",
-          searchTerms: ["1994", "2004"],
+          siteQuote: "usually within two business days",
+          searchTerms: ["business days"],
           subject: "prospect" as const,
           topic: "other" as const,
           contradiction: {
-            attribute: "founding year",
-            engineValue: "1994",
-            siteValue: "2004",
+            attribute: "response time",
+            engineValue: "five business days",
+            siteValue: "two business days",
+          },
+        },
+        {
+          claim: "Acme Roofing is rated five stars for its response time.",
+          engineQuote: "rated five stars for responding within five business days",
+          verdict: "contradicted" as const,
+          siteQuote: "usually within two business days",
+          searchTerms: ["business days"],
+          subject: "prospect" as const,
+          topic: "other" as const,
+          contradiction: {
+            attribute: "response time",
+            engineValue: "five business days",
+            siteValue: "two business days",
           },
         },
         {
