@@ -9,6 +9,7 @@ import {
 } from "../../src/prospect/claude-code.js";
 import { envAnalyzeDeps, envEngines } from "../../src/prospect/pipeline.js";
 import { PROBE_MODEL } from "../../src/prospect/probes.js";
+import { withCostScope } from "../../src/prospect/run-record.js";
 
 /** A fake `claude -p` subprocess that records what it was asked to run and
  *  replies with a canned transcript. Every stdout fixture in this file is
@@ -104,6 +105,17 @@ describe("childEnv", () => {
 });
 
 describe("claudeCodeAnalyzeDeps", () => {
+  it("records the envelope's total_cost_usd into the enclosing cost scope", async () => {
+    const { run } = fakeRun({
+      stdout: JSON.stringify({ ...ANALYZE_ENVELOPE, total_cost_usd: 0.31 }),
+    });
+    const scoped = await withCostScope(() =>
+      claudeCodeAnalyzeDeps(run).run({ system: "S", user: "U" }),
+    );
+    expect(scoped.costUsd).toBe(0.31);
+    expect(scoped.calls).toBe(1);
+  });
+
   it("runs claude -p with the analyze contract: our system prompt, opus, a schema, no tools", async () => {
     const { run, calls } = fakeRun({ stdout: JSON.stringify(ANALYZE_ENVELOPE) });
     const out = await claudeCodeAnalyzeDeps(run).run({ system: "SYSTEM TEXT", user: "USER TEXT" });

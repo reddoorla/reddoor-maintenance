@@ -5,6 +5,7 @@ import { z } from "zod";
 import { AccuracySchema } from "./accuracy.js";
 import { AnalyzeSchema, type AnalyzeDeps } from "./analyze.js";
 import { domainOf, PROBE_MODEL, type VisibilityEngine } from "./probes.js";
+import { recordModelCost } from "./run-record.js";
 
 /**
  * The subscription-auth path: every model call is a `claude -p` subprocess
@@ -167,6 +168,8 @@ type ResultEnvelope = {
   is_error?: boolean;
   result?: unknown;
   structured_output?: unknown;
+  /** What the CLI reports this call cost (the money spent, even on an error). */
+  total_cost_usd?: number;
 };
 
 /** One line of `--output-format stream-json`. Assistant/user events wrap an
@@ -249,6 +252,9 @@ export function claudeCodeAnalyzeDeps(run: ClaudeCodeRun = defaultClaudeCodeRun)
           `claude -p (analyze) printed something other than the JSON envelope: ${res.stdout.slice(0, 200)}`,
         );
       }
+      // Recorded before the error checks below: a call that reports an error
+      // still spent the money.
+      recordModelCost(envelope.total_cost_usd);
       if (envelope.is_error || envelope.subtype !== "success") {
         throw new Error(
           `claude -p (analyze) failed (${envelope.subtype ?? "unknown"}): ${String(envelope.result ?? "").slice(0, 400)}`,
@@ -369,6 +375,7 @@ export function claudeCodeAccuracyRun(run: ClaudeCodeRun = defaultClaudeCodeRun)
         `claude -p (accuracy) printed something other than the JSON envelope: ${res.stdout.slice(0, 200)}`,
       );
     }
+    recordModelCost(envelope.total_cost_usd);
     if (envelope.is_error || envelope.subtype !== "success") {
       throw new Error(
         `claude -p (accuracy) failed (${envelope.subtype ?? "unknown"}): ${String(envelope.result ?? "").slice(0, 400)}`,
@@ -423,6 +430,9 @@ export function claudeCodeEngine(run: ClaudeCodeRun = defaultClaudeCodeRun): Vis
             return [];
           }
         });
+      for (const ev of events) {
+        if (ev.type === "result") recordModelCost(ev.total_cost_usd);
+      }
 
       // Only results of actual WebSearch calls count, and only successful
       // ones: a failed search's error prose can carry URLs (support pages,

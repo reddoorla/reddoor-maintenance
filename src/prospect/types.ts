@@ -12,6 +12,7 @@ import type { FormProbe } from "./interaction.js";
 import type { AccessibilityResult, AxePageResult, PageVitals } from "./accessibility.js";
 import type { SiteCheck } from "./site-checks.js";
 import type { JourneyMap } from "./journey.js";
+import type { RunRecord } from "./run-record.js";
 
 // Re-exported so a consumer reading `probes.answerSpace` off the `./audit`
 // entry can name its type, rather than only matching it structurally. The
@@ -674,4 +675,8 @@ export type ProspectAuditResult = {
    *  each statement sorted by SOURCE, never by truth. See accuracy.ts. Optional
    *  for reports stored before the stage was wired in. */
   accuracy?: StageResult<AccuracyResult>;
+  /** Bookkeeping, not findings: how long each stage took and what the model
+   *  stages reported. Optional so stored rows from before it existed still
+   *  type-check. No report renders it. See run-record.ts. */
+  run?: RunRecord;
 };

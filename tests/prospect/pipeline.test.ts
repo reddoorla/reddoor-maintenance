@@ -16,6 +16,7 @@ import {
   type PipelineDeps,
 } from "../../src/prospect/pipeline.js";
 import type { CrawlDeps, FetchResponse } from "../../src/prospect/crawl.js";
+import { recordModelCost } from "../../src/prospect/run-record.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = (name: string): string =>
@@ -336,6 +337,41 @@ describe("runProspectAudit", () => {
         }),
       ),
     ).rejects.toThrow(/500/);
+  });
+
+  it("times every stage that ran and records what the analyze stage cost", async () => {
+    // Each clock read advances 1000, so any stage that ran shows ms === 1000.
+    let t = 0;
+    const now = () => {
+      t += 1000;
+      return t;
+    };
+    const result = await runProspectAudit(
+      HOME,
+      { business: "Acme Roofing" },
+      deps({
+        now,
+        analyze: {
+          run: async () => {
+            recordModelCost(0.42);
+            return analyzeOutput;
+          },
+        },
+      }),
+    );
+    expect(result.run?.stages.analyze?.ms).toBeGreaterThan(0);
+    for (const name of ["crawl", "checks", "analyze", "probes"]) {
+      expect(result.run?.stages[name], name).toBeDefined();
+    }
+    expect(result.run?.stages.analyze?.costUsd).toBe(0.42);
+    expect(result.run?.stages.analyze?.calls).toBe(1);
+    expect(result.run?.totalCostUsd).toBe(0.42);
+  });
+
+  it("leaves totalCostUsd null when no stage recorded a cost (the API path)", async () => {
+    const result = await runProspectAudit(HOME, { business: "Acme Roofing" }, deps());
+    expect(result.run?.totalCostUsd).toBeNull();
+    expect(result.run?.stages.analyze?.costUsd).toBeUndefined();
   });
 
   it("reports stage progress to the caller", async () => {

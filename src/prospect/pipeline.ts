@@ -21,6 +21,7 @@ import {
   type VisibilityEngine,
 } from "./probes.js";
 import { runLighthouse } from "./lighthouse.js";
+import { withCostScope, type CostStore, type RunRecord, type StageRecord } from "./run-record.js";
 import { checkAssets, type AssetCheck, type AssetCheckDeps } from "./assets.js";
 import { checkBasics, type BasicsCheck, type BasicsDeps, type BasicsProbe } from "./basics.js";
 import { checkGoal, type GoalFit, type SiteGoal } from "./goals.js";
@@ -242,6 +243,8 @@ export type PipelineDeps = {
    *  already exposes for its own tests. */
   probeSleep?: (ms: number) => Promise<void>;
   onStage?: (name: StageName, status: "start" | "ok" | "fail", detail?: string) => void;
+  /** Milliseconds clock for the run record. A test passes a fake one. */
+  now?: () => number;
 };
 
 export type ProspectAuditOptions = {
@@ -267,17 +270,31 @@ export type ProspectAuditOptions = {
   questions?: string[];
 };
 
-async function stage<T>(
+const defaultClock = (): number => performance.now();
+
+/** Runs one stage and writes its record. The cost store is kept on a failure
+ *  too: a model call that errors still spent money. */
+async function timedStage<T>(
   name: StageName,
   deps: PipelineDeps,
+  stages: RunRecord["stages"],
   fn: () => Promise<T>,
 ): Promise<StageResult<T>> {
+  const clock = deps.now ?? defaultClock;
+  const store: CostStore = { costUsd: 0, calls: 0 };
+  const started = clock();
+  const record = (): StageRecord => ({
+    ms: clock() - started,
+    ...(store.calls > 0 ? { costUsd: store.costUsd, calls: store.calls } : {}),
+  });
   deps.onStage?.(name, "start");
   try {
-    const data = await fn();
+    const { value } = await withCostScope(fn, store);
+    stages[name] = record();
     deps.onStage?.(name, "ok");
-    return { ok: true, data };
+    return { ok: true, data: value };
   } catch (err) {
+    stages[name] = record();
     const error = err instanceof Error ? err.message : String(err);
     deps.onStage?.(name, "fail", error);
     return { ok: false, error };
@@ -308,11 +325,19 @@ export async function runProspectAudit(
   // could persist and email — and the mode is stamped on the result below,
   // because which instrument produced an audit is part of the measurement.
   const llmAuth = llmAuthMode();
+  // Bookkeeping for the run record: each stage's wall time and what its model
+  // calls reported. See run-record.ts.
+  const clock = deps.now ?? defaultClock;
+  const stages: RunRecord["stages"] = {};
+  const stage = <T>(name: StageName, d: PipelineDeps, fn: () => Promise<T>) =>
+    timedStage(name, d, stages, fn);
   const crawlDeps = deps.crawl ?? defaultCrawlDeps();
   deps.onStage?.("crawl", "start");
   let crawlData: CrawlResult;
+  const crawlStarted = clock();
   try {
     crawlData = await crawlSite(url, crawlDeps);
+    stages.crawl = { ms: clock() - crawlStarted };
     deps.onStage?.("crawl", "ok");
   } catch (err) {
     deps.onStage?.("crawl", "fail", err instanceof Error ? err.message : String(err));
@@ -621,5 +646,18 @@ export async function runProspectAudit(
     http,
     goalFit,
     accuracy,
+    run: {
+      stages,
+      // The API path records no cost: its SDK calls do not go through
+      // recordModelCost. So a run with no subscription-path call reads null.
+      totalCostUsd: sumCosts(stages),
+    },
   };
+}
+
+function sumCosts(stages: RunRecord["stages"]): number | null {
+  const costs = Object.values(stages)
+    .map((s) => s?.costUsd)
+    .filter((c): c is number => c !== undefined);
+  return costs.length > 0 ? costs.reduce((a, b) => a + b, 0) : null;
 }
