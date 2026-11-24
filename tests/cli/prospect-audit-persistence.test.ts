@@ -12,7 +12,11 @@ import { offlineNetworkDeps } from "../_helpers/offline-prospect.js";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { reviewLine, runProspectAuditCommand } from "../../src/cli/commands/prospect-audit.js";
+import {
+  auditStatus,
+  reviewLine,
+  runProspectAuditCommand,
+} from "../../src/cli/commands/prospect-audit.js";
 import { finishProspectAudit } from "../../src/db/prospect-audits.js";
 import type { PipelineDeps } from "../../src/prospect/pipeline.js";
 import type { ProspectAuditResult } from "../../src/prospect/types.js";
@@ -169,6 +173,20 @@ describe("prospect-audit CLI — Turso persistence", () => {
       reviewLine({ ...complete, probes: { ok: false } } as unknown as ProspectAuditResult, token),
     ).toMatch(/^DO NOT SEND:/);
     expect(reviewLine(complete, null)).toBeNull();
+  });
+
+  it("TEC-07: a failed Lighthouse alone leaves the run complete; no page shows it", () => {
+    const ok = { ok: true };
+    const failed = { ok: false, error: "lhci exited 1" };
+    const base = { checks: ok, lighthouse: failed, analyze: ok, probes: ok };
+    expect(auditStatus(base as unknown as ProspectAuditResult)).toBe("complete");
+    expect(reviewLine(base as unknown as ProspectAuditResult, "abcdefghijklmnopqrstuv")).toMatch(
+      /^Draft, not approved/,
+    );
+    // Control: a stage the page does show still makes it partial.
+    expect(auditStatus({ ...base, analyze: failed } as unknown as ProspectAuditResult)).toBe(
+      "partial",
+    );
   });
 
   it("--json still persists to Turso and includes the link in the JSON payload", async () => {

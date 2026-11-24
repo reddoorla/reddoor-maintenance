@@ -435,11 +435,11 @@ export async function runVisibilityProbes(
           citedDomains,
           snippet: reply.answer.slice(0, SNIPPET_CHARS),
           truncated: reply.answer.length > SNIPPET_CHARS,
-          // Branded only — see ProbeAnswer.fullAnswer. The accuracy stage needs
-          // the whole answer to tell "the site never says this" apart from "the
-          // claim was past where we stopped reading", and only branded answers
-          // make claims about the business itself.
-          ...(kind === "branded" ? { fullAnswer: reply.answer } : {}),
+          // Every kind keeps the whole answer. The accuracy stage reads only the
+          // branded ones (see ProbeAnswer.fullAnswer), but category answers are
+          // the raw material for a re-cut, and five of seven were cut to the
+          // snippet's 300 characters and could not be recovered later.
+          fullAnswer: reply.answer,
           askedAt: new Date().toISOString(),
         });
       },
