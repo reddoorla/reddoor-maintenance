@@ -125,6 +125,32 @@ describe("buildAnalyzeInput", () => {
   });
 });
 
+describe("buildAnalyzeInput — today's date", () => {
+  it("tells the model today's date, taken from the injected clock in UTC", () => {
+    const c = crawl();
+    const march = buildAnalyzeInput(
+      "https://acme.example/",
+      c,
+      runChecks(c),
+      questionSetFor("unknown"),
+      null,
+      new Date("2026-03-04T12:00:00Z"),
+    );
+    expect(march.user).toContain("2026-03-04");
+
+    const november = buildAnalyzeInput(
+      "https://acme.example/",
+      c,
+      runChecks(c),
+      questionSetFor("unknown"),
+      null,
+      new Date("2026-11-24T08:00:00Z"),
+    );
+    expect(november.user).toContain("2026-11-24");
+    expect(november.user).not.toContain("2026-03-04");
+  });
+});
+
 describe("buildAnalyzeInput — untrusted page text", () => {
   it("wraps each page's text in a per-call random fence, not the static, guessable <page_text> tag", () => {
     // A fence whose name a page can predict is a fence a page can close early

@@ -1007,6 +1007,100 @@ describe("each check fires on the thing it is named for", () => {
     expect(byKey(targeted, "robots-not-blocking")?.status).toBe("pass");
   });
 
+  it("does not read a Disallow: / in another crawler's group as a blanket block", () => {
+    // Wix-shaped: the wildcard group allows everything; PetalBot's group blocks itself.
+    const wix = runSiteChecks(
+      exemplary({ robotsTxt: "User-agent: *\nAllow: /\n\nUser-agent: PetalBot\nDisallow: /\n" }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(wix, "robots-not-blocking")?.status).toBe("pass");
+
+    // The wildcard group disallows only a section; GPTBot's group blocks itself.
+    const section = runSiteChecks(
+      exemplary({
+        robotsTxt: "User-agent: *\nDisallow: /wp-admin/\n\nUser-agent: GPTBot\nDisallow: /\n",
+      }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(section, "robots-not-blocking")?.status).toBe("pass");
+
+    // Still a fail when the blanket rule comes after a crawler-specific group.
+    const afterGroup = runSiteChecks(
+      exemplary({ robotsTxt: "User-agent: Googlebot\nDisallow:\n\nUser-agent: *\nDisallow: /" }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(afterGroup, "robots-not-blocking")?.status).toBe("fail");
+  });
+
+  it("reads the wildcard rules the way the crawl does: longest match, and /* covers the root", () => {
+    const status = (robotsTxt: string) =>
+      byKey(
+        runSiteChecks(exemplary({ robotsTxt }), exemplaryChecks(), "Acme Roofing"),
+        "robots-not-blocking",
+      )?.status;
+    // Blocked for everyone, spelled two more ways.
+    expect(status("User-agent: *\nDisallow: /*\n")).toBe("fail");
+    expect(status("User-agent: *\nDisallow: / # closed\n")).toBe("fail");
+    // An Allow that covers the root and is at least as long wins.
+    expect(status("User-agent: *\nDisallow: /\nAllow: /*\n")).toBe("pass");
+    // An equal-length Allow wins a tie, whichever line came first.
+    expect(status("User-agent: *\nDisallow: /\nAllow: /\n")).toBe("pass");
+    // Two wildcard groups are one group.
+    expect(status("User-agent: *\nDisallow: /\n\nUser-agent: *\nAllow: /*\n")).toBe("pass");
+    // Only the home page open, every other page shut, is a blanket block
+    // (review round 3): the rule deciding an ordinary page covers the root.
+    expect(status("User-agent: *\nAllow: /$\nDisallow: /\n")).toBe("fail");
+    // RFC 9309 allows a lone CR as a line ending.
+    expect(status("User-agent: *\rDisallow: /\r")).toBe("fail");
+    // A rule that matches only some paths never turns a blanket block into a
+    // pass, whatever letters it holds (review round 4).
+    for (const extra of [
+      "Disallow: /a",
+      "Allow: /a",
+      "Allow: /an",
+      "Allow: /*-",
+      "Allow: /*page",
+      "Allow: /*e$",
+      "Allow: /*a",
+      "Allow: /blog/",
+      "Allow: /*.html$",
+    ]) {
+      expect(status(`User-agent: *\nDisallow: /\n${extra}\n`), extra).toBe("fail");
+    }
+    // Section rules alone are not a blanket block.
+    for (const only of ["Disallow: /*.php", "Disallow: /*?", "Disallow: /*/", "Disallow: /$"]) {
+      expect(status(`User-agent: *\n${only}\n`), only).toBe("pass");
+    }
+    // Every spelling of "everything" blocks, and an everything-Allow at least as
+    // long lifts it.
+    // A shorter everything-Allow does not lift a longer everything-Disallow.
+    expect(status("User-agent: *\nDisallow: /*\nAllow: /\n")).toBe("fail");
+    for (const all of ["Disallow: /*$", "Disallow: *", "Disallow: /**"]) {
+      expect(status(`User-agent: *\n${all}\n`), all).toBe("fail");
+    }
+    // Only the wildcard groups decide: a bot whose name holds a "*", or an
+    // empty User-agent line, is not everyone.
+    expect(status("User-agent: *\nDisallow: /\n\nUser-agent: bad*bot\nAllow: /\n")).toBe("fail");
+    expect(status("User-agent:\nDisallow: /\n\nUser-agent: *\nAllow: /\n")).toBe("pass");
+    // Home page only is not the whole site.
+    expect(status("User-agent: *\nDisallow: /$\n")).toBe("pass");
+  });
+
+  it("quotes the line that blocks the site, not a line the file does not have", () => {
+    const c = byKey(
+      runSiteChecks(
+        exemplary({ robotsTxt: "User-agent: *\nDisallow: /* # closed\n" }),
+        exemplaryChecks(),
+        "Acme Roofing",
+      ),
+      "robots-not-blocking",
+    );
+    expect(c?.evidence).toBe("Disallow: /* applies to every crawler");
+  });
+
   it("catches schema pointing at a domain they no longer use", () => {
     const old = JSON.stringify({
       "@type": "Organization",

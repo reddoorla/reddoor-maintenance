@@ -569,6 +569,73 @@ describe("priceSignal — the phrasings real sites use", () => {
       ).toBe(false);
     }
   });
+
+  it("reads a fine as a penalty only in the forms no price uses (fined, a fine of)", () => {
+    // B-09's bare word "fines" was split out of this PR (the operator, 11-24,
+    // workspace decisions/2026-11-24-1749-qw-checks-round-6-dirty.md): review
+    // rounds 3 to 6 found it hiding real prices in four senses. These stay prices.
+    for (const text of [
+      "Omelette aux fines herbes from $14.",
+      "Fines–herbes salmon from $28.",
+      "Stay in Fines Creek cabins from $120 a night.",
+      "Crusher fines starting at $38 per yard, delivered.",
+      "Screened fines ranging from $30 to $55 a yard.",
+    ]) {
+      expect(met(checkGoal("enquire", "inferred", crawl(text), null), "price-signal"), text).toBe(
+        true,
+      );
+    }
+    expect(
+      met(
+        checkGoal("enquire", "inferred", crawl("Violators are fined starting at $500."), null),
+        "price-signal",
+      ),
+    ).toBe(false);
+
+    // "a fine of" is a penalty; the adjective "fine" is not.
+    expect(
+      met(
+        checkGoal(
+          "enquire",
+          "inferred",
+          crawl("Late returns carry a fine of $5 a day, from $5 per item."),
+          null,
+        ),
+        "price-signal",
+      ),
+    ).toBe(false);
+    // A legal practice's own fees are prices, even beside the words a statute uses.
+    expect(
+      met(
+        checkGoal(
+          "enquire",
+          "inferred",
+          crawl("Defense for a first offense, from $2,500 flat fee. Civil suits from $5,000."),
+          null,
+        ),
+        "price-signal",
+      ),
+    ).toBe(true);
+    expect(
+      met(
+        checkGoal("enquire", "inferred", crawl("Fine dining from $40 a plate."), null),
+        "price-signal",
+      ),
+    ).toBe(true);
+
+    // Control: an ordinary price next to ordinary words stays a price.
+    expect(
+      met(
+        checkGoal(
+          "enquire",
+          "inferred",
+          crawl("Consultations from $150; packages from $900."),
+          null,
+        ),
+        "price-signal",
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("orderRequirements", () => {

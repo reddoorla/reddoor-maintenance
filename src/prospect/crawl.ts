@@ -34,7 +34,7 @@ export const CLASSICAL_AGENTS = ["Googlebot", "Bingbot"] as const;
 
 export const ALL_AGENTS: string[] = [...AI_AGENTS, ...CLASSICAL_AGENTS];
 
-type RobotsRule = { type: "allow" | "disallow"; path: string; line: string };
+export type RobotsRule = { type: "allow" | "disallow"; path: string; line: string };
 type RobotsGroup = { agents: string[]; rules: RobotsRule[] };
 
 /** Parse robots.txt into agent groups. Consecutive `User-agent:` lines share one
@@ -43,7 +43,8 @@ export function parseRobots(txt: string): RobotsGroup[] {
   const groups: RobotsGroup[] = [];
   let current: RobotsGroup | null = null;
   let lastWasAgent = false;
-  for (const rawLine of txt.split(/\r?\n/)) {
+  // RFC 9309: a line ends at CR, LF or CRLF.
+  for (const rawLine of txt.split(/\r\n|\r|\n/)) {
     const line = (rawLine.split("#")[0] ?? "").trim();
     if (!line) continue;
     const idx = line.indexOf(":");
@@ -80,6 +81,16 @@ export function pathCoversRoot(pattern: string): boolean {
     .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&"))
     .join(".*");
   return new RegExp(`^${source}${anchored ? "$" : ""}`).test("/");
+}
+
+/** Does a robots.txt path pattern match every path on the site? `/`, `/*`,
+ *  `*`, `/**` and `/*$` do; `/$` (the home page alone) and `/a` do not. Read
+ *  off the pattern itself, so no sample path decides it. */
+export function matchesEveryPath(pattern: string): boolean {
+  const anchored = pattern.endsWith("$");
+  const body = anchored ? pattern.slice(0, -1) : pattern;
+  if (!body || (anchored && !body.endsWith("*"))) return false;
+  return /^\**\/?\**$/.test(body);
 }
 
 /**
@@ -134,16 +145,30 @@ export function robotsAllowsUs(robotsTxt: string | null, url: string, agent: str
     g.agents.some((a) => a !== "*" && (lower.includes(a) || a.includes(lower.split("/")[0] ?? ""))),
   );
   const matched = named.length > 0 ? named : groups.filter((g) => g.agents.includes("*"));
-  let best: { type: "allow" | "disallow"; length: number } | null = null;
-  for (const rule of matched.flatMap((g) => g.rules)) {
+  const best = decidingRule(
+    matched.flatMap((g) => g.rules),
+    path,
+  );
+  return best === null || best.type === "allow";
+}
+
+/** The rule that decides `path`: the longest pattern that matches it, and on a
+ *  tie the Allow (RFC 9309 2.2.2); between two equal Allows, the later line. Null when no rule
+ *  matches. An empty `Disallow:` is the conventional "nothing is disallowed" and
+ *  matches nothing, which `robotsPathMatches` already returns false for. */
+export function decidingRule(rules: RobotsRule[], path: string): RobotsRule | null {
+  let best: RobotsRule | null = null;
+  for (const rule of rules) {
     if (!robotsPathMatches(rule.path, path)) continue;
-    // An empty `Disallow:` is the conventional "nothing is disallowed" and
-    // matches nothing, which `robotsPathMatches` already returns false for.
-    if (best === null || rule.path.length > best.length) {
-      best = { type: rule.type, length: rule.path.length };
+    if (
+      best === null ||
+      rule.path.length > best.path.length ||
+      (rule.path.length === best.path.length && rule.type === "allow")
+    ) {
+      best = rule;
     }
   }
-  return best === null || best.type === "allow";
+  return best;
 }
 
 /** Can each agent fetch the site root? Only rules that cover "/" decide: a
