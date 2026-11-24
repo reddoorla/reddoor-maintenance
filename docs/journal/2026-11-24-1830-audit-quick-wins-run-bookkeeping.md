@@ -18,3 +18,12 @@ Landed in the "run bookkeeping" PR from `claude/qw-run`. Four items from the 11-
 **Defects met on the way.** After `main` was merged in, the full suite had one red: `tests/prospect/end-to-end.test.ts` lost the business name. Its analyze stub had stopped parsing under `AnalyzeSchema` when the model began answering our questions by id: no `id`s and no `categoryQueries`. So analyze had been failing inside this test on `main` too, and the test passed only because the probes still ran after it and found the name. COST-04's skip exposed it. The stub now answers the base set by id; every assertion is unchanged, and analyze and the probes both succeed in it. Pinning lhci broke `tests/cli/audit-lighthouse-failures.test.ts`, which put a fake `npx` on `PATH` that the pinned invocation no longer called; both cases timed out. The fix was the env seam, not a changed assertion.
 
 **Mutations, each red:** dropping the per-stage timing write in `timedStage()` (`pipeline.test.ts` "times every stage that ran…"); the TEC-07 status test against the old `auditStatus`.
+
+**Review: two rounds, Opus.** Round 1 (3 lenses) was dirty with four majors, each reproduced:
+
+- **Failed calls reported no cost.** The CLI exits 1 on an error envelope that still carries `total_cost_usd`, and the cost was read only after the exit-code check. So the first attempt of the very retry this PR adds, and every budget-capped probe, read as free; one probe read `totalCostUsd: null` after $2.10. Cost is now read from stdout before any check.
+- **The skip note was not client-safe.** It said "the analyze stage" and "paid" on a prospect's page. It now reads "Not run — the content analysis this test is built from could not be completed."
+- **The lhci pin was not held on fleet sites.** `@lhci/cli` is a devDependency here, so on a fleet site the resolver walked up from `dist` to the site's own copy, which onboarding pins at `^0.15.1`. A resolved copy outside `LHCI_VERSION` is now passed over for the pinned npx.
+- **The website said the visibility test "ran and failed" when it never ran.** The website's hand-copied list of skip messages did not know the new one. That fix is reddoorla/reddoor-website#394.
+
+The finding that `run` reaches the page source was already settled by the brief (top-10 item 9) and is stated in the PR. The minors are #2282 and #2283. Round 2 looked at the fixes alone and was clean; its one nit, that build metadata in a version fails the caret check, costs only a fall back to the same pinned version.
