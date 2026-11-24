@@ -2385,3 +2385,64 @@ describe("W3 review round 7 — one named sitemap written with two schemes is on
     expect(result.sitemap.truncated).toBe(false);
   });
 });
+
+// W3 review round 8, finding 1. The off-origin count is taken per fetch address,
+// as urlCount is, so it can never exceed urlCount: spellings of one address are
+// one entry, counted once with its worst verdict (off, then unsettled).
+describe("W3 review round 8 — the off-origin count never exceeds urlCount (finding 1)", () => {
+  const urlset = (urls: string[]): string =>
+    `<urlset>${urls.map((u) => `<url><loc>${u}</loc></url>`).join("")}</urlset>`;
+
+  it.each([
+    ["http and http://www.", ["http://acme.example/x", "http://www.acme.example/x"]],
+    [
+      "https, http and http://www.",
+      ["https://acme.example/x", "http://acme.example/x", "http://www.acme.example/x"],
+    ],
+    ["http and http://www., reversed", ["http://www.acme.example/x", "http://acme.example/x"]],
+    ["host case", ["http://acme.example/x", "http://ACME.example/x"]],
+    [
+      "café and its percent-encoding",
+      ["http://acme.example/café", "http://acme.example/caf%C3%A9"],
+    ],
+  ])("%s: one URL, sitemapOffOrigin 1", async (_label, locs) => {
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: { body: NO_MENU_HOME },
+      "https://acme.example/sitemap.xml": { body: urlset(locs) },
+    };
+    const result = await crawlSite(HOME, stubDeps(routes));
+    expect(result.sitemap.urlCount).toBe(1);
+    expect(result.selection?.sitemapOffOrigin).toBe(1);
+    expect(result.selection?.sitemapAmbiguousOrigin).toBe(0);
+  });
+
+  it("an unsettled www. spelling and its https twin: one URL, ambiguous 1, off 0", async () => {
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: { body: NO_MENU_HOME },
+      "https://acme.example/sitemap.xml": {
+        body: urlset(["https://www.acme.example/x", "https://acme.example/x"]),
+      },
+    };
+    const result = await crawlSite(HOME, stubDeps(routes));
+    expect(result.sitemap.urlCount).toBe(1);
+    expect(result.selection?.sitemapOffOrigin).toBe(0);
+    expect(result.selection?.sitemapAmbiguousOrigin).toBe(1);
+  });
+});
+
+// W3 review round 8, finding 2. Empty query segments are dropped with the
+// tracking keys, so a stray `&` does not make a second seat.
+describe("W3 review round 8 — empty query segments do not split a page (finding 2)", () => {
+  const ORIGIN = "https://acme.example";
+  const P = "https://acme.example/p?a=1";
+
+  it.each([
+    ["a trailing &", `${P}&utm_source=x&`],
+    ["a doubled &", "https://acme.example/p?utm_source=x&&a=1"],
+    ["a leading &", "https://acme.example/p?&a=1&utm_source=x"],
+  ])("%s: one seat, fetched as ?a=1", (_label, variant) => {
+    const { chosen, considered } = normalizeCandidates([HOME, variant, P], ORIGIN, 20, null);
+    expect(chosen).toEqual([HOME, P]);
+    expect(considered).toBe(2);
+  });
+});

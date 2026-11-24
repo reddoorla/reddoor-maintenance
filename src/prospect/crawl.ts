@@ -993,7 +993,9 @@ function rawQueryWithout(u: URL, drop: (key: string) => boolean): string {
   const kept = u.search
     .replace(/^\?/, "")
     .split("&")
-    .filter((segment) => !drop(keyOfSegment(segment)));
+    // An empty segment (a stray, doubled or trailing `&`) carries nothing, so it
+    // goes too, or `?a=1&` and `?a=1` took two seats (W3 review round 8, finding 2).
+    .filter((segment) => segment !== "" && !drop(keyOfSegment(segment)));
   const rest = kept.join("&");
   return rest === "" ? "" : `?${rest}`;
 }
@@ -1356,15 +1358,26 @@ async function fetchSidecars(
   let sitemapAmbiguousOrigin = 0;
   const sitemapUrls: string[] = [];
   const listedOnce = new Set<string>();
-  // The verdict is taken over each distinct listed spelling, before the same-site
-  // rewrite, so `https://` then `http://` of one address counts the same as the
-  // reverse (W3 review round 7, finding 3). Only the push into sitemapUrls is
-  // deduped by the address it would be fetched at.
-  for (const loc of new Set(listed)) {
+  // The verdict is taken over every listed spelling, before the same-site rewrite,
+  // so `https://` then `http://` of one address counts the same as the reverse
+  // (W3 review round 7, finding 3). The spellings are grouped by the address they
+  // would be fetched at, as urlCount is, and each group counts once with its worst
+  // verdict, so the count never exceeds urlCount ("2 of the 1 addresses", W3
+  // review round 8, finding 1).
+  const worst = new Map<string, { verdict: SitemapAddressVerdict; example: string }>();
+  const rank = (v: SitemapAddressVerdict): number => (v === "off" ? 2 : v === "unsettled" ? 1 : 0);
+  for (const loc of listed) {
     const verdict = sitemapAddressVerdict(loc, origin, redirectedFrom);
+    const key = toSameOrigin(loc, origin) ?? loc;
+    const seen = worst.get(key);
+    if (seen === undefined || rank(verdict) > rank(seen.verdict)) {
+      worst.set(key, { verdict, example: loc });
+    }
+  }
+  for (const { verdict, example } of worst.values()) {
     if (verdict === "off") {
       sitemapOffOrigin += 1;
-      sitemapOffOriginExample ??= loc;
+      sitemapOffOriginExample ??= example;
     } else if (verdict === "unsettled") {
       sitemapAmbiguousOrigin += 1;
     }
