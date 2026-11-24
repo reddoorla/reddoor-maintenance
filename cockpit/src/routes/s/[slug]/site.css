@@ -81,7 +81,7 @@ button.approve:hover:not(:disabled) {
   opacity: 0.85;
 }
 button.approve:active:not(:disabled) {
-  opacity: 0.7;
+  color: var(--ink-muted);
 }
 button.approve:focus-visible {
   outline: 2px solid var(--focus);
@@ -334,7 +334,7 @@ button.override-submit:hover:not(:disabled) {
   opacity: 0.85;
 }
 button.override-submit:active:not(:disabled) {
-  opacity: 0.7;
+  color: var(--ink-muted);
 }
 button.override-submit:focus-visible {
   outline: 2px solid var(--focus);
@@ -518,4 +518,27 @@ button.site-retest:disabled {
   font-size: 0.8rem;
   /* An email has no break opportunity; let it wrap rather than widen the table. */
   overflow-wrap: anywhere;
+}
+
+/* P1-127: leads by period. */
+.leads .leads-kv {
+  margin: 4px 0;
+}
+.leads .leads-kv .k {
+  display: inline-block;
+  min-width: 11rem;
+  color: var(--ink-muted);
+}
+.leads .leads-months {
+  border-collapse: collapse;
+  margin: 8px 0;
+}
+.leads .leads-months th,
+.leads .leads-months td {
+  padding: 2px 12px 2px 0;
+  text-align: left;
+}
+.leads .leads-months th {
+  font-weight: 400;
+  color: var(--ink-muted);
 }

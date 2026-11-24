@@ -2,7 +2,7 @@ import { error } from "@sveltejs/kit";
 import type { PageLoad } from "./$types";
 import { siteDashboardFromSnapshot } from "../../../../../src/dashboard/snapshot-views.js";
 import { fromSnapshot } from "../../../lib/snapshot.js";
-import { buildSiteView } from "../../../lib/site/view.js";
+import { buildSiteView, leadsView } from "../../../lib/site/view.js";
 
 // The page's actions POST to the cockpit's /api/* endpoint routes, which
 // carry their own auth and CSRF gates; this route only reads.
@@ -21,5 +21,6 @@ export const load: PageLoad = ({ parent, params }) =>
         data.alarm,
         params.slug,
       ),
+      leads: data.leads ? leadsView(data.leads) : null,
     };
   });

@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { openDb } from "../../src/db/client.js";
-import { createSubmission, countSubmissionsSinceBySite } from "../../src/db/submissions.js";
+import {
+  createSubmission,
+  countSubmissionsSinceBySite,
+  listLeadTimestampsForSite,
+} from "../../src/db/submissions.js";
 import type { Db } from "../../src/db/client.js";
 import type { FormType } from "../../src/reports/submission-row.js";
 
@@ -61,5 +65,19 @@ describe("countSubmissionsSinceBySite", () => {
     const counts = await countSubmissionsSinceBySite(db, SINCE);
     expect(counts.has("recGHOST")).toBe(false);
     expect([...counts.keys()].sort()).toEqual(["recA", "recB"]);
+  });
+});
+
+describe("listLeadTimestampsForSite (P1-127)", () => {
+  it("returns every lead of one site, all time, by the digest's lead rule", async () => {
+    const at = (await listLeadTimestampsForSite(db, "recA")).sort();
+    // a1 + a2 (read) + the one before the digest window; not the signup or either spam.
+    expect(at).toEqual([
+      "2026-07-14T00:00:00.000Z",
+      "2026-07-16T00:00:00.000Z",
+      "2026-07-16T00:00:00.000Z",
+    ]);
+    expect(await listLeadTimestampsForSite(db, "recB")).toEqual(["2026-07-16T00:00:00.000Z"]);
+    expect(await listLeadTimestampsForSite(db, "nope")).toEqual([]);
   });
 });

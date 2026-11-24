@@ -23,6 +23,7 @@ import { buildSiteAlarm, type SiteAlarmInputs } from "./site-alarm-verdict.js";
 import type { LatestDeps } from "../alerts/production-signals.js";
 import type { OverviewNight } from "../fleet-daily/read.js";
 import type { SiteDashboardData, SubmissionsPageLoad } from "./page-data.js";
+import { isCountedLead, leadPeriods } from "../reports/lead-periods.js";
 
 /**
  * Every cockpit page's data, derived from the one snapshot (`snapshot.ts`) instead
@@ -333,7 +334,18 @@ export function siteDashboardFromSnapshot(
     deps: s.deps,
   };
   const alarm = buildSiteAlarm(site, reports, s.baseUrl, now, inputs);
-  return { site, reports, submissions, spamTotals, alarm };
+  // P1-127: every lead the site ever had (the snapshot holds the whole table),
+  // not the capped list above.
+  const leads =
+    subs === null
+      ? null
+      : leadPeriods(
+          subs
+            .filter((r) => r.siteId === site.id && isCountedLead(r) && r.submittedAt !== null)
+            .map((r) => r.submittedAt as string),
+          now,
+        );
+  return { site, reports, submissions, leads, spamTotals, alarm };
 }
 
 /** `/submissions`. */

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { SiteView, Tile } from "../../../lib/site/view.js";
+  import type { LeadsView, SiteView, Tile } from "../../../lib/site/view.js";
   import { provideReportUis } from "../../../lib/site/report-ui.svelte.js";
   import ApproveButton from "../../../lib/site/ApproveButton.svelte";
   import WithdrawButton from "../../../lib/site/WithdrawButton.svelte";
@@ -16,7 +16,7 @@
   import siteCss from "./site.css?inline";
   import submissionCss from "../../../lib/submission/submission.css?inline";
 
-  let { data }: { data: { view: SiteView } } = $props();
+  let { data }: { data: { view: SiteView; leads?: LeadsView | null } } = $props();
   const v = $derived(data.view);
   provideReportUis();
 </script>
@@ -248,6 +248,32 @@
     {#each v.spam as s (s.label)}
       <div class="spam-kv"><span class="k">{s.label}</span> {s.n}</div>
     {/each}
+  </div>
+{/if}{#if data.leads}
+  {@const l = data.leads}
+  <div class="section leads">
+    <h2>Leads</h2>
+    <div class="leads-kv">
+      <span class="k">Last 30 days</span>
+      <strong>{l.last30}</strong>
+      <span class="muted">
+        {l.window} · previous 30 days {l.prior30}{#if l.change}
+          · {l.change}{/if}
+      </span>
+    </div>
+    <table class="leads-months">
+      <thead>
+        <tr>
+          {#each l.months as m (m.label)}<th>{m.label}</th>{/each}
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          {#each l.months as m (m.label)}<td>{m.count}</td>{/each}
+        </tr>
+      </tbody>
+    </table>
+    <div class="leads-kv"><span class="k">All time</span> <strong>{l.allTime}</strong></div>
   </div>
 {/if}{#if v.submissions}
   <div class="section submissions">

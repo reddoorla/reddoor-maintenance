@@ -127,6 +127,21 @@ export async function listNewSubmissions(db: Db, max = 200): Promise<SubmissionR
   return rows.map(rowFromDb);
 }
 
+/** When each of one site's leads arrived (ISO), every one of them: the input to
+ *  `leadPeriods` (P1-127). A lead is what `countSubmissionsSinceBySite` counts as
+ *  one: not spam, not a signup form. One column, so all time stays cheap. */
+export async function listLeadTimestampsForSite(db: Db, siteId: string): Promise<string[]> {
+  const signupList = sql.join(SIGNUP_FORM_TYPES.map((t) => sql`${t}`));
+  const rows = await db
+    .selectFrom("submissions")
+    .select("submitted_at")
+    .where("site_id", "=", siteId)
+    .where("status", "not in", ["spam", "spam_auto"])
+    .where(sql<SqlBool>`form_type not in (${signupList})`)
+    .execute();
+  return rows.flatMap((r) => (r.submitted_at === null ? [] : [r.submitted_at]));
+}
+
 /** Takes `{ id, name }` but filters by id alone. */
 export async function listSubmissionsForSite(
   db: Db,

@@ -69,6 +69,7 @@ const RICH: RawRecord = {
     "Netlify ID": "nlf-acme-1",
     "Report recipients (To)": "owner@acme.example.com",
     "Report recipients (CC)": "studio@reddoorla.com",
+    "Reddoor contact": "tim@reddoorla.com",
     "Copy — Intro": "Here's your monthly report.",
     "Copy — Contact": "Reply any time.",
     "Copy — Footer": "— the reddoor team",

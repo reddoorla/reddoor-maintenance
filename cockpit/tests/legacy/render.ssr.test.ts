@@ -1432,7 +1432,7 @@ describe("renderSiteDashboardHtml — preflight chip + send-blocker gate", () =>
     reportRow({ draftReady: true, approvedToSend: false, sentAt: null, period: "2026-07" });
 
   it("renders a green chip and an enabled button on a send-clean site", () => {
-    const html = renderSiteDashboardHtml(siteRow(), [
+    const html = renderSiteDashboardHtml(siteRow({ reddoorContact: "tim@reddoorla.com" }), [
       { ...pendingReport(), checklist: { ...COMPLETE_MAINTENANCE } },
     ]);
     expect(html).toContain("preflight: clear");

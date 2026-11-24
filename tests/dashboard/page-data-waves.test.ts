@@ -114,7 +114,13 @@ const COCKPIT_READS: Record<string, Matcher> = {
 const SITE_READS: Record<string, Matcher> = {
   listSubmissionsForSite: and(has('from "submissions"'), has("select *")),
   screenOutBuckets: has('from "spam_screenouts"'),
-  screenOutMarkedSpam: and(has('from "submissions"'), param("spam")),
+  screenOutMarkedSpam: and(
+    has('from "submissions"'),
+    param("spam"),
+    not(has('select "submitted_at"')),
+  ),
+  // P1-127: the leads panel. It binds "spam" too, so it is told apart by its one column.
+  listLeadTimestampsForSite: and(has('from "submissions"'), has('select "submitted_at"')),
   countNotifyBouncedForSite: and(has('from "submissions"'), param("bounced")),
   countUnreplayedDeadLettersForSlug: and(has('from "submission_deadletter"'), has("count(")),
   oldestUnreplayedDeadLetterForSlug: and(has('from "submission_deadletter"'), has("min(")),
@@ -275,7 +281,7 @@ describe("round trips per load", () => {
     const w = waves();
     const data = await loadSiteDashboard(db.withPlugin(w.plugin), "acme", NOW, BASE);
     expect(data?.site.name).toBe("Acme");
-    expect(w.count()).toBe(10);
+    expect(w.count()).toBe(11); // 10 + the leads panel's read (P1-127)
     expect(w.depth()).toBe(2);
   });
 

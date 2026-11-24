@@ -24,6 +24,7 @@ const NOT_MEASURED: EvidenceRecord = {
 const SITE = makeWebsiteRow({
   url: "https://acme.com",
   pointOfContact: "client@acme.com",
+  reddoorContact: "tim@reddoorla.com",
   headerImage: { url: "https://x/p.jpg", filename: "p.jpg", type: "image/jpeg" },
   netlifyId: "n1",
   deployStatus: "ready",

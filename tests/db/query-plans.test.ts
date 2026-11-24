@@ -422,6 +422,11 @@ function scenarios(state: { createdId: string; reservedId: string }): Scenario[]
       run: (db) => submissions.listSubmissionsForSite(db, { id: "recA", name: "Acme" }),
     },
     {
+      name: "listLeadTimestampsForSite (site page leads panel)",
+      covers: ["listLeadTimestampsForSite"],
+      run: (db) => submissions.listLeadTimestampsForSite(db, "recA"),
+    },
+    {
       name: "setSubmissionStatusRow",
       covers: ["setSubmissionStatusRow"],
       run: (db) => submissions.setSubmissionStatusRow(db, state.createdId, "read"),

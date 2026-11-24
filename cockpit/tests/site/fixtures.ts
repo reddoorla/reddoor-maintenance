@@ -34,6 +34,7 @@ export function siteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     maintenanceDay: "2026-05-01",
     testingDay: "2026-04-10",
     pointOfContact: "owner@site.example.com",
+    reddoorContact: "tim@reddoorla.com",
     headerImage: { url: "https://x/h.png", filename: "h.png", type: "image/png" },
     pScore: 87,
     rScore: 95,

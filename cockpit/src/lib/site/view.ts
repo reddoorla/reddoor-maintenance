@@ -34,6 +34,7 @@ import { assignTier, type SiteAlarmContext } from "../../../../src/dashboard/fle
 import { chipClass } from "../cockpit/view.js";
 import { buildSubmissionRowView, type SubmissionRowView } from "../submission/view.js";
 import { retestPlanForRow } from "../../../../src/retest/site-retest.js";
+import type { LeadPeriods } from "../../../../src/reports/lead-periods.js";
 
 /**
  * The `/s/:slug` page as plain data (#582). Every value the old string renderer
@@ -696,5 +697,57 @@ export function buildSiteView(
             shown: shown.map((s) => buildSubmissionRowView(s, now)),
             viewAllHref: `/submissions?site=${nameSlug}`,
           },
+  };
+}
+
+/** The site page's leads panel (P1-127). PURE. */
+export type LeadsView = {
+  last30: number;
+  prior30: number;
+  /** "up 48%", "down 10%", "no change", "new" (none before), or "" (none either side). */
+  change: string;
+  /** The current window as Pacific days, e.g. "Oct 25 – Nov 23". */
+  window: string;
+  months: Array<{ label: string; count: number }>;
+  allTime: number;
+};
+
+const MONTH_NAMES = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+function shortDay(ymd: string): string {
+  const [, m, d] = ymd.split("-").map(Number) as [number, number, number];
+  return `${MONTH_NAMES[m - 1]} ${d}`;
+}
+
+export function leadsView(p: LeadPeriods): LeadsView {
+  let change = "";
+  if (p.prior30 === 0) change = p.last30 > 0 ? "new" : "";
+  else {
+    const pct = Math.round(((p.last30 - p.prior30) / p.prior30) * 100);
+    change = pct > 0 ? `up ${pct}%` : pct < 0 ? `down ${Math.abs(pct)}%` : "no change";
+  }
+  return {
+    last30: p.last30,
+    prior30: p.prior30,
+    change,
+    window: `${shortDay(p.current.startDate)} – ${shortDay(p.current.endDate)}`,
+    months: p.months.map(({ month, count }) => {
+      const [y, m] = month.split("-") as [string, string];
+      return { label: `${MONTH_NAMES[Number(m) - 1]} '${y.slice(2)}`, count };
+    }),
+    allTime: p.allTime,
   };
 }
