@@ -1,6 +1,6 @@
 import { resolveNavigable } from "./journey.js";
 import { usablePages } from "./pages.js";
-import { decidingRule, parseRobots, pathCoversRoot } from "./crawl.js";
+import { matchesEveryPath, parseRobots, type RobotsRule } from "./crawl.js";
 import type { Scope } from "./goals.js";
 import type { PageVitals } from "./accessibility.js";
 import type { FormProbe } from "./interaction.js";
@@ -1535,16 +1535,27 @@ function sidecarChecks(
   } else {
     // Only the rules every crawler must follow: the `*` groups, merged, and no
     // group named for one bot (that is a policy, not an accident, and is
-    // reported per agent elsewhere). Read the way the crawl reads them, longest
-    // match and Allow on a tie. "The whole site" is decided on an ordinary
-    // page, by a rule that also covers the root: `Disallow: /$` shuts only the
-    // home page and `Disallow: /a` one section, so neither is this finding, but
-    // `Allow: /$` beside `Disallow: /` leaves only the home page open, and is.
+    // reported per agent elsewhere). "The whole site" is a Disallow that
+    // matches every path (`/`, `/*`, `*`, `/*$`), lifted only by an Allow that
+    // also matches every path and is at least as long (longest match, Allow on
+    // a tie, as the crawl reads it). A rule that matches some paths, Allow or
+    // Disallow, leaves a blanket block a blanket block; `Disallow: /$` or
+    // `Disallow: /a` alone shuts one page or one section and is not this
+    // finding. Decided on the patterns, never on a sample path, whose letters
+    // a rule like `Allow: /*a` would happen to match.
     const wildcard = parseRobots(crawl.robotsTxt)
       .filter((g) => g.agents.includes("*"))
-      .flatMap((g) => g.rules);
-    const page = decidingRule(wildcard, "/an-ordinary-page");
-    const blocked = page?.type === "disallow" && pathCoversRoot(page.path);
+      .flatMap((g) => g.rules)
+      .filter((r) => matchesEveryPath(r.path));
+    const longest = (type: "allow" | "disallow") =>
+      wildcard
+        .filter((r) => r.type === type)
+        .reduce<RobotsRule | null>((a, r) => (a && a.path.length >= r.path.length ? a : r), null);
+    const disallow = longest("disallow");
+    const allow = longest("allow");
+    const blocker =
+      disallow && !(allow && allow.path.length >= disallow.path.length) ? disallow : null;
+    const blocked = blocker !== null;
     out.push(
       check(
         "robots-not-blocking",
@@ -1553,7 +1564,7 @@ function sidecarChecks(
         "quick",
         !blocked,
         blocked
-          ? `${page.line.trim()} applies to every crawler`
+          ? `${blocker.line.trim()} applies to every crawler`
           : "nothing site-wide is disallowed",
       ),
     );

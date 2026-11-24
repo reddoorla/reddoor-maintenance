@@ -1055,6 +1055,32 @@ describe("each check fires on the thing it is named for", () => {
     expect(status("User-agent: *\nAllow: /$\nDisallow: /\n")).toBe("fail");
     // RFC 9309 allows a lone CR as a line ending.
     expect(status("User-agent: *\rDisallow: /\r")).toBe("fail");
+    // A rule that matches only some paths never turns a blanket block into a
+    // pass, whatever letters it holds (review round 4).
+    for (const extra of [
+      "Disallow: /a",
+      "Allow: /a",
+      "Allow: /an",
+      "Allow: /*-",
+      "Allow: /*page",
+      "Allow: /*e$",
+      "Allow: /*a",
+      "Allow: /blog/",
+      "Allow: /*.html$",
+    ]) {
+      expect(status(`User-agent: *\nDisallow: /\n${extra}\n`), extra).toBe("fail");
+    }
+    // Section rules alone are not a blanket block.
+    for (const only of ["Disallow: /*.php", "Disallow: /*?", "Disallow: /*/", "Disallow: /$"]) {
+      expect(status(`User-agent: *\n${only}\n`), only).toBe("pass");
+    }
+    // Every spelling of "everything" blocks, and an everything-Allow at least as
+    // long lifts it.
+    // A shorter everything-Allow does not lift a longer everything-Disallow.
+    expect(status("User-agent: *\nDisallow: /*\nAllow: /\n")).toBe("fail");
+    for (const all of ["Disallow: /*$", "Disallow: *", "Disallow: /**"]) {
+      expect(status(`User-agent: *\n${all}\n`), all).toBe("fail");
+    }
     // Only the wildcard groups decide: a bot whose name holds a "*", or an
     // empty User-agent line, is not everyone.
     expect(status("User-agent: *\nDisallow: /\n\nUser-agent: bad*bot\nAllow: /\n")).toBe("fail");

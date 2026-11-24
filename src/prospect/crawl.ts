@@ -82,6 +82,16 @@ export function pathCoversRoot(pattern: string): boolean {
   return new RegExp(`^${source}${anchored ? "$" : ""}`).test("/");
 }
 
+/** Does a robots.txt path pattern match every path on the site? `/`, `/*`,
+ *  `*`, `/**` and `/*$` do; `/$` (the home page alone) and `/a` do not. Read
+ *  off the pattern itself, so no sample path decides it. */
+export function matchesEveryPath(pattern: string): boolean {
+  const anchored = pattern.endsWith("$");
+  const body = anchored ? pattern.slice(0, -1) : pattern;
+  if (!body || (anchored && !body.endsWith("*"))) return false;
+  return /^\**\/?\**$/.test(body);
+}
+
 /**
  * Does a robots.txt path pattern match this path? RFC 9309 prefix semantics,
  * with `*` for any run of characters and `$` anchoring the end.
