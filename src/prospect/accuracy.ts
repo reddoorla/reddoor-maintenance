@@ -1199,9 +1199,9 @@ function siteSaysEngineValue(engineValue: string, siteQuote: string): boolean {
 /** The topics a text carries, read off its words as the website reads them (R4
  *  fix 5). The block below is a verbatim copy of TOPIC_TEXT and its helpers (PLATFORM,
  *  SCORE_FIGURE, NUM) from reddoor-website, src/lib/report/model.ts, at
- *  commit 8b241c22d293a1310217799e40d63b48d7f33cd1 (the head after its round-9
- *  fix, where TOPIC_TEXT holds only these six topics and the person and
- *  ownership patterns moved to PERSON_TEXT). named_person and ownership are deliberately omitted (operator decision,
+ *  commit 983f4c4d94063f78c2ba7860eb2807dec34450b3 (the head after its round-10
+ *  fix, where TOPIC_TEXT holds only these six topics; the excerpt person words
+ *  are PERSON_WORDS, read only for excerpts). named_person and ownership are deliberately omitted (operator decision,
  *  2026-11-24): the website no longer reads them off text. The website holds the
  *  reader-side copy: a change there is a change here. */
 
@@ -1342,7 +1342,7 @@ const TOPIC_TEXT: [Exclude<AssertionTopic, "other">, RegExp[]][] = [
       /\b(?:revenue|turnover)\b[^.]{0,40}\$\s?\d|\$\s?\d[^.]{0,40}\b(?:revenue|turnover)\b/i,
       /\b(?:brings? in|earns|grosses)\b[^.]{0,20}\$\s?\d/i,
       /\b(?:has|have|are|employs?)\s+(?:about |around |roughly |nearly |over |some )?\d[\d,]*\+?\s+people\b/i,
-      /\b(?:about |around |roughly |nearly |over |some )?\d[\d,]*\+?\s+people\s+work\b/i,
+      /\b(?:about |around |roughly |nearly |over |some )?\d[\d,]{0,12}\+?\s+people\s+work\b/i,
       /\bworkforce of (?:about |around |roughly |nearly |over )?\d/i,
       /\b(?:makes?|made|earns?|brings? in)\b[^.]{0,20}\d[\d,.]*\s*(?:million|billion)\s+dollars\b/i,
     ],
