@@ -1519,8 +1519,9 @@ function sameText(a: string, b: string): boolean {
 /** The topics a text carries, read off its words as the website reads them (R4
  *  fix 5). The block below is a verbatim copy of TOPIC_TEXT and its helpers (ci,
  *  PLATFORM, SCORE_FIGURE, NUM) from reddoor-website, src/lib/report/model.ts, at
- *  commit 9f3e33dd05dc93c6112ef72c5996fbde7a6ec20b (the head after its round-6
- *  fix). named_person and ownership are deliberately omitted (operator decision,
+ *  commit 2df892d045b0e698e1ff142c0eeae5ed35a5471a (the head after its round-8
+ *  fix, where TOPIC_TEXT holds only these six topics and the person and
+ *  ownership patterns moved to PERSON_TEXT). named_person and ownership are deliberately omitted (operator decision,
  *  2026-11-24): the website no longer reads them off text. The website holds the
  *  reader-side copy: a change there is a change here. */
 
