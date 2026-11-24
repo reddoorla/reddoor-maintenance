@@ -49,6 +49,9 @@ const crawlDeps: CrawlDeps = {
 const deps: PipelineDeps = {
   ...offlineNetworkDeps(),
   crawl: crawlDeps,
+  // Must parse under AnalyzeSchema: answers keyed by the base question set's ids,
+  // and three or more categoryQueries. An invalid stub fails analyze, and since
+  // COST-04 a failed analyze skips the probes, so the report loses the name.
   analyze: {
     run: async () => ({
       businessName: "Riverside Plumbing Co",
@@ -56,47 +59,52 @@ const deps: PipelineDeps = {
       entityClarity: { score: 60, missing: ["service area map"] },
       buyerQuestions: [
         {
-          question: "Do you offer emergency plumbing service?",
+          id: "cost",
           answered: "yes" as const,
           quotable: true,
           page: HOME,
           evidence: "24/7 Emergency Plumbing in Riverside County",
         },
         {
-          question: "What areas do you serve?",
+          id: "who-for",
           answered: "yes" as const,
           quotable: true,
           page: HOME,
           evidence: "Riverside County",
         },
         {
-          question: "Do you fix water heaters?",
+          id: "proof",
           answered: "yes" as const,
           quotable: true,
           page: HOME,
           evidence: "water heaters",
         },
         {
-          question: "Are you licensed and insured?",
+          id: "who-does-it",
           answered: "no" as const,
           quotable: false,
           page: null,
           evidence: null,
         },
         {
-          question: "Do you offer financing?",
+          id: "where",
           answered: "no" as const,
           quotable: false,
           page: null,
           evidence: null,
         },
         {
-          question: "What is your response time?",
+          id: "next-step",
           answered: "partial" as const,
           quotable: false,
           page: HOME,
           evidence: "same day",
         },
+      ],
+      categoryQueries: [
+        "emergency plumber Riverside County",
+        "water heater repair Riverside",
+        "24/7 plumber near Riverside CA",
       ],
       fixes: [
         {
