@@ -110,6 +110,13 @@ export const PROBES_SKIPPED = "skipped (--no-probes)";
  *  for the same reason as PROBES_SKIPPED. */
 export const ANALYZE_SKIPPED = "skipped — the checks stage failed";
 
+/** analyze failed on its own, after its one retry. The probe queries and the
+ *  accuracy stage both come from its output, so the paid stages are not run and
+ *  no model call is made for them. Exported for the same reason as the
+ *  constants above. */
+export const ANALYZE_FAILED_SKIP =
+  "skipped — the analyze stage failed, so the paid stages were not run";
+
 /** The asset check reads the same page extracts the checks stage does, so it
  *  has nothing to work from when that stage failed. Exported for the same
  *  reason as the constants above: consumers compare, they do not retype. */
@@ -389,26 +396,40 @@ export async function runProspectAudit(
   const analyze: StageResult<AnalyzeResult> = opts.technical
     ? { ok: false, error: TECHNICAL_SKIPPED }
     : checks.ok
-      ? await stage("analyze", deps, async () =>
+      ? await stage("analyze", deps, async () => {
           // The operator's goal, when we have one, decides which fixed question
           // set gets asked — so it must reach this stage rather than being
           // applied after it. Without one we ask the universal set; the model
           // still infers `primaryGoal` for the goal-fit section either way.
-          analyzeSite(
-            url,
-            crawlData,
-            checks.data,
-            deps.analyze ?? envAnalyzeDeps(),
-            opts.goal ?? "unknown",
-            operatorFit,
-            // #676. Threaded exactly like `goal`: it must reach the stage that
-            // asks, not be applied after it.
-            {
-              ...(opts.terms ? { terms: opts.terms } : {}),
-              ...(opts.questions ? { questions: opts.questions } : {}),
-            },
-          ),
-        )
+          const runAnalyze = () =>
+            analyzeSite(
+              url,
+              crawlData,
+              checks.data,
+              deps.analyze ?? envAnalyzeDeps(),
+              opts.goal ?? "unknown",
+              operatorFit,
+              // #676. Threaded exactly like `goal`: it must reach the stage that
+              // asks, not be applied after it.
+              {
+                ...(opts.terms ? { terms: opts.terms } : {}),
+                ...(opts.questions ? { questions: opts.questions } : {}),
+              },
+            );
+          try {
+            return await runAnalyze();
+          } catch {
+            // One retry with the same inputs: the model call is the stage most
+            // likely to fail transiently (an overloaded response, a dropped
+            // connection). Only a second failure is reported, and it says so.
+            try {
+              return await runAnalyze();
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              throw new Error(`${message} (after one retry)`, { cause: err });
+            }
+          }
+        })
       : { ok: false, error: ANALYZE_SKIPPED };
 
   // The searchable proper NOUN (AnalyzeResult.businessName), never the
@@ -462,6 +483,10 @@ export async function runProspectAudit(
     probes = { ok: false, error: TECHNICAL_SKIPPED };
   } else if (opts.probes === false) {
     probes = { ok: false, error: PROBES_SKIPPED };
+  } else if (!analyze.ok && analyze.error !== ANALYZE_SKIPPED) {
+    // analyze failed on its own (the checks-cascade skip above is deliberate, and
+    // keeps its own behaviour). No probes and no accuracy without its output.
+    probes = { ok: false, error: ANALYZE_FAILED_SKIP };
   } else {
     probes = await stage("probes", deps, async () =>
       runVisibilityProbes(
