@@ -13,6 +13,32 @@ import { reportWindows, REPORT_WINDOW_DAYS, type GaDateRange } from "./ga/window
  */
 export const LEADS_TIME_ZONE = "America/Los_Angeles";
 
+const MONTH_ABBR = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+/** "Oct 25" for `2026-10-25`; "Oct '26" for `2026-10`. The cockpit's one
+ *  formatter for these dates. */
+export function shortDay(ymd: string): string {
+  const [, m, d] = ymd.split("-").map(Number) as [number, number, number];
+  return `${MONTH_ABBR[m - 1]} ${d}`;
+}
+export function shortMonth(ym: string): string {
+  const [y, m] = ym.split("-") as [string, string];
+  return `${MONTH_ABBR[Number(m) - 1]} '${y.slice(2)}`;
+}
+
 /** How many complete calendar months the month-over-month row shows. */
 export const LEAD_MONTHS = 6;
 

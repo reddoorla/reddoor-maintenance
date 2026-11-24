@@ -508,7 +508,6 @@ export function recipientFindings(site: WebsiteRow): PreflightFinding[] {
       });
     }
   }
-  findings.push(...reddoorContactFindings(site));
   if (!isOperatorSite(site)) {
     const operatorAddrs = to.filter((a) => OPERATOR_DOMAINS.includes(domainOf(a)));
     if (operatorAddrs.length > 0 && operatorAddrs.length === to.length) {
@@ -558,7 +557,13 @@ export function headerImageFindings(site: WebsiteRow): PreflightFinding[] {
 export function approveBlockers(site: WebsiteRow, report: ReportRow): PreflightFinding[] {
   const findings: PreflightFinding[] = [];
 
-  findings.push(...recipientFindings(site), ...headerImageFindings(site));
+  // The Reddoor contact is the approve gate's, not recipientFindings': launch-check
+  // shares that one, and a missing contact must not hold a launch (review round 2).
+  findings.push(
+    ...recipientFindings(site),
+    ...reddoorContactFindings(site),
+    ...headerImageFindings(site),
+  );
   // sendOne throws on a null report.lighthouse (one blank/non-numeric cell nulls
   // all four) — the REPORT's snapshot, not the Websites-row scores.
   if (report.lighthouse === null) {

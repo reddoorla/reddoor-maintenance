@@ -28,7 +28,6 @@ function row(fields: Record<string, unknown> = {}): WebsiteRow {
         url: URL_,
         Status: "building",
         "point of contact": "owner@example.com",
-        "Reddoor contact": "tim@reddoorla.com",
         "maintenence freq": "Quarterly",
         "maintenance day": "2026-10-14",
         "GA4 property ID": "123456789",
@@ -97,6 +96,11 @@ describe("launchCheck", () => {
     const lines = await launchCheck(row(), goodDeps());
     expect(lines.map((l) => l.step)).toEqual([...LAUNCH_CHECK_STEPS]);
     expect(lines.filter((l) => l.state !== "ok")).toEqual([]);
+  });
+
+  it("does not hold a launch for a missing Reddoor contact: that only warns at approve (P1-127)", async () => {
+    const lines = await launchCheck(row({ "Reddoor contact": undefined }), goodDeps());
+    expect(lines.find((l) => l.step === "contact")?.state).toBe("ok");
   });
 
   it("fails Williamson on every step it was missing on 2026-10-14", async () => {

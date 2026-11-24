@@ -573,6 +573,15 @@ describe("reddoorContactFindings (P1-127)", () => {
       ).join(" "),
     ).toContain("Reddoor contact 'tim at reddoorla' is malformed");
   });
+  it("reaches the approve gate as a warning, never a blocker, when the site has none", () => {
+    const REPORT = makeReportRow({
+      lighthouse: { performance: 90, accessibility: 100, bestPractices: 100, seo: 100 },
+      autoEvidence: healthCleanEvidence(),
+    });
+    const findings = approveBlockers(cleanSite({ reddoorContact: null }), REPORT);
+    expect(findings.map((f) => `${f.level}:${f.check}`)).toEqual(["warn:reddoor-contact-missing"]);
+    expect(formatBlockers(findings)).toEqual([]);
+  });
   it("warns when the address is not Reddoor's (the client belongs in point of contact)", () => {
     expect(checksOf({ reddoorContact: "owner@acme.example.com" })).toEqual([
       "warn:reddoor-contact-not-reddoor",

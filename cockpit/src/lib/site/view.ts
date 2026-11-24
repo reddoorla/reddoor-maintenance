@@ -34,7 +34,7 @@ import { assignTier, type SiteAlarmContext } from "../../../../src/dashboard/fle
 import { chipClass } from "../cockpit/view.js";
 import { buildSubmissionRowView, type SubmissionRowView } from "../submission/view.js";
 import { retestPlanForRow } from "../../../../src/retest/site-retest.js";
-import type { LeadPeriods } from "../../../../src/reports/lead-periods.js";
+import { shortDay, shortMonth, type LeadPeriods } from "../../../../src/reports/lead-periods.js";
 
 /**
  * The `/s/:slug` page as plain data (#582). Every value the old string renderer
@@ -712,26 +712,6 @@ export type LeadsView = {
   allTime: number;
 };
 
-const MONTH_NAMES = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec",
-];
-
-function shortDay(ymd: string): string {
-  const [, m, d] = ymd.split("-").map(Number) as [number, number, number];
-  return `${MONTH_NAMES[m - 1]} ${d}`;
-}
-
 export function leadsView(p: LeadPeriods): LeadsView {
   const pct = p.prior30 === 0 ? 0 : Math.round(((p.last30 - p.prior30) / p.prior30) * 100);
   const change =
@@ -749,10 +729,7 @@ export function leadsView(p: LeadPeriods): LeadsView {
     prior30: p.prior30,
     change,
     window: `${shortDay(p.current.startDate)} – ${shortDay(p.current.endDate)}`,
-    months: p.months.map(({ month, count }) => {
-      const [y, m] = month.split("-") as [string, string];
-      return { label: `${MONTH_NAMES[Number(m) - 1]} '${y.slice(2)}`, count };
-    }),
+    months: p.months.map(({ month, count }) => ({ label: shortMonth(month), count })),
     allTime: p.allTime,
   };
 }

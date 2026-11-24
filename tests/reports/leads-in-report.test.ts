@@ -4,8 +4,8 @@ import { renderReportHtml } from "../../src/reports/render.js";
 import type { ReportData } from "../../src/reports/types.js";
 
 /** P1-127: the client report's LEADS block. */
-const base = (over: Partial<ReportData> = {}): ReportData =>
-  ({
+const base = (over: Partial<ReportData> = {}): ReportData => {
+  const data: ReportData = {
     siteName: "Acme",
     siteUrl: "https://acme.example.com",
     reportType: "Maintenance",
@@ -13,8 +13,10 @@ const base = (over: Partial<ReportData> = {}): ReportData =>
     lighthouse: { performance: 90, accessibility: 100, bestPractices: 100, seo: 100 },
     lastTestedDate: null,
     commentary: null,
-    ...over,
-  }) as ReportData;
+    headerImageCid: "acme-header",
+  };
+  return Object.assign(data, over);
+};
 
 describe("leadsSection", () => {
   it("states the last 30 days in big red and the change against the 30 before", () => {
