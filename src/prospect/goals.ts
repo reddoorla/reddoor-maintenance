@@ -487,7 +487,7 @@ const OUTCOME_CONTEXT =
  * scores the rates.
  */
 const PENALTY_CONTEXT =
-  /\b(?:cancellation|no[- ]shows?|missed (?:appointments?|visits?)|late (?:fees?|payments?|cancellations?)|reschedul(?:e|ing)|returned (?:check|cheque)|bounced|overdue|penalt(?:y|ies)|interest charge|restocking|fines?|civil suits?|offen[cs]es?)\b/i;
+  /\b(?:cancellation|no[- ]shows?|missed (?:appointments?|visits?)|late (?:fees?|payments?|cancellations?)|reschedul(?:e|ing)|returned (?:check|cheque)|bounced|overdue|penalt(?:y|ies)|interest charge|restocking|fines|fined|a fine of|civil suits?|offen[cs]es?)\b/i;
 
 function priceSignal(text: string): string | null {
   let offset = 0;

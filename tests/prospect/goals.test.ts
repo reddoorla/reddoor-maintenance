@@ -580,6 +580,20 @@ describe("priceSignal — the phrasings real sites use", () => {
       met(checkGoal("enquire", "inferred", crawl("Fines from $50 apply."), null), "price-signal"),
     ).toBe(false);
 
+    // "a fine of" is a penalty; the adjective "fine" is not.
+    expect(
+      met(
+        checkGoal("enquire", "inferred", crawl("Late returns carry a fine of $25."), null),
+        "price-signal",
+      ),
+    ).toBe(false);
+    expect(
+      met(
+        checkGoal("enquire", "inferred", crawl("Fine dining from $40 a plate."), null),
+        "price-signal",
+      ),
+    ).toBe(true);
+
     // Control: an ordinary price next to ordinary words stays a price.
     expect(
       met(
