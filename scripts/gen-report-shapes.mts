@@ -201,6 +201,13 @@ const deps: PipelineDeps = {
           verdict: "contradicted" as const,
           siteQuote: "roofing across Boise since 2004",
           searchTerms: ["1994", "2004"],
+          subject: "prospect" as const,
+          topic: "other" as const,
+          contradiction: {
+            attribute: "founding year",
+            engineValue: "1994",
+            siteValue: "2004",
+          },
         },
         {
           claim: "Acme Roofing works on residential roofs",

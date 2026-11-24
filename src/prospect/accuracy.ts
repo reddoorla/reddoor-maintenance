@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import type { CrawlResult, PageCapture, ProbeAnswer } from "./types.js";
-import { domainOf } from "./probes.js";
+import { domainOf, LEGAL_SUFFIX } from "./probes.js";
 import {
   classifyDomains,
   defaultOwnershipDeps,
@@ -719,9 +719,22 @@ export function quoteSupportsClaim(
    *  confirmed. */
   ownName = "",
 ): boolean {
-  const ownWords = scanWords(ownName).map((w) => w.lower);
+  const ownWords = ownNameWords(ownName);
   const runsOn = (w: ScannedWord | undefined): boolean =>
     w !== undefined && (SUFFIX_WORDS.has(w.lower) || (w.capitalised && !w.opensSentence));
+  // The name as it stands in a text, with "and" allowed between its words where
+  // the name is written "&": "Northwind and Acme" is the name "Northwind & Acme".
+  // Returns the index after the name, or -1 when the name is not here.
+  const nameEndAt = (all: ScannedWord[], start: number): number => {
+    if (ownWords.length === 0) return -1;
+    let i = start;
+    for (const [k, o] of ownWords.entries()) {
+      if (k > 0 && all[i]?.lower === "and" && all[i + 1]?.lower === o) i += 1;
+      if (all[i]?.lower !== o) return -1;
+      i += 1;
+    }
+    return i;
+  };
   // The words of a passage with the business's own name taken out where it
   // stands AS the name, with the capitalised or suffix words that run on from it
   // ("Acme Design Group"). The name is not excluded anywhere else: "Acme Dental
@@ -733,13 +746,13 @@ export function quoteSupportsClaim(
     while (i < all.length) {
       const w = all[i];
       if (w === undefined) break;
-      const nameHere = ownWords.length > 0 && ownWords.every((o, k) => all[i + k]?.lower === o);
-      if (!nameHere) {
+      const end = nameEndAt(all, i);
+      if (end < 0) {
         kept.push(w);
         i += 1;
         continue;
       }
-      i += ownWords.length;
+      i = end;
       while (i < all.length && runsOn(all[i])) i += 1;
     }
     return kept;
@@ -818,6 +831,21 @@ export function quoteSupportsClaim(
 }
 
 type TokenSet = { words: Set<string>; names: Set<string> };
+
+/** The business's name as its words: a trailing legal suffix and the commas
+ *  before it are dropped ("Northwind Acme, LLC" is "Northwind Acme"), and "and"
+ *  is dropped where "&" is written ("Northwind & Acme" is "northwind acme"). */
+function ownNameWords(name: string): string[] {
+  const trailing = new RegExp(`[\\s,]*${LEGAL_SUFFIX.source}[\\s.,]*$`, "i");
+  let stripped = name.trim();
+  for (let next = stripped.replace(trailing, ""); next !== stripped;) {
+    stripped = next;
+    next = stripped.replace(trailing, "");
+  }
+  return scanWords(stripped)
+    .map((w) => w.lower)
+    .filter((w) => w !== "and");
+}
 
 type ScannedWord = {
   raw: string;
@@ -974,30 +1002,222 @@ function numberOf(value: string): number | null {
   return Number(m[1]) * (m[2] === undefined ? 1 : (SCALE.get(m[2]) ?? 1));
 }
 
-/** A time of day in minutes past midnight: "9am", "9:00 AM", "9 a.m.", "14:30".
- *  Null for anything else; a bare number is not a time. */
-function timeOf(value: string): number | null {
-  const m = /^(\d{1,2})(?::(\d{2}))?(am|pm)?$/.exec(normalize(value).replace(/[.\s]/g, ""));
+/** One clock reading as written: "9", "9:00", "9am", "17:30". */
+type Clock = { hour: number; minute: number; meridiem: "am" | "pm" | null };
+
+/** An opening-hours value: one time ("9am") or a range ("9-5", "9am to 5pm"),
+ *  with the days it names when it names any. `to` is null for one time. */
+type Span = { from: number; to: number | null; days: Set<number> | null };
+
+const DAY_INDEX = new Map<string, number>([
+  ["mon", 0],
+  ["monday", 0],
+  ["tue", 1],
+  ["tues", 1],
+  ["tuesday", 1],
+  ["wed", 2],
+  ["wednesday", 2],
+  ["thu", 3],
+  ["thur", 3],
+  ["thurs", 3],
+  ["thursday", 3],
+  ["fri", 4],
+  ["friday", 4],
+  ["sat", 5],
+  ["saturday", 5],
+  ["sun", 6],
+  ["sunday", 6],
+]);
+
+/** The day names in a prefix such as "mon-fri " or "monday to friday, ": a list
+ *  or a range, folded to day indexes (Mon is 0). Null when a word is not a day. */
+function daysOf(prefix: string): Set<number> | null {
+  const tokens = prefix
+    .replace(/[–—-]|\bthrough\b|\bthru\b/g, " to ")
+    .replace(/&|\band\b/g, ",")
+    .split(/[\s,/]+/)
+    .filter((t) => t !== "");
+  const out = new Set<number>();
+  let last: number | null = null;
+  let ranging = false;
+  for (const t of tokens) {
+    if (t === "to") {
+      if (last === null) return null;
+      ranging = true;
+      continue;
+    }
+    const d = DAY_INDEX.get(t);
+    if (d === undefined) return null;
+    if (ranging && last !== null) {
+      for (let i: number = last; i !== d; i = (i + 1) % 7) out.add(i);
+      ranging = false;
+    }
+    out.add(d);
+    last = d;
+  }
+  if (ranging || out.size === 0) return null;
+  return out;
+}
+
+/** "9", "9:00", "9am", "9:00 a.m.", "17:30". Null for anything else. */
+function clockOf(part: string): Clock | null {
+  const m = /^(\d{1,2})(?::(\d{2}))?(am|pm)?$/.exec(part.toLowerCase().replace(/[.\s]/g, ""));
   if (!m) return null;
   const hour = Number(m[1]);
   const minute = m[2] === undefined ? 0 : Number(m[2]);
-  const meridiem = m[3];
-  if (meridiem === undefined && m[2] === undefined) return null;
+  const meridiem = (m[3] as "am" | "pm" | undefined) ?? null;
   if (minute > 59) return null;
-  if (meridiem !== undefined) {
-    if (hour < 1 || hour > 12) return null;
-    return ((hour % 12) + (meridiem === "pm" ? 12 : 0)) * 60 + minute;
-  }
-  return hour > 23 ? null : hour * 60 + minute;
+  if (meridiem !== null ? hour < 1 || hour > 12 : hour > 23) return null;
+  return { hour, minute, meridiem };
 }
 
-/** The digits of a value written as figures, when it has no letters but am/pm:
- *  "(555) 010-0100" and "555-010-0100" have the same digits. Null otherwise. */
-function digitsOf(value: string): string | null {
-  const letters = normalize(value).replace(/[^a-z]/g, "");
-  if (!/^(am|pm)?$/.test(letters)) return null;
-  const digits = value.replace(/\D/g, "");
-  return digits === "" ? null : digits;
+/** Minutes past midnight. A clock with no am/pm reads as `meridiem` when given,
+ *  and as a 24-hour clock when its hour is past 12. */
+function minutesOf(c: Clock, meridiem: "am" | "pm" | null): number {
+  const pm = (c.meridiem ?? meridiem) === "pm";
+  if (c.meridiem !== null || meridiem !== null) {
+    return ((c.hour % 12) + (pm ? 12 : 0)) * 60 + c.minute;
+  }
+  return c.hour * 60 + c.minute;
+}
+
+/** An hours value read from a whole string, or null when it is not one.
+ *  A bare hour takes its partner's am/pm, and the other reading is used when
+ *  the first would put the times in the wrong order ("9-5pm" is 9am to 5pm).
+ *  A range with no am/pm at all reads as daytime, so "9-5" is 9:00 to 17:00. */
+function spanOf(value: string): Span | null {
+  const v = normalize(value);
+  const first = v.search(/\d/);
+  if (first < 0) return null;
+  const prefix = v.slice(0, first);
+  const days = prefix.trim() === "" ? null : daysOf(prefix);
+  if (prefix.trim() !== "" && days === null) return null;
+  const rest = v.slice(first).trim();
+  const parts = rest.split(/\s*(?:-|–|—|\bto\b|\buntil\b)\s*/);
+  if (parts.length === 1) {
+    const c = clockOf(rest);
+    if (c === null || (c.meridiem === null && !rest.includes(":"))) return null;
+    return { from: minutesOf(c, null), to: null, days };
+  }
+  if (parts.length !== 2) return null;
+  const a = clockOf(parts[0] ?? "");
+  const b = clockOf(parts[1] ?? "");
+  if (a === null || b === null) return null;
+  const bare = (c: Clock): boolean => c.meridiem === null && c.hour <= 12;
+  const other = (m: "am" | "pm"): "am" | "pm" => (m === "am" ? "pm" : "am");
+  if (bare(a) && bare(b)) {
+    // Daytime: 9-5 is 9:00 to 17:00, and 12 is noon.
+    const from = (a.hour === 12 ? 12 : a.hour < 7 ? a.hour + 12 : a.hour) * 60 + a.minute;
+    const to = (b.hour === 12 ? 12 : b.hour + 12) * 60 + b.minute;
+    return { from, to, days };
+  }
+  if (bare(a) && b.meridiem !== null) {
+    let from = minutesOf(a, b.meridiem);
+    const to = minutesOf(b, null);
+    if (from > to) from = minutesOf(a, other(b.meridiem));
+    return { from, to, days };
+  }
+  if (bare(b) && a.meridiem !== null) {
+    const from = minutesOf(a, null);
+    let to = minutesOf(b, a.meridiem);
+    if (to <= from) to = minutesOf(b, other(a.meridiem));
+    return { from, to, days };
+  }
+  return { from: minutesOf(a, null), to: minutesOf(b, null), days };
+}
+
+/** Two hours values name the same hours. Days are compared only when both
+ *  values name days. */
+function sameSpan(a: Span, b: Span): boolean {
+  if ((a.to === null) !== (b.to === null)) return false;
+  if (a.from !== b.from || a.to !== b.to) return false;
+  if (a.days === null || b.days === null) return true;
+  return a.days.size === b.days.size && [...a.days].every((d) => b.days?.has(d));
+}
+
+/** Every figure in a value, in order, as a plain number: "$1,500/month" is
+ *  [1500], "15.00" is [15], "2.5 weeks" is [2.5], "$1M" is [1000000], and a
+ *  date "1/12/2019" is [1, 12, 2019]. Null when the value has no figures. */
+function figuresOf(value: string): string[] | null {
+  const out: string[] = [];
+  for (const m of normalize(value).matchAll(
+    /(\d[\d,]*(?:\.\d+)?)(?:\s*(thousand|million|billion|k|m|b)\b)?/g,
+  )) {
+    const n = Number((m[1] ?? "").replace(/,/g, ""));
+    const scale = m[2] === undefined ? 1 : (SCALE.get(m[2]) ?? 1);
+    out.push(String(n * scale));
+  }
+  return out.length > 0 ? out : null;
+}
+
+/** Unit words that name the same unit: "wks" and "weeks" are one unit. */
+const UNIT_FOLD = new Map<string, string>([
+  ["wk", "week"],
+  ["wks", "week"],
+  ["weeks", "week"],
+  ["mo", "month"],
+  ["mos", "month"],
+  ["months", "month"],
+  ["yr", "year"],
+  ["yrs", "year"],
+  ["years", "year"],
+  ["hr", "hour"],
+  ["hrs", "hour"],
+  ["hours", "hour"],
+  ["min", "minute"],
+  ["mins", "minute"],
+  ["minutes", "minute"],
+]);
+
+/** A value as its words, with "per" read as "/", thousands commas dropped and
+ *  unit words folded, so "$1,500/month" and "$1500 per month" are one key. */
+function wordKey(value: string): string {
+  return normalize(value)
+    .replace(/(\d),(?=\d{3}\b)/g, "$1")
+    .replace(/\bper\b/g, "/")
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w !== "")
+    .map((w) => UNIT_FOLD.get(w) ?? w)
+    .join("");
+}
+
+/** A city and a state, split at the last comma: "Austin, Texas" is ("Austin",
+ *  "tx"). Null unless the part after the comma names a state. */
+function locationOf(value: string): { city: string; state: string } | null {
+  const i = value.lastIndexOf(",");
+  if (i < 0) return null;
+  const state = stateCodeOf(value.slice(i + 1).trim());
+  if (state === null) return null;
+  return { city: value.slice(0, i).trim(), state };
+}
+
+/** Common city abbreviations that the initials rule would misread. Each maps
+ *  to the only full names it stands for: SF is San Francisco and never Santa
+ *  Fe. Keys and names are cityKey forms. */
+const CITY_ABBREVIATIONS = new Map<string, string[]>([
+  ["nyc", ["newyork", "newyorkcity"]],
+  ["dc", ["washington"]],
+  ["sf", ["sanfrancisco"]],
+  ["la", ["losangeles"]],
+  ["nola", ["neworleans"]],
+  ["philly", ["philadelphia"]],
+]);
+
+/** A city name without a parenthesised note: "Washington (D.C.)" is "washington". */
+const cityKey = (s: string): string => canonical(s.replace(/\([^)]*\)/g, " "));
+
+/** Two city names are one city. The abbreviation table decides when either
+ *  side is in it, and the initials rule is only for the rest. */
+function sameCity(a: string, b: string): boolean {
+  const ka = cityKey(a);
+  const kb = cityKey(b);
+  if (ka === kb) return true;
+  const ea = CITY_ABBREVIATIONS.get(ka);
+  const eb = CITY_ABBREVIATIONS.get(kb);
+  if (ea !== undefined || eb !== undefined) {
+    return (ea ?? []).includes(kb) || (eb ?? []).includes(ka);
+  }
+  return isInitialsOf(a, b) || isInitialsOf(b, a);
 }
 
 /** A value reduced to its lowercase letters and digits, with the abbreviations
@@ -1102,32 +1322,68 @@ function isInitialsOf(short: string, long: string): boolean {
 /** Two values name the same thing, written two ways. */
 function sameValue(a: string, b: string): boolean {
   if (normalize(a) === normalize(b)) return true;
-  // Times compare as times: "9am" is "9:00 AM", and 9am is not 10am.
-  const ta = timeOf(a);
-  const tb = timeOf(b);
-  if (ta !== null && tb !== null) return ta === tb;
+  // Hours, and times, compare as hours: "9am" is "9:00 AM", "9-5" is "9am to 5pm".
+  const ha = spanOf(a);
+  const hb = spanOf(b);
+  if (ha !== null && hb !== null) return sameSpan(ha, hb);
+  // Figures compare by their numbers before anything is read from the words:
+  // "$1,500/month" and "$15.00/month" differ in the figure, whatever the words.
+  const fa = figuresOf(a);
+  const fb = figuresOf(b);
+  if (fa !== null && fb !== null && fa.join("|") !== fb.join("|")) return false;
   if (canonical(a) === canonical(b)) return true;
-  // Figures compare by their digits, however they are punctuated.
-  const da = digitsOf(a);
-  const db = digitsOf(b);
-  if (da !== null && db !== null) return da === db;
+  if (wordKey(a) === wordKey(b)) return true;
   const na = numberOf(a);
   const nb = numberOf(b);
   if (na !== null && nb !== null && na === nb) return true;
+  // A location: its cities, and its states when both give one.
+  const la = locationOf(a);
+  const lb = locationOf(b);
+  if (la !== null || lb !== null) {
+    if (la !== null && lb !== null && la.state !== lb.state) return false;
+    return sameCity(la?.city ?? a, lb?.city ?? b);
+  }
   const sa = stateCodeOf(a);
   if (sa !== null && sa === stateCodeOf(b)) return true;
+  if (CITY_ABBREVIATIONS.has(canonical(a)) || CITY_ABBREVIATIONS.has(canonical(b))) {
+    return sameCity(a, b);
+  }
   return isInitialsOf(a, b) || isInitialsOf(b, a);
+}
+
+/** A rating, review, star score, headcount, revenue, street address, owner or
+ *  founder named in the text of a row. The website holds the reader-side copy
+ *  (`TOPIC_TEXT` in reddoor-website's `src/lib/report/model.ts`): a model that
+ *  files one of these under `other` is still withheld. Whole words only, so
+ *  "founded" is not "founder". */
+const WITHHELD_TEXT: ReadonlyArray<readonly [AssertionTopic, RegExp]> = [
+  ["ratings_reviews", /\b(ratings?|reviews?|scores?|stars?|rated)\b/i],
+  ["revenue_headcount", /\b(employees?|staff|headcount|revenue|team of \d+)\b/i],
+  ["street_address", /\b(address|\d+\s+\w+\s+(street|st|avenue|ave|road|rd|boulevard|blvd))\b/i],
+  ["ownership", /\b(owners?|owned by)\b/i],
+  ["named_person", /\b(founders?|ceo)\b/i],
+];
+
+export function withheldTopicOfText(text: string): AssertionTopic | null {
+  for (const [topic, pattern] of WITHHELD_TEXT) if (pattern.test(text)) return topic;
+  return null;
 }
 
 /** Why a "contradicted" verdict cannot be stated, or null when it can. A
  *  statement about another business, or on a topic we do not check, is stored
  *  as unverified with its two values kept, so the reader can see what the answer
  *  said without the site being set against it. */
-function outOfScopeReason(a: { subject: AssertionSubject; topic: AssertionTopic }): string | null {
+function outOfScopeReason(a: {
+  subject: AssertionSubject;
+  topic: AssertionTopic;
+  /** The engine's quote, the claim and the attribute: where a withheld topic
+   *  shows when the model filed the row under `other`. */
+  text: string;
+}): string | null {
   if (a.subject !== "prospect") {
     return "The answer may be describing another business, so we have not set it against your site.";
   }
-  if (a.topic !== "other") {
+  if (a.topic !== "other" || withheldTopicOfText(a.text) !== null) {
     return "This is a topic we do not check, so we have not set it against your site.";
   }
   return null;
@@ -1143,6 +1399,9 @@ function verifyQuotes(
   const out: Assertion[] = [];
 
   for (const a of raw) {
+    // An empty quote is no quote: `"".includes` matches every answer, so it
+    // would be stored with nothing to print. Whitespace is empty too.
+    if (normalize(a.engineQuote) === "") continue;
     // A quote is real only when it sits inside ONE answer. The answers used to be
     // joined before this check, so two answers made a quote that neither had
     // said, and it was stored with no source.
@@ -1180,7 +1439,14 @@ function verifyQuotes(
     // A contradiction that stands on its quotes can still be out of scope: about
     // another business, or on a topic we do not check. It is then stored as
     // unverified, with its values kept.
-    const scope = verdict === "contradicted" && !unsupported ? outOfScopeReason(a) : null;
+    const scope =
+      verdict === "contradicted" && !unsupported
+        ? outOfScopeReason({
+            subject: a.subject,
+            topic: a.topic,
+            text: [a.engineQuote, a.claim, a.contradiction?.attribute ?? ""].join(" "),
+          })
+        : null;
     const finalVerdict = unsupported || scope !== null ? "unverified" : verdict;
 
     out.push({
@@ -1234,17 +1500,29 @@ export function siteCoverage(
   const notFull = (reason: string): { full: boolean; reason: string } => ({ full: false, reason });
   const sitemap = crawl.sitemap as CrawlResult["sitemap"] | undefined;
   const siteUrlCount = sitemap?.present ? sitemap.urlCount : null;
-  const generic =
+  // Said only when the sitemap's count exceeds the pages we read. A count that
+  // does not exceed them says nothing about a site larger than we read.
+  const larger =
     "The site was larger than we read in one pass, so we cannot say this is absent from it.";
+  const atCap =
+    "Our crawl stopped at its page limit, so we cannot say this is absent from your site.";
+  const unknownSize =
+    "We could not learn how many pages your site has, so we cannot say this is absent from it.";
+  const unmatched =
+    "We could not match the pages we read to your sitemap, so we cannot say this is absent from your site.";
 
   // "We read P of your S pages" is said only when S is the site's complete
   // count (not truncated) and we read fewer pages than it. A truncated count is
   // a floor, not the site's size, so it is never printed as one.
   const countIsWhole = siteUrlCount !== null && siteUrlCount > 0 && sitemap?.truncated === false;
-  const reasonFor = (pagesRead: number): string =>
-    siteUrlCount !== null && countIsWhole && pagesRead < siteUrlCount
-      ? readOfSite(pagesRead, siteUrlCount)
-      : generic;
+  const reasonFor = (pagesRead: number): string => {
+    if (siteUrlCount !== null && countIsWhole && pagesRead < siteUrlCount) {
+      return readOfSite(pagesRead, siteUrlCount);
+    }
+    if (siteUrlCount !== null && siteUrlCount > pagesRead) return larger;
+    if (crawl.pages.length >= pageCap) return atCap;
+    return siteUrlCount === null || siteUrlCount <= 0 ? unknownSize : unmatched;
+  };
 
   // (d) Not every page read: say how many of theirs we read, when that is known.
   if (!read.crawlFullyRead) return notFull(reasonFor(read.pagesRead));
@@ -1264,7 +1542,7 @@ export function siteCoverage(
 
   // (a) A crawl that stopped at its cap read a prefix of the site, whatever the
   // sitemap says, so it is never read whole.
-  if (crawl.pages.length >= pageCap) return notFull(generic);
+  if (crawl.pages.length >= pageCap) return notFull(atCap);
 
   // (c) The sample is the only list of the site's own URLs. Complete, it must
   // be among the pages we read; incomplete, or missing, it cannot say so.
@@ -1384,9 +1662,16 @@ export async function checkAccuracy(
   const inOneAnswer = (q: string): boolean =>
     branded.some((a) => normalize(a.fullAnswer ?? "").includes(normalize(q)));
   const conflation: Conflation =
-    c.detected && c.engineQuote !== null && inOneAnswer(c.engineQuote)
-      ? { detected: true, settled: c.settled, otherNames: c.otherNames, engineQuote: c.engineQuote }
-      : NO_CONFLATION;
+    c.detected && c.engineQuote !== null && normalize(c.engineQuote) === ""
+      ? { detected: false, settled: false, otherNames: c.otherNames, engineQuote: "" }
+      : c.detected && c.engineQuote !== null && inOneAnswer(c.engineQuote)
+        ? {
+            detected: true,
+            settled: c.settled,
+            otherNames: c.otherNames,
+            engineQuote: c.engineQuote,
+          }
+        : NO_CONFLATION;
 
   const sources = await classifyDomains(
     url,

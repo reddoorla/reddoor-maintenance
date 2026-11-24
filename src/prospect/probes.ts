@@ -162,7 +162,8 @@ function escapeRegExp(s: string): string {
 /** Legal suffixes engines routinely drop. The analyze prompt lets a site's own
  *  branding carry one into `businessName` ("no legal suffix unless the site
  *  itself uses one"), so requiring it to reappear verbatim guaranteed a miss. */
-const LEGAL_SUFFIX = /\b(llc|inc|incorporated|ltd|limited|corp|corporation|plc|llp|lp|pllc|pc)\b/g;
+export const LEGAL_SUFFIX =
+  /\b(llc|inc|incorporated|ltd|limited|corp|corporation|plc|llp|lp|pllc|pc)\b/g;
 
 /**
  * Reduce a string to lowercase alphanumeric words separated by single spaces.
