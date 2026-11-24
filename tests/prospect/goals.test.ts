@@ -569,6 +569,30 @@ describe("priceSignal — the phrasings real sites use", () => {
       ).toBe(false);
     }
   });
+
+  it("does not read legal penalties (civil suits, fines, offences) as prices", () => {
+    const statute =
+      "The statute is strict. Penalties include civil suits for no less than $1,000 to $5,000 for the first offense and fines ranging from $5,000 to $10,000 after that.";
+    expect(met(checkGoal("enquire", "inferred", crawl(statute), null), "price-signal")).toBe(false);
+
+    // "fines" alone, with no other penalty word, is still a penalty.
+    expect(
+      met(checkGoal("enquire", "inferred", crawl("Fines from $50 apply."), null), "price-signal"),
+    ).toBe(false);
+
+    // Control: an ordinary price next to ordinary words stays a price.
+    expect(
+      met(
+        checkGoal(
+          "enquire",
+          "inferred",
+          crawl("Consultations from $150; packages from $900."),
+          null,
+        ),
+        "price-signal",
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("orderRequirements", () => {
