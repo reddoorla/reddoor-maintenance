@@ -1,6 +1,6 @@
 import { resolveNavigable } from "./journey.js";
 import { usablePages } from "./pages.js";
-import { robotsAllowsUs } from "./crawl.js";
+import { decidingRule, parseRobots } from "./crawl.js";
 import type { Scope } from "./goals.js";
 import type { PageVitals } from "./accessibility.js";
 import type { FormProbe } from "./interaction.js";
@@ -1533,11 +1533,17 @@ function sidecarChecks(
       ),
     );
   } else {
-    // Only the rules that apply to everyone (the `*` groups, merged), read the
-    // way the crawl reads them: longest match wins, and `/`, `/*` and `/$` all
-    // cover the root. A rule aimed at one crawler is a policy, not an accident,
-    // and is reported per agent elsewhere.
-    const blocked = !robotsAllowsUs(crawl.robotsTxt, "https://robots.invalid/", "*");
+    // Only the rules every crawler must follow: the `*` groups, merged, and no
+    // group named for one bot (that is a policy, not an accident, and is
+    // reported per agent elsewhere). Read the way the crawl reads them, longest
+    // match and Allow on a tie. "The whole site" is the root AND an ordinary
+    // page: `Disallow: /$` shuts only the home page, and is not this finding.
+    const wildcard = parseRobots(crawl.robotsTxt)
+      .filter((g) => g.agents.includes("*"))
+      .flatMap((g) => g.rules);
+    const root = decidingRule(wildcard, "/");
+    const page = decidingRule(wildcard, "/an-ordinary-page");
+    const blocked = root?.type === "disallow" && page?.type === "disallow";
     out.push(
       check(
         "robots-not-blocking",
@@ -1545,7 +1551,9 @@ function sidecarChecks(
         WHY_DISALLOW,
         "quick",
         !blocked,
-        blocked ? "Disallow: / applies to every crawler" : "nothing site-wide is disallowed",
+        blocked
+          ? `${root.line.trim()} applies to every crawler`
+          : "nothing site-wide is disallowed",
       ),
     );
   }

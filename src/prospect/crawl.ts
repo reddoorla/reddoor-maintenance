@@ -33,7 +33,7 @@ export const CLASSICAL_AGENTS = ["Googlebot", "Bingbot"] as const;
 
 export const ALL_AGENTS: string[] = [...AI_AGENTS, ...CLASSICAL_AGENTS];
 
-type RobotsRule = { type: "allow" | "disallow"; path: string; line: string };
+export type RobotsRule = { type: "allow" | "disallow"; path: string; line: string };
 type RobotsGroup = { agents: string[]; rules: RobotsRule[] };
 
 /** Parse robots.txt into agent groups. Consecutive `User-agent:` lines share one
@@ -133,21 +133,30 @@ export function robotsAllowsUs(robotsTxt: string | null, url: string, agent: str
     g.agents.some((a) => a !== "*" && (lower.includes(a) || a.includes(lower.split("/")[0] ?? ""))),
   );
   const matched = named.length > 0 ? named : groups.filter((g) => g.agents.includes("*"));
-  let best: { type: "allow" | "disallow"; length: number } | null = null;
-  for (const rule of matched.flatMap((g) => g.rules)) {
+  const best = decidingRule(
+    matched.flatMap((g) => g.rules),
+    path,
+  );
+  return best === null || best.type === "allow";
+}
+
+/** The rule that decides `path`: the longest pattern that matches it, and on a
+ *  tie the Allow (RFC 9309 2.2.2), whichever line came first. Null when no rule
+ *  matches. An empty `Disallow:` is the conventional "nothing is disallowed" and
+ *  matches nothing, which `robotsPathMatches` already returns false for. */
+export function decidingRule(rules: RobotsRule[], path: string): RobotsRule | null {
+  let best: RobotsRule | null = null;
+  for (const rule of rules) {
     if (!robotsPathMatches(rule.path, path)) continue;
-    // An empty `Disallow:` is the conventional "nothing is disallowed" and
-    // matches nothing, which `robotsPathMatches` already returns false for.
-    // On a tie the Allow wins (RFC 9309 2.2.2), whichever line came first.
     if (
       best === null ||
-      rule.path.length > best.length ||
-      (rule.path.length === best.length && rule.type === "allow")
+      rule.path.length > best.path.length ||
+      (rule.path.length === best.path.length && rule.type === "allow")
     ) {
-      best = { type: rule.type, length: rule.path.length };
+      best = rule;
     }
   }
-  return best === null || best.type === "allow";
+  return best;
 }
 
 /** Can each agent fetch the site root? Only rules that cover "/" decide: a

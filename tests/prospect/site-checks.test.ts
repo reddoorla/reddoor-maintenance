@@ -1050,6 +1050,24 @@ describe("each check fires on the thing it is named for", () => {
     expect(status("User-agent: *\nDisallow: /\nAllow: /\n")).toBe("pass");
     // Two wildcard groups are one group.
     expect(status("User-agent: *\nDisallow: /\n\nUser-agent: *\nAllow: /*\n")).toBe("pass");
+    // Only the wildcard groups decide: a bot whose name holds a "*", or an
+    // empty User-agent line, is not everyone.
+    expect(status("User-agent: *\nDisallow: /\n\nUser-agent: bad*bot\nAllow: /\n")).toBe("fail");
+    expect(status("User-agent:\nDisallow: /\n\nUser-agent: *\nAllow: /\n")).toBe("pass");
+    // Home page only is not the whole site.
+    expect(status("User-agent: *\nDisallow: /$\n")).toBe("pass");
+  });
+
+  it("quotes the line that blocks the site, not a line the file does not have", () => {
+    const c = byKey(
+      runSiteChecks(
+        exemplary({ robotsTxt: "User-agent: *\nDisallow: /* # closed\n" }),
+        exemplaryChecks(),
+        "Acme Roofing",
+      ),
+      "robots-not-blocking",
+    );
+    expect(c?.evidence).toBe("Disallow: /* applies to every crawler");
   });
 
   it("catches schema pointing at a domain they no longer use", () => {
