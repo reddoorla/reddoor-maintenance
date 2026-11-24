@@ -752,9 +752,6 @@ export function quoteSupportsClaim(
         i += 1;
         continue;
       }
-      // R5 fix 2: a one-word name is evidence, so its word stays in the passage. The
-      // suffix words that run on from it ("Acme Design Group") still do not.
-      if (ownWords.length === 1) kept.push(w);
       i = end;
       while (i < all.length && runsOn(all[i])) i += 1;
     }
@@ -1161,7 +1158,7 @@ function siteSaysEngineValue(engineValue: string, siteQuote: string): boolean {
 /** The topics a text carries, read off its words as the website reads them (R4
  *  fix 5). The block below is a verbatim copy of TOPIC_TEXT and its helpers (PLATFORM,
  *  SCORE_FIGURE, NUM) from reddoor-website, src/lib/report/model.ts, at
- *  commit 2df892d045b0e698e1ff142c0eeae5ed35a5471a (the head after its round-8
+ *  commit 8b241c22d293a1310217799e40d63b48d7f33cd1 (the head after its round-9
  *  fix, where TOPIC_TEXT holds only these six topics and the person and
  *  ownership patterns moved to PERSON_TEXT). named_person and ownership are deliberately omitted (operator decision,
  *  2026-11-24): the website no longer reads them off text. The website holds the

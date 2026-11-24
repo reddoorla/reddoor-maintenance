@@ -1207,12 +1207,12 @@ describe("W2: what the assistant said, about the right company", () => {
   });
 
   describe("the business's own name is not evidence", () => {
-    it("a one-word name counts as evidence, so a claim sharing the name and one more word is supported (R5 fix 2)", () => {
+    it("does not confirm a claim whose only shared words are the client's name and one more", () => {
       const claim =
         "Calder's services include gutter repair, skylight installation and roof inspections for homeowners.";
       const quote = "Calder provides custom solutions for the skylight needs of any client.";
       expect(quoteSupportsClaim(claim, quote)).toBe(true); // the false pass, without the name
-      expect(quoteSupportsClaim(claim, quote, "Calder")).toBe(true);
+      expect(quoteSupportsClaim(claim, quote, "Calder")).toBe(false);
     });
 
     it("still confirms a passage that says the claim in other words", () => {
@@ -1225,7 +1225,7 @@ describe("W2: what the assistant said, about the right company", () => {
       ).toBe(true);
     });
 
-    it("a confirmed whose quote shares the one-word name and one more word is kept (R5 fix 2)", async () => {
+    it("drops a confirmed whose quote shares only the name, through checkAccuracy", async () => {
       const site = crawl(
         [
           page(
@@ -1255,7 +1255,7 @@ describe("W2: what the assistant said, about the right company", () => {
           },
         ]),
       );
-      expect(r.assertions[0]?.verdict).toBe("confirmed");
+      expect(r.assertions[0]?.verdict).toBe("unverified");
     });
   });
 
@@ -3416,8 +3416,11 @@ describe("review round 5: a contradiction is stored only where its two values ar
     });
   });
 
-  // ---- Section 2: a one-word business name is not stripped from the passage ----
-  describe("2. a one-word own name is evidence", () => {
+  // ---- Section 2: a name that is also a place is still not evidence (BR-06 kept) ----
+  // The round-5 brief asked for a one-word name to count as evidence, which would
+  // also confirm "Calder" plus one shared word (the stored BR-06 defect). The two
+  // have the same shape, so the safe direction wins: these stay unverified.
+  describe("2. a name that is also a place stays unverified", () => {
     const confirmedRow = async (query: string, engineQuote: string, siteQuote: string) => {
       const r = await checkAccuracy(
         "https://acme.example/",
@@ -3445,22 +3448,22 @@ describe("review round 5: a contradiction is stored only where its two values ar
       return r.assertions[0];
     };
 
-    it("Austin Dental: the passage that places the practice in Austin confirms it", async () => {
+    it("Austin Dental: the name's own word is not evidence, so the row stays unverified", async () => {
       const row = await confirmedRow(
         "who is Austin Dental",
         "Austin Dental is located in Austin.",
         "Our practice is located in Austin, Texas.",
       );
-      expect(row).toMatchObject({ verdict: "confirmed" });
+      expect(row).toMatchObject({ verdict: "unverified" });
     });
 
-    it("Denver Design: the passage that places the office in Denver confirms it", async () => {
+    it("Denver Design: the name's own word is not evidence, so the row stays unverified", async () => {
       const row = await confirmedRow(
         "who is Denver Design",
         "Denver Design has an office in Denver.",
         "Visit our office in Denver, Colorado.",
       );
-      expect(row).toMatchObject({ verdict: "confirmed" });
+      expect(row).toMatchObject({ verdict: "unverified" });
     });
   });
 
