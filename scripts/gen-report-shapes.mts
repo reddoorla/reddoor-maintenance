@@ -198,8 +198,11 @@ const deps: PipelineDeps = {
     run: async () => ({
       assertions: [
         // R4 fix 9: the quotes are real. The site quote is in rich.html, and each engine
-        // quote is in the mocked fullAnswer, so one row is contradicted and one is
-        // unverified with its contradiction kept and a topic read off its text.
+        // quote is in the mocked fullAnswer. What the mock now produces (R6 §1 and §2):
+        // no row is contradicted. The first is unverified on topic other, "five business
+        // days" against "two business days" is unitless and cannot be compared, so both
+        // values are kept. The second is unverified on ratings_reviews (read off its text),
+        // with no values kept, because on a withheld topic an uncomparable pair keeps none.
         {
           claim: "Acme Roofing responds within five business days.",
           engineQuote: "responds within five business days",

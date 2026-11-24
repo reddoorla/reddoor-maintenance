@@ -915,9 +915,41 @@ function contradictionHolds(
   // The site quote also says the engine's value, so the site does not disagree
   // with it: "Founded in 2001. Copyright 2022." is not a contradiction of 2001.
   if (holdsValue(siteQuote, c.engineValue)) return false;
+  // R6 §3: two four-digit years are compared only where each stands in its quote as
+  // its own number. "2001" inside "Call 512-555-2001" or "2001 Oak Street" is not a year.
+  if (
+    isYear(c.engineValue) &&
+    isYear(c.siteValue) &&
+    !(yearStandsAlone(engineQuote, c.engineValue) && yearStandsAlone(siteQuote, c.siteValue))
+  ) {
+    return false;
+  }
   // R5 fix 1: the same value written another way, of the same exact kind, counts too.
   if (siteSaysEngineValue(c.engineValue, siteQuote)) return false;
   return compareValues(c.engineValue, c.siteValue) === "differ";
+}
+
+/** A street suffix, as the word after a number: "Street", "St.", "Ave". */
+const STREET_SUFFIX =
+  /^(?:street|st|avenue|ave|road|rd|boulevard|blvd|drive|dr|lane|ln|way|court|ct|place|pl|parkway|pkwy|highway|hwy|suite|ste)\.?$/i;
+
+/** Whether a year stands in the RAW quote as its own number (R6 §3): not preceded by a
+ *  digit, `-`, `.`, `/` or `#`; not followed by `-`, `.` or `/` and a digit; and not
+ *  followed, within three words, by a street suffix. Some occurrence must pass. */
+function yearStandsAlone(raw: string, year: string): boolean {
+  const re = new RegExp(`(?<![0-9.\\-/#])${year}(?!\\d)(?![-./]\\d)`, "g");
+  for (const m of raw.matchAll(re)) {
+    const rest = raw.slice((m.index ?? 0) + year.length).replace(/^[^A-Za-z0-9]+/, "");
+    const nextThree = rest.trim().split(/\s+/).slice(0, 3);
+    if (!nextThree.some((w) => STREET_SUFFIX.test(w.replace(/[^A-Za-z.]/g, "")))) return true;
+  }
+  return false;
+}
+
+/** Whether a value is a four-digit year (R6 §2), typed as a unitless figure. */
+function isYear(value: string): boolean {
+  const t = typedOf(value);
+  return t !== null && t.form === "number" && t.yearLike;
 }
 
 const UNIT_WORDS = [
@@ -1002,7 +1034,7 @@ const UNIT_FOLD = new Map<string, string>([
  *  three kinds the code compares exactly: a figure with its unit, a full date, and
  *  a phone number. Every other value is untyped. */
 type Typed =
-  | { form: "number"; figure: number; unit: string }
+  | { form: "number"; figure: number; unit: string; yearLike: boolean }
   | { form: "date"; key: string }
   | { form: "phone"; key: string };
 
@@ -1064,7 +1096,11 @@ function numberFormOf(v: string): Typed | null {
   if (["am", "pm", "st", "nd", "rd", "th"].includes(raw)) return null;
   const scale = m[2] === undefined ? 1 : (SCALE.get(m[2]) ?? 1);
   const unit = raw === "" ? "" : raw === "%" ? "percent" : (UNIT_FOLD.get(raw) ?? raw);
-  return { form: "number", figure: Number((m[1] ?? "").replace(/,/g, "")) * scale, unit };
+  const figure = Number((m[1] ?? "").replace(/,/g, "")) * scale;
+  // R6 §2: a unitless figure is a year only when it is written as exactly four digits
+  // (no comma, no decimal) and falls from 1900 to 2099.
+  const yearLike = unit === "" && /^\d{4}$/.test(w.trim()) && figure >= 1900 && figure <= 2099;
+  return { form: "number", figure, unit, yearLike };
 }
 
 /** The typed form of a value, or null: a date, then a phone, then a figure with
@@ -1075,10 +1111,13 @@ function typedOf(value: string): Typed | null {
   if (m) return dateOf(Number(m[1]), Number(m[2]), Number(m[3]));
   m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(v);
   if (m) {
-    // Month first, unless the first figure cannot be a month.
     const a = Number(m[1]);
     const b = Number(m[2]);
     const y = Number(m[3]);
+    // R6 §4: when both first figures could be a month and they differ, the date reads
+    // either way, so it is untyped. Otherwise the month comes first, unless the first
+    // figure cannot be a month.
+    if (a <= 12 && b <= 12 && a !== b) return null;
     return a > 12 ? dateOf(y, b, a) : dateOf(y, a, b);
   }
   m = /^([a-z]+)\.? (\d{1,2}),? (\d{4})$/.exec(v);
@@ -1101,6 +1140,8 @@ function typedOf(value: string): Typed | null {
 function sameForm(a: Typed, b: Typed): Compared {
   if (a.form === "number" && b.form === "number") {
     if (a.unit !== b.unit) return "unknown";
+    // R6 §2: two unitless figures are compared only when both are years.
+    if (a.unit === "" && !(a.yearLike && b.yearLike)) return "unknown";
     return a.figure === b.figure ? "same" : "differ";
   }
   if (a.form === "date" && b.form === "date") return a.key === b.key ? "same" : "differ";
@@ -1301,6 +1342,9 @@ const TOPIC_TEXT: [Exclude<AssertionTopic, "other">, RegExp[]][] = [
       /\b(?:revenue|turnover)\b[^.]{0,40}\$\s?\d|\$\s?\d[^.]{0,40}\b(?:revenue|turnover)\b/i,
       /\b(?:brings? in|earns|grosses)\b[^.]{0,20}\$\s?\d/i,
       /\b(?:has|have|are|employs?)\s+(?:about |around |roughly |nearly |over |some )?\d[\d,]*\+?\s+people\b/i,
+      /\b(?:about |around |roughly |nearly |over |some )?\d[\d,]*\+?\s+people\s+work\b/i,
+      /\bworkforce of (?:about |around |roughly |nearly |over )?\d/i,
+      /\b(?:makes?|made|earns?|brings? in)\b[^.]{0,20}\d[\d,.]*\s*(?:million|billion)\s+dollars\b/i,
     ],
   ],
   [
@@ -1435,10 +1479,15 @@ function verifyQuotes(
     const finalVerdict = unsupported || scope !== null ? "unverified" : verdict;
     // R5 fix 1: a pair the code cannot compare keeps both values, when both sit in
     // their quotes. A pair that compares equal, or whose quote does not hold, does not.
+    // R6 §1: only on the client's own other rows. The website reads an unverified
+    // row that carries a contradiction as a contradiction, so an unclear row or a
+    // withheld topic must not headline "your own site contradicts" over a same-value pair.
     const keepsValues =
       verdict === "contradicted" &&
       (!unsupported ||
         (compared === "unknown" &&
+          a.subject === "prospect" &&
+          topic === "other" &&
           quoteReal &&
           a.contradiction !== null &&
           holdsValue(a.engineQuote, a.contradiction.engineValue) &&

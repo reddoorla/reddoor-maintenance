@@ -1757,7 +1757,9 @@ describe("review round 2: the stored verdicts", () => {
       });
     });
 
-    it("a withheld topic: unverified, with its reason, and both values kept", async () => {
+    // R6 §1 and §2: 3.2 and 4.8 are unitless, so the pair is unknown, and on a withheld
+    // topic an unknown pair keeps no values. (Was: "both values kept".)
+    it("a withheld topic: unverified, with its reason, and no values kept", async () => {
       const row = await storedContradiction({
         engineQuote: "Acme Design has a 3.2 rating on Glassdoor",
         engineValue: "3.2",
@@ -1769,7 +1771,7 @@ describe("review round 2: the stored verdicts", () => {
         verdict: "unverified",
         unverifiedReason:
           "This is a topic we do not check, so we have not set it against your site.",
-        contradiction: { attribute: "figure", engineValue: "3.2", siteValue: "4.8" },
+        contradiction: null,
       });
     });
 
@@ -1801,6 +1803,20 @@ describe("review round 2: the stored verdicts", () => {
         "Call Acme Design at 555-010-0100.",
         "555-010-0100",
       ],
+    ])(
+      "%s are the same value, so not contradicted",
+      async (_name, engineQuote, engineValue, siteQuote, siteValue) => {
+        const row = await storedContradiction({ engineQuote, engineValue, siteQuote, siteValue });
+        expect(row?.verdict).toBe("unverified");
+        expect(row?.unverifiedReason).toBe(
+          "The passage we found does not show a different value for this, so we have not stated it either way.",
+        );
+      },
+    );
+
+    // R6 §2: a word number and a digit are unitless figures, so the pair is unknown.
+    // (Moved here from the table above, which expected "the same value".)
+    it.each([
       [
         "thirty and 30",
         "Acme Design has thirty staff.",
@@ -1816,13 +1832,11 @@ describe("review round 2: the stored verdicts", () => {
         "25",
       ],
     ])(
-      "%s are the same value, so not contradicted",
+      "%s are unknown, not contradicted",
       async (_name, engineQuote, engineValue, siteQuote, siteValue) => {
         const row = await storedContradiction({ engineQuote, engineValue, siteQuote, siteValue });
         expect(row?.verdict).toBe("unverified");
-        expect(row?.unverifiedReason).toBe(
-          "The passage we found does not show a different value for this, so we have not stated it either way.",
-        );
+        expect(row?.unverifiedReason).toBe("We could not compare the two values directly.");
       },
     );
 
@@ -1911,8 +1925,21 @@ describe("review round 2: the stored verdicts", () => {
   // ---- Fix 3: substring matching no longer drops real contradictions ----
   describe("a real contradiction is not dropped by substring matching", () => {
     it.each([
-      ["10 and 100", "Acme Design has 10 locations.", "10", "We have 100 locations.", "100"],
-      ["200 and 20", "Acme Design has 200 locations.", "200", "We have 20 locations.", "20"],
+      // R6 §2: unitless figures are unknown, so these carry their unit to stay a real difference.
+      [
+        "10 and 100",
+        "Acme Design has 10 locations.",
+        "10 locations",
+        "We have 100 locations.",
+        "100 locations",
+      ],
+      [
+        "200 and 20",
+        "Acme Design has 200 locations.",
+        "200 locations",
+        "We have 20 locations.",
+        "20 locations",
+      ],
     ])("%s stay contradicted", async (_name, engineQuote, engineValue, siteQuote, siteValue) => {
       const row = await storedContradiction({ engineQuote, engineValue, siteQuote, siteValue });
       expect(row).toMatchObject({ verdict: "contradicted", unverifiedReason: null });
@@ -2223,7 +2250,8 @@ describe("review round 3: a stored verdict is held to its text and its values", 
 
   // ---- Fix 1: a withheld topic filed under `other` is read off its text ----
   describe("1. a rating or headcount filed under other is withheld", () => {
-    it("a rating filed under other is unverified, with its values kept", async () => {
+    // R6 §1 and §2: unitless figures are unknown, and a withheld topic keeps no values for them.
+    it("a rating filed under other is unverified, with no values kept", async () => {
       const row = await contradictionRow({
         engineQuote: "Acme Design has a 3.2 rating on Glassdoor",
         engineValue: "3.2",
@@ -2233,11 +2261,11 @@ describe("review round 3: a stored verdict is held to its text and its values", 
       expect(row).toMatchObject({
         verdict: "unverified",
         unverifiedReason: WITHHELD,
-        contradiction: { attribute: "figure", engineValue: "3.2", siteValue: "4.8" },
+        contradiction: null,
       });
     });
 
-    it("a headcount filed under other is unverified, with its values kept", async () => {
+    it("a headcount filed under other is unverified, with no values kept", async () => {
       const row = await contradictionRow({
         engineQuote: "Acme Design has 10 employees",
         engineValue: "10",
@@ -2247,7 +2275,7 @@ describe("review round 3: a stored verdict is held to its text and its values", 
       expect(row).toMatchObject({
         verdict: "unverified",
         unverifiedReason: WITHHELD,
-        contradiction: { attribute: "figure", engineValue: "10", siteValue: "45" },
+        contradiction: null,
       });
     });
 
@@ -2363,8 +2391,10 @@ describe("review round 3: a stored verdict is held to its text and its values", 
     it.each([
       ["$1,500/month", "$15.00/month"],
       ["2.5 weeks", "25 weeks"],
-      ["1/12/2019", "11/2/2019"],
-      ["2 million", "2"],
+      // R6 §4 and §2: 1/12/2019 reads either way, and "2 million" against "2" is unitless,
+      // so both pairs are now unknown. These rows carry a date that reads one way and a unit.
+      ["1/13/2019", "11/14/2019"],
+      ["2 million dollars", "2 dollars"],
     ])("%s and %s stay contradicted", async (engineValue, siteValue) => {
       const row = await contradictionRow({
         engineQuote: `Acme Design's figure is ${engineValue}.`,
@@ -2743,8 +2773,8 @@ describe("review round 4: a stored verdict proves its difference, and withheld t
       [
         "Acme Design offers staff augmentation in 3 cities.",
         "Acme Design offers staff augmentation in 5 cities.",
-        "3",
-        "5",
+        "3 cities",
+        "5 cities",
       ],
       ["Acme Design was founded in 2001.", "Founded in 2022.", "2001", "2022"],
     ])("%s is not withheld", async (sentence, siteQuote, engineValue, siteValue) => {
@@ -2994,7 +3024,7 @@ describe("review round 4: a stored verdict proves its difference, and withheld t
       ["10 days", "ten days"],
       ["$1,500 a month", "$1500/month"],
       ["March 3, 2019", "3/3/2019"],
-      ["2019-01-12", "1/12/2019"],
+      ["2019-01-13", "1/13/2019"],
     ])("%s and %s are the same value", async (engineValue, siteValue) => {
       const row = await rowOf({
         engineQuote: `Acme Design's figure is ${engineValue}.`,
@@ -3008,8 +3038,10 @@ describe("review round 4: a stored verdict proves its difference, and withheld t
     it.each([
       ["$1,500/month", "$15.00/month"],
       ["2.5 weeks", "25 weeks"],
-      ["1/12/2019", "11/2/2019"],
-      ["2 million", "2"],
+      // R6 §4 and §2: 1/12/2019 reads either way, and "2 million" against "2" is unitless,
+      // so both pairs are now unknown. These rows carry a date that reads one way and a unit.
+      ["1/13/2019", "11/14/2019"],
+      ["2 million dollars", "2 dollars"],
     ])("%s and %s stay contradicted", async (engineValue, siteValue) => {
       const row = await rowOf({
         engineQuote: `Acme Design's figure is ${engineValue}.`,
@@ -3486,5 +3518,356 @@ describe("review round 5: a contradiction is stored only where its two values ar
         expect(row).toMatchObject({ verdict: "unverified", topic });
       },
     );
+  });
+});
+
+describe("review round 6: uncomparable pairs keep values only on the client's own rows, years only as years, ambiguous dates unknown", () => {
+  const offline = { fetchPage: async () => null };
+  const COULD_NOT_COMPARE = "We could not compare the two values directly.";
+  const SAME_VALUE =
+    "The passage we found does not show a different value for this, so we have not stated it either way.";
+
+  /** A contradicted row about Acme Design, run through `checkAccuracy` with a
+   *  stubbed model row. `page` is the text the site serves; it defaults to the site quote. */
+  const rowOf = async (p: {
+    engineQuote: string;
+    engineValue: string;
+    siteQuote: string;
+    siteValue: string;
+    subject?: "prospect" | "unclear";
+    topic?: string;
+    page?: string;
+    claim?: string;
+  }) => {
+    const r = await checkAccuracy(
+      "https://acme.example/",
+      crawl([page("https://acme.example/", p.page ?? p.siteQuote)], 1),
+      [branded({ query: "who is Acme Design", fullAnswer: p.engineQuote })],
+      [],
+      {
+        run: async () => ({
+          assertions: [
+            {
+              claim: p.claim ?? p.engineQuote,
+              engineQuote: p.engineQuote,
+              verdict: "contradicted",
+              siteQuote: p.siteQuote,
+              searchTerms: ["Acme Design"],
+              subject: p.subject ?? "prospect",
+              topic: p.topic ?? "other",
+              contradiction: {
+                attribute: "figure",
+                engineValue: p.engineValue,
+                siteValue: p.siteValue,
+              },
+            },
+          ],
+        }),
+        ownership: offline,
+      },
+    );
+    return r.assertions[0];
+  };
+
+  // ---- Section 1: a pair the code could not compare keeps no values off the client's own other rows ----
+  describe("1. the unknown branch keeps values only for a prospect's other topic", () => {
+    const pairs: [string, string][] = [
+      ["Monday through Friday", "Mon-Fri"],
+      ["12 Elm St", "12 Elm Street"],
+      ["9am-5pm", "9 to 5"],
+      ["1 year", "12 months"],
+    ];
+
+    it.each(pairs)(
+      "%s and %s, on an unclear row, store no values",
+      async (engineValue, siteValue) => {
+        const row = await rowOf({
+          engineQuote: `Acme Design's hours are ${engineValue}.`,
+          engineValue,
+          siteQuote: `Acme Design's hours are ${siteValue}.`,
+          siteValue,
+          subject: "unclear",
+          topic: "street_address",
+        });
+        expect(row).toMatchObject({ verdict: "unverified", contradiction: null });
+      },
+    );
+
+    it.each(pairs)(
+      "%s and %s, on a prospect's withheld topic, store no values",
+      async (engineValue, siteValue) => {
+        const row = await rowOf({
+          engineQuote: `Acme Design's hours are ${engineValue}.`,
+          engineValue,
+          siteQuote: `Acme Design's hours are ${siteValue}.`,
+          siteValue,
+          topic: "street_address",
+        });
+        expect(row).toMatchObject({ verdict: "unverified", contradiction: null });
+      },
+    );
+
+    it("control: a prospect's other topic keeps both values for Monday through Friday and Mon-Fri", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design's hours are Monday through Friday.",
+        engineValue: "Monday through Friday",
+        siteQuote: "Acme Design's hours are Mon-Fri.",
+        siteValue: "Mon-Fri",
+      });
+      expect(row).toMatchObject({ verdict: "unverified", unverifiedReason: COULD_NOT_COMPARE });
+      expect(row?.contradiction).toEqual({
+        attribute: "figure",
+        engineValue: "Monday through Friday",
+        siteValue: "Mon-Fri",
+      });
+    });
+
+    // The three other keepsValues conditions, each pinned on its own.
+    it("the site quote is not on the page: no values are kept", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design's hours are Monday through Friday.",
+        engineValue: "Monday through Friday",
+        siteQuote: "Acme Design's hours are Mon-Fri.",
+        siteValue: "Mon-Fri",
+        page: "Acme Design is open every day of the year.",
+      });
+      expect(row).toMatchObject({ verdict: "unverified", siteQuote: null, contradiction: null });
+    });
+
+    it("the engine value is not in the engine quote: no values are kept", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design is open on weekdays.",
+        engineValue: "Monday through Friday",
+        siteQuote: "Acme Design is open Mon-Fri.",
+        siteValue: "Mon-Fri",
+      });
+      expect(row).toMatchObject({ verdict: "unverified", contradiction: null });
+    });
+
+    it("the site value is not in the site quote: no values are kept", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design is open Monday through Friday.",
+        engineValue: "Monday through Friday",
+        siteQuote: "Acme Design is open on weekdays.",
+        siteValue: "Mon-Fri",
+      });
+      expect(row).toMatchObject({ verdict: "unverified", contradiction: null });
+    });
+  });
+
+  // ---- Section 2: a unitless figure is a year only when both values are four-digit years ----
+  describe("2. a figure with no unit is compared only as a year", () => {
+    const unitless: [string, string, string, string][] = [
+      ["Acme Design opens at 9.", "9", "Acme Design is open at 10.", "10"],
+      ["Acme Design opens at 9.30.", "9.30", "Acme Design is open at 10.", "10"],
+      ["Acme Design was founded in 1700.", "1700", "Acme Design was founded in 1800.", "1800"],
+      ["Acme Design's ZIP is 78701.", "78701", "Acme Design's ZIP is 78704.", "78704"],
+      [
+        "Acme Design has 15 years of experience.",
+        "15",
+        "Acme Design has been open since 2011.",
+        "2011",
+      ],
+      ["Acme Design has 14 locations.", "14", "Acme Design has 3 doctors.", "3"],
+    ];
+
+    it.each(unitless)(
+      "%s against %s is unverified, with both values kept on a prospect's other topic",
+      async (engineQuote, engineValue, siteQuote, siteValue) => {
+        const row = await rowOf({ engineQuote, engineValue, siteQuote, siteValue });
+        expect(row).toMatchObject({ verdict: "unverified" });
+        expect(row?.contradiction).toEqual({ attribute: "figure", engineValue, siteValue });
+      },
+    );
+
+    it("control: 2001 against 2022 stays contradicted", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design was founded in 2001.",
+        engineValue: "2001",
+        siteQuote: "Acme Design was founded in 2022.",
+        siteValue: "2022",
+      });
+      expect(row).toMatchObject({ verdict: "contradicted", unverifiedReason: null });
+    });
+
+    it("control: 2,000 against 2000 is not contradicted", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design has 2,000 members.",
+        engineValue: "2,000",
+        siteQuote: "Acme Design has 2000 members.",
+        siteValue: "2000",
+      });
+      expect(row?.verdict).not.toBe("contradicted");
+    });
+  });
+
+  // ---- Section 3: a year counts only where it stands as its own number ----
+  describe("3. a year counts only where it stands as its own number", () => {
+    it("Call 512-555-2001 is not the year 2001: the row is unverified", async () => {
+      const row = await rowOf({
+        engineQuote: "Northwind was founded in 1998.",
+        engineValue: "1998",
+        siteQuote: "Call 512-555-2001 today.",
+        siteValue: "2001",
+      });
+      expect(row).toMatchObject({ verdict: "unverified", contradiction: null });
+    });
+
+    it("2001 Oak Street is not the year 2001: the row is unverified", async () => {
+      const row = await rowOf({
+        engineQuote: "Northwind was founded in 1998.",
+        engineValue: "1998",
+        siteQuote: "Visit us at 2001 Oak Street.",
+        siteValue: "2001",
+      });
+      expect(row).toMatchObject({ verdict: "unverified", contradiction: null });
+    });
+
+    it("control: founded in 2001, at 40 Oak Street, stays contradicted", async () => {
+      const row = await rowOf({
+        engineQuote: "Northwind was founded in 1998.",
+        engineValue: "1998",
+        siteQuote: "Founded in 2001, at 40 Oak Street.",
+        siteValue: "2001",
+      });
+      expect(row).toMatchObject({ verdict: "contradicted", unverifiedReason: null });
+    });
+  });
+
+  // ---- Section 4: a numeric date that reads either way is unknown ----
+  describe("4. a numeric date that reads either way is unknown", () => {
+    it("April 3, 2001 against 03/04/2001 is unverified", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design opened on April 3, 2001.",
+        engineValue: "April 3, 2001",
+        siteQuote: "Acme Design opened on 03/04/2001.",
+        siteValue: "03/04/2001",
+      });
+      expect(row).toMatchObject({ verdict: "unverified" });
+    });
+
+    it("April 3, 2001 against 04/03/2001 is not contradicted", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design opened on April 3, 2001.",
+        engineValue: "April 3, 2001",
+        siteQuote: "Acme Design opened on 04/03/2001.",
+        siteValue: "04/03/2001",
+      });
+      expect(row?.verdict).not.toBe("contradicted");
+    });
+
+    it("March 3, 2001 against 3/3/2001 is the same value", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design opened on March 3, 2001.",
+        engineValue: "March 3, 2001",
+        siteQuote: "Acme Design opened on 3/3/2001.",
+        siteValue: "3/3/2001",
+      });
+      expect(row).toMatchObject({ verdict: "unverified", unverifiedReason: SAME_VALUE });
+    });
+
+    it("April 30, 2001 against 04/13/2001 stays contradicted: 13 cannot be a month", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design opened on April 30, 2001.",
+        engineValue: "April 30, 2001",
+        siteQuote: "Acme Design opened on 04/13/2001.",
+        siteValue: "04/13/2001",
+      });
+      expect(row).toMatchObject({ verdict: "contradicted", unverifiedReason: null });
+    });
+  });
+
+  // ---- Section 5: three headcount and revenue wordings are withheld ----
+  describe("5. three headcount and revenue wordings are withheld", () => {
+    it.each([
+      ["About 40 people work at Northwind.", "40", "12 people work here.", "12"],
+      ["Northwind has a workforce of 40.", "40", "A workforce of 12.", "12"],
+      [
+        "Northwind makes 2.5 million dollars a year.",
+        "2.5 million",
+        "We make 3 million dollars a year.",
+        "3 million",
+      ],
+    ])(
+      "%s against %s is unverified, on the revenue_headcount topic, keeping no values",
+      async (engineQuote, engineValue, siteQuote, siteValue) => {
+        const row = await rowOf({ engineQuote, engineValue, siteQuote, siteValue });
+        expect(row).toMatchObject({ verdict: "unverified", topic: "revenue_headcount" });
+        expect(row?.contradiction).toBeNull();
+      },
+    );
+
+    it("control: Northwind serves 40 people a day is not withheld", async () => {
+      const row = await rowOf({
+        engineQuote: "Northwind serves 40 people a day.",
+        engineValue: "40",
+        siteQuote: "We serve 12 people a day.",
+        siteValue: "12",
+      });
+      expect(row?.topic).toBe("other");
+    });
+  });
+
+  // ---- Section 6: the guard reads dates and figures, not only phones; a mixed pair; ordinals ----
+  describe("6. the kind-aware guard, a mixed typed pair, and the ordinal exclusion", () => {
+    it("a date the site writes as 3/3/2019 is the engine's date: unverified", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design opened March 3, 2019.",
+        engineValue: "March 3, 2019",
+        siteQuote: "Opened 3/3/2019, moved March 5, 2019.",
+        siteValue: "March 5, 2019",
+      });
+      expect(row).toMatchObject({ verdict: "unverified" });
+    });
+
+    it("twelve cities against 12 cities, with 15 cities in the site quote: not contradicted", async () => {
+      const row = await rowOf({
+        engineQuote: "We served twelve cities.",
+        engineValue: "twelve cities",
+        siteQuote: "We served twelve cities, now 15 cities.",
+        siteValue: "12 cities",
+      });
+      expect(row?.verdict).not.toBe("contradicted");
+    });
+
+    it("a figure the site writes as twelve cities is the engine's figure: unverified", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design served 12 cities.",
+        engineValue: "12 cities",
+        siteQuote: "We served twelve cities, now 15 cities.",
+        siteValue: "15 cities",
+      });
+      expect(row).toMatchObject({ verdict: "unverified" });
+    });
+
+    it("2 years against Open 2 yrs here and 3 years in total: unverified", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design has been open 2 years.",
+        engineValue: "2 years",
+        siteQuote: "Open 2 yrs here and 3 years in total.",
+        siteValue: "3 years",
+      });
+      expect(row).toMatchObject({ verdict: "unverified" });
+    });
+
+    it("2018 against March 5, 2019 is a mixed pair: unverified", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design was founded in 2018.",
+        engineValue: "2018",
+        siteQuote: "Acme Design was founded on March 5, 2019.",
+        siteValue: "March 5, 2019",
+      });
+      expect(row).toMatchObject({ verdict: "unverified" });
+    });
+
+    it("1st against 21st is not contradicted: an ordinal is not a figure with a unit", async () => {
+      const row = await rowOf({
+        engineQuote: "Acme Design ranks 1st in Austin.",
+        engineValue: "1st",
+        siteQuote: "Acme Design ranks 21st in Austin.",
+        siteValue: "21st",
+      });
+      expect(row?.verdict).not.toBe("contradicted");
+    });
   });
 });
