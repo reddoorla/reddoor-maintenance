@@ -1007,6 +1007,34 @@ describe("each check fires on the thing it is named for", () => {
     expect(byKey(targeted, "robots-not-blocking")?.status).toBe("pass");
   });
 
+  it("does not read a Disallow: / in another crawler's group as a blanket block", () => {
+    // Wix-shaped: the wildcard group allows everything; PetalBot's group blocks itself.
+    const wix = runSiteChecks(
+      exemplary({ robotsTxt: "User-agent: *\nAllow: /\n\nUser-agent: PetalBot\nDisallow: /\n" }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(wix, "robots-not-blocking")?.status).toBe("pass");
+
+    // The wildcard group disallows only a section; GPTBot's group blocks itself.
+    const section = runSiteChecks(
+      exemplary({
+        robotsTxt: "User-agent: *\nDisallow: /wp-admin/\n\nUser-agent: GPTBot\nDisallow: /\n",
+      }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(section, "robots-not-blocking")?.status).toBe("pass");
+
+    // Still a fail when the blanket rule comes after a crawler-specific group.
+    const afterGroup = runSiteChecks(
+      exemplary({ robotsTxt: "User-agent: Googlebot\nDisallow:\n\nUser-agent: *\nDisallow: /" }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(afterGroup, "robots-not-blocking")?.status).toBe("fail");
+  });
+
   it("catches schema pointing at a domain they no longer use", () => {
     const old = JSON.stringify({
       "@type": "Organization",
