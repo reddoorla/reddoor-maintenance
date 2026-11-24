@@ -28,6 +28,7 @@ import {
   type ReportMirrorPatch,
 } from "../db/fleet-state.js";
 import type { ReportRow } from "./report-row.js";
+import { listLeadTimestampsForSite } from "../db/submissions.js";
 
 /** The drafting path's whole report surface. Injected as ONE object rather than
  *  as separate parameters because they share a db handle and always travel
@@ -51,6 +52,9 @@ export type ReportMirror = {
   body: (reportId: string, html: string) => Promise<void>;
   /** Columns just written to an existing row. */
   patch: (reportId: string, patch: ReportMirrorPatch) => Promise<void>;
+  /** P1-127: when each of one site's leads arrived, for the report's LEADS block.
+   *  Optional so a fake mirror need not answer it; absent, no block is drafted. */
+  leadsForSite?: (siteId: string) => Promise<string[]>;
 };
 
 /** Build the drafting-path mirror. Never returns null. `open` is injectable
@@ -108,5 +112,6 @@ export async function makeReportMirror(
     body: (reportId, html) => run(reportId, "body", (d) => storeRenderedHtml(d, reportId, html)),
     patch: (reportId, patch) =>
       run(reportId, "patch", (d) => mirrorReportPatch(d, reportId, patch)),
+    leadsForSite: (siteId) => listLeadTimestampsForSite(db, siteId),
   };
 }

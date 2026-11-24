@@ -56,6 +56,14 @@ export type RerenderDeps = {
   measureVisits?: (site: WebsiteRow, now: Date) => Promise<{ value: GaVisits | null }>;
   /** Conditional on the row still being unsent and unapproved, like `storeScores`. */
   storeVisits?: (reportId: string, visits: GaVisits) => Promise<boolean>;
+  /** P1-127: the draft's lead count (`measureLeads`) over the same windows as
+   *  `measureVisits`. Null when the read failed. */
+  measureLeads?: (
+    site: WebsiteRow,
+    now: Date,
+  ) => Promise<{ current: number; previous: number } | null>;
+  /** Conditional on the row still being unsent and unapproved, like `storeVisits`. */
+  storeLeads?: (reportId: string, leads: { current: number; previous: number }) => Promise<boolean>;
   now: () => Date;
 };
 
@@ -180,6 +188,7 @@ export async function rerenderReport(
   const visits = await refreshVisits(deps, reportId, site, current);
   current = visits.report;
   const { ga, gaChange } = visits;
+  current = await refreshLeads(deps, reportId, site, current);
 
   const plate = await deps.loadHeaderPlate(site.id);
   // Named, not rendered around: a report with no header is already blocked at
@@ -305,6 +314,27 @@ async function refreshVisits(
     ga: "refreshed",
     gaChange: `${before}→${after}`,
   };
+}
+
+/** P1-127: an unsent, unapproved report takes the lead counts a draft made now
+ *  would carry, so its LEADS block covers the same days as the GA visits that
+ *  {@link refreshVisits} just refreshed. Same locks; a failed read keeps what
+ *  is stored. */
+async function refreshLeads(
+  deps: RerenderDeps,
+  reportId: string,
+  site: WebsiteRow,
+  report: ReportRow,
+): Promise<ReportRow> {
+  if (!deps.measureLeads || !deps.storeLeads) return report;
+  if (report.reportType === "Launch" || report.approvedToSend) return report;
+  const value = await deps.measureLeads(site, deps.now());
+  if (!value) return report;
+  if (report.leadsCurrent === value.current && report.leadsPrevious === value.previous) {
+    return report;
+  }
+  if (!(await deps.storeLeads(reportId, value))) return report;
+  return { ...report, leadsCurrent: value.current, leadsPrevious: value.previous };
 }
 
 /** Google Indexed is measured only where the draft would measure it: an unsent

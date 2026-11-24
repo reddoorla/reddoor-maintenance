@@ -375,6 +375,8 @@ export function mapReportRecord(rec: RawRecord, renderedHtml: string | null): Re
     lighthouse_seo: n(f["Lighthouse — SEO"]),
     ga_users_current: n(f["GA users (period)"]),
     ga_users_previous: n(f["GA users (prev period)"]),
+    leads_current: n(f["Leads (period)"]),
+    leads_previous: n(f["Leads (prev period)"]),
     search_found_page1: b01n(f["Search found page 1"]),
     search_position: n(f["Search position"]),
     last_tested_date: s(f["Last tested date"]),

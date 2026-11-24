@@ -46,6 +46,7 @@ vi.mock("../../src/db/fleet-state.js", () => ({
   storeChecklistEvidence: vi.fn(async () => true),
   storeLighthouseScores: vi.fn(async () => true),
   storeGaVisits: vi.fn(async () => true),
+  storeLeadCounts: vi.fn(async () => true),
   mirrorHealthFields: vi.fn(async () => true),
 }));
 vi.mock("../../src/reports/draft.js", async (importOriginal) => ({

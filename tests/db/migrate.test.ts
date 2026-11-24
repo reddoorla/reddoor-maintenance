@@ -71,6 +71,8 @@ describe("runMigrations", () => {
       "0062_prospect_audits_withdrawn_by",
       "0063_prospect_audits_superseded_by",
       "0064_sites_reddoor_contact",
+      "0065_reports_leads_current",
+      "0066_reports_leads_previous",
     ]);
     const tables = await client.execute(
       "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
@@ -153,6 +155,8 @@ describe("runMigrations", () => {
       "0062_prospect_audits_withdrawn_by",
       "0063_prospect_audits_superseded_by",
       "0064_sites_reddoor_contact",
+      "0065_reports_leads_current",
+      "0066_reports_leads_previous",
     ]);
   });
 
@@ -239,6 +243,8 @@ describe("runMigrations", () => {
       "0062_prospect_audits_withdrawn_by",
       "0063_prospect_audits_superseded_by",
       "0064_sites_reddoor_contact",
+      "0065_reports_leads_current",
+      "0066_reports_leads_previous",
     ]);
   });
 
@@ -328,6 +334,8 @@ describe("runMigrations", () => {
       "0062_prospect_audits_withdrawn_by",
       "0063_prospect_audits_superseded_by",
       "0064_sites_reddoor_contact",
+      "0065_reports_leads_current",
+      "0066_reports_leads_previous",
     ]);
   });
 });

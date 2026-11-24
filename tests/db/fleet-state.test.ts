@@ -27,6 +27,7 @@ import {
   storeChecklistEvidence,
   storeLighthouseScores,
   storeGaVisits,
+  storeLeadCounts,
   getReportById,
   getReportHtml,
   listAllReports,
@@ -913,6 +914,49 @@ describe("storeGaVisits (P1-73)", () => {
       expect([row.gaUsersCurrent, row.gaUsersPrevious]).toEqual([906, 898]);
     }
     expect(await storeGaVisits(db, "recNOPE", VISITS)).toBe(false);
+  });
+});
+
+describe("storeLeadCounts (P1-127)", () => {
+  const insert = async (
+    db: Awaited<ReturnType<typeof seeded>>,
+    id: string,
+    over: { approved_to_send?: number; sent_at?: string | null } = {},
+  ) =>
+    db
+      .insertInto("reports")
+      .values({
+        id,
+        site_id: "recRICH",
+        report_id: "LEADS",
+        report_type: "Maintenance",
+        draft_ready: 1,
+        approved_to_send: 0,
+        send_override: 0,
+        leads_current: 3,
+        leads_previous: 1,
+        ...over,
+      })
+      .execute();
+  const LEADS = { current: 7, previous: 4 };
+
+  it("writes the pair where the reader reads it back", async () => {
+    const db = await seeded([RICH]);
+    await insert(db, "recL1");
+    expect(await storeLeadCounts(db, "recL1", LEADS)).toBe(true);
+    const row = (await getReportById(db, "recL1"))!;
+    expect([row.leadsCurrent, row.leadsPrevious]).toEqual([7, 4]);
+  });
+
+  it("refuses an approved or a sent row, leaving it as it was", async () => {
+    const db = await seeded([RICH]);
+    await insert(db, "recL2", { approved_to_send: 1 });
+    await insert(db, "recL3", { sent_at: "2026-09-20T09:23:00.000Z" });
+    for (const id of ["recL2", "recL3"]) {
+      expect(await storeLeadCounts(db, id, LEADS)).toBe(false);
+      const row = (await getReportById(db, id))!;
+      expect([row.leadsCurrent, row.leadsPrevious]).toEqual([3, 1]);
+    }
   });
 });
 

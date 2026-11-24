@@ -141,6 +141,34 @@ export function analyticsTrendLine(
   return trendLine(TREND_NEUTRAL, `No change vs ${priorLabel} (${fmtUsers(prev)})`);
 }
 
+/** What the lead count is called in the report (P1-127). */
+export const LEADS_LABEL = "Leads";
+
+/**
+ * The "LEADS" block (P1-127): the client's form leads over the last 30 complete
+ * days in big red, then the same trend line the analytics block draws against
+ * the 30 before. A lead is a form submission that is not spam and not a
+ * newsletter or RSVP signup. A real 0 renders (the operator chose to show
+ * quiet months); `undefined` (not read) renders nothing. PURE.
+ */
+export function leadsSection(opts: {
+  current?: number | undefined;
+  previous?: number | undefined;
+  periodDays?: number | undefined;
+  background: string;
+}): string {
+  if (opts.current === undefined || opts.previous === undefined) return "";
+  return `
+    <mj-section background-color="${opts.background}">
+      <mj-column>
+        <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="75px">LEADS</mj-text>
+        <mj-text color="${RED}" font-size="44px" font-weight="400">${fmtUsers(opts.current)} ${opts.current === 1 ? "Lead" : LEADS_LABEL}</mj-text>
+        ${analyticsTrendLine(opts.current, opts.previous, opts.periodDays)}
+        ${footnoteLine("Form submissions from your site in the last 30 days, with spam and newsletter sign-ups left out.")}
+      </mj-column>
+    </mj-section>`;
+}
+
 /** A 16px coloured line (the trend, and the announcement's search line). */
 function trendLine(color: string, text: string): string {
   return `<mj-text color="${color}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px">${text}</mj-text>`;

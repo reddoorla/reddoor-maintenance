@@ -855,4 +855,17 @@ export const MIGRATIONS: Migration[] = [
     id: "0064_sites_reddoor_contact",
     sql: `ALTER TABLE sites ADD COLUMN reddoor_contact TEXT;`,
   },
+  {
+    // P1-127: the report's lead count for the last 30 complete Pacific days
+    // (leadPeriods), stored with the draft like the GA visits beside it, so the
+    // send renders the number that was approved. Add-only; one column per
+    // migration, for the reason 0015 gives.
+    id: "0065_reports_leads_current",
+    sql: `ALTER TABLE reports ADD COLUMN leads_current INTEGER;`,
+  },
+  {
+    // P1-127: the 30 days before that.
+    id: "0066_reports_leads_previous",
+    sql: `ALTER TABLE reports ADD COLUMN leads_previous INTEGER;`,
+  },
 ];

@@ -866,6 +866,11 @@ function scenarios(state: { createdId: string; reservedId: string }): Scenario[]
         }),
     },
     {
+      name: "storeLeadCounts (preview refresh re-measures an unsent draft's leads, P1-127)",
+      covers: ["storeLeadCounts"],
+      run: (db) => fleetState.storeLeadCounts(db, "recA", { current: 1, previous: 1 }),
+    },
+    {
       name: "storeGaVisits (preview refresh re-measures an unsent draft's analytics, P1-73)",
       covers: ["storeGaVisits"],
       run: (db) => fleetState.storeGaVisits(db, "recA", { current: 1, previous: 1 }),

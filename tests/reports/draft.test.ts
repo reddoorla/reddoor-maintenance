@@ -1257,3 +1257,47 @@ describe("draftReportForSite → the Turso report writer", () => {
     ).resolves.toMatchObject({ queued: true });
   });
 });
+
+describe("draftReportForSite — leads (P1-127)", () => {
+  const DAY = 86_400_000;
+  const ago = (days: number) => new Date(Date.now() - days * DAY).toISOString();
+
+  it("stores the site's leads in the report's two 30-day windows", async () => {
+    const asked: string[] = [];
+    Object.assign(writer, {
+      leadsForSite: async (siteId: string) => {
+        asked.push(siteId);
+        return [ago(3), ago(5), ago(40)];
+      },
+    });
+    const site = siteFixture();
+    await draftReportForSite(site, "Maintenance", NO_HEADER);
+    const fields = writer.inserts[0]!.fields;
+    expect(asked).toEqual([site.id]);
+    expect(fields["Leads (period)"]).toBe(2);
+    expect(fields["Leads (prev period)"]).toBe(1);
+  });
+
+  it("soft-fails: a failed read leaves the fields out and still drafts", async () => {
+    Object.assign(writer, {
+      leadsForSite: async () => {
+        throw new Error("turso down");
+      },
+    });
+    const result = await draftReportForSite(siteFixture(), "Maintenance", NO_HEADER);
+    expect(result.reportRow).not.toBeNull();
+    expect(writer.inserts[0]!.fields["Leads (period)"]).toBeUndefined();
+  });
+
+  it("never reads leads for a Launch email", async () => {
+    let read = false;
+    Object.assign(writer, {
+      leadsForSite: async () => {
+        read = true;
+        return [];
+      },
+    });
+    await draftReportForSite(siteFixture(), "Launch", NO_HEADER);
+    expect(read).toBe(false);
+  });
+});

@@ -233,6 +233,8 @@ export interface ReportsTable {
   lighthouse_seo: number | null;
   ga_users_current: number | null;
   ga_users_previous: number | null;
+  leads_current: number | null;
+  leads_previous: number | null;
   search_found_page1: number | null;
   search_position: number | null;
   last_tested_date: string | null;

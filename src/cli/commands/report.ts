@@ -352,10 +352,12 @@ async function bindRerender(db: Db): Promise<RerenderDeps> {
     storeChecklistEvidence,
     storeLighthouseScores,
     storeGaVisits,
+    storeLeadCounts,
     mirrorHealthFields,
   } = await import("../../db/fleet-state.js");
   const { loadHeaderImage } = await import("../../db/header-images.js");
-  const { fetchSearch, fetchGaVisits } = await import("../../reports/draft.js");
+  const { fetchSearch, fetchGaVisits, measureLeads } = await import("../../reports/draft.js");
+  const { listLeadTimestampsForSite } = await import("../../db/submissions.js");
   return {
     getReport: (id) => getReportById(db, id),
     getSite: (id) => getSiteById(db, id),
@@ -369,6 +371,9 @@ async function bindRerender(db: Db): Promise<RerenderDeps> {
     storeLookup: (siteId, fields) => mirrorHealthFields(db, siteId, fields),
     measureVisits: (site, now) => fetchGaVisits(site, now),
     storeVisits: (id, visits) => storeGaVisits(db, id, visits),
+    measureLeads: (site, now) =>
+      measureLeads(site, () => listLeadTimestampsForSite(db, site.id), now),
+    storeLeads: (id, leads) => storeLeadCounts(db, id, leads),
     now: () => new Date(),
   };
 }

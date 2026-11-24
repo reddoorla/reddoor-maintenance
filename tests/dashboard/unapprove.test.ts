@@ -15,6 +15,8 @@ function reportRow(over: Partial<ReportRow> = {}): ReportRow {
     lighthouse: null,
     gaUsersCurrent: null,
     gaUsersPrevious: null,
+    leadsCurrent: null,
+    leadsPrevious: null,
     searchFoundPage1: null,
     searchPosition: null,
     lastTestedDate: null,

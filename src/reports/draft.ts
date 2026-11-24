@@ -21,6 +21,7 @@ import { autoTickChecklist } from "./auto-tick.js";
 import { readGaConfig } from "./ga/config.js";
 import { searchEnrolled } from "./search-enrolled.js";
 import { fetchReportVisits, measuredHostnames, REPORT_WINDOW_DAYS } from "./ga/client.js";
+import { leadPeriods } from "./lead-periods.js";
 import { fetchSearchPresence } from "./search/client.js";
 import type { SearchPresence } from "./search/client.js";
 import { generateHeaderImage } from "./header-image/index.js";
@@ -260,6 +261,12 @@ export async function draftReportForSite(
       };
   const gaUsers = gaResult.value;
   const search = searchResult.value;
+  // P1-127: leads in the same two windows, from the submissions table. Soft-fails
+  // to no LEADS block, like GA; the launch email shows neither.
+  const leads =
+    shouldEnrich && store?.leadsForSite && reportType !== "Launch"
+      ? await measureLeads(siteRow, () => store.leadsForSite!(siteRow.id), today)
+      : null;
   const softFailures: SoftFailure[] = [
     ...(gaResult.softFailed ? (["ga"] as const) : []),
     ...(searchResult.softFailed ? (["search"] as const) : []),
@@ -302,6 +309,7 @@ export async function draftReportForSite(
     gaUsersCurrent: gaUsers?.current,
     gaUsersPrevious: gaUsers?.previous,
     gaPeriodDays: REPORT_WINDOW_DAYS,
+    ...(leads ? { leadsCurrent: leads.current, leadsPrevious: leads.previous } : {}),
     searchPosition: search?.foundOnPage1 ? (search.position ?? undefined) : undefined,
     lastTestedDate,
     commentary: null,
@@ -393,6 +401,7 @@ export async function draftReportForSite(
       lighthouse: scores,
       lastTestedDate,
       ...(gaUsers ? { gaUsersCurrent: gaUsers.current, gaUsersPrevious: gaUsers.previous } : {}),
+      ...(leads ? { leadsCurrent: leads.current, leadsPrevious: leads.previous } : {}),
       ...searchEnrichment(search),
       checklistTicks,
       autoEvidence,
@@ -507,6 +516,26 @@ export async function fetchGaVisits(
   } catch (e) {
     console.warn(`⚠ GA skipped for ${siteRow.name}: ${(e as Error).message}`);
     return { value: null, softFailed: true };
+  }
+}
+
+/**
+ * P1-127: a site's leads in the report's two 30-day windows ({@link leadPeriods}:
+ * the 30 complete Pacific days that ended yesterday, and the 30 before), from
+ * `read` (the site's lead timestamps). Never throws: a failed read logs one line
+ * and returns null, and the report goes out without its LEADS block.
+ */
+export async function measureLeads(
+  siteRow: WebsiteRow,
+  read: () => Promise<readonly string[]>,
+  now: Date,
+): Promise<{ current: number; previous: number } | null> {
+  try {
+    const p = leadPeriods(await read(), now);
+    return { current: p.last30, previous: p.prior30 };
+  } catch (e) {
+    console.warn(`⚠ leads skipped for ${siteRow.name}: ${(e as Error).message}`);
+    return null;
   }
 }
 
