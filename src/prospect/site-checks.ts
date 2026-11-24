@@ -534,6 +534,28 @@ const MOJIBAKE = /(â€[™œ“”˜]|Ã[©¨¤¡«»]|ï»¿|Â[\s£©®])/
 const UNDER_CONSTRUCTION =
   /\b(under construction|coming soon|site is being (?:built|updated)|check back soon)\b/i;
 
+/** An address carrying an unrendered `{{ … }}` placeholder, literal or
+ *  percent-encoded as a URL parser leaves it. */
+export function isTemplatePlaceholderUrl(url: string): boolean {
+  return /\{\{|%7B%7B/i.test(url);
+}
+
+/** The first link whose address is an unrendered placeholder, as a
+ *  template-leakage hit: the visitor who clicks it lands on a 404. */
+function placeholderLink(
+  pages: { url: string; extract: PageExtract }[],
+): { page: string; snippet: string } | null {
+  for (const p of pages) {
+    const a = p.extract.anchors?.find((x) => isTemplatePlaceholderUrl(x.href));
+    if (a)
+      return {
+        page: p.url,
+        snippet: `a link points to ${a.href}, so a visitor who follows it lands on a missing page`,
+      };
+  }
+  return null;
+}
+
 function textChecks(
   pages: { url: string; extract: PageExtract }[],
   businessName: string | null,
@@ -587,7 +609,7 @@ function textChecks(
       out.push(unknown(key, label, why, scope));
       continue;
     }
-    const hit = firstMatch(re);
+    const hit = firstMatch(re) ?? (key === "template-leakage" ? placeholderLink(pages) : null);
     out.push(
       check(
         key,
@@ -1199,22 +1221,22 @@ const SECURITY_HEADER_CHECKS: {
   {
     header: "strict-transport-security",
     label: "Telling browsers to always use https",
-    why: "Without it, the first visit of the day can still be made over plain http before the redirect happens.",
+    why: "Your server does not tell browsers to use https every time, so a visitor's first request of the day can still go over plain http before the redirect.",
   },
   {
     header: "content-security-policy",
     label: "A policy for what may run on your pages",
-    why: "It is the difference between a compromised script running on your site and being blocked by the browser.",
+    why: "A content policy lists where your pages may load scripts from. It is the standard second line of defence if a script you include is ever changed by someone else.",
   },
   {
     header: "x-content-type-options",
     label: "Stopping browsers guessing file types",
-    why: "One line that prevents a browser treating an uploaded file as something executable.",
+    why: "This one line tells browsers to trust the file type your server declares instead of guessing it, which is the standard setting.",
   },
   {
     header: "x-frame-options",
     label: "Stopping other sites framing yours",
-    why: "Without it, anyone can put your site inside theirs and collect what visitors type into it.",
+    why: "Your server does not send X-Frame-Options or a frame-ancestors policy. That is the standard protection against another site showing yours inside a frame of its own.",
   },
   {
     header: "permissions-policy",
@@ -1250,6 +1272,27 @@ const SECURITY_HEADER_CHECKS: {
  *  ordinary; the version number is the part that tells an attacker which list
  *  of known holes to work through. */
 const VERSIONED = /\d+\.\d+/;
+
+/** Whether a content policy's `frame-ancestors` actually restricts framing.
+ *  `*`, `http:` and `https:` allow every site, which is no protection; a
+ *  header carrying two policies joined by "," is read policy by policy. */
+export function restrictsFraming(csp: string | undefined): boolean {
+  if (!csp) return false;
+  return csp.split(",").some((policy) =>
+    policy.split(";").some((d) => {
+      const [name, ...sources] = d.trim().split(/\s+/);
+      if (name?.toLowerCase() !== "frame-ancestors" || sources.length === 0) return false;
+      // `*`, a bare scheme, or a host wildcard like `https://*` allows every site.
+      return !sources.some((s) => /^(?:\*|https?:|(?:https?:\/\/)?\*(?::\*)?\/?)$/i.test(s));
+    }),
+  );
+}
+
+/** "Apache/2.4.18 (Ubuntu)" → "Apache". The product, never the build. */
+export function softwareName(value: string): string {
+  const name = value.split(/[\s/,(]/)[0]?.trim();
+  return name && !VERSIONED.test(name) ? name : "";
+}
 
 /**
  * Two values leak MORE than sending nothing. Everything else, absence included,
@@ -1339,8 +1382,12 @@ function headerChecks(headers: Record<string, string>, measured: boolean): SiteC
       continue;
     }
     const value = headers[header];
-    const present = value !== undefined;
-    const ok = present && (restricts === undefined || restricts(value));
+    // `frame-ancestors` in a content policy does X-Frame-Options' job and
+    // supersedes it in every current browser (LGL-05), so it counts as present.
+    const framedByPolicy =
+      header === "x-frame-options" && restrictsFraming(headers["content-security-policy"]);
+    const present = value !== undefined || framedByPolicy;
+    const ok = framedByPolicy || (present && (restricts === undefined || restricts(value!)));
     out.push(
       check(
         `header-${header}`,
@@ -1351,7 +1398,9 @@ function headerChecks(headers: Record<string, string>, measured: boolean): SiteC
         !present
           ? `no ${header} header`
           : ok
-            ? `${header} is set`
+            ? value === undefined
+              ? "frame-ancestors is set in your content policy, which does the same job"
+              : `${header} is set`
             : `${header} is set, but every directive in it is “*” — which is what the browser does without the header`,
       ),
     );
@@ -1359,8 +1408,11 @@ function headerChecks(headers: Record<string, string>, measured: boolean): SiteC
 
   out.push(referrerPolicyCheck(headers, measured));
 
+  // The evidence names the software, never the version string (LGL-05): the
+  // raw header stays in `crawl.homeHeaders` for the release-line lookup, and a
+  // report is not the place to publish a prospect's exact build.
   const WHY_LEAK =
-    "Naming the exact version you run tells anyone looking which published vulnerabilities to try first.";
+    "Your server announces which software version it runs. That costs you nothing on its own, but it is one more thing to keep current, and most hosts switch it off.";
   if (!measured) {
     out.push(
       unknown("header-version-leak", "Not advertising your software versions", WHY_LEAK, "quick"),
@@ -1368,7 +1420,12 @@ function headerChecks(headers: Record<string, string>, measured: boolean): SiteC
   } else {
     const leaks = ["server", "x-powered-by"]
       .filter((h) => headers[h] && VERSIONED.test(headers[h]!))
-      .map((h) => `${h}: ${headers[h]}`);
+      .map((h) => {
+        const name = softwareName(headers[h]!);
+        return name
+          ? `your ${h} header names its software version (${name})`
+          : `your ${h} header carries a version number`;
+      });
     out.push(
       check(
         "header-version-leak",
@@ -1444,7 +1501,9 @@ function sidecarChecks(
    *  way the linked side already does. */
   aliasOf: ReadonlyMap<string, string>,
 ): SiteCheck[] {
-  const discoveredLinks = linkedPages.size;
+  // Addresses with `{{` are template defects, not pages (TEC-05), so they are
+  // left out of every count this function compares against.
+  const realLinks = [...linkedPages].filter((a) => !isTemplatePlaceholderUrl(a)).length;
   const out: SiteCheck[] = [];
   const robotsMeasured = crawl.sidecarErrors.robots === null;
 
@@ -1529,7 +1588,8 @@ function sidecarChecks(
           : "we could not read the sitemap on this run",
       ),
     );
-  } else if (discoveredLinks === 0) {
+  } else if (realLinks === 0) {
+    // No links at all, or only `{{` placeholders: nothing to compare against.
     out.push(
       unknown("sitemap-coverage", "A sitemap that lists your pages", WHY_COVERAGE, "content"),
     );
@@ -1554,7 +1614,7 @@ function sidecarChecks(
     // Compared against pages WE found links to, never against our own crawl
     // cap. "We read 14 of your pages" is a fact about our limit, and using it
     // as the denominator would report our ceiling as their gap.
-    const ok = crawl.sitemap.urlCount >= discoveredLinks;
+    const ok = crawl.sitemap.urlCount >= realLinks;
     // When the crawl carried the WHOLE sitemap, a count is not the best we can
     // do — we can name a page it leaves out, and a named page is a job where a
     // count is only a worry. Only when it is whole: against a truncated sample
@@ -1577,7 +1637,12 @@ function sidecarChecks(
         return aliasOf.get(at) ?? at;
       }),
     );
-    const unlisted = whole ? [...linkedPages].filter((a) => !listed.has(a)) : [];
+    // An address with `{{` in it is an unrendered template placeholder, not a
+    // page (TEC-05: a site was told `/{{url}}` was missing from its sitemap).
+    // `template-leakage` reports it as the defect it is.
+    const unlisted = whole
+      ? [...linkedPages].filter((a) => !listed.has(a) && !isTemplatePlaceholderUrl(a))
+      : [];
     out.push(
       check(
         "sitemap-coverage",
@@ -1587,7 +1652,7 @@ function sidecarChecks(
         ok && unlisted.length === 0,
         unlisted.length > 0
           ? `${unlisted.length} ${unlisted.length === 1 ? "page your own links point to is" : "pages your own links point to are"} missing from it — ${unlisted[0]}`
-          : `${crawl.sitemap.urlCount} URLs listed, against ${discoveredLinks} distinct pages your own links point to`,
+          : `${crawl.sitemap.urlCount} URLs listed, against ${realLinks} distinct pages your own links point to`,
       ),
     );
   }
@@ -1786,6 +1851,37 @@ function analyticsCheck(pages: { url: string; extract: PageExtract }[]): SiteChe
   );
 }
 
+/**
+ * Paths where `noindex` is the owner's choice, not a staging leftover: legal
+ * pages, thank-you and confirmation pages, search results, and login or
+ * account pages. Matched on a whole path segment, so `/privacy-policy` and
+ * `/legal/terms` match and `/privacy-dentistry-blog-post` does not.
+ */
+const DELIBERATELY_HIDDEN_SEGMENT =
+  /^(?:privacy(?:-policy|-notice|-statement)?|terms(?:-of-(?:use|service))?|terms-(?:and-)?conditions|legal|disclaimer|cookies?(?:-policy|-notice)?|thank-?you(?:-for-[a-z-]+|-page|-\d+)?|thanks|confirmation|search|login|log-in|signin|sign-in|wp-login|account|my-account)$/i;
+
+export function isDeliberatelyHiddenPath(url: string): boolean {
+  try {
+    const u = new URL(url);
+    if (u.searchParams.has("s") && u.pathname === "/") return true;
+    // The LAST segment only (W4 review): `/legal/terms` is a legal page, but
+    // `/search/boise-homes` and `/legal/estate-planning` are content.
+    // A trailing `index.html` or an AMP twin names the page above it.
+    const segs = u.pathname
+      .split("/")
+      .filter(Boolean)
+      .map((x) => x.replace(/\.(?:html?|php|aspx?)$/i, ""));
+    while (segs.length > 1 && /^(?:index|amp)$/i.test(segs[segs.length - 1]!)) segs.pop();
+    const last = segs.pop();
+    return (
+      last !== undefined &&
+      DELIBERATELY_HIDDEN_SEGMENT.test(last.replace(/\.(?:html?|php|aspx?)$/i, ""))
+    );
+  } catch {
+    return false;
+  }
+}
+
 // ─── Metas ───────────────────────────────────────────────────────────────────
 
 /**
@@ -1848,7 +1944,20 @@ function metaChecks(pages: { url: string; extract: PageExtract }[]): SiteCheck[]
       .filter((p) => token.test(p.extract.metas?.["robots"] ?? ""))
       .map((p) => ({ url: p.url, value: p.extract.metas!["robots"]! }));
 
-  const noindex = flagged(/\bnoindex\b/i);
+  // A privacy page, a thank-you page, a search results page or a login page
+  // is hidden ON PURPOSE far more often than by accident (TEC-05: one site's
+  // privacy page failed this, with "left over from a staging site" printed
+  // under it). Those pass, and the evidence says why.
+  const allNoindex = flagged(/\bnoindex\b/i);
+  const deliberate = allNoindex.filter((n) => isDeliberatelyHiddenPath(n.url));
+  const noindex = allNoindex.filter((n) => !isDeliberatelyHiddenPath(n.url));
+  const deliberateNote =
+    deliberate.length === 0
+      ? ""
+      : `; ${deliberate.length} ${deliberate.length === 1 ? "page is" : "pages are"} hidden deliberately, as is usual on this kind of page: ${deliberate
+          .slice(0, 3)
+          .map((n) => n.url)
+          .join(", ")}`;
   out.push(
     check(
       "meta-noindex",
@@ -1857,11 +1966,11 @@ function metaChecks(pages: { url: string; extract: PageExtract }[]): SiteCheck[]
       "quick",
       noindex.length === 0,
       noindex.length === 0
-        ? `none of the ${readable.length} pages we read asks to be hidden`
+        ? `none of the ${readable.length} pages we read asks to be hidden by mistake${deliberateNote}`
         : `${noindex.length} ${noindex.length === 1 ? "page carries" : "pages carry"} noindex: ${noindex
             .slice(0, 3)
             .map((n) => n.url)
-            .join(", ")}`,
+            .join(", ")}${deliberateNote}`,
     ),
   );
 
@@ -2765,19 +2874,45 @@ function browserChecks(
 
   const out: SiteCheck[] = [];
 
-  const erroring = withVitals.filter((p) => p.vitals.consoleErrors.length > 0);
-  out.push(
-    check(
-      "console-errors",
-      "Pages without JavaScript errors",
-      WHY_CONSOLE,
-      "structural",
-      erroring.length === 0,
-      erroring.length === 0
-        ? `none on the ${withVitals.length} pages we opened`
-        : `${erroring[0]!.url}: ${erroring[0]!.vitals.consoleErrors[0]}`,
-    ),
+  // THROWN ERRORS ONLY (TEC-05). A `console.error` is a message a script chose
+  // to print — one was a styled `%c` banner, another a browser CSP
+  // notice — and "a script that throws stops running" is not true of it. Runs
+  // stored before `scriptErrors` existed mixed the two in `consoleErrors`, so
+  // for them we cannot say which is which: unmeasured, not a guess.
+  const separated = withVitals.filter(
+    (p): p is typeof p & { vitals: PageVitals & { scriptErrors: string[] } } =>
+      Array.isArray(p.vitals.scriptErrors),
   );
+  if (separated.length === 0) {
+    out.push(
+      unknown(
+        "console-errors",
+        "Pages without JavaScript errors",
+        WHY_CONSOLE,
+        "structural",
+        "this run did not separate thrown errors from console messages",
+      ),
+    );
+  } else {
+    const erroring = separated.filter((p) => p.vitals.scriptErrors.length > 0);
+    const logged = separated.filter((p) => p.vitals.consoleErrors.length > 0).length;
+    const note =
+      logged === 0
+        ? ""
+        : `; ${logged} ${logged === 1 ? "page" : "pages"} also logged console messages, which are notes rather than failures`;
+    out.push(
+      check(
+        "console-errors",
+        "Pages without JavaScript errors",
+        WHY_CONSOLE,
+        "structural",
+        erroring.length === 0,
+        erroring.length === 0
+          ? `no script threw on ${separated.length === 1 ? "the one page" : `the ${separated.length} pages`} we opened${note}`
+          : `${erroring[0]!.url}: ${erroring[0]!.vitals.scriptErrors[0]}`,
+      ),
+    );
+  }
 
   // FIRST-PARTY ONLY. A blocked analytics beacon or a third-party widget that
   // 404s is our network, an ad blocker, or somebody else's outage — reporting
@@ -2880,11 +3015,35 @@ function clipRecord(record: string, max = 90): string {
   return one.length <= max ? one : `${one.slice(0, max - 1).trimEnd()}…`;
 }
 
+const DMARC_LABEL = "A DMARC policy that turns forged mail away";
+
+/**
+ * What a DMARC record asks receivers to do, in three states.
+ *
+ * `monitoring` is `p=none`, and also a record with no readable `p=` tag:
+ * RFC 7489 makes `p` required, and a receiver that cannot read one applies no
+ * policy, which is the same outcome as `none`. Only `quarantine` and `reject`
+ * turn a forged message away.
+ */
+export type DmarcState = "missing" | "monitoring" | "enforcing";
+export function dmarcPolicyTag(record: string): string | null {
+  return /(?:^|;)\s*p\s*=\s*([a-z]+)/i.exec(record)?.[1]?.toLowerCase() ?? null;
+}
+export function dmarcState(record: string | null): DmarcState {
+  if (record === null) return "missing";
+  const m = /(?:^|;)\s*p\s*=\s*([a-z]+)/i.exec(record);
+  const policy = m?.[1]?.toLowerCase();
+  return policy === "quarantine" || policy === "reject" ? "enforcing" : "monitoring";
+}
+
 export function dnsChecks(dns: DnsFindings | null): SiteCheck[] {
+  // OBSERVATION PLUS ITS ORDINARY CONSEQUENCE, never what "anyone can" do
+  // (LGL-05). A missing record is a fact about the domain; an exploit is a
+  // claim we have not tested, and a compliance reader acts on the second.
   const WHY_SPF =
-    "Without it, anyone can send email that appears to come from your address, and your own mail is more likely to be filed as spam.";
+    "SPF is the published list of servers allowed to send mail as your domain. Without it, receiving mail servers have less to go on, and your own mail is more likely to be filed as spam.";
   const WHY_DMARC =
-    "SPF says who may send as you. DMARC is what tells the receiving mail server to act on that, and to report attempts to you. Without it the first one is advisory.";
+    "DMARC tells receiving mail servers what to do with a message that claims to be from your domain but fails its checks. At p=none they deliver it anyway, and at most report it to you; quarantine or reject is what turns it away.";
   const WHY_MX =
     "There is no mail server listed for your domain, so email sent to any address at it is rejected.";
   const WHY_CONTACT_MX =
@@ -2902,7 +3061,7 @@ export function dnsChecks(dns: DnsFindings | null): SiteCheck[] {
   if (!dns || !dns.measured) {
     return [
       unknown("dns-spf", "An SPF record, so your email is trusted", WHY_SPF, "quick"),
-      unknown("dns-dmarc", "A DMARC record, so SPF is enforced", WHY_DMARC, "quick"),
+      unknown("dns-dmarc", DMARC_LABEL, WHY_DMARC, "quick"),
       unknown("dns-mx", "A mail server for your domain", WHY_MX, "structural"),
       unknown("dns-contact-mx", "An email address that can receive mail", WHY_CONTACT_MX, "quick"),
       unknown("domain-expiry", "A domain registration with room to spare", WHY_EXPIRY, "quick"),
@@ -2924,18 +3083,29 @@ export function dnsChecks(dns: DnsFindings | null): SiteCheck[] {
         ),
   );
 
-  out.push(
-    dns.dmarc === undefined
-      ? unknown("dns-dmarc", "A DMARC record, so SPF is enforced", WHY_DMARC, "quick")
-      : check(
-          "dns-dmarc",
-          "A DMARC record, so SPF is enforced",
-          WHY_DMARC,
-          "quick",
-          dns.dmarc !== null,
-          (dns.dmarc ? clipRecord(dns.dmarc) : null) ?? `no record at _dmarc.${dns.domain}`,
-        ),
-  );
+  // THREE STATES, NOT TWO (TEC-04). Presence used to pass, so `p=none` —
+  // a policy that delivers forged mail and only reports it — printed as
+  // "SPF is enforced", on three of the four stored domains that had a record.
+  // Monitoring is a fail with its own wording, never a pass.
+  if (dns.dmarc === undefined) {
+    out.push(unknown("dns-dmarc", DMARC_LABEL, WHY_DMARC, "quick"));
+  } else {
+    const state = dmarcState(dns.dmarc);
+    out.push(
+      check(
+        "dns-dmarc",
+        DMARC_LABEL,
+        WHY_DMARC,
+        "quick",
+        state === "enforcing",
+        state === "missing"
+          ? `no record at _dmarc.${dns.domain}`
+          : state === "monitoring"
+            ? `${dmarcPolicyTag(dns.dmarc!) === "none" ? "monitoring only (p=none)" : "no valid p= policy, so receivers apply none"}: forged mail is still delivered${/(?:^|;)\s*rua\s*=/i.test(dns.dmarc!) ? " and reported to you" : ", and no report address is set"} — ${clipRecord(dns.dmarc!)}`
+            : clipRecord(dns.dmarc!),
+      ),
+    );
+  }
 
   out.push(
     dns.mx === undefined

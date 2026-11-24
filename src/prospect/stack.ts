@@ -119,7 +119,13 @@ const ASSET_SIGNATURES: AssetSignature[] = [
   { layer: "cms", name: "Squarespace", match: /(?:^|\/\/|\.)squarespace\.com\// },
   { layer: "cms", name: "Wix", match: /(?:^|\/\/|\.)wixstatic\.com\// },
   { layer: "cms", name: "Webflow", match: /(?:^|\/\/|\.)website-files\.com\// },
-  { layer: "cms", name: "HubSpot CMS", match: /(?:^|\/\/|\.)(?:hs-scripts|hs-banner)\.com\// },
+  // HubSpot CMS only from the hosts that serve HubSpot-built PAGES. The
+  // tracking and cookie-banner hosts (`hs-scripts`, `hs-banner`) run on any
+  // site that uses HubSpot's CRM, and named a WordPress site "HubSpot CMS"
+  // in a live report (TEC-06); they are analytics, below.
+  // Not `hubspotusercontent`: that is HubSpot's file CDN, which CRM-only
+  // customers embed images from too (W4 review).
+  { layer: "cms", name: "HubSpot CMS", match: /(?:^|\/\/|\.)hs-sites\.com\// },
   { layer: "cms", name: "Duda", match: /(?:^|\/\/|\.)cdn-website\.com\// },
   { layer: "cms", name: "GoDaddy Website Builder", match: /(?:^|\/\/|\.)wsimg\.com\// },
   { layer: "cms", name: "Drupal", match: /\/(?:core|modules)\/misc\/drupal\.js/ },
@@ -173,6 +179,11 @@ const ASSET_SIGNATURES: AssetSignature[] = [
   { layer: "analytics", name: "Intercom", match: /(?:widget|js)\.intercom(?:cdn)?\.(?:io|com)\// },
   { layer: "analytics", name: "Drift", match: /js\.driftt\.com\// },
   { layer: "analytics", name: "Plausible", match: /plausible\.io\/js\// },
+  {
+    layer: "analytics",
+    name: "HubSpot tracking",
+    match: /(?:^|\/\/|\.)(?:hs-scripts|hs-banner|hs-analytics)\.(?:com|net)\//,
+  },
   { layer: "analytics", name: "Fathom", match: /cdn\.usefathom\.com\// },
   { layer: "analytics", name: "Segment", match: /cdn\.segment\.(?:com|io)\// },
 
@@ -211,6 +222,7 @@ const GENERATOR_SIGNATURES: { layer: StackLayer; name: string; match: RegExp }[]
   { layer: "cms", name: "Wix", match: /wix\.com/i },
   { layer: "cms", name: "Ghost", match: /ghost/i },
   { layer: "cms", name: "Shopify", match: /shopify/i },
+  { layer: "cms", name: "HubSpot CMS", match: /hubspot/i },
   { layer: "page-builder", name: "Elementor", match: /elementor/i },
   { layer: "framework", name: "Hugo", match: /hugo/i },
   { layer: "framework", name: "Jekyll", match: /jekyll/i },
@@ -346,7 +358,9 @@ export function readStack(crawl: CrawlResult): StackReadout {
     add(
       "hosting",
       sig.name,
-      sig.value ? `${sig.header}: ${receipt(value)}` : `${sig.header} header`,
+      // The product, never the build (LGL-05): "Apache/2.4.18 (Ubuntu)" is
+      // stored as "Apache (Ubuntu)". The raw header stays in `homeHeaders`.
+      sig.value ? `${sig.header}: ${receipt(value.replace(/\/\S+/g, ""))}` : `${sig.header} header`,
     );
   }
 

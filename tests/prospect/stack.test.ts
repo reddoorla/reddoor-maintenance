@@ -196,3 +196,56 @@ describe("readStack — the other platforms", () => {
     expect(named(readout, "cms")).toContain("Webflow");
   });
 });
+
+describe("W4: HubSpot tracking is not a CMS", () => {
+  it("names a WordPress site that loads HubSpot's banner as WordPress, with HubSpot tracking", () => {
+    const r = readStack(
+      site({
+        scriptSrcs: [
+          "https://acme.example/wp-content/themes/acme/js/main.js",
+          "https://js.hs-banner.com/v2/1234567/banner.js",
+          "https://js.hs-scripts.com/1234567.js",
+        ],
+        metas: { generator: "WordPress 6.4.2" },
+      }),
+    );
+    expect(named(r, "cms")).toEqual(["WordPress"]);
+    expect(named(r, "analytics")).toContain("HubSpot tracking");
+  });
+
+  it("still names a page HubSpot serves as HubSpot CMS", () => {
+    const r = readStack(
+      site({
+        scriptSrcs: ["https://acme.hs-sites.com/hs/hsstatic/content_shared_assets/main.js"],
+      }),
+    );
+    expect(named(r, "cms")).toEqual(["HubSpot CMS"]);
+  });
+});
+
+describe("W4 review: HubSpot's file CDN is not a CMS, and no build is stored", () => {
+  it("does not name HubSpot CMS from an image on hubspotusercontent", () => {
+    const r = readStack(
+      site({
+        imageSrcs: ["https://1234567.fs1.hubspotusercontent-na1.net/hubfs/1234567/logo.png"],
+        metas: { generator: "WordPress 6.4.2" },
+      }),
+    );
+    expect(named(r, "cms")).toEqual(["WordPress"]);
+  });
+
+  it("stores the server product without its version", () => {
+    const r = readStack(site({}, { server: "Apache/2.4.18 (Ubuntu)" }));
+    const hosting = r.items.find((i) => i.layer === "hosting");
+    expect(hosting?.evidence).toContain("Apache");
+    expect(hosting?.evidence).not.toContain("2.4.18");
+  });
+});
+
+describe("W4 review round 2: a stock Apache header", () => {
+  it("keeps the product names whole and drops every version", () => {
+    const r = readStack(site({}, { server: "Apache/2.4.41 (Ubuntu) OpenSSL/1.1.1f" }));
+    const hosting = r.items.find((i) => i.layer === "hosting");
+    expect(hosting?.evidence).toBe("server: Apache (Ubuntu) OpenSSL");
+  });
+});
