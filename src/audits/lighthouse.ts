@@ -18,15 +18,19 @@ import { createRequire } from "node:module";
  *  machine without the package installed still runs this version. */
 export const LHCI_VERSION = "^0.16.0";
 
-/** The command that runs lhci. Prefers the @lhci/cli this package resolves,
+/** The command that runs lhci. `REDDOOR_LHCI_BIN`, when set, is run directly
+ *  and wins: it is the seam a test uses to supply a fake lhci, now that a bare
+ *  `npx` on PATH is no longer what runs. Otherwise prefers the @lhci/cli this package resolves,
  *  run under node: `npx @lhci/cli` runs whatever the npm cache holds, which is
  *  not the version the repo pins. Falls back to npx pinned to LHCI_VERSION when
  *  the package is not installed (the published package runs on fleet sites). */
 export function lhciInvocation(
   configPath: string,
   resolve: (id: string) => string = (id) => createRequire(import.meta.url).resolve(id),
+  env: NodeJS.ProcessEnv = process.env,
 ): { cmd: string; args: string[] } {
   const tail = ["autorun", `--config=${configPath}`];
+  if (env.REDDOOR_LHCI_BIN) return { cmd: env.REDDOOR_LHCI_BIN, args: tail };
   try {
     const pkgPath = resolve("@lhci/cli/package.json");
     const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as {

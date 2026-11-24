@@ -26,6 +26,16 @@ describe("lhciInvocation (which lhci the audit runs)", () => {
     ]);
   });
 
+  it("runs REDDOOR_LHCI_BIN first when it is set, so a test can supply its own lhci", () => {
+    const inv = lhciInvocation(CONFIG, undefined, { REDDOOR_LHCI_BIN: "/tmp/fake-lhci" });
+    expect(inv).toEqual({ cmd: "/tmp/fake-lhci", args: ["autorun", `--config=${CONFIG}`] });
+  });
+
+  it("ignores an empty REDDOOR_LHCI_BIN", () => {
+    const inv = lhciInvocation(CONFIG, undefined, { REDDOOR_LHCI_BIN: "" });
+    expect(inv.cmd).toBe(process.execPath);
+  });
+
   it("pins LHCI_VERSION to the range package.json declares for @lhci/cli", () => {
     const pkg = JSON.parse(
       readFileSync(new URL("../../package.json", import.meta.url), "utf-8"),

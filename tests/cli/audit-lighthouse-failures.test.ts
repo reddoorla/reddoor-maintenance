@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { chmod, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { delimiter, dirname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const binPath = resolve(here, "../../dist/cli/bin.js");
@@ -58,7 +58,9 @@ describe("cli: audit names the failing Lighthouse audits", () => {
         {
           encoding: "utf-8",
           stdio: ["ignore", "pipe", "pipe"],
-          env: { ...process.env, PATH: `${bin}${delimiter}${process.env.PATH ?? ""}` },
+          // The audit runs the pinned lhci, not whatever `npx` is on PATH, so
+          // the fake is supplied through the seam lhciInvocation reads first.
+          env: { ...process.env, REDDOOR_LHCI_BIN: join(bin, "npx") },
         },
       );
     } catch (err) {
