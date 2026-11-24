@@ -97,12 +97,13 @@ export function renderSitesHtml(
   model: CockpitModel,
   operatorEmail: string | null = null,
   feedDeploys: FleetEvent[] = [],
+  now: Date = new Date(),
 ): string {
   const table = buildFleetTableModel(
     model.cards.map((c) => c.site),
     parseFleetTableQuery(new URLSearchParams()),
   );
-  return renderFleetTableHtml(table, operatorEmail, buildSitesView(model, new Date(), feedDeploys));
+  return renderFleetTableHtml(table, operatorEmail, buildSitesView(model, now, feedDeploys));
 }
 
 export function renderSiteDashboardHtml(
