@@ -2251,3 +2251,137 @@ describe("W3 review round 6 — a repeated child or page is counted once (findin
     expect(result.sitemap.truncated).toBe(false);
   });
 });
+
+// W3 review round 7, finding 1. A tracking key is removed from the raw query, so
+// the remaining keys keep the encoding they were listed with: the clean twin and
+// its tracking variant are one page, and the fetch address is the one listed.
+describe("W3 review round 7 — removing a key keeps the rest of the query as written (finding 1)", () => {
+  const ORIGIN = "https://acme.example";
+  const CAT = "https://acme.example/index.php?route=product/category&path=20";
+
+  it("repro A: a utm variant listed first and its clean twin are one seat, the clean URL as listed", () => {
+    const { chosen, considered } = normalizeCandidates(
+      [HOME, `${CAT}&utm_source=nav`, CAT],
+      ORIGIN,
+      20,
+      null,
+    );
+    expect(chosen).toEqual([HOME, CAT]);
+    expect(considered).toBe(2);
+  });
+
+  it("repro B: /?s=a%20b&utm_source=nav and /?s=a%20b are one seat, fetched as listed", () => {
+    const clean = "https://acme.example/?s=a%20b";
+    const { chosen, considered } = normalizeCandidates(
+      [HOME, `${clean}&utm_source=nav`, clean],
+      ORIGIN,
+      20,
+      null,
+    );
+    expect(chosen).toEqual([HOME, clean]);
+    expect(considered).toBe(2);
+  });
+
+  it("repro C: an OpenCart home with a utm twin is the home once, first", () => {
+    const ROUTE_HOME = "https://acme.example/index.php?route=common/home";
+    const about = "https://acme.example/about";
+    const { chosen, considered } = normalizeCandidates(
+      [ROUTE_HOME, `${ROUTE_HOME}&utm_source=x`, about],
+      ORIGIN,
+      20,
+      null,
+    );
+    expect(chosen).toEqual([ROUTE_HOME, about]);
+    expect(considered).toBe(2);
+  });
+
+  it("repro D: a utm-only address is fetched as its stripped address, encoding kept", () => {
+    const { chosen } = normalizeCandidates(
+      [HOME, `${CAT.replace("&path=20", "")}&utm_source=x`],
+      ORIGIN,
+      20,
+      null,
+    );
+    expect(chosen).toEqual([HOME, "https://acme.example/index.php?route=product/category"]);
+  });
+});
+
+// W3 review round 7, finding 2. Two robots-named sitemaps are truncated only when a
+// named one is neither the sitemap read nor a child of it that was read.
+describe("W3 review round 7 — a named sitemap the index lists is not unread (finding 2)", () => {
+  const urlset = (urls: string[]): string =>
+    `<urlset>${urls.map((u) => `<url><loc>${u}</loc></url>`).join("")}</urlset>`;
+
+  it("repro: robots names /sitemap_index.xml and /page-sitemap.xml; the index lists the latter: not truncated", async () => {
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: { body: NO_MENU_HOME },
+      "https://acme.example/robots.txt": {
+        body: "User-agent: *\nAllow: /\nSitemap: https://acme.example/sitemap_index.xml\nSitemap: https://acme.example/page-sitemap.xml",
+      },
+      "https://acme.example/sitemap_index.xml": {
+        body: `<sitemapindex><sitemap><loc>https://acme.example/page-sitemap.xml</loc></sitemap></sitemapindex>`,
+      },
+      "https://acme.example/page-sitemap.xml": { body: urlset(["https://acme.example/services"]) },
+    };
+    const result = await crawlSite(HOME, stubDeps(routes));
+    expect(result.sitemap.urlCount).toBe(1);
+    expect(result.sitemap.truncated).toBe(false);
+  });
+
+  it("control: the same robots, but the index does not list the second named sitemap: truncated", async () => {
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: { body: NO_MENU_HOME },
+      "https://acme.example/robots.txt": {
+        body: "User-agent: *\nAllow: /\nSitemap: https://acme.example/sitemap_index.xml\nSitemap: https://acme.example/other.xml",
+      },
+      "https://acme.example/sitemap_index.xml": {
+        body: `<sitemapindex><sitemap><loc>https://acme.example/page-sitemap.xml</loc></sitemap></sitemapindex>`,
+      },
+      "https://acme.example/page-sitemap.xml": { body: urlset(["https://acme.example/services"]) },
+      "https://acme.example/other.xml": { body: urlset(["https://acme.example/about"]) },
+    };
+    const result = await crawlSite(HOME, stubDeps(routes));
+    expect(result.sitemap.urlCount).toBe(1);
+    expect(result.sitemap.truncated).toBe(true);
+  });
+});
+
+// W3 review round 7, finding 3. A listed address that is off-origin is counted
+// whatever order it is listed in, including after its same-site twin.
+describe("W3 review round 7 — an off-origin listing is counted in either order (finding 3)", () => {
+  const urlset = (urls: string[]): string =>
+    `<urlset>${urls.map((u) => `<url><loc>${u}</loc></url>`).join("")}</urlset>`;
+
+  it.each([
+    ["https first, http second", ["https://acme.example/x", "http://acme.example/x"]],
+    ["http first, https second", ["http://acme.example/x", "https://acme.example/x"]],
+  ])("%s: sitemapOffOrigin is 1, one URL", async (_label, locs) => {
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HOME]: { body: NO_MENU_HOME },
+      "https://acme.example/sitemap.xml": { body: urlset(locs) },
+    };
+    const result = await crawlSite(HOME, stubDeps(routes));
+    expect(result.selection?.sitemapOffOrigin).toBe(1);
+    expect(result.sitemap.urlCount).toBe(1);
+  });
+});
+
+// W3 review round 7, finding 4. The same robots-named sitemap written with http and
+// with https is one named address, not two.
+describe("W3 review round 7 — one named sitemap written with two schemes is one address (finding 4)", () => {
+  it("http origin: robots names http and https /sitemap.xml; the http one is read: not truncated", async () => {
+    const HTTP_HOME = "http://acme.example/";
+    const routes: Record<string, Partial<FetchResponse>> = {
+      [HTTP_HOME]: { body: NO_MENU_HOME },
+      "http://acme.example/robots.txt": {
+        body: "User-agent: *\nAllow: /\nSitemap: http://acme.example/sitemap.xml\nSitemap: https://acme.example/sitemap.xml",
+      },
+      "http://acme.example/sitemap.xml": {
+        body: `<urlset><url><loc>http://acme.example/services</loc></url></urlset>`,
+      },
+    };
+    const result = await crawlSite(HTTP_HOME, stubDeps(routes));
+    expect(result.sitemap.present).toBe(true);
+    expect(result.sitemap.truncated).toBe(false);
+  });
+});

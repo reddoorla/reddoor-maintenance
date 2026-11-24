@@ -41,12 +41,12 @@ Across all 78 rows, 14 would read at least one new page.
 
 **Beliefs corrected on contact.**
 
-- *"Search the crawled text for the question's words before printing a `no`" sounds safe. It is not.* The first version flipped real `no`s to `unknown` on footer words ("address", "hours", "our team"). The second removed repeated six-word runs to strip boilerplate, which hid real answers in footers and repeated price tables. The third used single bare words ("payment", "delivery", "demo"), and those still matched by accident. The working rule took four rounds to reach:
+- _"Search the crawled text for the question's words before printing a `no`" sounds safe. It is not._ The first version flipped real `no`s to `unknown` on footer words ("address", "hours", "our team"). The second removed repeated six-word runs to strip boilerplate, which hid real answers in footers and repeated price tables. The third used single bare words ("payment", "delivery", "demo"), and those still matched by accident. The working rule took four rounds to reach:
   - only phrase-level terms count;
   - only a hit outside what the model was sent counts (past the 1,500-character window, or on a page it was not sent);
   - a hit whose surrounding 40 characters also appear in a window the model saw does not count, because that is the shared nav.
-- *"Contact-like" is a narrower class than it looks.* Unqualified prefixes matched `/contact-lenses`, "Consultation tips", `/events` labelled "Schedule" and `/blog/how-to-book-a-trip`. On one fixture, contact links ranked first with no cap filled all 19 seats.
-- *Query strings cut both ways.* Round 4 stopped `?orderby=` variants from filling seats, and round 5 found that the same rule dropped every plain-permalink WordPress site (`/?page_id=N`) to its home page alone. Round 5's fix then demoted a home page whose own address carries a query, and fetched utm URLs in place of clean ones. The fix that held is the identity-plus-allow-list rule above.
+- _"Contact-like" is a narrower class than it looks._ Unqualified prefixes matched `/contact-lenses`, "Consultation tips", `/events` labelled "Schedule" and `/blog/how-to-book-a-trip`. On one fixture, contact links ranked first with no cap filled all 19 seats.
+- _Query strings cut both ways._ Round 4 stopped `?orderby=` variants from filling seats, and round 5 found that the same rule dropped every plain-permalink WordPress site (`/?page_id=N`) to its home page alone. Round 5's fix then demoted a home page whose own address carries a query, and fetched utm URLs in place of clean ones. The fix that held is the identity-plus-allow-list rule above.
 
 **Review.** Seven Opus rounds. Rounds 1 to 5 were dirty, and the five-round stop asked the operator. He approved a sixth round, which was dirty with three regressions from round 5's own fix, and then a seventh. The record is in the workspace decision file `2026-11-23-2255-w3-maintenance-round-5-stop.md`.
 

@@ -981,21 +981,45 @@ function isTrackingKey(key: string): boolean {
   return k.startsWith("utm_") || TRACKING_QUERY_KEYS.has(k);
 }
 
+/**
+ * The query string of `u` with the segments whose key `drop` names removed. The
+ * rest are re-joined exactly as they were written: no re-encoding, no re-ordering.
+ * Going through URLSearchParams re-encoded every remaining value (`/` became
+ * `%2F`, `%20` became `+`), so a tracking variant had a different identity from
+ * its clean twin and was fetched at an address the site never listed (W3 review
+ * round 7, finding 1).
+ */
+function rawQueryWithout(u: URL, drop: (key: string) => boolean): string {
+  const kept = u.search
+    .replace(/^\?/, "")
+    .split("&")
+    .filter((segment) => !drop(keyOfSegment(segment)));
+  const rest = kept.join("&");
+  return rest === "" ? "" : `?${rest}`;
+}
+
+/** The decoded name of one raw query segment, `+` read as a space. */
+function keyOfSegment(segment: string): string {
+  const eq = segment.indexOf("=");
+  const raw = (eq === -1 ? segment : segment.slice(0, eq)).replace(/\+/g, " ");
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 /** The URL with its tracking keys stripped. */
 function withoutTracking(u: URL): URL {
   const copy = new URL(u.toString());
-  for (const key of [...copy.searchParams.keys()]) {
-    if (isTrackingKey(key)) copy.searchParams.delete(key);
-  }
+  copy.search = rawQueryWithout(u, isTrackingKey);
   return copy;
 }
 
 /** The URL with its non-content keys stripped, as a page identity. */
 function identityKey(u: URL): string {
   const copy = new URL(u.toString());
-  for (const key of [...copy.searchParams.keys()]) {
-    if (isNonContentKey(key)) copy.searchParams.delete(key);
-  }
+  copy.search = rawQueryWithout(u, isNonContentKey);
   return samePageKey(copy);
 }
 
@@ -1205,11 +1229,13 @@ async function fetchSidecars(
     if (at !== null && !candidates.includes(at)) candidates.push(at);
   }
   const namedCount = candidates.length;
+  // Keyed by page identity, not by address: `http://` and `https://` spellings of
+  // one sitemap are one named sitemap (W3 review round 7, finding 4).
   const namedAddresses = new Set<string>();
   for (const line of (robotsTxt ?? "").split(/\r?\n/)) {
     const m = /^\s*sitemap\s*:\s*(\S+)/i.exec(line);
     const at = m?.[1] ? toSameOrigin(m[1], origin) : null;
-    if (at !== null) namedAddresses.add(at);
+    if (at !== null) namedAddresses.add(samePageKey(new URL(at)));
   }
   for (const path of ["/sitemap.xml", "/sitemap_index.xml", "/wp-sitemap.xml"]) {
     const at = `${origin}${path}`;
@@ -1257,12 +1283,9 @@ async function fetchSidecars(
     if (namedGzipped > 0 && candidates.indexOf(sitemapSource) >= namedCount) {
       sitemapTruncated = true;
     }
-    // Two or more sitemaps named in robots.txt, and one read: the read one is
-    // not the whole of their sitemaps. Only one top-level sitemap is ever read,
-    // so with two distinct named addresses at least one is unread. Counted over
-    // every named address, past the cap and .gz included, and no further
-    // sitemap is fetched to close the gap (W3 review round 6, finding a).
-    if (namedAddresses.size > 1) sitemapTruncated = true;
+    // Every sitemap read, by page identity: the top-level one and each child of
+    // an index that was fetched and parsed.
+    const readSitemaps = new Set<string>([samePageKey(new URL(sitemapSource))]);
     if (isSitemapIndex(sitemap.res.body)) {
       // `child` is attacker-controlled: it comes out of the AUDITED site's
       // sitemap, and the audited site is a prospect we have not met. Without
@@ -1306,6 +1329,7 @@ async function fetchSidecars(
         // So is a child that is not a urlset: an index inside an index, or an
         // HTML page answering at a sitemap address. Its addresses are not pages.
         if (nested.res && /<(?:[\w-]+:)?urlset[\s>/]/i.test(nested.res.body)) {
+          readSitemaps.add(samePageKey(new URL(child)));
           const locs = parseSitemapLocs(nested.res.body);
           listed.push(...locs);
           if (isPostSitemap(child)) {
@@ -1316,6 +1340,13 @@ async function fetchSidecars(
     } else {
       listed = parseSitemapLocs(sitemap.res.body);
     }
+    // Two or more sitemaps named in robots.txt, and one read: the read one is not
+    // the whole of their sitemaps. A named sitemap is read only when it is the
+    // sitemap read or a child of it that was fetched and parsed; any other named
+    // one is unread. Counted over every named address, past the cap and .gz
+    // included, and no further sitemap is fetched to close the gap (W3 review
+    // round 6, finding a; the match is per sitemap, W3 review round 7, finding 2).
+    if ([...namedAddresses].some((key) => !readSitemaps.has(key))) sitemapTruncated = true;
   }
   // Every listed URL on this site is moved onto the origin we landed on; the
   // ones that needed moving are counted, because "your sitemap lists http://
@@ -1325,10 +1356,11 @@ async function fetchSidecars(
   let sitemapAmbiguousOrigin = 0;
   const sitemapUrls: string[] = [];
   const listedOnce = new Set<string>();
-  for (const loc of listed) {
-    const onSite = toSameOrigin(loc, origin) ?? loc;
-    if (listedOnce.has(onSite)) continue;
-    listedOnce.add(onSite);
+  // The verdict is taken over each distinct listed spelling, before the same-site
+  // rewrite, so `https://` then `http://` of one address counts the same as the
+  // reverse (W3 review round 7, finding 3). Only the push into sitemapUrls is
+  // deduped by the address it would be fetched at.
+  for (const loc of new Set(listed)) {
     const verdict = sitemapAddressVerdict(loc, origin, redirectedFrom);
     if (verdict === "off") {
       sitemapOffOrigin += 1;
@@ -1336,6 +1368,11 @@ async function fetchSidecars(
     } else if (verdict === "unsettled") {
       sitemapAmbiguousOrigin += 1;
     }
+  }
+  for (const loc of listed) {
+    const onSite = toSameOrigin(loc, origin) ?? loc;
+    if (listedOnce.has(onSite)) continue;
+    listedOnce.add(onSite);
     sitemapUrls.push(onSite);
   }
 
