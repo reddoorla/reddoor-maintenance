@@ -103,8 +103,11 @@ function scoreLine(label: string, value: number | null): string {
  *  mean the report has a "not measured" section, so both count as partial
  *  here too. */
 export function auditStatus(result: ProspectAuditResult): FinishedProspectAuditStatus {
-  const allStagesOk =
-    result.checks.ok && result.lighthouse.ok && result.analyze.ok && result.probes.ok;
+  // Lighthouse is left out (TEC-07): nothing it measures reaches the
+  // prospect's page, so a run that lost only Lighthouse has no "not measured"
+  // section a reader would see, and is not a reason to hold the report. Put it
+  // back when a page shows it.
+  const allStagesOk = result.checks.ok && result.analyze.ok && result.probes.ok;
   return allStagesOk ? "complete" : "partial";
 }
 
