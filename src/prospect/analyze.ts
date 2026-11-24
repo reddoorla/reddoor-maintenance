@@ -252,6 +252,7 @@ export function buildAnalyzeInput(
   checks: ChecksResult,
   questions: QuestionSet,
   goalFit: GoalFit | null = null,
+  now: Date = new Date(),
 ): { system: string; user: string } {
   const fence = makeFenceTag();
   const pages = selectPages(crawl.pages).map((p) => {
@@ -276,6 +277,7 @@ export function buildAnalyzeInput(
 
   const user = [
     `Site: ${url}`,
+    `Today's date is ${now.toISOString().slice(0, 10)}.`,
     "",
     "## What the automated checks found",
     summarizeFindings(checks),
@@ -420,14 +422,198 @@ function verifyEvidence(result: AnalyzeResult, crawl: CrawlResult): AnalyzeResul
     // so demoting it to "no" would convert our gap into a finding about them —
     // the one thing this report must never do. It stays unknown and stays out
     // of the score.
-    return verified.evidence === null &&
-      verified.answered !== "no" &&
-      verified.answered !== "unknown"
-      ? { ...verified, answered: "no" as const }
-      : verified;
+    //
+    // UNKNOWN, NOT NO (W3, from the audit-system review's B-04). A positive
+    // verdict whose quote we cannot match is a verdict we cannot stand behind,
+    // and it used to become `no`: "your site does not answer this". But the
+    // model said the site DID answer it. A paraphrased quote, or a quote from a
+    // page past the 1,500 characters it saw, is our failure to confirm, not the
+    // site's failure to say. `unknown` keeps it visible and out of the score,
+    // which is all the downgrade was ever for.
+    const supported =
+      verified.evidence === null && verified.answered !== "no" && verified.answered !== "unknown"
+        ? { ...verified, answered: "unknown" as const }
+        : verified;
+    return supported.answered === "no" ? checkAbsence(supported, crawl) : supported;
   });
 
   return { ...result, buyerQuestions };
+}
+
+/**
+ * The phrases that would be on the page if it answered the question. Keyed by
+ * the fixed set's ids (questions.ts); a chosen question falls back to its own
+ * longer words. Phrases, not bare words: a bare word such as "address", "staff"
+ * or "hours" is on every footer and form, and a footer hit is not evidence that
+ * the site has an answer. A hit does not prove the site answers the question. It
+ * proves "your site does not answer this" is not ours to print, because the model
+ * saw at most 12 pages and 1,500 characters of each.
+ */
+export const KEY_TERMS: Record<string, RegExp> = {
+  cost: /\b(?:our|your|current|new|these|the) (?<term>pric(?:e|es|ing)|fees?|rates?)\b|starting at|per (hour|month|visit|session)|\$\s?\d/i,
+  "who-for":
+    /\b(we (work with|serve|help|specialize)|ideal for|designed for|who we serve|our clients|industries we (serve|work with))\b/i,
+  proof:
+    /\b(client testimonials?|customer testimonials?|case stud(y|ies)|customer reviews|client reviews|years of experience|accredited by|awards? (won|winning)|trusted by)\b/i,
+  "who-does-it":
+    /\b(meet (the|our) (team|founders?)|founded by|led by|our (founders?|leadership))\b/i,
+  where:
+    /\b(located (in|at)|based in|headquarter(s|ed) (in|at)|offices? in|service areas?|(we are )?now serving [a-z ]+)\b/i,
+  "next-step":
+    /\b(next steps?|what happens next|what to expect|we('ll| will) (contact|respond|reply|call)|within \d+ (hours?|business days?)|free consultation)\b/i,
+  availability:
+    /\b((accepting|taking) new|new (patients|clients) welcome|(join|on) (our |the )?wait(ing)? ?list)\b/i,
+  "how-to-book":
+    /\b(book (online|now|an appointment)|schedule (online|an appointment|a visit)|online booking|booking (form|page|system|request)|request an appointment)\b/i,
+  "first-visit": /\b(first (visit|appointment|session)|new patients?|what to expect)\b/i,
+  payment:
+    /\b(we accept|accepts? (insurance|medicare|medicaid)|(payment|financing) (plans?|options?|terms)|(insurance|medicare|medicaid) (accepted|plans?))\b/i,
+  timeline:
+    /\b(project timelines?|our timelines?|turnaround (time|times)|lead times?|how long|\d+\s*(-|to|–)\s*\d+\s*(days|weeks|months))\b/i,
+  process:
+    /\b(our process|how we work|step \d|(project|our|the|these) (stages?|phases?)|discovery (phase|call|session|process))\b/i,
+  minimum:
+    /\b(minimum (order|spend|purchase|project|commitment)|project size|(your|our|project) budgets?|starting at)\b/i,
+  "my-input":
+    /\b(we('ll| will) need|you('ll| will) need|what we need|bring (your|any|the|a) (documents?|files?|photos?|materials?|id|identification|list|records?|notes?)|provide us)\b/i,
+  "reachable-hours":
+    /\b((business|opening|office|operating) hours|open (daily|from|mon\w*|24\/7)|mon(day)?\s*(-|–|to)\s*fri(day)?|24\/7 (service|support|cover\w*|availability|line))\b/i,
+  "who-answers":
+    /\b(answered by|speak (with|to) (a|an|our)|real person|live (person|agent|operator))\b/i,
+  "call-cost":
+    /\b(free (consultation|call|estimate|assessment)|no[- ]obligation|complimentary (consultation|call|estimate|assessment|quote))\b/i,
+  urgent:
+    /\b(emergency (service|care|repairs?|line|visits?)|urgent (care|repairs?|service|help|visits?)|after[- ]hours|24\/7 (service|support|cover\w*|availability|line)|same[- ]day)\b/i,
+  "opening-hours":
+    /\b((business|opening|office|operating) hours|open (daily|from|mon\w*)|closed on|mon(day)?\s*(-|–|to)\s*fri(day)?)\b/i,
+  "getting-there":
+    /\b(free parking|parking (lot|garage|on[- ]site|available)|public transit|(driving |travel |getting )?directions (to|from) us|bus (stops?|routes?|lines?|stations?)|metro (stations?|stops?|lines?)|subway (stations?|stops?)|train station)\b/i,
+  "what-on-site":
+    /\b((our|the) (showroom|facilities|amenities)|(guided|private|on[- ]site) tours?|on[- ]site (amenities|parking|facilities))\b/i,
+  accessibility:
+    /\b(wheel-?chairs? (access|accessible|entrance)|step[- ]free|ada[- ](compliant|accessible)|accessible (entrances?|parking|restrooms?|toilets?)|elevators? (access|on[- ]site|available))\b/i,
+  shipping:
+    /\b((free |international |fast |standard )?shipping (costs?|options?|policy|times?|rates?|is)|ships (within|to|from|worldwide|free)|delivery (takes|times?|options?|fees?|within|is))\b/i,
+  returns: /\b((return|refund|exchange)s? (policy|window|period|are|accepted|within))\b/i,
+  stock:
+    /\b(in stock|out of stock|check (product |item )?availability|live inventory|current inventory)\b/i,
+  "payment-methods":
+    /\b(payment methods?|(visa|mastercard|paypal|apple pay)(,| and| or)? ?(accepted|payments?)|credit cards? (accepted|welcome)|we accept (visa|mastercard|paypal|apple pay|credit cards?))\b/i,
+  "demo-content":
+    /\b(live demo|product demo|demo (video|account|environment|mode)|product (walkthrough|tour))\b/i,
+  integration:
+    /\b(integrations? (with|options?|partners?|marketplace|available)|integrates? with|works with|connects? (to|with)|(public|open|developer) api)\b/i,
+  compliance:
+    /\b((hipaa|soc ?2|gdpr|iso ?27001)[- ](compliant|compliance|certified|certification)|compliant with [a-z0-9 ]+|compliance (with|certification|program)|end-to-end encrypt\w*|encrypted (at rest|in transit))\b/i,
+  "who-else":
+    /\b((our|happy|existing) customers|customer (stories|base|reviews)|clients include|trusted by|case stud(y|ies))\b/i,
+  "partner-fit":
+    /\b((our|new|become an?|join as an?) (partners?|resellers?|distributors?)|(partner|reseller|distributor) (programme|program|network|opportunities))\b/i,
+  "partner-terms":
+    /\b((partner|reseller|dealer) terms|(partner|reseller|dealer|wholesale) margins?|(referral|partner|reseller) commissions?|(partner|reseller|dealer|volume|wholesale) discounts?)\b/i,
+  territory:
+    /\b((sales|protected) territor(y|ies)|exclusive (rights|territor(y|ies)|distributors?|dealers?)|(sales|service) regions?|(target|key|local) markets?)\b/i,
+  "partner-support":
+    /\b(partner (portal|program|support)|(partner|reseller|sales) training|marketing materials)\b/i,
+};
+
+/** Words too common to mean anything about a chosen question. */
+const STOPWORDS = new Set(
+  "about after again against because before being below between could doing during every having other should their there these those through under until where which while would your yours what when does with from this that have will them they".split(
+    " ",
+  ),
+);
+
+/** What to look for in the text, for one question. `distinct` is set for a
+ *  chosen question, whose words are generic: one word on a page proves nothing,
+ *  so a hit needs two different ones. */
+type TermPattern = { pattern: RegExp; distinct: boolean };
+
+/** The pattern for a question: its fixed key terms, or, for a chosen question,
+ *  its own words of five letters or more. Null when there is nothing to look for. */
+function termsFor(q: BuyerQuestion): TermPattern | null {
+  if (q.id && KEY_TERMS[q.id]) return { pattern: KEY_TERMS[q.id]!, distinct: false };
+  const words = (q.question.toLowerCase().match(/[a-z]{5,}/g) ?? []).filter(
+    (w) => !STOPWORDS.has(w),
+  );
+  if (words.length === 0) return null;
+  return { pattern: new RegExp(`\\b(${words.join("|")})\\b`, "i"), distinct: true };
+}
+
+/** One place a question's terms occur: what was matched, and where. The term
+ *  is the named group `term` when the pattern has one (a phrase that needs a
+ *  qualifying word before the key word reports only the key word), else the match. */
+type TermHit = { term: string; start: number; end: number };
+
+/** Every hit in `text`. For a chosen question, only the first match at which two
+ *  different words have appeared, as one hit. */
+function termHits(terms: TermPattern, text: string): TermHit[] {
+  const all: (TermHit & { word: string })[] = [];
+  for (const m of text.matchAll(new RegExp(terms.pattern.source, "gi"))) {
+    const start = m.index ?? 0;
+    all.push({
+      term: m.groups?.term ?? m[0],
+      start,
+      end: start + m[0].length,
+      word: m[0].toLowerCase(),
+    });
+  }
+  if (!terms.distinct) return all.map(({ word: _word, ...hit }) => hit);
+  const seen = new Set<string>();
+  for (const hit of all) {
+    seen.add(hit.word);
+    if (seen.size >= 2) {
+      const { word: _word, ...first } = all[0]!;
+      return [first];
+    }
+  }
+  return [];
+}
+
+/** Whitespace-normalised, so a window of a page and a quote from another page
+ *  compare by their words. */
+const squash = (s: string): string => s.replace(/\s+/g, " ").trim();
+
+/** How many characters either side of a hit are compared with what the model read. */
+const CONTEXT_CHARS = 20;
+
+/**
+ * The last check before "your site does not answer this" is allowed to stand:
+ * do the question's key terms appear in what we crawled and the model did NOT
+ * read? Only text outside what the model saw can overturn its `no`: the part of
+ * a page past the characters it was sent, or a page it was never sent. A term
+ * inside what it read is the model's own judgement, and stands. On a hit the
+ * verdict becomes `unknown`, carrying the term and the page, so the report
+ * says "we did not find a direct answer in the N pages we read" instead of
+ * asserting an absence. One stored report told a manufacturer that its site did
+ * not say whether it makes its own products, when the home page said so in a
+ * sentence past the point the model stopped reading.
+ *
+ * A hit does not count when the words around it (CONTEXT_CHARS either side)
+ * also appear in a window the model was sent. Navigation repeated on every page
+ * is the model's own evidence, not an unseen answer (W3 review round 4).
+ */
+function checkAbsence(q: BuyerQuestion, crawl: CrawlResult): BuyerQuestion {
+  const terms = termsFor(q);
+  if (terms === null) return q;
+  const sent = new Set(selectPages(crawl.pages).map((p) => p.url));
+  const texts = crawl.pages.map((p) => (p.rendered ?? p.raw)?.text ?? "");
+  const sentWindows = crawl.pages.flatMap((p, i) =>
+    sent.has(p.url) ? [squash(texts[i]!.slice(0, MAX_TEXT_CHARS))] : [],
+  );
+  for (const [i, p] of crawl.pages.entries()) {
+    const full = texts[i]!;
+    const cut = sent.has(p.url) ? MAX_TEXT_CHARS : 0;
+    for (const hit of termHits(terms, full.slice(cut))) {
+      const at = cut + hit.start;
+      const around = squash(
+        full.slice(Math.max(0, at - CONTEXT_CHARS), at + (hit.end - hit.start) + CONTEXT_CHARS),
+      );
+      if (sentWindows.some((w) => w.includes(around))) continue;
+      return { ...q, answered: "unknown", notFound: { term: hit.term, page: p.url } };
+    }
+  }
+  return q;
 }
 
 /**

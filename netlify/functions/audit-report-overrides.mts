@@ -1,5 +1,4 @@
 import type { Context, Config } from "@netlify/functions";
-import { createHash, timingSafeEqual } from "node:crypto";
 import { openDb, readDbConfig } from "../../src/db/client.js";
 import {
   isValidToken,
@@ -7,6 +6,7 @@ import {
   type OverrideMap,
 } from "../../src/db/prospect-audits.js";
 import { handlerError } from "../../src/dashboard/handler-helpers.js";
+import { bearerToken, tokenMatches } from "../../src/prospect/edit-token.js";
 
 // Where an operator's edits to one prospect report land.
 //
@@ -82,50 +82,6 @@ function json(body: unknown, status: number): Response {
     status,
     headers: { "content-type": "application/json; charset=utf-8", "x-robots-tag": "noindex" },
   });
-}
-
-/**
- * The bearer token from an Authorization header, or "" for anything else.
- *
- * Case-insensitive on the SCHEME, because RFC 7235 says the scheme is
- * case-insensitive and a caller sending `bearer ` is not an attacker.
- *
- * Whitespace AROUND the token is stripped too — the header is trimmed, and so is
- * the captured value — so `Bearer   s3cret  ` presents as `s3cret` and is
- * accepted. Measured, not assumed: that request returns 200. What survives the
- * strip is then compared byte for byte by `tokenMatches`, against a
- * `PROSPECT_EDIT_TOKEN` trimmed the same way, so both sides agree on what
- * surrounding whitespace means. Interior whitespace is part of the secret and is
- * never touched.
- */
-function bearerToken(header: string | null): string {
-  const m = /^bearer[ \t]+(.+)$/i.exec((header ?? "").trim());
-  return m ? m[1]!.trim() : "";
-}
-
-/**
- * Constant-time compare of the presented shared token against the configured
- * one, with respect to BOTH content and length.
- *
- * The SHA-256 is there to EQUALISE LENGTH, and for nothing else. It is not
- * protecting the token at rest — both operands are already secrets held in
- * memory, and a plain digest is not a MAC. The problem it solves is that
- * `timingSafeEqual` throws a RangeError on buffers of different lengths, so a
- * raw-buffer compare has to guard with `if (a.length !== b.length) return false`
- * — an early return that leaks the expected token's length to anyone who can
- * time it, which is the one thing a constant-time compare is supposed to hide.
- * Digesting first makes both operands 32 bytes always: the guard is unnecessary,
- * `timingSafeEqual` can never throw, and no length is observable.
- *
- * This deliberately mirrors `verifyFormsToken` in src/forms/token.ts, which
- * guards the fleet's other shared-token route by the same reasoning. The two are
- * not shared today only because that one's contract names FORMS_INGEST_TOKEN;
- * if a third such route appears, lift one neutral helper rather than write it
- * a third time.
- */
-function tokenMatches(given: string, expected: string): boolean {
-  const digest = (s: string) => createHash("sha256").update(s, "utf8").digest();
-  return timingSafeEqual(digest(given), digest(expected));
 }
 
 export default async (req: Request, ctx: Context): Promise<Response> => {

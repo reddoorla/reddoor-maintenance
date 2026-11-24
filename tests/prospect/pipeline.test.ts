@@ -9,11 +9,14 @@ import {
   ASSETS_SKIPPED,
   PROBES_SKIPPED,
   ANALYZE_SKIPPED,
+  ANALYZE_FAILED_SKIP,
+  ACCURACY_SKIPPED,
   TECHNICAL_SKIPPED,
   envAccuracyDeps,
   type PipelineDeps,
 } from "../../src/prospect/pipeline.js";
 import type { CrawlDeps, FetchResponse } from "../../src/prospect/crawl.js";
+import { recordModelCost } from "../../src/prospect/run-record.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = (name: string): string =>
@@ -186,7 +189,7 @@ describe("runProspectAudit", () => {
         },
       }),
     );
-    expect(result.analyze).toEqual({ ok: false, error: "529 overloaded" });
+    expect(result.analyze).toEqual({ ok: false, error: "529 overloaded (after one retry)" });
     expect(result.scores.answers).toBeNull();
     expect(result.checks.ok).toBe(true);
     expect(result.scores.readability).not.toBeNull();
@@ -258,19 +261,70 @@ describe("runProspectAudit", () => {
     expect(result.assets).toEqual({ ok: false, error: ASSETS_SKIPPED });
   });
 
-  it("still runs probes when the analyze stage failed", async () => {
+  it("skips the paid probes and accuracy when the analyze stage failed twice", async () => {
+    const analyzeRun = vi.fn(async () => {
+      throw new Error("529 overloaded");
+    });
+    const engineAsk = vi.fn(async () => ({
+      answer: "Acme Roofing",
+      citedDomains: ["acme.example"],
+    }));
+    const accuracyRun = vi.fn();
     const result = await runProspectAudit(
       HOME,
       { business: "Acme Roofing" },
       deps({
-        analyze: {
-          run: async () => {
-            throw new Error("529 overloaded");
-          },
-        },
+        analyze: { run: analyzeRun },
+        engines: [{ name: "perplexity", ask: engineAsk }],
+        accuracy: { run: accuracyRun },
       }),
     );
+    expect(analyzeRun).toHaveBeenCalledTimes(2);
+    expect(engineAsk).not.toHaveBeenCalled();
+    expect(accuracyRun).not.toHaveBeenCalled();
+    expect(result.probes).toEqual({ ok: false, error: ANALYZE_FAILED_SKIP });
+    expect(result.accuracy).toEqual({ ok: false, error: ACCURACY_SKIPPED });
+    expect(result.analyze).toEqual({ ok: false, error: "529 overloaded (after one retry)" });
+  });
+
+  it("retries analyze once: a transient failure then success runs the probes", async () => {
+    let calls = 0;
+    const analyzeRun = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) throw new Error("529 overloaded");
+      return analyzeOutput;
+    });
+    const result = await runProspectAudit(
+      HOME,
+      { business: "Acme Roofing" },
+      deps({ analyze: { run: analyzeRun } }),
+    );
+    expect(analyzeRun).toHaveBeenCalledTimes(2);
+    expect(result.analyze.ok).toBe(true);
     expect(result.probes.ok).toBe(true);
+  });
+
+  it("control: analyze that succeeds first time is called once and the probes run", async () => {
+    const analyzeRun = vi.fn(async () => analyzeOutput);
+    const result = await runProspectAudit(
+      HOME,
+      { business: "Acme Roofing" },
+      deps({ analyze: { run: analyzeRun } }),
+    );
+    expect(analyzeRun).toHaveBeenCalledTimes(1);
+    expect(result.probes.ok).toBe(true);
+  });
+
+  it("control: --technical never calls analyze, retried or not", async () => {
+    const analyzeRun = vi.fn(async () => analyzeOutput);
+    const result = await runProspectAudit(
+      HOME,
+      { technical: true },
+      deps({ analyze: { run: analyzeRun } }),
+    );
+    expect(analyzeRun).not.toHaveBeenCalled();
+    expect(result.analyze).toEqual({ ok: false, error: TECHNICAL_SKIPPED });
+    expect(result.probes).toEqual({ ok: false, error: TECHNICAL_SKIPPED });
   });
 
   it("throws when the site is unreachable — nothing to persist", async () => {
@@ -283,6 +337,41 @@ describe("runProspectAudit", () => {
         }),
       ),
     ).rejects.toThrow(/500/);
+  });
+
+  it("times every stage that ran and records what the analyze stage cost", async () => {
+    // Each clock read advances 1000, so any stage that ran shows ms === 1000.
+    let t = 0;
+    const now = () => {
+      t += 1000;
+      return t;
+    };
+    const result = await runProspectAudit(
+      HOME,
+      { business: "Acme Roofing" },
+      deps({
+        now,
+        analyze: {
+          run: async () => {
+            recordModelCost(0.42);
+            return analyzeOutput;
+          },
+        },
+      }),
+    );
+    expect(result.run?.stages.analyze?.ms).toBeGreaterThan(0);
+    for (const name of ["crawl", "checks", "analyze", "probes"]) {
+      expect(result.run?.stages[name], name).toBeDefined();
+    }
+    expect(result.run?.stages.analyze?.costUsd).toBe(0.42);
+    expect(result.run?.stages.analyze?.calls).toBe(1);
+    expect(result.run?.totalCostUsd).toBe(0.42);
+  });
+
+  it("leaves totalCostUsd null when no stage recorded a cost (the API path)", async () => {
+    const result = await runProspectAudit(HOME, { business: "Acme Roofing" }, deps());
+    expect(result.run?.totalCostUsd).toBeNull();
+    expect(result.run?.stages.analyze?.costUsd).toBeUndefined();
   });
 
   it("reports stage progress to the caller", async () => {

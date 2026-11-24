@@ -21,6 +21,7 @@ import {
   type VisibilityEngine,
 } from "./probes.js";
 import { runLighthouse } from "./lighthouse.js";
+import { withCostScope, type CostStore, type RunRecord, type StageRecord } from "./run-record.js";
 import { checkAssets, type AssetCheck, type AssetCheckDeps } from "./assets.js";
 import { checkBasics, type BasicsCheck, type BasicsDeps, type BasicsProbe } from "./basics.js";
 import { checkGoal, type GoalFit, type SiteGoal } from "./goals.js";
@@ -109,6 +110,13 @@ export const PROBES_SKIPPED = "skipped (--no-probes)";
  *  the ChecksResult, so there is nothing to build the prompt from. Exported
  *  for the same reason as PROBES_SKIPPED. */
 export const ANALYZE_SKIPPED = "skipped — the checks stage failed";
+
+/** analyze failed on its own, after its one retry. The probe queries and the
+ *  accuracy stage both come from its output, so the paid stages are not run and
+ *  no model call is made for them. Exported for the same reason as the
+ *  constants above. */
+export const ANALYZE_FAILED_SKIP =
+  "skipped — the analyze stage failed, so the paid stages were not run";
 
 /** The asset check reads the same page extracts the checks stage does, so it
  *  has nothing to work from when that stage failed. Exported for the same
@@ -235,6 +243,8 @@ export type PipelineDeps = {
    *  already exposes for its own tests. */
   probeSleep?: (ms: number) => Promise<void>;
   onStage?: (name: StageName, status: "start" | "ok" | "fail", detail?: string) => void;
+  /** Milliseconds clock for the run record. A test passes a fake one. */
+  now?: () => number;
 };
 
 export type ProspectAuditOptions = {
@@ -262,17 +272,31 @@ export type ProspectAuditOptions = {
   questions?: string[];
 };
 
-async function stage<T>(
+const defaultClock = (): number => performance.now();
+
+/** Runs one stage and writes its record. The cost store is kept on a failure
+ *  too: a model call that errors still spent money. */
+async function timedStage<T>(
   name: StageName,
   deps: PipelineDeps,
+  stages: RunRecord["stages"],
   fn: () => Promise<T>,
 ): Promise<StageResult<T>> {
+  const clock = deps.now ?? defaultClock;
+  const store: CostStore = { costUsd: 0, calls: 0 };
+  const started = clock();
+  const record = (): StageRecord => ({
+    ms: Math.round(clock() - started),
+    ...(store.calls > 0 ? { costUsd: store.costUsd, calls: store.calls } : {}),
+  });
   deps.onStage?.(name, "start");
   try {
-    const data = await fn();
+    const { value } = await withCostScope(fn, store);
+    stages[name] = record();
     deps.onStage?.(name, "ok");
-    return { ok: true, data };
+    return { ok: true, data: value };
   } catch (err) {
+    stages[name] = record();
     const error = err instanceof Error ? err.message : String(err);
     deps.onStage?.(name, "fail", error);
     return { ok: false, error };
@@ -303,11 +327,19 @@ export async function runProspectAudit(
   // could persist and email — and the mode is stamped on the result below,
   // because which instrument produced an audit is part of the measurement.
   const llmAuth = llmAuthMode();
+  // Bookkeeping for the run record: each stage's wall time and what its model
+  // calls reported. See run-record.ts.
+  const clock = deps.now ?? defaultClock;
+  const stages: RunRecord["stages"] = {};
+  const stage = <T>(name: StageName, d: PipelineDeps, fn: () => Promise<T>) =>
+    timedStage(name, d, stages, fn);
   const crawlDeps = deps.crawl ?? defaultCrawlDeps();
   deps.onStage?.("crawl", "start");
   let crawlData: CrawlResult;
+  const crawlStarted = clock();
   try {
     crawlData = await crawlSite(url, crawlDeps);
+    stages.crawl = { ms: clock() - crawlStarted };
     deps.onStage?.("crawl", "ok");
   } catch (err) {
     deps.onStage?.("crawl", "fail", err instanceof Error ? err.message : String(err));
@@ -391,26 +423,40 @@ export async function runProspectAudit(
   const analyze: StageResult<AnalyzeResult> = opts.technical
     ? { ok: false, error: TECHNICAL_SKIPPED }
     : checks.ok
-      ? await stage("analyze", deps, async () =>
+      ? await stage("analyze", deps, async () => {
           // The operator's goal, when we have one, decides which fixed question
           // set gets asked — so it must reach this stage rather than being
           // applied after it. Without one we ask the universal set; the model
           // still infers `primaryGoal` for the goal-fit section either way.
-          analyzeSite(
-            url,
-            crawlData,
-            checks.data,
-            deps.analyze ?? envAnalyzeDeps(),
-            opts.goal ?? "unknown",
-            operatorFit,
-            // #676. Threaded exactly like `goal`: it must reach the stage that
-            // asks, not be applied after it.
-            {
-              ...(opts.terms ? { terms: opts.terms } : {}),
-              ...(opts.questions ? { questions: opts.questions } : {}),
-            },
-          ),
-        )
+          const runAnalyze = () =>
+            analyzeSite(
+              url,
+              crawlData,
+              checks.data,
+              deps.analyze ?? envAnalyzeDeps(),
+              opts.goal ?? "unknown",
+              operatorFit,
+              // #676. Threaded exactly like `goal`: it must reach the stage that
+              // asks, not be applied after it.
+              {
+                ...(opts.terms ? { terms: opts.terms } : {}),
+                ...(opts.questions ? { questions: opts.questions } : {}),
+              },
+            );
+          try {
+            return await runAnalyze();
+          } catch {
+            // One retry with the same inputs: the model call is the stage most
+            // likely to fail transiently (an overloaded response, a dropped
+            // connection). Only a second failure is reported, and it says so.
+            try {
+              return await runAnalyze();
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              throw new Error(`${message} (after one retry)`, { cause: err });
+            }
+          }
+        })
       : { ok: false, error: ANALYZE_SKIPPED };
 
   // The searchable proper NOUN (AnalyzeResult.businessName), never the
@@ -464,6 +510,10 @@ export async function runProspectAudit(
     probes = { ok: false, error: TECHNICAL_SKIPPED };
   } else if (opts.probes === false) {
     probes = { ok: false, error: PROBES_SKIPPED };
+  } else if (!analyze.ok && analyze.error !== ANALYZE_SKIPPED) {
+    // analyze failed on its own (the checks-cascade skip above is deliberate, and
+    // keeps its own behaviour). No probes and no accuracy without its output.
+    probes = { ok: false, error: ANALYZE_FAILED_SKIP };
   } else {
     probes = await stage("probes", deps, async () =>
       runVisibilityProbes(
@@ -599,5 +649,18 @@ export async function runProspectAudit(
     http,
     goalFit,
     accuracy,
+    run: {
+      stages,
+      // The API path records no cost: its SDK calls do not go through
+      // recordModelCost. So a run with no subscription-path call reads null.
+      totalCostUsd: sumCosts(stages),
+    },
   };
+}
+
+function sumCosts(stages: RunRecord["stages"]): number | null {
+  const costs = Object.values(stages)
+    .map((s) => s?.costUsd)
+    .filter((c): c is number => c !== undefined);
+  return costs.length > 0 ? costs.reduce((a, b) => a + b, 0) : null;
 }

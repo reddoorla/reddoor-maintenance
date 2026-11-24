@@ -1,6 +1,6 @@
 import { writeFile, mkdtemp, rm, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { AuditResult, Site } from "../types.js";
 import { siteLabel } from "../util/site.js";
 import { lighthouseConfig } from "../configs/lighthouse.js";
@@ -11,6 +11,59 @@ import { readSiteConfig } from "./util/site-config.js";
 import { withFreePort } from "../util/free-port.js";
 import { portInUse, spawnOutput, withPortRetry } from "../util/port-retry.js";
 import { readJsonIfExists } from "../util/fs.js";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+
+/** The range package.json pins for @lhci/cli. The npx fallback names it, so a
+ *  machine without the package installed still runs this version. */
+export const LHCI_VERSION = "^0.16.0";
+
+/** Does `version` satisfy the caret range `range` (`^X.Y.Z`), as npm reads it?
+ *  `^0.Y.Z` allows only 0.Y.*, at or above Z; `^X.Y.Z` with X > 0 allows X.*.*
+ *  at or above Y.Z. A prerelease or an unreadable version never satisfies. Only
+ *  the caret form a pin here uses; no semver dependency for one comparison. */
+export function satisfiesCaret(version: string | undefined, range: string): boolean {
+  const parse = (v: string) => /^(\d+)\.(\d+)\.(\d+)$/.exec(v)?.slice(1).map(Number);
+  const want = range.startsWith("^") ? parse(range.slice(1)) : undefined;
+  const have = version ? parse(version) : undefined;
+  if (!want || !have) return false;
+  const [wMaj, wMin, wPat] = want as [number, number, number];
+  const [hMaj, hMin, hPat] = have as [number, number, number];
+  if (hMaj !== wMaj) return false;
+  if (wMaj === 0) return hMin === wMin && hPat >= wPat;
+  return hMin > wMin || (hMin === wMin && hPat >= wPat);
+}
+
+/** The command that runs lhci. `REDDOOR_LHCI_BIN`, when set, is run directly
+ *  and wins: it is the seam a test uses to supply a fake lhci, now that a bare
+ *  `npx` on PATH is no longer what runs. Otherwise prefers the @lhci/cli this package resolves,
+ *  run under node: `npx @lhci/cli` runs whatever the npm cache holds, which is
+ *  not the version the repo pins. Falls back to npx pinned to LHCI_VERSION when
+ *  the package is not installed, or resolves outside LHCI_VERSION (a fleet
+ *  site's own older copy). */
+export function lhciInvocation(
+  configPath: string,
+  resolve: (id: string) => string = (id) => createRequire(import.meta.url).resolve(id),
+  env: NodeJS.ProcessEnv = process.env,
+): { cmd: string; args: string[] } {
+  const tail = ["autorun", `--config=${configPath}`];
+  if (env.REDDOOR_LHCI_BIN) return { cmd: env.REDDOOR_LHCI_BIN, args: tail };
+  try {
+    const pkgPath = resolve("@lhci/cli/package.json");
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as {
+      version?: string;
+      bin?: string | Record<string, string>;
+    };
+    const bin = typeof pkg.bin === "string" ? pkg.bin : pkg.bin?.lhci;
+    // On a fleet site this resolves the site's own @lhci/cli (onboarding pins
+    // an older range), so a copy outside the pin is passed over for the npx.
+    if (bin && satisfiesCaret(pkg.version, LHCI_VERSION))
+      return { cmd: process.execPath, args: [join(dirname(pkgPath), bin), ...tail] };
+  } catch {
+    // Not installed here: fall through to the pinned npx.
+  }
+  return { cmd: "npx", args: ["--yes", `@lhci/cli@${LHCI_VERSION}`, ...tail] };
+}
 
 type ManifestEntry = {
   url: string;
@@ -308,7 +361,8 @@ async function runCheckoutLhci(
   let raw: SpawnResult;
   const checkedAt = new Date().toISOString();
   try {
-    raw = await spawn("npx", ["--yes", "@lhci/cli", "autorun", `--config=${configPath}`], {
+    const lhci = lhciInvocation(configPath);
+    raw = await spawn(lhci.cmd, lhci.args, {
       cwd: site.path,
       timeoutMs: 5 * 60_000,
     });
@@ -378,7 +432,8 @@ async function deployedLighthouse(
   let raw: SpawnResult;
   const checkedAt = new Date().toISOString();
   try {
-    raw = await spawn("npx", ["--yes", "@lhci/cli", "autorun", `--config=${configPath}`], {
+    const lhci = lhciInvocation(configPath);
+    raw = await spawn(lhci.cmd, lhci.args, {
       cwd: workDir,
       // 3 serial cold runs of a slow deployed site (lhci's own maxWaitForLoad
       // ~45-60s each) + first-use Chrome download can plausibly exceed 3 min →

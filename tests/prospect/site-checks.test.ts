@@ -1007,6 +1007,100 @@ describe("each check fires on the thing it is named for", () => {
     expect(byKey(targeted, "robots-not-blocking")?.status).toBe("pass");
   });
 
+  it("does not read a Disallow: / in another crawler's group as a blanket block", () => {
+    // Wix-shaped: the wildcard group allows everything; PetalBot's group blocks itself.
+    const wix = runSiteChecks(
+      exemplary({ robotsTxt: "User-agent: *\nAllow: /\n\nUser-agent: PetalBot\nDisallow: /\n" }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(wix, "robots-not-blocking")?.status).toBe("pass");
+
+    // The wildcard group disallows only a section; GPTBot's group blocks itself.
+    const section = runSiteChecks(
+      exemplary({
+        robotsTxt: "User-agent: *\nDisallow: /wp-admin/\n\nUser-agent: GPTBot\nDisallow: /\n",
+      }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(section, "robots-not-blocking")?.status).toBe("pass");
+
+    // Still a fail when the blanket rule comes after a crawler-specific group.
+    const afterGroup = runSiteChecks(
+      exemplary({ robotsTxt: "User-agent: Googlebot\nDisallow:\n\nUser-agent: *\nDisallow: /" }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(afterGroup, "robots-not-blocking")?.status).toBe("fail");
+  });
+
+  it("reads the wildcard rules the way the crawl does: longest match, and /* covers the root", () => {
+    const status = (robotsTxt: string) =>
+      byKey(
+        runSiteChecks(exemplary({ robotsTxt }), exemplaryChecks(), "Acme Roofing"),
+        "robots-not-blocking",
+      )?.status;
+    // Blocked for everyone, spelled two more ways.
+    expect(status("User-agent: *\nDisallow: /*\n")).toBe("fail");
+    expect(status("User-agent: *\nDisallow: / # closed\n")).toBe("fail");
+    // An Allow that covers the root and is at least as long wins.
+    expect(status("User-agent: *\nDisallow: /\nAllow: /*\n")).toBe("pass");
+    // An equal-length Allow wins a tie, whichever line came first.
+    expect(status("User-agent: *\nDisallow: /\nAllow: /\n")).toBe("pass");
+    // Two wildcard groups are one group.
+    expect(status("User-agent: *\nDisallow: /\n\nUser-agent: *\nAllow: /*\n")).toBe("pass");
+    // Only the home page open, every other page shut, is a blanket block
+    // (review round 3): the rule deciding an ordinary page covers the root.
+    expect(status("User-agent: *\nAllow: /$\nDisallow: /\n")).toBe("fail");
+    // RFC 9309 allows a lone CR as a line ending.
+    expect(status("User-agent: *\rDisallow: /\r")).toBe("fail");
+    // A rule that matches only some paths never turns a blanket block into a
+    // pass, whatever letters it holds (review round 4).
+    for (const extra of [
+      "Disallow: /a",
+      "Allow: /a",
+      "Allow: /an",
+      "Allow: /*-",
+      "Allow: /*page",
+      "Allow: /*e$",
+      "Allow: /*a",
+      "Allow: /blog/",
+      "Allow: /*.html$",
+    ]) {
+      expect(status(`User-agent: *\nDisallow: /\n${extra}\n`), extra).toBe("fail");
+    }
+    // Section rules alone are not a blanket block.
+    for (const only of ["Disallow: /*.php", "Disallow: /*?", "Disallow: /*/", "Disallow: /$"]) {
+      expect(status(`User-agent: *\n${only}\n`), only).toBe("pass");
+    }
+    // Every spelling of "everything" blocks, and an everything-Allow at least as
+    // long lifts it.
+    // A shorter everything-Allow does not lift a longer everything-Disallow.
+    expect(status("User-agent: *\nDisallow: /*\nAllow: /\n")).toBe("fail");
+    for (const all of ["Disallow: /*$", "Disallow: *", "Disallow: /**"]) {
+      expect(status(`User-agent: *\n${all}\n`), all).toBe("fail");
+    }
+    // Only the wildcard groups decide: a bot whose name holds a "*", or an
+    // empty User-agent line, is not everyone.
+    expect(status("User-agent: *\nDisallow: /\n\nUser-agent: bad*bot\nAllow: /\n")).toBe("fail");
+    expect(status("User-agent:\nDisallow: /\n\nUser-agent: *\nAllow: /\n")).toBe("pass");
+    // Home page only is not the whole site.
+    expect(status("User-agent: *\nDisallow: /$\n")).toBe("pass");
+  });
+
+  it("quotes the line that blocks the site, not a line the file does not have", () => {
+    const c = byKey(
+      runSiteChecks(
+        exemplary({ robotsTxt: "User-agent: *\nDisallow: /* # closed\n" }),
+        exemplaryChecks(),
+        "Acme Roofing",
+      ),
+      "robots-not-blocking",
+    );
+    expect(c?.evidence).toBe("Disallow: /* applies to every crawler");
+  });
+
   it("catches schema pointing at a domain they no longer use", () => {
     const old = JSON.stringify({
       "@type": "Organization",
@@ -1079,6 +1173,48 @@ describe("each check fires on the thing it is named for", () => {
       "Acme Roofing",
     );
     expect(byKey(checks, "sitemap-coverage")?.status).toBe("fail");
+  });
+
+  // W3 (TEC-01, SEO-06): read as this site's pages, reported as its own fault.
+  it("fails a sitemap written on another scheme or host, naming an example", () => {
+    const checks = runSiteChecks(
+      exemplary({
+        sitemap: { present: true, urlCount: 83, truncated: false },
+        selection: {
+          pagesConsidered: 84,
+          sitemapSource: "https://acme.example/sitemap.xml",
+          sitemapOffOrigin: 83,
+          sitemapOffOriginExample: "http://www.acme.example/",
+        },
+      }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    const c = byKey(checks, "sitemap-same-host");
+    expect(c?.status).toBe("fail");
+    expect(c?.evidence).toContain("83 of the 83");
+    expect(c?.evidence).toContain("http://www.acme.example/");
+  });
+
+  it("passes a sitemap on the site's own address, and is unmeasured on a row that predates the count", () => {
+    const sel = {
+      pagesConsidered: 3,
+      sitemapSource: "https://acme.example/sitemap.xml",
+      sitemapOffOrigin: 0,
+      sitemapOffOriginExample: null,
+    };
+    const ok = runSiteChecks(
+      exemplary({ sitemap: { present: true, urlCount: 3, truncated: false }, selection: sel }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(ok, "sitemap-same-host")?.status).toBe("pass");
+    const older = runSiteChecks(
+      exemplary({ sitemap: { present: true, urlCount: 3, truncated: false } }),
+      exemplaryChecks(),
+      "Acme Roofing",
+    );
+    expect(byKey(older, "sitemap-same-host")?.status).toBe("unmeasured");
   });
 });
 
@@ -1905,6 +2041,216 @@ describe("a page that mis-declares another page's canonical is not an alias of i
     const c = byKey(checks, "sitemap-coverage");
     expect(c?.status).toBe("fail");
     expect(c?.evidence).toMatch(/acme\.example\/(about|contact)/);
+  });
+});
+
+// W3 (LG-02): a probe verdict says which form it is about, so "a form that
+// catches an empty submission: pass" can no longer be earned by a newsletter
+// box without anyone being able to tell.
+describe("form probe evidence names the form", () => {
+  it("leads the evidence with the form the probe pressed", () => {
+    const crawl = exemplary({
+      pages: exemplary().pages.map((p, i) =>
+        i === 0
+          ? {
+              ...p,
+              formProbe: {
+                url: "https://acme.example/contact",
+                form: "the 8-field form on /contact",
+                emptyRefused: true,
+                emptyHow: "the browser blocks it — the form marks its fields required",
+                invalidEmailRefused: true,
+                invalidEmailHow: "the form showed an error rather than submitting",
+                blocked: 0,
+              },
+            }
+          : p,
+      ),
+    });
+    const checks = runSiteChecks(crawl, exemplaryChecks(), "Acme Roofing");
+    expect(byKey(checks, "form-rejects-empty")?.evidence).toBe(
+      "the 8-field form on /contact: the browser blocks it — the form marks its fields required",
+    );
+    expect(byKey(checks, "form-rejects-bad-email")?.evidence).toMatch(
+      /^the 8-field form on \/contact: /,
+    );
+  });
+});
+
+describe("W3 review round 1 — sitemap-same-host and the form probe's evidence", () => {
+  const SEL = (over: Record<string, unknown> = {}) => ({
+    pagesConsidered: 3,
+    sitemapSource: "https://acme.example/sitemap.xml",
+    sitemapOffOrigin: 0,
+    sitemapOffOriginExample: null,
+    sitemapAmbiguousOrigin: 0,
+    ...over,
+  });
+  const SAME_HOST = (crawl: CrawlResult) =>
+    byKey(runSiteChecks(crawl, exemplaryChecks(), "Acme Roofing"), "sitemap-same-host");
+
+  it("a sitemap we could not read is unmeasured, not not-applicable", () => {
+    const c = SAME_HOST(
+      exemplary({
+        sitemap: { present: false, urlCount: 0, truncated: false },
+        sidecarErrors: { robots: null, llms: null, sitemap: "socket hang up" },
+      }),
+    );
+    expect(c?.status).toBe("unmeasured");
+    expect(c?.evidence).toMatch(/could not read the sitemap/);
+  });
+
+  it("a site with no sitemap at all is not-applicable", () => {
+    const c = SAME_HOST(exemplary({ sitemap: { present: false, urlCount: 0, truncated: false } }));
+    expect(c?.status).toBe("not-applicable");
+  });
+
+  it("a truncated read is unmeasured, even when the part it read has a fault", () => {
+    const c = SAME_HOST(
+      exemplary({
+        sitemap: { present: true, urlCount: 40, truncated: true },
+        selection: SEL({
+          sitemapOffOrigin: 2,
+          sitemapOffOriginExample: "http://www.acme.example/",
+        }),
+      }),
+    );
+    expect(c?.status).toBe("unmeasured");
+  });
+
+  it("another scheme or www. host with nothing to say which the site uses is unmeasured, not a pass", () => {
+    const c = SAME_HOST(
+      exemplary({
+        sitemap: { present: true, urlCount: 3, truncated: false },
+        selection: SEL({ sitemapAmbiguousOrigin: 3 }),
+      }),
+    );
+    expect(c?.status).toBe("unmeasured");
+  });
+
+  it("passes in the words the check is now worded in", () => {
+    const c = SAME_HOST(
+      exemplary({ sitemap: { present: true, urlCount: 3, truncated: false }, selection: SEL() }),
+    );
+    expect(c?.status).toBe("pass");
+    expect(c?.evidence).toBe("no address it lists is written on another scheme or www. host");
+  });
+
+  it("names the form alone when the probe recorded no reason", () => {
+    const crawl = exemplary({
+      pages: exemplary().pages.map((p, i) =>
+        i === 0
+          ? {
+              ...p,
+              formProbe: {
+                url: "https://acme.example/contact",
+                form: "the 8-field form on /contact",
+                emptyRefused: true,
+                emptyHow: null,
+                invalidEmailRefused: null,
+                invalidEmailHow: null,
+                blocked: 0,
+              },
+            }
+          : p,
+      ),
+    });
+    const checks = runSiteChecks(crawl, exemplaryChecks(), "Acme Roofing");
+    expect(byKey(checks, "form-rejects-empty")?.evidence).toBe("the 8-field form on /contact");
+  });
+});
+
+// W3 review round 4, finding 4. A page whose probe never ran (timeout, mismatch)
+// and that carries an enquiry form is a form we did not try, whatever the other
+// pages' probes said: "we found no enquiry form to try" is then false.
+describe("form probe — a form we could not try is not a form we found absent (W3 review round 4)", () => {
+  const enquiryForm = {
+    kind: "enquiry" as const,
+    action: "/contact",
+    method: "post",
+    fieldCount: 4,
+    hasContactField: true,
+    hasSubmit: true,
+    fields: [
+      { type: "text" as const, name: "name", autocomplete: "name", required: true },
+      { type: "email" as const, name: "email", autocomplete: "email", required: true },
+      { type: "tel" as const, name: "phone", autocomplete: "tel", required: false },
+      { type: "textarea" as const, name: "message", autocomplete: null, required: true },
+    ],
+  };
+
+  it("a 4-field enquiry form on /contact whose probe timed out, beside a home page probed with no form, is unknown", () => {
+    const crawl = exemplary({
+      pages: [
+        { ...page("https://acme.example/", { forms: [] }), formProbe: null },
+        page("https://acme.example/contact", { forms: [enquiryForm] }),
+      ],
+    });
+    const checks = runSiteChecks(crawl, exemplaryChecks(), "Acme Roofing");
+    for (const key of ["form-rejects-empty", "form-rejects-bad-email"]) {
+      const c = byKey(checks, key);
+      expect(c?.status).toBe("unmeasured");
+      expect(c?.evidence).toBe("we could not try every form");
+    }
+  });
+
+  it("with no enquiry form on any page, the probe's null still means we found none to try", () => {
+    const crawl = exemplary({
+      pages: [
+        { ...page("https://acme.example/", { forms: [] }), formProbe: null },
+        page("https://acme.example/about", { forms: [] }),
+      ],
+    });
+    const checks = runSiteChecks(crawl, exemplaryChecks(), "Acme Roofing");
+    expect(byKey(checks, "form-rejects-empty")?.evidence).toBe("we found no enquiry form to try");
+  });
+});
+
+// W3 review round 5, finding 3. The probe read for a page must be that page's own:
+// a dropped page (a 404) must not shift the probes of the pages after it.
+describe("form probe — the probe belongs to its own page after a dropped page (W3 review round 5, finding 3)", () => {
+  const enquiryForm = {
+    kind: "enquiry" as const,
+    action: "/contact",
+    method: "post",
+    fieldCount: 4,
+    hasContactField: true,
+    hasSubmit: true,
+    fields: [
+      { type: "text" as const, name: "name", autocomplete: "name", required: true },
+      { type: "email" as const, name: "email", autocomplete: "email", required: true },
+      { type: "tel" as const, name: "phone", autocomplete: "tel", required: false },
+      { type: "textarea" as const, name: "message", autocomplete: null, required: true },
+    ],
+  };
+
+  it("home (no probe), /old (404), /about (no probe), /contact (enquiry form, no probe): unmeasured, not absent", () => {
+    const crawl = exemplary({
+      pages: [
+        { ...page("https://acme.example/", { forms: [] }), formProbe: null },
+        { ...page("https://acme.example/old", { forms: [] }), status: 404 },
+        { ...page("https://acme.example/about", { forms: [] }), formProbe: null },
+        page("https://acme.example/contact", { forms: [enquiryForm] }),
+      ],
+    });
+    const checks = runSiteChecks(crawl, exemplaryChecks(), "Acme Roofing");
+    for (const key of ["form-rejects-empty", "form-rejects-bad-email"]) {
+      const c = byKey(checks, key);
+      expect(c?.status).toBe("unmeasured");
+      expect(c?.evidence).toBe("we could not try every form");
+    }
+  });
+
+  it("control: the same pages without the 404 are still unmeasured", () => {
+    const crawl = exemplary({
+      pages: [
+        { ...page("https://acme.example/", { forms: [] }), formProbe: null },
+        { ...page("https://acme.example/about", { forms: [] }), formProbe: null },
+        page("https://acme.example/contact", { forms: [enquiryForm] }),
+      ],
+    });
+    const checks = runSiteChecks(crawl, exemplaryChecks(), "Acme Roofing");
+    expect(byKey(checks, "form-rejects-empty")?.evidence).toBe("we could not try every form");
   });
 });
 

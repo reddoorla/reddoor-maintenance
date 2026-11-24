@@ -3,7 +3,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { chromium, type Browser } from "@playwright/test";
 import { probeForms, pageInteractionDeps, INVALID_EMAIL } from "../../src/prospect/interaction.js";
-import { asRendered, defaultCrawlDeps } from "../../src/prospect/crawl.js";
+import { asRendered, defaultCrawlDeps, enquiryFormsIn } from "../../src/prospect/crawl.js";
 
 /**
  * THE ABORT HARNESS, PROVED AGAINST A REAL BROWSER AND A REAL SERVER.
@@ -67,6 +67,35 @@ const JS_POPUP_PAGE =
     });
   </scr` +
   `ipt>
+</body></html>`;
+
+/** A footer newsletter box ABOVE a real enquiry form, the shape of a page whose
+ *  first form is the one a buyer never uses (W3, the audit-system review's
+ *  LG-02: a probe passed a site on its Mailchimp box). */
+const NEWSLETTER_FIRST_PAGE = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Contact</title></head>
+<body>
+  <form action="/subscribe" method="post">
+    <label>Email <input type="email" name="email" required></label>
+    <button type="submit">Subscribe</button>
+  </form>
+  <form action="/enquiry" method="post" onsubmit="event.preventDefault()">
+    <label>Your name <input type="text" name="name"></label>
+    <label>Email <input type="email" name="email"></label>
+    <label>Company <input type="text" name="company"></label>
+    <label>Message <textarea name="message"></textarea></label>
+    <button type="submit">Send</button>
+  </form>
+</body></html>`;
+
+/** A page whose only form is a newsletter box. */
+const NEWSLETTER_ONLY_PAGE = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>News</title></head>
+<body>
+  <form action="/subscribe" method="post">
+    <label>Email <input type="email" name="email" required></label>
+    <button type="submit">Subscribe</button>
+  </form>
 </body></html>`;
 
 /** A form beside a challenge iframe, the shape of a contact page with Turnstile. */
@@ -184,7 +213,11 @@ describe("the Tier 4 abort harness, against a real browser", () => {
                   ? hostedPage(thirdBase)
                   : req.url === "/beacon"
                     ? beaconPage(thirdBase)
-                    : FORM_PAGE,
+                    : req.url === "/newsletter-first"
+                      ? NEWSLETTER_FIRST_PAGE
+                      : req.url === "/newsletter-only"
+                        ? NEWSLETTER_ONLY_PAGE
+                        : FORM_PAGE,
       );
     });
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -223,6 +256,51 @@ describe("the Tier 4 abort harness, against a real browser", () => {
     expect(probe!.emptyRefused).toBe(false);
     expect(probe!.emptyHow).toContain("stopped the request");
 
+    await page.close();
+  }, 90_000);
+
+  it("presses the enquiry form, not the newsletter box above it, and names it", async () => {
+    received.length = 0;
+    const page = await browser.newPage();
+    const url = `${base}newsletter-first`;
+    await page.goto(url, { waitUntil: "load" });
+    const enquiry = enquiryFormsIn(await page.content());
+    expect(enquiry).toEqual([false, true]);
+
+    const probe = await probeForms(pageInteractionDeps(page, url, enquiry));
+    expect(probe?.form).toBe("the 4-field form on /newsletter-first");
+    // The newsletter box marks its field required, so the browser would have
+    // refused it before any click; the enquiry form has no `required`, so its
+    // answer had to come from pressing it.
+    expect(probe?.emptyHow).not.toContain("marks its fields required");
+    expect(received).toEqual([]);
+    await page.close();
+  }, 90_000);
+
+  it("presses nothing on a page whose only form is a newsletter box", async () => {
+    const page = await browser.newPage();
+    const url = `${base}newsletter-only`;
+    await page.goto(url, { waitUntil: "load" });
+    const probe = await probeForms(
+      pageInteractionDeps(page, url, enquiryFormsIn(await page.content())),
+    );
+    expect(probe).toBeNull();
+    // The control: with no classifier the same page's box IS chosen, so the
+    // null above is the filter's doing.
+    const unfiltered = await probeForms(pageInteractionDeps(page, url));
+    expect(unfiltered).not.toBeNull();
+    await page.close();
+  }, 90_000);
+
+  it("says it could not try, not that there is no form, when the classifier's forms do not line up", async () => {
+    // W3 review round 1: the classifier read two forms, the page has one. Pressing
+    // nothing is then our gap (absent, unmeasured), never a `null` that reads as
+    // "this page has no enquiry form".
+    const page = await browser.newPage();
+    const url = `${base}newsletter-only`;
+    await page.goto(url, { waitUntil: "load" });
+    const probe = await probeForms(pageInteractionDeps(page, url, [true, false]));
+    expect(probe).toBeUndefined();
     await page.close();
   }, 90_000);
 

@@ -6,16 +6,20 @@ import { retryOnBusy } from "./busy.js";
 import {
   NO_REPORT_STATUSES,
   hasNoReport,
+  reviewState,
   isValidToken,
   type FinishedProspectAuditStatus,
   type ProspectAuditStatus,
+  type ReviewState,
 } from "../prospect/audit-status.js";
 export {
   NO_REPORT_STATUSES,
   hasNoReport,
+  reviewState,
   isValidToken,
   type FinishedProspectAuditStatus,
   type ProspectAuditStatus,
+  type ReviewState,
 };
 
 /** 16 random bytes → 22-char base64url string: unguessable, URL-safe. */
@@ -137,6 +141,11 @@ export type ProspectAuditRow = {
   /** #676. JSON arrays, or null when the audit chose its own. */
   chosen_terms: string | null;
   chosen_questions: string | null;
+  /** W1. See `reviewState`: NULL `approved_at` is a draft. */
+  approved_at: string | null;
+  approved_by: string | null;
+  withdrawn_at: string | null;
+  superseded_by: string | null;
 };
 
 export async function getProspectAuditByToken(
@@ -157,6 +166,10 @@ export async function getProspectAuditByToken(
       "opened_at",
       "chosen_terms",
       "chosen_questions",
+      "approved_at",
+      "approved_by",
+      "withdrawn_at",
+      "superseded_by",
     ])
     .where("token", "=", token)
     // #907. A `running` row is a reservation, not a report: its `result_json`
@@ -194,6 +207,10 @@ export type ProspectAuditListItem = {
    *  from here (or from `created_at` while unclaimed), so the listing needs it
    *  to tell "Running" from "Did not finish" the way the cap's count does. */
   claimed_at: string | null;
+  /** W1. So the listing can say draft, live or withdrawn. */
+  approved_at: string | null;
+  withdrawn_at: string | null;
+  superseded_by: string | null;
 };
 
 /** Ceiling on `listRecentProspectAudits`' `limit`, enforced defensively (a
@@ -230,6 +247,9 @@ export async function listRecentProspectAudits(
       "opened_at",
       "chosen_terms",
       "claimed_at",
+      "approved_at",
+      "withdrawn_at",
+      "superseded_by",
     ])
     .orderBy("created_at", "desc")
     .limit(clampLimit(limit))
@@ -572,8 +592,162 @@ export async function releaseProspectAuditReservation(
   await q.execute();
 }
 
-/** One replaced string and the generated text it replaced. */
-export type Override = { original: string; text: string };
+/** What a review action did to one row. `not-found` covers a token with no
+ *  report behind it (running, failed or absent), which nobody can approve. */
+export type ReviewActionResult =
+  | { status: "approved" | "withdrawn" | "superseded"; token: string }
+  | { status: "not-found"; token: string }
+  | { status: "refused"; token: string; reason: string };
+
+/** A name typed at the CLI, trimmed; blank is refused rather than stored, so
+ *  "who approved it" always has an answer. */
+function who(by: string): string | null {
+  const t = by.trim();
+  return t === "" ? null : t.slice(0, 200);
+}
+
+/**
+ * Approve one report: the link goes live. Records who and when.
+ *
+ * Refuses a withdrawn report rather than reviving it: putting a withdrawn
+ * report back is a deliberate act, done by clearing `withdrawn_at` by hand, not
+ * a side effect of approving the wrong token. Refuses a `partial` run unless
+ * `allowPartial`: everything else that shows one says "do not send", and the
+ * one gate should not let it through without being told to. Re-approving a
+ * live report re-stamps it, which keeps the latest reviewer on record.
+ *
+ * The UPDATE carries the same conditions, and its row count is the answer, so
+ * a withdraw landing between the read and the write is reported, not hidden.
+ */
+export async function approveProspectAudit(
+  db: Db,
+  token: string,
+  by: string,
+  opts: { allowPartial?: boolean; now?: Date } = {},
+): Promise<ReviewActionResult> {
+  const name = who(by);
+  if (!name) return { status: "refused", token, reason: "say who is approving (--by)" };
+  const row = await getProspectAuditByToken(db, token);
+  if (!row) return { status: "not-found", token };
+  if (row.withdrawn_at) return { status: "refused", token, reason: "the report is withdrawn" };
+  if (row.status === "partial" && !opts.allowPartial)
+    return {
+      status: "refused",
+      token,
+      reason: "part of this run did not run; re-run it, or pass --partial to approve it anyway",
+    };
+  const res = await db
+    .updateTable("prospect_audits")
+    .set({ approved_at: (opts.now ?? new Date()).toISOString(), approved_by: name })
+    .where("token", "=", token)
+    .where("withdrawn_at", "is", null)
+    .where("status", "not in", NO_REPORT_STATUSES)
+    .executeTakeFirst();
+  if (Number(res.numUpdatedRows) !== 1)
+    return { status: "refused", token, reason: "the report changed while approving; look again" };
+  return { status: "approved", token };
+}
+
+/**
+ * Take one report down: its link 404s to everyone from now on. The row, its
+ * `result_json` and its approval stay, so what the report said, and who let it
+ * out, are still on record. Withdrawing twice keeps the first stamp.
+ */
+export async function withdrawProspectAudit(
+  db: Db,
+  token: string,
+  by: string,
+  now: Date = new Date(),
+): Promise<ReviewActionResult> {
+  const name = who(by);
+  if (!name) return { status: "refused", token, reason: "say who is withdrawing (--by)" };
+  const row = await getProspectAuditByToken(db, token);
+  if (!row) return { status: "not-found", token };
+  await db
+    .updateTable("prospect_audits")
+    .set({ withdrawn_at: now.toISOString(), withdrawn_by: name })
+    .where("token", "=", token)
+    .where("withdrawn_at", "is", null)
+    .execute();
+  return { status: "withdrawn", token };
+}
+
+/**
+ * Point an old report at the newer one for the same site, and withdraw it.
+ *
+ * Both rows must be reports for the same `site_key`, so a typo cannot send a
+ * prospect to somebody else's audit. The old row is withdrawn in the same step:
+ * a superseded report is never served itself; its link answers with the newer
+ * token while that one is live, and 404s otherwise (the JSON route's rule).
+ */
+export async function supersedeProspectAudit(
+  db: Db,
+  oldToken: string,
+  newToken: string,
+  by: string,
+  now: Date = new Date(),
+): Promise<ReviewActionResult> {
+  const name = who(by);
+  if (!name) return { status: "refused", token: oldToken, reason: "say who is doing this (--by)" };
+  if (oldToken === newToken)
+    return { status: "refused", token: oldToken, reason: "a report cannot supersede itself" };
+  const keys = await db
+    .selectFrom("prospect_audits")
+    .select(["token", "site_key", "created_at", "approved_at", "withdrawn_at", "superseded_by"])
+    .where("token", "in", [oldToken, newToken])
+    .where("status", "not in", NO_REPORT_STATUSES)
+    .execute();
+  const oldRow = keys.find((k) => k.token === oldToken);
+  const newRow = keys.find((k) => k.token === newToken);
+  if (!oldRow || !newRow) return { status: "not-found", token: oldRow ? newToken : oldToken };
+  if (!oldRow.site_key || oldRow.site_key !== newRow.site_key)
+    return {
+      status: "refused",
+      token: oldToken,
+      reason: "the two reports are not for the same site",
+    };
+  // The old link stops serving its own report at once, so the newer one must
+  // already be live: superseding with a draft would take a live report down
+  // and leave its reader nothing.
+  if (reviewState(newRow) !== "live" || newRow.superseded_by)
+    return { status: "refused", token: oldToken, reason: "approve the newer report first" };
+  // Review round 2. Swapped arguments took the newer live report down with no
+  // way back through this command; and a draft that never went out is
+  // withdrawn, not superseded, or its never-sent link would start pointing at
+  // the live report.
+  if (newRow.created_at < oldRow.created_at)
+    return {
+      status: "refused",
+      token: oldToken,
+      reason: "the report to point at is not the newer one",
+    };
+  if (!oldRow.approved_at)
+    return {
+      status: "refused",
+      token: oldToken,
+      reason: "the old report was never approved; withdraw it instead",
+    };
+  await db
+    .updateTable("prospect_audits")
+    .set((eb) => ({
+      superseded_by: newToken,
+      withdrawn_at: eb.fn.coalesce("withdrawn_at", eb.val(now.toISOString())),
+      withdrawn_by: eb.fn.coalesce("withdrawn_by", eb.val(name)),
+    }))
+    .where("token", "=", oldToken)
+    .execute();
+  return { status: "superseded", token: oldToken };
+}
+
+/** One replaced string and the generated text it replaced.
+ *
+ *  `hidden: true` (W1) takes the row the key names off the report instead of
+ *  rewording it: a finding, fix, assertion or source a reviewer judged wrong.
+ *  `original` is then the row's identifying text (a fix's title, a claim, a
+ *  domain), which the website checks before hiding, exactly as it checks
+ *  `original` before substituting `text`. Absent means not hidden; only `true`
+ *  is stored. */
+export type Override = { original: string; text: string; hidden?: true };
 export type OverrideMap = Record<string, Override>;
 
 /**
@@ -713,9 +887,17 @@ function buildOverrideMap(v: unknown): OverrideMap | null {
   for (const [key, entry] of Object.entries(v as Record<string, unknown>)) {
     if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return null;
     // One read each, and the values that were read are the values that are kept.
-    const { original, text } = entry as Partial<Override>;
+    const { original, text, hidden } = entry as {
+      original?: unknown;
+      text?: unknown;
+      hidden?: unknown;
+    };
     if (typeof original !== "string" || typeof text !== "string") return null;
-    built[key] = { original, text };
+    // `hidden` is a KNOWN key, so unlike an unknown one it is validated rather
+    // than dropped: a non-boolean is a malformed entry. `false` is the same as
+    // absent and is not stored.
+    if (hidden !== undefined && typeof hidden !== "boolean") return null;
+    built[key] = hidden === true ? { original, text, hidden: true } : { original, text };
   }
   return built;
 }
@@ -779,7 +961,7 @@ function serialiseOverrides(overrides: OverrideMap): string | null {
  * operator in whatever they first typed.
  *
  * What is stored is REBUILT from the validated strings, not the object passed
- * in, so an entry keeps its `original` and its `text` and nothing else: any
+ * in, so an entry keeps its `original`, its `text` and `hidden: true` (W1) and nothing else: any
  * other key on it is dropped rather than written through. See
  * `buildOverrideMap` for why that is the contract.
  *

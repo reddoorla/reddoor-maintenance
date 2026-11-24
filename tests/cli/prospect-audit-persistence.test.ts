@@ -12,9 +12,14 @@ import { offlineNetworkDeps } from "../_helpers/offline-prospect.js";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { runProspectAuditCommand } from "../../src/cli/commands/prospect-audit.js";
+import {
+  auditStatus,
+  reviewLine,
+  runProspectAuditCommand,
+} from "../../src/cli/commands/prospect-audit.js";
 import { finishProspectAudit } from "../../src/db/prospect-audits.js";
 import type { PipelineDeps } from "../../src/prospect/pipeline.js";
+import type { ProspectAuditResult } from "../../src/prospect/types.js";
 
 let forcePersistFailure = false;
 
@@ -135,7 +140,53 @@ describe("prospect-audit CLI — Turso persistence", () => {
       deps: stubDeps(),
     });
     expect(code).toBe(0);
-    expect(output).toMatch(/\/audit\/[A-Za-z0-9_-]{22}$/);
+    // W1: the link is no longer the last line — the review verdict is.
+    expect(output).toMatch(/\/audit\/[A-Za-z0-9_-]{22}$/m);
+  });
+
+  it("W1: the last line says the saved report is a draft, and 'do not send' for a partial run", async () => {
+    process.env.TURSO_DATABASE_URL = ":memory:";
+    // --no-probes leaves probes not measured, so the run is partial.
+    const { output } = await runProspectAuditCommand("https://acme.example/", {
+      probes: false,
+      deps: stubDeps(),
+    });
+    const last = output.trim().split("\n").at(-1)!;
+    expect(last).toMatch(/^DO NOT SEND:/);
+    expect(last).toContain("draft, not approved");
+  });
+
+  it("W1 (review round 3): a complete run's verdict says draft and names the approve command with --token=", () => {
+    const ok = { ok: true };
+    const complete = {
+      checks: ok,
+      lighthouse: ok,
+      analyze: ok,
+      probes: ok,
+    } as unknown as ProspectAuditResult;
+    const token = "abcdefghijklmnopqrstuv";
+    const line = reviewLine(complete, token)!;
+    expect(line).toMatch(/^Draft, not approved/);
+    expect(line).toContain(`prospect-audit-review --token=${token} --approve`);
+    // A failed stage turns the same verdict into DO NOT SEND.
+    expect(
+      reviewLine({ ...complete, probes: { ok: false } } as unknown as ProspectAuditResult, token),
+    ).toMatch(/^DO NOT SEND:/);
+    expect(reviewLine(complete, null)).toBeNull();
+  });
+
+  it("TEC-07: a failed Lighthouse alone leaves the run complete; no page shows it", () => {
+    const ok = { ok: true };
+    const failed = { ok: false, error: "lhci exited 1" };
+    const base = { checks: ok, lighthouse: failed, analyze: ok, probes: ok };
+    expect(auditStatus(base as unknown as ProspectAuditResult)).toBe("complete");
+    expect(reviewLine(base as unknown as ProspectAuditResult, "abcdefghijklmnopqrstuv")).toMatch(
+      /^Draft, not approved/,
+    );
+    // Control: a stage the page does show still makes it partial.
+    expect(auditStatus({ ...base, analyze: failed } as unknown as ProspectAuditResult)).toBe(
+      "partial",
+    );
   });
 
   it("--json still persists to Turso and includes the link in the JSON payload", async () => {

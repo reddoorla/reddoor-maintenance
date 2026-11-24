@@ -569,6 +569,73 @@ describe("priceSignal — the phrasings real sites use", () => {
       ).toBe(false);
     }
   });
+
+  it("reads a fine as a penalty only in the forms no price uses (fined, a fine of)", () => {
+    // B-09's bare word "fines" was split out of this PR (the operator, 11-24,
+    // workspace decisions/2026-11-24-1749-qw-checks-round-6-dirty.md): review
+    // rounds 3 to 6 found it hiding real prices in four senses. These stay prices.
+    for (const text of [
+      "Omelette aux fines herbes from $14.",
+      "Fines–herbes salmon from $28.",
+      "Stay in Fines Creek cabins from $120 a night.",
+      "Crusher fines starting at $38 per yard, delivered.",
+      "Screened fines ranging from $30 to $55 a yard.",
+    ]) {
+      expect(met(checkGoal("enquire", "inferred", crawl(text), null), "price-signal"), text).toBe(
+        true,
+      );
+    }
+    expect(
+      met(
+        checkGoal("enquire", "inferred", crawl("Violators are fined starting at $500."), null),
+        "price-signal",
+      ),
+    ).toBe(false);
+
+    // "a fine of" is a penalty; the adjective "fine" is not.
+    expect(
+      met(
+        checkGoal(
+          "enquire",
+          "inferred",
+          crawl("Late returns carry a fine of $5 a day, from $5 per item."),
+          null,
+        ),
+        "price-signal",
+      ),
+    ).toBe(false);
+    // A legal practice's own fees are prices, even beside the words a statute uses.
+    expect(
+      met(
+        checkGoal(
+          "enquire",
+          "inferred",
+          crawl("Defense for a first offense, from $2,500 flat fee. Civil suits from $5,000."),
+          null,
+        ),
+        "price-signal",
+      ),
+    ).toBe(true);
+    expect(
+      met(
+        checkGoal("enquire", "inferred", crawl("Fine dining from $40 a plate."), null),
+        "price-signal",
+      ),
+    ).toBe(true);
+
+    // Control: an ordinary price next to ordinary words stays a price.
+    expect(
+      met(
+        checkGoal(
+          "enquire",
+          "inferred",
+          crawl("Consultations from $150; packages from $900."),
+          null,
+        ),
+        "price-signal",
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("orderRequirements", () => {
@@ -698,5 +765,203 @@ describe("checkGoal — never converts our own missing data into their defect", 
     ]) {
       expect(met(checkGoal("enquire", "inferred", crawl(real), null), "price-signal")).toBe(true);
     }
+  });
+});
+
+// W3, from the audit-system review (LG-01): one stored report said a site
+// lacks a qualifying form while its home page linked to an eight-field form on
+// `/contact` seven times, and the crawl never read that page.
+describe("qualifying-form waits for the contact page", () => {
+  const link = (href: string, text: string): PageAnchor => ({ href, text, rel: "" });
+  const newsletter = [
+    {
+      kind: "subscribe" as const,
+      action: null,
+      method: "post",
+      fieldCount: 1,
+      hasContactField: true,
+      hasSubmit: true,
+    },
+  ];
+
+  it("is unmeasured, not missing, when a linked contact page went unread", () => {
+    const home = crawl(
+      "",
+      Array.from({ length: 7 }, () => link("/contact", "CONTACT")),
+      newsletter,
+    );
+    expect(status(checkGoal("enquire", "inferred", home, null), "qualifying-form")).toBe(
+      "unmeasured",
+    );
+  });
+
+  it("is unmeasured for a link whose words, not its path, say so", () => {
+    const home = crawl("", [link("https://www.example.com/start", "Get started")], newsletter);
+    expect(status(checkGoal("enquire", "inferred", home, null), "qualifying-form")).toBe(
+      "unmeasured",
+    );
+  });
+
+  it("is missing once the contact page was read and had no such form", () => {
+    const withContact = crawl("", [link("/contact/", "Contact")], newsletter);
+    withContact.pages.push({
+      ...withContact.pages[0]!,
+      url: "https://example.com/contact",
+      raw: extract({ text: "Call us.", forms: newsletter }),
+    });
+    expect(status(checkGoal("enquire", "inferred", withContact, null), "qualifying-form")).toBe(
+      "missing",
+    );
+  });
+
+  it("is still met by a real form found elsewhere, read or not", () => {
+    const home = crawl(
+      "",
+      [link("/contact", "Contact")],
+      [
+        {
+          kind: "enquiry",
+          action: "/submit",
+          method: "post",
+          fieldCount: 6,
+          hasContactField: true,
+          hasSubmit: true,
+        },
+      ],
+    );
+    expect(status(checkGoal("enquire", "inferred", home, null), "qualifying-form")).toBe("met");
+  });
+
+  it("ignores a contact link on someone else's site", () => {
+    const home = crawl("", [link("https://other.example/contact", "Contact")], newsletter);
+    expect(status(checkGoal("enquire", "inferred", home, null), "qualifying-form")).toBe("missing");
+  });
+});
+
+describe("qualifying-form — which unread contact links count (W3 review round 1)", () => {
+  const link = (href: string, text: string): PageAnchor => ({ href, text, rel: "" });
+  const newsletter = [
+    {
+      kind: "subscribe" as const,
+      action: null,
+      method: "post",
+      fieldCount: 1,
+      hasContactField: true,
+      hasSubmit: true,
+    },
+  ];
+  /** The home page and one read page at `url`, which holds no form of its own. */
+  const withReadPage = (anchors: PageAnchor[], url: string): CrawlResult => {
+    const c = crawl("", anchors, newsletter);
+    c.pages.push({
+      url,
+      status: 200,
+      raw: extract({ text: "Call us.", forms: newsletter }),
+      rendered: null,
+      error: null,
+    });
+    return c;
+  };
+
+  it("reads a query-string link as the page it points at, when that page was read", () => {
+    const c = withReadPage([link("/contact?service=x", "CONTACT")], "https://example.com/contact");
+    expect(status(checkGoal("enquire", "inferred", c, null), "qualifying-form")).toBe("missing");
+  });
+
+  it("does not count a PDF, however contact-like its words", () => {
+    const c = crawl("", [link("/enquiry-form.pdf", "Contact")], newsletter);
+    expect(status(checkGoal("enquire", "inferred", c, null), "qualifying-form")).toBe("missing");
+  });
+
+  it("does not count a blog entry or a dated post as a contact page we failed to read", () => {
+    const blog = crawl("", [link("/blog/contact-tips", "Contact")], newsletter);
+    expect(status(checkGoal("enquire", "inferred", blog, null), "qualifying-form")).toBe("missing");
+    const dated = crawl("", [link("/2019/contact", "Contact")], newsletter);
+    expect(status(checkGoal("enquire", "inferred", dated, null), "qualifying-form")).toBe(
+      "missing",
+    );
+  });
+
+  it("counts only the home page's links, not a contact link deep in a page we read", () => {
+    const c = withReadPage([link("/contact", "CONTACT")], "https://example.com/deep/post");
+    // The link sits on the read page, not the home page.
+    c.pages[0]!.raw = extract({ text: "", anchors: [], forms: newsletter });
+    c.pages[1]!.raw = extract({
+      text: "Call us.",
+      anchors: [link("/contact", "CONTACT")],
+      forms: newsletter,
+    });
+    expect(status(checkGoal("enquire", "inferred", c, null), "qualifying-form")).toBe("missing");
+  });
+
+  it("still reports unmeasured for a home-page contact link that was never read", () => {
+    const c = crawl("", [link("/contact", "CONTACT")], newsletter);
+    expect(status(checkGoal("enquire", "inferred", c, null), "qualifying-form")).toBe("unmeasured");
+  });
+});
+
+// W3 review round 2. Each block names the finding it pins.
+describe("W3 review round 2 — the contact page is read whatever its scheme", () => {
+  it("MAJOR (1): an https contact link on an http site counts as the page we read over http", () => {
+    const home: CrawlResult = {
+      origin: "http://example.com",
+      robotsTxt: null,
+      agentAccess: [],
+      sitemap: { present: false, urlCount: 0 },
+      llmsTxt: { present: false, firstLine: null },
+      sidecarErrors: { robots: null, llms: null, sitemap: null },
+      homeHeaders: {},
+      pages: [
+        {
+          url: "http://example.com/",
+          status: 200,
+          raw: extract({ anchors: [anchor("https://example.com/contact", "Contact")] }),
+          rendered: null,
+          error: null,
+        },
+        {
+          url: "http://example.com/contact",
+          status: 200,
+          // An extracted page with no enquiry form: "we read it and found none".
+          raw: extract({ text: "Get in touch.", forms: [] }),
+          rendered: null,
+          error: null,
+        },
+      ],
+    };
+    const fit = checkGoal("enquire", "inferred", home, null);
+    // The contact page was read, so the absence of a form there is a finding.
+    expect(status(fit, "qualifying-form")).toBe("missing");
+  });
+});
+
+describe("W3 review round 2 — no readable page means nothing was measured", () => {
+  // A home page answered 200 as text/plain: the crawl kept no extract for it.
+  const unreadable = (): CrawlResult => {
+    const c = crawl("");
+    c.pages[0] = { ...c.pages[0]!, raw: null, rendered: null, error: "not HTML (text/plain)" };
+    return c;
+  };
+
+  it("MAJOR (5): a visit with no extract is unmeasured throughout, never missing", () => {
+    const fit = checkGoal("visit", "inferred", unreadable(), null);
+    expect(fit.requirements.length).toBeGreaterThan(0);
+    expect(fit.requirements.filter((r) => r.status === "missing")).toEqual([]);
+    expect(fit.requirements.every((r) => r.status === "unmeasured")).toBe(true);
+    expect(status(fit, "hours")).toBe("unmeasured");
+    expect(status(fit, "address")).toBe("unmeasured");
+    expect(status(fit, "getting-there")).toBe("unmeasured");
+    expect(fit.total).toBe(0);
+  });
+
+  it("MAJOR (5): an enquiry with no extract is unmeasured, the price signal included", () => {
+    const fit = checkGoal("enquire", "inferred", unreadable(), null);
+    expect(status(fit, "price-signal")).toBe("unmeasured");
+    expect(fit.requirements.filter((r) => r.status === "missing")).toEqual([]);
+  });
+
+  it("still reports missing when a page was read and simply lacks the answer", () => {
+    const fit = checkGoal("visit", "inferred", crawl("Welcome to our shop."), null);
+    expect(status(fit, "hours")).toBe("missing");
   });
 });

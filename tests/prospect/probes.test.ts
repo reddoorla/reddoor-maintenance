@@ -202,6 +202,23 @@ describe("runVisibilityProbes", () => {
     reviews: true,
   };
 
+  it("keeps the whole category answer as fullAnswer, while the snippet stays truncated", async () => {
+    const long = "Roof repair in Boise often runs several hundred dollars. ".repeat(12);
+    expect(long.length).toBeGreaterThan(300);
+    const engines = [
+      engine("perplexity", (q) =>
+        q.startsWith("who is")
+          ? { answer: "Acme Roofing is a Boise contractor.", citedDomains: [] }
+          : { answer: long, citedDomains: [] },
+      ),
+    ];
+    const result = await runVisibilityProbes(args, engines, { delayMs: 0 });
+    const category = result.answers.find((a) => a.kind === "category")!;
+    expect(category.fullAnswer).toBe(long);
+    expect(category.snippet).toHaveLength(300);
+    expect(category.truncated).toBe(true);
+  });
+
   it("scores a category answer, but treats a branded echo as a different signal (brandedRecognized)", async () => {
     const engines = [
       engine("perplexity", (q) =>

@@ -36,6 +36,9 @@ function recentItem(over: Partial<ProspectAuditListItem> = {}): ProspectAuditLis
     opened_at: null,
     chosen_terms: null,
     claimed_at: null,
+    approved_at: null,
+    withdrawn_at: null,
+    superseded_by: null,
     ...over,
   };
 }

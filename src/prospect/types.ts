@@ -12,6 +12,7 @@ import type { FormProbe } from "./interaction.js";
 import type { AccessibilityResult, AxePageResult, PageVitals } from "./accessibility.js";
 import type { SiteCheck } from "./site-checks.js";
 import type { JourneyMap } from "./journey.js";
+import type { RunRecord } from "./run-record.js";
 
 // Re-exported so a consumer reading `probes.answerSpace` off the `./audit`
 // entry can name its type, rather than only matching it structurally. The
@@ -296,6 +297,30 @@ export type CrawlResult = {
      */
     truncated?: boolean;
   };
+  /**
+   * How the pages were chosen, so the report can state its denominator. Absent
+   * on reports stored before it was recorded: read absence as "not measured".
+   */
+  selection?: {
+    /** Distinct pages of this site the crawl knew of and was allowed to read
+     *  (the home page, its links, the sitemap) before the page cap. With
+     *  `pages.length`: "we read 20 of the 95 pages we found". */
+    pagesConsidered: number;
+    /** Where the sitemap was read from: a robots.txt `Sitemap:` line, else
+     *  `/sitemap.xml`, `/sitemap_index.xml` or `/wp-sitemap.xml`. Null when
+     *  none was found. */
+    sitemapSource: string | null;
+    /** Listed URLs written on another scheme or the other side of `www.` from
+     *  the address the site answers on. They are read as this site's pages
+     *  (older reports dropped them, uncounted); the mismatch is a finding. */
+    sitemapOffOrigin: number;
+    sitemapOffOriginExample: string | null;
+    /** Listed URLs on another scheme or `www.` host where nothing says which one
+     *  the site answers on (the entry we read was http, say, and the sitemap is
+     *  https). Not counted as a fault; the check that reads them is unmeasured.
+     *  Absent on reports stored before it existed. */
+    sitemapAmbiguousOrigin?: number;
+  };
   llmsTxt: { present: boolean; firstLine: string | null };
   /** Per sidecar, the error that stopped us fetching it, or null. A fetch that
    *  FAILED must never be reported as "the site has no robots.txt" — that would
@@ -378,6 +403,14 @@ export type BuyerQuestion = {
   quotable: boolean;
   page: string | null;
   evidence: string | null;
+  /**
+   * Set when the model said `no` and the question's key words are on a page
+   * we crawled: the verdict was then made `unknown`, because "your site does
+   * not answer this" is not ours to say about words the site does use. The
+   * report prints "we did not find a direct answer in the N pages we read".
+   * Absent on reports stored before the check existed.
+   */
+  notFound?: { term: string; page: string };
 };
 
 export type Fix = {
@@ -463,14 +496,15 @@ export type ProbeAnswer = {
   /** First ~300 chars of the engine's answer — the report's receipt. */
   snippet: string;
   /**
-   * The engine's answer in full, kept for BRANDED answers only.
+   * The engine's answer in full, for every kind of probe.
    *
-   * The accuracy stage reads these to work out which statements about the
-   * business its own site actually supports, and a 300-character snippet cuts
-   * off mid-sentence — every claim past it would be invisible, and invisible
-   * reads the same as absent. Branded answers are two or three per run, so
-   * keeping them whole costs little; category and competitor answers are many
-   * and nothing downstream reads them in full, so they do not carry it.
+   * The accuracy stage reads the BRANDED ones (and only those, by `kind`) to
+   * work out which statements about the business its own site actually
+   * supports, and a 300-character snippet cuts off mid-sentence — every claim
+   * past it would be invisible, and invisible reads the same as absent. Category
+   * answers are kept whole too, so a later re-cut of the report does not depend
+   * on the snippet: five of seven were cut to 300 characters and could not be
+   * recovered.
    *
    * Optional because reports stored before the accuracy stage existed do not
    * have it, and there the stage must report that it could not run rather than
@@ -681,4 +715,8 @@ export type ProspectAuditResult = {
    *  each statement sorted by SOURCE, never by truth. See accuracy.ts. Optional
    *  for reports stored before the stage was wired in. */
   accuracy?: StageResult<AccuracyResult>;
+  /** Bookkeeping, not findings: how long each stage took and what the model
+   *  stages reported. Optional so stored rows from before it existed still
+   *  type-check. No report renders it. See run-record.ts. */
+  run?: RunRecord;
 };
