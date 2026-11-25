@@ -471,7 +471,7 @@ export type AnalyzeResult = {
 export type ProbeAnswer = {
   engine: string;
   query: string;
-  /** "branded" ("who is X" / "X reviews") always echoes the name back even when
+  /** "branded" ("who is X", and "X reviews" only with `--reviews`) always echoes the name back even when
    *  an engine knows nothing real, so it cannot be trusted as a discoverability
    *  signal. "category" is a real buyer question — the one the score is built
    *  from. "competitor" is a head-to-head comparison query. */
@@ -527,7 +527,7 @@ export type ProbesResult = {
   /** 0..100 — fraction of CATEGORY answers (real buyer questions) where the
    *  prospect was cited or mentioned. Null — never 0 — when no category query
    *  ran at all, e.g. the analyze stage failed and supplied no buyer questions.
-   *  Deliberately excludes branded answers: "who is X"/"X reviews" echo the name
+   *  Deliberately excludes branded answers: "who is X" (and "X reviews", when asked) echo the name
    *  back even when the engine knows nothing real, which would put a floor
    *  under the score that has nothing to do with discoverability. */
   visibilityScore: number | null;
@@ -537,6 +537,14 @@ export type ProbesResult = {
    *  know this business exists at all") from the one the score answers ("would
    *  it surface this business to someone who didn't already name it"). */
   brandedRecognized: boolean;
+  /**
+   * Whether the "<name> reviews" query was asked. It is off by default and runs
+   * only with `--reviews`, so a run without it has no branded-recognition line
+   * from a reviews answer and its competitor counts cover fewer queries; compare
+   * runs only when this matches. Optional: reports stored before it existed do
+   * not say, and read as "not recorded".
+   */
+  reviewsAsked?: boolean;
   competitorsSeen: { domain: string; count: number }[];
   /**
    * Cited domains that carry the prospect's OWN business name — a different

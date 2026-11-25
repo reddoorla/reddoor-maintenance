@@ -375,6 +375,11 @@ export function asRendered(v: string | RenderedPage | undefined): RenderedPage |
   return typeof v === "string" ? { html: v, axe: null, vitals: null } : v;
 }
 
+/** Pages a default crawl takes. Exported so the accuracy stage can tell a crawl
+ *  that stopped at its cap from one that finished: a site with more pages than
+ *  this is never read whole, whatever its sitemap says. */
+export const CRAWL_MAX_PAGES = 20;
+
 /**
  * Runs the enquiry-form probe under its time budget, and keeps its three answers
  * apart: a FormProbe (a form was pressed), `null` (tried, and this page had no
@@ -1907,7 +1912,7 @@ export function defaultCrawlDeps(
   // Resolved up front so the renderPages closure below paces itself on the
   // SAME delay the caller configured, instead of silently ignoring it.
   const { probeForms: pressForms = true, ...deps } = over;
-  const maxPages = over.maxPages ?? 20;
+  const maxPages = over.maxPages ?? CRAWL_MAX_PAGES;
   const delayMs = over.delayMs ?? 500;
   return {
     async fetchUrl(url) {

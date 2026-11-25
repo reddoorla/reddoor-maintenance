@@ -9,6 +9,7 @@ import {
   type OwnershipDeps,
 } from "./ownership.js";
 import { pathDepth } from "../util/path-depth.js";
+import { CRAWL_MAX_PAGES } from "./crawl.js";
 
 /**
  * When an AI describes this business, where is it getting that from?
@@ -72,6 +73,36 @@ const MAX_ASSERTIONS = 12;
 
 export type AssertionVerdict = "confirmed" | "contradicted" | "absent" | "unverified";
 
+/** Who a statement is about. An answer that hedges "most likely match: <another
+ *  firm>" and then lists that firm's rating is describing the other firm; a
+ *  paraphrase that starts "The business…" moved the rating onto ours. */
+export const SUBJECTS = ["prospect", "other", "unclear"] as const;
+export type AssertionSubject = (typeof SUBJECTS)[number];
+
+/**
+ * What kind of fact a statement is. The report withholds every topic but
+ * `other` and prints only a count: these are the statements that harm a
+ * business when they are wrong (a rating, a complaint, who owns it, a named
+ * person), and nobody has checked them. The website also matches the text, so
+ * a model that files a rating under `other` does not get it printed.
+ */
+export const TOPICS = [
+  "ratings_reviews",
+  "complaints",
+  "accreditation",
+  "legal_entity",
+  "ownership",
+  "named_person",
+  "revenue_headcount",
+  "street_address",
+  "other",
+] as const;
+export type AssertionTopic = (typeof TOPICS)[number];
+
+/** The one attribute a `contradicted` statement disagrees on, and the two
+ *  values, each verbatim from its own quote. Null on every other verdict. */
+export type Contradiction = { attribute: string; engineValue: string; siteValue: string };
+
 export type Assertion = {
   /** The statement, in plain words. */
   claim: string;
@@ -101,6 +132,15 @@ export type Assertion = {
   /** Which branded query produced it. */
   query: string;
   engine: string;
+  /** Who the statement is about. Only `prospect` rows are printed as being
+   *  about the prospect. Absent on rows stored before 2026-11-23. */
+  subject?: AssertionSubject;
+  /** For `other`: the name the answer gave the other business, verbatim. */
+  otherName?: string | null;
+  /** Absent on rows stored before 2026-11-23. */
+  topic?: AssertionTopic;
+  /** Set only on a `contradicted` verdict that survived the value check. */
+  contradiction?: Contradiction | null;
 };
 
 export type AccuracyResult = {
@@ -115,9 +155,12 @@ export type AccuracyResult = {
    * business, inside a document about factual errors about their business.
    */
   sources: DomainVerdict[];
-  /** False when the site was too large to send whole. Every `absent` verdict is
-   *  suppressed to `unverified` when this is false, because "the site does not
-   *  say it" is not a claim we can make about pages we did not read. */
+  /** True only when the whole site was read: the crawl did not stop at its page
+   *  cap, the site's own sitemap gives a complete, untruncated size and sample,
+   *  and every page the sitemap lists was read (see `siteCoverage`). Every
+   *  `absent` verdict is suppressed to `unverified` when this is false, because
+   *  "the site does not say it" is not a claim we can make about pages we did
+   *  not read. */
   siteFullyRead: boolean;
   pagesRead: number;
   /**
@@ -190,6 +233,18 @@ export const AccuracySchema = z.object({
          * ones that never reached the prompt.
          */
         searchTerms: z.array(z.string()).min(1).max(6),
+        /** Defaulted to the most cautious reading, so a model that omits it
+         *  gets its statement withheld rather than printed as about them. */
+        subject: z.enum(SUBJECTS).default("unclear").catch("unclear"),
+        otherName: z.string().nullable().default(null),
+        topic: z.enum(TOPICS).default("other").catch("other"),
+        /** Required for a "contradicted" to stand: code checks each value is in
+         *  its own quote and that they differ. */
+        contradiction: z
+          .object({ attribute: z.string(), engineValue: z.string(), siteValue: z.string() })
+          .nullable()
+          .default(null)
+          .catch(null),
       }),
     )
     .max(MAX_ASSERTIONS),
@@ -246,6 +301,24 @@ For each assertion return:
   the word "design" does not support "this is a graphic design company"; a sentence saying what the
   company does supports it. If the only passage you can find is on-topic but does not actually say the
   thing, the verdict is "absent" with that passage left out — not "confirmed" with it attached.
+- contradiction: for "contradicted" only, the one attribute the two disagree on and both values:
+  attribute ("founding year", "city"), engineValue (copied verbatim from engineQuote) and siteValue (copied
+  verbatim from siteQuote), e.g. "founding year", "2001", "2022". Code checks each value is in its own
+  quote and that they differ; a "contradicted" without them is not reported. Null for other verdicts.
+- subject: who the statement is about, judged from the answer's own words around engineQuote.
+    "prospect" — this business.
+    "other"    — a different business or person the answer describes, including one it offers as a
+                 "most likely match", "possibly the same as", or an alternate name it is unsure of.
+    "unclear"  — the answer does not make clear which one it means.
+  Write the claim with the real subject. Never write "the business" for a statement the answer made
+  about someone else.
+- otherName: for "other", the name the answer gives that business or person, verbatim. Null otherwise.
+- topic: what kind of fact it is. One of "ratings_reviews" (a rating, a review count or score, from
+  customers or employees), "complaints" (complaints, alerts, lawsuits), "accreditation" (any
+  accreditation, licence or certification status), "legal_entity" (registration, DBA, entity
+  type, alternate names), "ownership" (who owns or acquired it, franchise or parent), "named_person"
+  (any statement naming an individual: founder, owner, CEO, staff), "revenue_headcount" (revenue,
+  funding, number of employees), "street_address" (a street address), or "other".
 - searchTerms: 1-6 distinctive words or short phrases you would search the site for to find this fact —
   proper nouns, numbers, street names. These are used to re-check "absent" verdicts across pages you were
   not shown, so choose terms that would actually appear if the fact were stated somewhere else on the site.
@@ -336,7 +409,7 @@ export function selectPages(crawl: CrawlResult): {
 export function buildAccuracyInput(
   crawl: CrawlResult,
   branded: ProbeAnswer[],
-): { system: string; user: string; fullyRead: boolean; pagesRead: number } {
+): { system: string; user: string; fullyRead: boolean; pagesRead: number; readUrls: string[] } {
   const fence = makeFenceTag();
   const { pages, fullyRead } = selectPages(crawl);
 
@@ -363,7 +436,13 @@ export function buildAccuracyInput(
     pageBlocks.join("\n\n---\n\n"),
   ].join("\n");
 
-  return { system: buildSystemPrompt(fence), user, fullyRead, pagesRead: pages.length };
+  return {
+    system: buildSystemPrompt(fence),
+    user,
+    fullyRead,
+    pagesRead: pages.length,
+    readUrls: pages.map((p) => p.url),
+  };
 }
 
 function normalize(s: string): string {
@@ -481,6 +560,8 @@ export function backstopAbsent(
   siteText: string,
   searchTermsByClaim: Map<string, string[]>,
   siteFullyRead: boolean,
+  /** What to tell the reader when `siteFullyRead` is false. */
+  partialReason = "The site was larger than we read in one pass, so we cannot say this is absent from it.",
 ): Assertion[] {
   const haystack = normalize(siteText);
   return assertions.map((a) => {
@@ -517,8 +598,7 @@ export function backstopAbsent(
         ...a,
         verdict: "unverified" as const,
         nearbyMention: scattered,
-        unverifiedReason:
-          "The site was larger than we read in one pass, so we cannot say this is absent from it.",
+        unverifiedReason: partialReason,
       };
     }
 
@@ -581,6 +661,34 @@ const WEAK_WORDS = new Set([
   "based",
 ]);
 
+/** Trailing words that belong to a business name ("Acme Design Group", "Acme Dental Care"),
+ *  mirroring the legal suffixes in `probes.ts` plus the organisational words an
+ *  agency uses in its own name. A run of these after the name is part of the name. */
+const SUFFIX_WORDS = new Set([
+  "group",
+  "groups",
+  "studio",
+  "studios",
+  "co",
+  "company",
+  "llc",
+  "inc",
+  "incorporated",
+  "ltd",
+  "limited",
+  "corp",
+  "corporation",
+  "plc",
+  "llp",
+  "lp",
+  "pllc",
+  "pc",
+  "partners",
+  "agency",
+  "dental",
+  "design",
+]);
+
 /**
  * Does this passage actually STATE the claim, or merely touch the same subject?
  *
@@ -600,7 +708,55 @@ const WEAK_WORDS = new Set([
  * A failing pair becomes `unverified`, never `absent`. The site may well say
  * this somewhere; we just have not been shown the passage that says it.
  */
-export function quoteSupportsClaim(claim: string, quote: string): boolean {
+export function quoteSupportsClaim(
+  claim: string,
+  quote: string,
+  /** The business's own name. Its words are in every passage on its own site
+   *  and in most claims about it, so they are never evidence that the passage
+   *  says the claim: a passage saying only that the firm "provides custom
+   *  solutions" for one of its trades shared the firm's name and that trade
+   *  word with a list of services the passage never names, and was marked
+   *  confirmed. */
+  ownName = "",
+): boolean {
+  const ownWords = ownNameWords(ownName);
+  const runsOn = (w: ScannedWord | undefined): boolean =>
+    w !== undefined && (SUFFIX_WORDS.has(w.lower) || (w.capitalised && !w.opensSentence));
+  // The name as it stands in a text, with "and" allowed between its words where
+  // the name is written "&": "Northwind and Acme" is the name "Northwind & Acme".
+  // Returns the index after the name, or -1 when the name is not here.
+  const nameEndAt = (all: ScannedWord[], start: number): number => {
+    if (ownWords.length === 0) return -1;
+    let i = start;
+    for (const [k, o] of ownWords.entries()) {
+      if (k > 0 && all[i]?.lower === "and" && all[i + 1]?.lower === o) i += 1;
+      if (all[i]?.lower !== o) return -1;
+      i += 1;
+    }
+    return i;
+  };
+  // The words of a passage with the business's own name taken out where it
+  // stands AS the name, with the capitalised or suffix words that run on from it
+  // ("Acme Design Group"). The name is not excluded anywhere else: "Acme Dental
+  // places dental implants" still shares "dental" with "We place dental implants".
+  const wordsOf = (t: string): ScannedWord[] => {
+    const all = scanWords(t);
+    const kept: ScannedWord[] = [];
+    let i = 0;
+    while (i < all.length) {
+      const w = all[i];
+      if (w === undefined) break;
+      const end = nameEndAt(all, i);
+      if (end < 0) {
+        kept.push(w);
+        i += 1;
+        continue;
+      }
+      i = end;
+      while (i < all.length && runsOn(all[i])) i += 1;
+    }
+    return kept;
+  };
   // Two kinds of token count, and the second is why this is not a plain word
   // filter. "Reddoor Creative is led by Tim Holmes" against "owner, Tim Holmes,
   // found himself stuck in LA" shares exactly the two words that matter, and a
@@ -636,7 +792,7 @@ export function quoteSupportsClaim(claim: string, quote: string): boolean {
       if (run.length > 0) names.add(run.join(" "));
       run.length = 0;
     };
-    for (const w of scanWords(t)) {
+    for (const w of wordsOf(t)) {
       if (WEAK_WORDS.has(w.lower)) {
         flushRun();
         continue;
@@ -676,6 +832,20 @@ export function quoteSupportsClaim(claim: string, quote: string): boolean {
 
 type TokenSet = { words: Set<string>; names: Set<string> };
 
+/** The business's name as its words: a trailing legal suffix and the commas
+ *  before it are dropped ("Northwind Acme, LLC" is "Northwind Acme"), and "and"
+ *  is dropped where "&" is written ("Northwind & Acme" is "northwind acme"). */
+function ownNameWords(name: string): string[] {
+  // R4 fix 6: a legal form ("LLC", "L.L.C.", "Co."), an organisational word
+  // ("Studio") or a leading "The" is not part of the name.
+  const words = scanWords(name.replace(/\./g, ""))
+    .map((w) => w.lower)
+    .filter((w) => w !== "and");
+  while (words.length > 0 && SUFFIX_WORDS.has(words[words.length - 1] ?? "")) words.pop();
+  if (words[0] === "the") words.shift();
+  return words;
+}
+
 type ScannedWord = {
   raw: string;
   lower: string;
@@ -706,19 +876,570 @@ function scanWords(text: string): ScannedWord[] {
   return out;
 }
 
+/** The business name a branded query asks about (`probes.ts`: "who is <name>",
+ *  "<name> reviews"). */
+function businessNameOf(query: string): string {
+  return query
+    .trim()
+    .replace(/^who is\s+/i, "")
+    .replace(/\s+reviews$/i, "");
+}
+
+/** `value` appears in `text` as whole words, ignoring case and spacing. */
+function holdsValue(text: string, value: string): boolean {
+  const v = normalize(value);
+  if (v === "") return false;
+  const escaped = v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![a-z0-9])${escaped}(?![a-z0-9])`).test(normalize(text));
+}
+
+/**
+ * Does a "contradicted" verdict show its work: the engine's value in the
+ * engine's quote, the site's value in the site's quote, and two values that
+ * are not the same?
+ *
+ * This replaces the shared-word bar for contradictions. A passage that
+ * contradicts a claim differs from it in exactly the word that matters, so
+ * asking it to RESEMBLE the claim threw away the true ones: "founded in 2001"
+ * against the site's "founded … in 2022" shared too few words and was stored as
+ * "does not actually say this", the one finding in the section with a receipt
+ * on both sides.
+ */
+function contradictionHolds(
+  c: Contradiction | null,
+  engineQuote: string,
+  siteQuote: string | null,
+): boolean {
+  if (c === null || siteQuote === null) return false;
+  if (!holdsValue(engineQuote, c.engineValue) || !holdsValue(siteQuote, c.siteValue)) return false;
+  // The site quote also says the engine's value, so the site does not disagree
+  // with it: "Founded in 2001. Copyright 2022." is not a contradiction of 2001.
+  if (holdsValue(siteQuote, c.engineValue)) return false;
+  // R6 §3: two four-digit years are compared only where each stands in its quote as
+  // its own number. "2001" inside "Call 512-555-2001" or "2001 Oak Street" is not a year.
+  if (
+    isYear(c.engineValue) &&
+    isYear(c.siteValue) &&
+    !(yearStandsAlone(engineQuote, c.engineValue) && yearStandsAlone(siteQuote, c.siteValue))
+  ) {
+    return false;
+  }
+  // R5 fix 1: the same value written another way, of the same exact kind, counts too.
+  if (siteSaysEngineValue(c.engineValue, siteQuote)) return false;
+  return compareValues(c.engineValue, c.siteValue) === "differ";
+}
+
+/** A street suffix, as the word after a number: "Street", "St.", "Ave". */
+const STREET_SUFFIX =
+  /^(?:street|st|avenue|ave|road|rd|boulevard|blvd|drive|dr|lane|ln|way|court|ct|place|pl|parkway|pkwy|highway|hwy|suite|ste)\.?$/i;
+
+/** Whether a year stands in the RAW quote as its own number (R6 §3): not preceded by a
+ *  digit, `-`, `.`, `/` or `#`; not followed by `-`, `.` or `/` and a digit; and not
+ *  followed, within three words, by a street suffix. Some occurrence must pass. */
+function yearStandsAlone(raw: string, year: string): boolean {
+  const re = new RegExp(`(?<![0-9.\\-/#])${year}(?!\\d)(?![-./]\\d)`, "g");
+  for (const m of raw.matchAll(re)) {
+    const rest = raw.slice((m.index ?? 0) + year.length).replace(/^[^A-Za-z0-9]+/, "");
+    const nextThree = rest.trim().split(/\s+/).slice(0, 3);
+    if (!nextThree.some((w) => STREET_SUFFIX.test(w.replace(/[^A-Za-z.]/g, "")))) return true;
+  }
+  return false;
+}
+
+/** Whether a value is a four-digit year (R6 §2), typed as a unitless figure. */
+function isYear(value: string): boolean {
+  const t = typedOf(value);
+  return t !== null && t.form === "number" && t.yearLike;
+}
+
+const UNIT_WORDS = [
+  "zero",
+  "one",
+  "two",
+  "three",
+  "four",
+  "five",
+  "six",
+  "seven",
+  "eight",
+  "nine",
+  "ten",
+  "eleven",
+  "twelve",
+  "thirteen",
+  "fourteen",
+  "fifteen",
+  "sixteen",
+  "seventeen",
+  "eighteen",
+  "nineteen",
+];
+const TENS_WORDS = [
+  "",
+  "",
+  "twenty",
+  "thirty",
+  "forty",
+  "fifty",
+  "sixty",
+  "seventy",
+  "eighty",
+  "ninety",
+];
+
+/** Spelled-out numbers, zero to ninety-nine, hyphenated or spaced ("twenty-five"),
+ *  and "a dozen". */
+const WORD_NUMBERS = new Map<string, number>([["a dozen", 12]]);
+UNIT_WORDS.forEach((word, n) => WORD_NUMBERS.set(word, n));
+for (let tens = 2; tens <= 9; tens += 1) {
+  const tensWord = TENS_WORDS[tens] ?? "";
+  WORD_NUMBERS.set(tensWord, tens * 10);
+  for (let unit = 1; unit <= 9; unit += 1) {
+    const unitWord = UNIT_WORDS[unit] ?? "";
+    WORD_NUMBERS.set(`${tensWord}-${unitWord}`, tens * 10 + unit);
+    WORD_NUMBERS.set(`${tensWord} ${unitWord}`, tens * 10 + unit);
+  }
+}
+
+/** The suffixes a money or count figure carries, and what each multiplies by. */
+const SCALE = new Map<string, number>([
+  ["k", 1e3],
+  ["thousand", 1e3],
+  ["m", 1e6],
+  ["million", 1e6],
+  ["b", 1e9],
+  ["billion", 1e9],
+]);
+
+/** Unit words that name the same unit: "wks" and "weeks" are one unit. */
+const UNIT_FOLD = new Map<string, string>([
+  ["wk", "week"],
+  ["wks", "week"],
+  ["weeks", "week"],
+  ["mo", "month"],
+  ["mos", "month"],
+  ["months", "month"],
+  ["yr", "year"],
+  ["yrs", "year"],
+  ["years", "year"],
+  ["hr", "hour"],
+  ["hrs", "hour"],
+  ["hours", "hour"],
+  ["min", "minute"],
+  ["mins", "minute"],
+  ["minutes", "minute"],
+]);
+
+/** The typed forms a value can parse into (R4 fixes 1 to 4), narrowed in R5 to the
+ *  three kinds the code compares exactly: a figure with its unit, a full date, and
+ *  a phone number. Every other value is untyped. */
+type Typed =
+  | { form: "number"; figure: number; unit: string; yearLike: boolean }
+  | { form: "date"; key: string }
+  | { form: "phone"; key: string };
+
+/** Whether two values name the same thing, differ, or cannot be told apart. */
+type Compared = "same" | "differ" | "unknown";
+
+const MONTHS = new Map<string, number>([
+  ["jan", 1],
+  ["january", 1],
+  ["feb", 2],
+  ["february", 2],
+  ["mar", 3],
+  ["march", 3],
+  ["apr", 4],
+  ["april", 4],
+  ["may", 5],
+  ["jun", 6],
+  ["june", 6],
+  ["jul", 7],
+  ["july", 7],
+  ["aug", 8],
+  ["august", 8],
+  ["sep", 9],
+  ["sept", 9],
+  ["september", 9],
+  ["oct", 10],
+  ["october", 10],
+  ["nov", 11],
+  ["november", 11],
+  ["dec", 12],
+  ["december", 12],
+]);
+
+/** A number word, as a whole word, for the longest match first. */
+const WORD_PATTERN = new RegExp(
+  `\\b(?:${[...WORD_NUMBERS.keys()]
+    .sort((x, y) => y.length - x.length)
+    .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|")})\\b`,
+  "g",
+);
+
+/** A figure with an optional scale and unit: "$1,500 a month", "$1500/month",
+ *  "1500 per month", "2.5 wks", "2 million", "5 years", "2". */
+const NUMBER_FORM =
+  /^\$?\s?(\d[\d,]*(?:\.\d{1,2}(?![\d.]))?)\s*(?:(thousand|million|billion|k|m|b)(?![a-z]))?\s*(?:\/|per\s+|an?\s+)?\s*([a-z%]+)?$/;
+
+function dateOf(y: number, m: number, d: number): Typed | null {
+  if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+  return { form: "date", key: `${y}-${m}-${d}` };
+}
+
+/** A figure with its unit, or null. A unit of am or pm is a time, not a unit. */
+function numberFormOf(v: string): Typed | null {
+  const w = v.replace(WORD_PATTERN, (x) => String(WORD_NUMBERS.get(x)));
+  const m = NUMBER_FORM.exec(w.trim());
+  if (m === null) return null;
+  const raw = m[3] ?? "";
+  if (["am", "pm", "st", "nd", "rd", "th"].includes(raw)) return null;
+  const scale = m[2] === undefined ? 1 : (SCALE.get(m[2]) ?? 1);
+  const unit = raw === "" ? "" : raw === "%" ? "percent" : (UNIT_FOLD.get(raw) ?? raw);
+  const figure = Number((m[1] ?? "").replace(/,/g, "")) * scale;
+  // R6 §2: a unitless figure is a year only when it is written as exactly four digits
+  // (no comma, no decimal) and falls from 1900 to 2099.
+  const yearLike = unit === "" && /^\d{4}$/.test(w.trim()) && figure >= 1900 && figure <= 2099;
+  return { form: "number", figure, unit, yearLike };
+}
+
+/** The typed form of a value, or null: a date, then a phone, then a figure with
+ *  its unit. Nothing else is typed (R5 fix 1). */
+function typedOf(value: string): Typed | null {
+  const v = normalize(value);
+  let m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(v);
+  if (m) return dateOf(Number(m[1]), Number(m[2]), Number(m[3]));
+  m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(v);
+  if (m) {
+    const a = Number(m[1]);
+    const b = Number(m[2]);
+    const y = Number(m[3]);
+    // R6 §4: when both first figures could be a month and they differ, the date reads
+    // either way, so it is untyped. Otherwise the month comes first, unless the first
+    // figure cannot be a month.
+    if (a <= 12 && b <= 12 && a !== b) return null;
+    return a > 12 ? dateOf(y, b, a) : dateOf(y, a, b);
+  }
+  m = /^([a-z]+)\.? (\d{1,2}),? (\d{4})$/.exec(v);
+  const month = m === null ? undefined : MONTHS.get(m[1] ?? "");
+  if (m !== null && month !== undefined) return dateOf(Number(m[3]), month, Number(m[2]));
+  const digits = v.replace(/\D/g, "");
+  if (
+    /^\+?\s*(?:1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}$/.test(v) &&
+    (digits.length === 10 || (digits.length === 11 && digits.startsWith("1")))
+  ) {
+    return { form: "phone", key: digits.slice(-10) };
+  }
+  return numberFormOf(v);
+}
+
+/** Two typed values of one form, compared on that form. A figure is compared only
+ *  with a figure of the same unit: "14 cities" and "3 cities" differ, while "3
+ *  days" and "3 weeks", or "14 cities" and "3 people", cannot be told apart from
+ *  the values and are unknown (R5 fix 1). */
+function sameForm(a: Typed, b: Typed): Compared {
+  if (a.form === "number" && b.form === "number") {
+    if (a.unit !== b.unit) return "unknown";
+    // R6 §2: two unitless figures are compared only when both are years.
+    if (a.unit === "" && !(a.yearLike && b.yearLike)) return "unknown";
+    return a.figure === b.figure ? "same" : "differ";
+  }
+  if (a.form === "date" && b.form === "date") return a.key === b.key ? "same" : "differ";
+  if (a.form === "phone" && b.form === "phone") return a.key === b.key ? "same" : "differ";
+  return "unknown";
+}
+
+/** Whether two values are the same value, a different one, or cannot be told apart.
+ *  Only two values of one exact kind can differ; every other pair is unknown, and
+ *  is stored `unverified` with both values kept (R5 fix 1). */
+function compareValues(a: string, b: string): Compared {
+  const ta = typedOf(a);
+  const tb = typedOf(b);
+  if (ta === null || tb === null) return "unknown";
+  return sameForm(ta, tb);
+}
+
+const PHONE_CANDIDATE = /\+?\(?\d[\d\s().-]*\d/g;
+const DATE_CANDIDATE = /[a-z]+\.? \d{1,2},? \d{4}|\d{4}-\d{1,2}-\d{1,2}|\d{1,2}\/\d{1,2}\/\d{4}/g;
+const FIGURE_CANDIDATE = /\$?\d[\d,]*(?:\.\d+)?(?:\s*(?:thousand|million|billion|k|m|b)\b)?/g;
+
+/** The values of one exact kind a text carries, each read by the same parser as the
+ *  two values being compared. A figure is read with and without the unit after it. */
+function valuesOfKind(text: string, form: Typed["form"]): Typed[] {
+  const t = normalize(text).replace(WORD_PATTERN, (x) => String(WORD_NUMBERS.get(x)));
+  const out: Typed[] = [];
+  const add = (candidate: string): void => {
+    const typed = typedOf(candidate);
+    if (typed !== null && typed.form === form) out.push(typed);
+  };
+  if (form === "phone") {
+    for (const m of t.matchAll(PHONE_CANDIDATE)) add(m[0]);
+  } else if (form === "date") {
+    for (const m of t.matchAll(DATE_CANDIDATE)) {
+      add(m[0]);
+      // Fix-only round on 4ef7571c: a d/m/y date that reads either way is untyped for
+      // the comparison, but here it is a candidate for the engine's own date in both
+      // readings, so the guard counts it if either one matches.
+      const amb = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(m[0]);
+      if (amb !== null && typedOf(m[0]) === null) {
+        const [a, b, y] = [Number(amb[1]), Number(amb[2]), Number(amb[3])];
+        for (const reading of [dateOf(y, a, b), dateOf(y, b, a)]) {
+          if (reading !== null) out.push(reading);
+        }
+      }
+    }
+  } else {
+    for (const m of t.matchAll(FIGURE_CANDIDATE)) {
+      add(m[0]);
+      const unit = /^(?:\s*\/\s*|\s+per\s+|\s+an?\s+|\s+)[a-z%]+/.exec(
+        t.slice((m.index ?? 0) + m[0].length),
+      );
+      if (unit !== null) add(m[0] + unit[0]);
+    }
+  }
+  return out;
+}
+
+/** The site quote also gives the engine's value: a value of the same exact kind,
+ *  equal to it, written another way ("(512) 555-0100" for "512-555-0100"). */
+function siteSaysEngineValue(engineValue: string, siteQuote: string): boolean {
+  const e = typedOf(engineValue);
+  if (e === null) return false;
+  return valuesOfKind(siteQuote, e.form).some((t) => sameForm(e, t) === "same");
+}
+
+/** The topics a text carries, read off its words as the website reads them (R4
+ *  fix 5). The block below is a verbatim copy of TOPIC_TEXT and its helpers (PLATFORM,
+ *  SCORE_FIGURE, NUM) from reddoor-website, src/lib/report/model.ts, at
+ *  commit 983f4c4d94063f78c2ba7860eb2807dec34450b3 (the head after its round-10
+ *  fix, where TOPIC_TEXT holds only these six topics; the excerpt person words
+ *  are PERSON_WORDS, read only for excerpts). named_person and ownership are deliberately omitted (operator decision,
+ *  2026-11-24): the website no longer reads them off text. The website holds the
+ *  reader-side copy: a change there is a change here. */
+
+/** Note: the website's `ci` helper is not copied. Only the omitted named_person and
+ *  ownership patterns used it (see the decision above). */
+const PLATFORM =
+  "(?:glassdoor|yelp|trustpilot|bbb|charity navigator|clutch|houzz|angi|thumbtack|g2|google(?!\\s+(?:ads|analytics|partner|cloud|workspace)\\b))";
+/** A figure that looks like a score: "4.9", "4/5", "3 stars", "37 reviews". */
+const SCORE_FIGURE =
+  "(?:\\d\\.\\d\\b|\\d\\s*\\/\\s*(?:5|10)\\b|\\d\\s*stars?\\b|(?<!\\d)\\d{1,7}\\s+reviews?\\b|(?<!\\d)\\d{1,7}\\s+ratings?\\b)";
+/** A count word or a digit run, for "twelve employees" and "40 staff". */
+const NUM =
+  "(?:\\d[\\d,]{0,12}\\+?|(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty|fifty|hundred)\\b)";
+
+/** Read off the words, for rows stored before the producer recorded a topic
+ *  and for a model that files one under `other`. Errs wide, but only on words
+ *  that name the topic: a false match withholds a true sentence the page could
+ *  have printed, so each pattern is one a business's own description would not
+ *  use in an ordinary sense. A topic matches when any of its patterns does. */
+const TOPIC_TEXT: [Exclude<AssertionTopic, "other">, RegExp[]][] = [
+  [
+    "ratings_reviews",
+    [
+      // A score out of five: "3.4/5", "4.2 out of 5", "rated 4.2 out of 5". Only
+      // five: "9 out of 10 dentists" is not a rating.
+      /\b\d(?:\.\d)?\s*(?:\/|out of)\s*5\b/i,
+      /\brated (?:at )?\d/i,
+      // "a 4.6 rating", "average rating of 4.6", "Google rating of 4.7".
+      /\b\d(?:\.\d)?\s+(?:average\s+|google\s+|yelp\s+)?ratings?\b/i,
+      /\bratings?\s+(?:of\s+)?\d(?:\.\d)?\b/i,
+      // "4.8★", "4.9 stars", "4-star rating", "5 star reviews", "a star rating".
+      /\b\d(?:\.\d)?\s*★/,
+      /\b\d\.\d[- ]?stars?\b/i,
+      /\b\d[- ]stars?\s+(?:ratings?|reviews?)\b/i,
+      /\b\d+\s+(?:[a-z]+-)?stars?[- ]reviews?\b/i,
+      /\bstar ratings?\b/i,
+      // "a 4.9 on Google", "reviews on Glassdoor".
+      new RegExp(`\\b\\d(?:\\.\\d)?\\s+on\\s+${PLATFORM}\\b`, "i"),
+      new RegExp(`\\breviews? (?:on|from) ${PLATFORM}\\b`, "i"),
+      // R4 fix 1c: "Google reviews", "Clutch reviewers", "37 reviews", "4.8 average".
+      new RegExp(`\\b${PLATFORM}\\s+reviews?\\b`, "i"),
+      /\b\d+\s+(?:customer\s+|client\s+|google\s+)?reviews?\b/i,
+      /\b\d(?:\.\d)?\s+average\b/i,
+      /\b\d(?:\.\d)?\s+overall\b/i,
+      /\b(?:one|two|three|four|five)[- ]star\w*\s+(?:ratings?|reviews?)\b/i,
+      /\b(?:one|two|three|four|five|\d(?:\.\d)?)\s+stars\b/i,
+      /\b(?:highly|well|top|best)[- ]rated\b/i,
+      /\brated\s+(?:highly|well)\b/i,
+      // A survey share: "60% would recommend it", "60% of employees".
+      /\bwould recommend\b/i,
+      /\b\d+%\s+(?:would\s+)?recommend/i,
+      /%\s+of (?:employees|reviewers)\b/i,
+      // R3 fix 3, the phrasings a stored row uses with no topic recorded.
+      // "Rating: 4.2", "a Glassdoor score of 3.9", "Rating:** 4.2". Bounded runs
+      // of separators, so a long run of spaces cannot backtrack (R4 fix 1a).
+      /\b(?:rating|score)s?[\s:*]{0,6}(?:(?:of|is|at)[\s:*]{0,4})?\d/i,
+      // A platform within 30 characters of a score-shaped figure, either way
+      // round: "Glassdoor: 3.4", "3.9 Glassdoor score". A bare figure does not
+      // count: "Google Analytics 4" and "since 2015" are not ratings (R4 fix 1b).
+      new RegExp(`\\b${PLATFORM}\\b[^.\\n]{0,30}?${SCORE_FIGURE}`, "i"),
+      new RegExp(`${SCORE_FIGURE}[^.\\n]{0,30}?\\b${PLATFORM}`, "i"),
+      // "Indeed" is a platform only when it is capitalised mid-sentence, or
+      // followed by a rating word. A plain "indeed" is an adverb (R4 fix 1b).
+      /(?<=\w\s)Indeed\b[^.\n]{0,30}?\d/,
+      /\bindeed\s+(?:reviews?|ratings?|scores?)\b/i,
+      // "(37 reviews)", "rated it five stars", "a rating of four stars".
+      /\d(?:\.\d)?\s*\(\d+ reviews?\)/i,
+      /\brated (?:it |them )?(?:one|two|three|four|five) stars?\b/i,
+      /\brating (?:of )?(?:one|two|three|four|five) stars?\b/i,
+      // "out of five" counts only after a score: a rating or review word nearby
+      // ("rated three out of five"), or a decimal ("3.9 out of five"). "Three out
+      // of five clients" is not one (R4 fix 1b).
+      /\b(?:rated|rates|rating|reviews?|reviewers?|scores?|gives?|give it)\b[^.\n]{0,30}?\b(?:\d(?:\.\d)?|one|two|three|four|five|ten)\s+(?:stars?\s+)?out of (?:four|five|ten)\b/i,
+      /\b\d\.\d\s+(?:stars?\s+)?out of (?:four|five|ten)\b/i,
+      /\b(?:\d(?:\.\d)?|one|two|three|four|five|ten)\s+(?:stars?\s+)?out of (?:four|five|ten)\b[^.\n]{0,30}?\b(?:ratings?|reviews?|scores?|stars?)\b/i,
+      // "3.9 overall rating", "3.4 rating".
+      /\b\d(?:\.\d)?\s+(?:overall\s+)?(?:rating|score)s?\b/i,
+      // "Employees give it 3.9", "Employee reviews average 3.2".
+      /\b(?:employee|customer)s?\s+(?:reviews?\s+)?(?:average|give)\b/i,
+      // "Senior management 2.9", and the other employer-review categories.
+      /\b(?:senior management|work.life balance|culture & values|compensation)\s+\d/i,
+      /\b(?:employees|staff|workers)\s+(?:rate|rated|give|gave|score|scored)\b/i,
+    ],
+  ],
+  [
+    "complaints",
+    [
+      /\bcomplaints? (?:filed|against)\b/i,
+      // R4 fix 1c: "complaints about its customer service" (the old pattern ended
+      // `it)\b`, and "its" fails that boundary), "complained about missed deadlines".
+      /\bcomplaints?\s+about\b/i,
+      /\bcomplain(?:ed|s)?\s+(?:about|of)\b/i,
+      /\balerts? on file\b/i,
+      /\b(?:lawsuits?|sued|litigation)\b/i,
+      /\bscams?\b/i,
+      /\bfraud (?:claims?|charges?|complaints?|allegations?)\b/i,
+      /\bcomplaints?\b/i,
+    ],
+  ],
+  ["accreditation", [/\b(?:accredit\w*|bbb|better business bureau)\b/i]],
+  [
+    "legal_entity",
+    [
+      /\b(?:llc|l\.l\.c)\b/i,
+      /\blimited liability (?:company|partnership)\b/i,
+      // "Example Studio, Inc." and "Example Corp.", a capitalised name before the
+      // suffix. Not "an Inc. 5000 honoree": no capital name, and a number after.
+      /\b[A-Z][\w&'-]{0,40},?\s+(?:Inc|Corp|Ltd)\b(?!\.?\s*\d)/,
+      /\bsole proprietor\w*/i,
+      /\b(?:dba|d\/b\/a|doing business as)\b/i,
+      // "registered in Texas" is a legal-entity claim the page must not print
+      // unchecked, so the narrowing does not drop the original's "in" and "with".
+      /\b(?:registered (?:as|in|with)|incorporated in)\b/i,
+      /\b(?:legal name|alternate name|legal entity|subsidiary|franchisee|franchisor)\b/i,
+      /\bfranchise (?:agreement|owner|system|location)s?\b/i,
+      /\b[Oo]perates as [A-Z]/,
+    ],
+  ],
+  // named_person and ownership are deliberately omitted (operator decision,
+  // 2026-11-24, workspace decisions/2026-11-24-0653-w2-380-round-8-stop.md): the
+  // website no longer reads them off text, so maintenance holds those topics only
+  // when the model itself labels them.
+  [
+    "revenue_headcount",
+    [
+      /\b(?:revenue|turnover|valuation|headcount)\b/i,
+      // Staff counts only in employment wording: "40 employees", "employs 40",
+      // "employs around 40", "team of 25", "team of about 40", "staff of 12", "a
+      // 12-person team", "It has about 40 staff". "2,000 staff at hospitals" is not one.
+      new RegExp(`\\b${NUM}\\s+employees\\b`, "i"),
+      /\bemploy(?:s|ing|ed)?\s+(?:(?:about|around|over|nearly|roughly)\s+)?\d[\d,]*\+?\b/i,
+      /\bhas (?:about |around |roughly |nearly |over |some )?\d[\d,]*\+?\s+staff\b/i,
+      /\b\d+-person\b/i,
+      /\b(?:team|staff) of (?:about |around |roughly |nearly |over )?\d+/i,
+      // Money is a figure only with a scale word or a revenue word near it:
+      // "$5,000" is a price, and "annual" alone is not a figure.
+      /\$\s?\d[\d,.]*\s*(?:million|billion|m\b)/i,
+      /\b(?:revenue|turnover)\b[^.]{0,40}\$\s?\d|\$\s?\d[^.]{0,40}\b(?:revenue|turnover)\b/i,
+      /\b(?:brings? in|earns|grosses)\b[^.]{0,20}\$\s?\d/i,
+      /\b(?:has|have|are|employs?)\s+(?:about |around |roughly |nearly |over |some )?\d[\d,]*\+?\s+people\b/i,
+      /\b(?:about |around |roughly |nearly |over |some )?\d[\d,]{0,12}\+?\s+people\s+work\b/i,
+      /\bworkforce of (?:about |around |roughly |nearly |over )?\d/i,
+      /\b(?:makes?|made|earns?|brings? in)\b[^.]{0,20}\d[\d,.]*\s*(?:million|billion)\s+dollars\b/i,
+    ],
+  ],
+  [
+    "street_address",
+    [
+      // A number, an optional direction or ordinal, a capitalised street word,
+      // then a long suffix, or a short one with its dot optional ("St," "Ave in").
+      // Case-sensitive on purpose: a lowercase word is not a street.
+      new RegExp(
+        "\\b\\d{1,6}\\s+(?:[NSEW]\\.?\\s+)?(?:(?:\\d{1,3}(?:st|nd|rd|th)|[A-Z][\\w'-]*)\\s+){1,4}" +
+          "(?:(?:Street|Road|Avenue|Boulevard|Drive|Lane|Parkway|Highway|Court|Place)\\b|(?:St|Rd|Ave|Blvd)\\b\\.?)",
+      ),
+      /\bsuite\s+\d+/i,
+      // "at 1200 Broadway", "located at 40 Oak": a number and a capitalised name
+      // after "at", with no street suffix (R4 fix 1c).
+      /\b(?:[Aa]t|[Ll]ocated at)\s+\d{1,6}\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\b/,
+    ],
+  ],
+];
+
+/** The first withheld topic a text carries, in TOPIC_TEXT order, or null. Read
+ *  off a row's claim and engine quote (R4 fix 5), never the attribute or the site
+ *  quote. */
+export function withheldTopicOfText(text: string): AssertionTopic | null {
+  for (const [topic, patterns] of TOPIC_TEXT) {
+    if (patterns.some((re) => re.test(text))) return topic;
+  }
+  return null;
+}
+
+/** Why a "contradicted" verdict cannot be stated, or null when it can. A
+ *  statement about another business, or on a topic we do not check, is stored
+ *  as unverified with its two values kept, so the reader can see what the answer
+ *  said without the site being set against it. */
+function outOfScopeReason(a: { subject: AssertionSubject; topic: AssertionTopic }): string | null {
+  if (a.subject !== "prospect") {
+    return "The answer may be describing another business, so we have not set it against your site.";
+  }
+  if (a.topic !== "other") {
+    return "This is a topic we do not check, so we have not set it against your site.";
+  }
+  return null;
+}
+
+/** Why a verdict that its quotes do not hold is unverified (R4 fixes 1 to 5). A
+ *  contradiction whose values cannot be compared says so; one whose values are
+ *  the same says that. */
+function unsupportedReason(p: {
+  quoteReal: boolean;
+  verdict: AssertionVerdict;
+  topic: AssertionTopic;
+  compared: Compared | null;
+}): string {
+  if (!p.quoteReal) {
+    return "We could not find the passage this was based on, so we have not stated it either way.";
+  }
+  if (p.verdict !== "contradicted") {
+    return "The passage we found is about the same subject but does not actually say this, so we have not stated it either way.";
+  }
+  if (p.topic !== "other") {
+    return "This is a topic we do not check, so we have not set it against your site.";
+  }
+  if (p.compared === "unknown") return "We could not compare the two values directly.";
+  return "The passage we found does not show a different value for this, so we have not stated it either way.";
+}
+
 function verifyQuotes(
   raw: z.infer<typeof AccuracySchema>["assertions"],
-  answerText: string,
   siteText: string,
   answerOf: Map<string, ProbeAnswer>,
   prospectDomain: string,
 ): Assertion[] {
-  const answers = normalize(answerText);
   const site = normalize(siteText);
   const out: Assertion[] = [];
 
   for (const a of raw) {
-    if (!answers.includes(normalize(a.engineQuote))) continue;
+    // An empty quote is no quote: `"".includes` matches every answer, so it
+    // would be stored with nothing to print. Whitespace is empty too.
+    if (normalize(a.engineQuote) === "") continue;
+    // A quote is real only when it sits inside ONE answer. The answers used to be
+    // joined before this check, so two answers made a quote that neither had
+    // said, and it was stored with no source.
+    if (!answerOf.has(normalize(a.engineQuote))) continue;
 
     // Code never changes the model's verdict; it only checks the quote below.
     // It once set "confirmed" whenever the site used one of the claim's
@@ -736,33 +1457,175 @@ function verifyQuotes(
       ...new Set((from?.citedDomains ?? []).map(domainOf).filter((d) => d !== prospectDomain)),
     ];
 
-    const quoteReal = siteQuote !== null && site.includes(normalize(siteQuote));
+    // An empty or whitespace quote is no quote: "".includes matches every text (R4 fix 7).
+    const quoteReal =
+      siteQuote !== null && normalize(siteQuote) !== "" && site.includes(normalize(siteQuote));
     const needsQuote = verdict === "confirmed" || verdict === "contradicted";
-    // A real quote is not automatically a supporting one — see
-    // quoteSupportsClaim. Only checked where the verdict rests on the quote.
-    const quoteSupports = quoteReal && siteQuote !== null && quoteSupportsClaim(a.claim, siteQuote);
+    // A real quote is not automatically a supporting one. A "confirmed" must
+    // share the claim's substance (quoteSupportsClaim, without the business's
+    // own name); a "contradicted" must show two different values, one in each
+    // quote (contradictionHolds), and is never held to the shared-word bar.
+    const quoteSupports =
+      quoteReal &&
+      siteQuote !== null &&
+      (verdict === "contradicted"
+        ? contradictionHolds(a.contradiction, a.engineQuote, siteQuote)
+        : quoteSupportsClaim(a.claim, siteQuote, businessNameOf(from?.query ?? "")));
     const unsupported = needsQuote && (!quoteReal || !quoteSupports);
+    // R4 fix 5: a model's `other` is read off the claim and the engine quote, as
+    // the website reads them. A topic the model named stands.
+    const topic: AssertionTopic =
+      a.topic === "other"
+        ? (withheldTopicOfText(`${a.claim}\n${a.engineQuote}`) ?? "other")
+        : a.topic;
+    const compared = a.contradiction
+      ? compareValues(a.contradiction.engineValue, a.contradiction.siteValue)
+      : null;
+    // A contradiction that stands on its quotes can still be out of scope: about
+    // another business, or on a topic we do not check. It is then stored as
+    // unverified, with its values kept.
+    const scope =
+      verdict === "contradicted" && !unsupported
+        ? outOfScopeReason({ subject: a.subject, topic })
+        : null;
+    const finalVerdict = unsupported || scope !== null ? "unverified" : verdict;
+    // R5 fix 1: a pair the code cannot compare keeps both values, when both sit in
+    // their quotes. A pair that compares equal, or whose quote does not hold, does not.
+    // R6 §1: only on the client's own other rows. The website reads an unverified
+    // row that carries a contradiction as a contradiction, so an unclear row or a
+    // withheld topic must not headline "your own site contradicts" over a same-value pair.
+    const keepsValues =
+      verdict === "contradicted" &&
+      (!unsupported ||
+        (compared === "unknown" &&
+          a.subject === "prospect" &&
+          topic === "other" &&
+          quoteReal &&
+          a.contradiction !== null &&
+          holdsValue(a.engineQuote, a.contradiction.engineValue) &&
+          siteQuote !== null &&
+          holdsValue(siteQuote, a.contradiction.siteValue)));
 
     out.push({
       claim: a.claim,
-      verdict: unsupported ? "unverified" : verdict,
+      verdict: finalVerdict,
       engineQuote: a.engineQuote,
       // Kept when it is real, even where it does not carry the claim: the
       // reader can see what we looked at and judge it themselves, which is a
       // better position than being told we found nothing.
       siteQuote: quoteReal ? siteQuote : null,
       nearbyMention: null,
-      unverifiedReason: !unsupported
-        ? null
-        : !quoteReal
-          ? "We could not find the passage this was based on, so we have not stated it either way."
-          : "The passage we found is about the same subject but does not actually say this, so we have not stated it either way.",
+      unverifiedReason: unsupported
+        ? unsupportedReason({ quoteReal, verdict, topic, compared })
+        : scope,
       sourceDomains,
       query: from?.query ?? "",
       engine: from?.engine ?? "",
+      subject: a.subject,
+      otherName: a.subject === "other" ? a.otherName : null,
+      topic,
+      // The values stay on the row for a contradiction that stands, and for one
+      // downgraded for its scope. Only a quote that does not hold drops them.
+      contradiction: keepsValues ? a.contradiction : null,
     });
   }
   return out;
+}
+
+/**
+ * Did we read the whole SITE, or only the whole crawl?
+ *
+ * `fullyRead` from `selectPages` means every page the crawl took reached the
+ * prompt. The crawl stops at its page cap, so a site whose sitemap lists far
+ * more pages than that was "read whole" at the cap, and "your site does not say
+ * this" went out about the pages nobody opened. Now the site counts as read only
+ * when its own sitemap gives a size and the pages we read reach it. With no
+ * sitemap, or a sitemap we stopped reading part way, we never learned the size,
+ * and `absent` cannot be claimed.
+ */
+export function siteCoverage(
+  read: { crawlFullyRead: boolean; pagesRead: number; readUrls: string[]; pagesUnread?: number },
+  crawl: Pick<CrawlResult, "sitemap" | "pages">,
+  /** The crawl's own page cap. A crawl that took this many pages stopped
+   *  because of it, so the pages past it were never seen. */
+  pageCap: number,
+): { full: boolean; reason: string } {
+  const notFull = (reason: string): { full: boolean; reason: string } => ({ full: false, reason });
+  const sitemap = crawl.sitemap as CrawlResult["sitemap"] | undefined;
+  const siteUrlCount = sitemap?.present ? sitemap.urlCount : null;
+  // Said only when the sitemap's count exceeds the pages we read. A count that
+  // does not exceed them says nothing about a site larger than we read.
+  const larger =
+    "The site was larger than we read in one pass, so we cannot say this is absent from it.";
+  const atCap =
+    "Our crawl stopped at its page limit, so we cannot say this is absent from your site.";
+  const unknownSize =
+    "We could not learn how many pages your site has, so we cannot say this is absent from it.";
+  const unmatched =
+    "We could not match the pages we read to your sitemap, so we cannot say this is absent from your site.";
+
+  // "We read P of your S pages" is said only when S is the site's complete
+  // count (not truncated) and we read fewer pages than it. A truncated count is
+  // a floor, not the site's size, so it is never printed as one.
+  const countIsWhole = siteUrlCount !== null && siteUrlCount > 0 && sitemap?.truncated === false;
+  const reasonFor = (pagesRead: number): string => {
+    if (siteUrlCount !== null && countIsWhole && pagesRead < siteUrlCount) {
+      return readOfSite(pagesRead, siteUrlCount);
+    }
+    if (siteUrlCount !== null && siteUrlCount > pagesRead) return larger;
+    if (crawl.pages.length >= pageCap) return atCap;
+    // A page the crawl took but nobody could read is not a page we matched (R4 fix 8).
+    if ((read.pagesUnread ?? 0) > 0) {
+      return "Some pages we found could not be read, so we cannot say this is absent from your site.";
+    }
+    return siteUrlCount === null || siteUrlCount <= 0 ? unknownSize : unmatched;
+  };
+
+  // (d) Not every page read: say how many of theirs we read, when that is known.
+  if (!read.crawlFullyRead) return notFull(reasonFor(read.pagesRead));
+
+  // A known size we did not reach is the reason to give, whatever the sitemap's
+  // `truncated` flag says: the count is at least what we were told.
+  if (siteUrlCount !== null && siteUrlCount > 0 && read.pagesRead < siteUrlCount) {
+    return notFull(reasonFor(read.pagesRead));
+  }
+
+  // (b) A missing `truncated` is "we do not know", not "complete".
+  if (siteUrlCount === null || siteUrlCount <= 0 || sitemap?.truncated !== false) {
+    return notFull(
+      `We read ${read.pagesRead} of your pages and could not learn how many your site has, so we cannot say this is absent from it.`,
+    );
+  }
+
+  // (a) A crawl that stopped at its cap read a prefix of the site, whatever the
+  // sitemap says, so it is never read whole.
+  if (crawl.pages.length >= pageCap) return notFull(atCap);
+
+  // (c) The sample is the only list of the site's own URLs. Complete, it must
+  // be among the pages we read; incomplete, or missing, it cannot say so.
+  const sentence =
+    "We could not match the pages we read to your sitemap, so we cannot say this is absent from your site.";
+  const sample = sitemap?.sample;
+  if (sample === undefined || sample.length !== siteUrlCount) return notFull(sentence);
+  const readSet = new Set(read.readUrls.map(normalizeUrl));
+  if (!sample.every((u) => readSet.has(normalizeUrl(u)))) return notFull(sentence);
+
+  return { full: true, reason: "" };
+}
+
+/** "We read P of your S pages". Only called when P is fewer than S. */
+function readOfSite(pagesRead: number, siteUrlCount: number): string {
+  const noun = siteUrlCount === 1 ? "page" : "pages";
+  return `We read ${pagesRead} of your ${siteUrlCount} ${noun}, so we cannot say this is absent from your site.`;
+}
+
+/** Scheme, a leading `www.` and a trailing slash do not make a different page. */
+function normalizeUrl(u: string): string {
+  return u
+    .trim()
+    .replace(/^https?:\/\//i, "")
+    .replace(/^www\./i, "")
+    .replace(/\/+$/, "");
 }
 
 export type AccuracyDeps = {
@@ -849,15 +1712,23 @@ export async function checkAccuracy(
   }
 
   const siteText = fullSiteText(crawl);
-  const answerText = branded.map((a) => a.fullAnswer ?? "").join("\n");
-  const verified = verifyQuotes(parsed.assertions, answerText, siteText, answerOf, domainOf(url));
+  const verified = verifyQuotes(parsed.assertions, siteText, answerOf, domainOf(url));
 
-  // Same rule as every quote: not in the answer, not trusted.
+  // Same rule as every quote: it must sit inside ONE answer, or it is not trusted.
   const c = parsed.conflation;
+  const inOneAnswer = (q: string): boolean =>
+    branded.some((a) => normalize(a.fullAnswer ?? "").includes(normalize(q)));
   const conflation: Conflation =
-    c.detected && c.engineQuote !== null && normalize(answerText).includes(normalize(c.engineQuote))
-      ? { detected: true, settled: c.settled, otherNames: c.otherNames, engineQuote: c.engineQuote }
-      : NO_CONFLATION;
+    c.detected && c.engineQuote !== null && normalize(c.engineQuote) === ""
+      ? NO_CONFLATION
+      : c.detected && c.engineQuote !== null && inOneAnswer(c.engineQuote)
+        ? {
+            detected: true,
+            settled: c.settled,
+            otherNames: c.otherNames,
+            engineQuote: c.engineQuote,
+          }
+        : NO_CONFLATION;
 
   const sources = await classifyDomains(
     url,
@@ -866,13 +1737,24 @@ export async function checkAccuracy(
     deps.ownership,
   );
 
+  const siteUrlCount = siteUrlCountOf(crawl);
+  const coverage = siteCoverage(
+    {
+      crawlFullyRead: input.fullyRead,
+      pagesRead: input.pagesRead,
+      readUrls: input.readUrls,
+      pagesUnread: selectPages(crawl).pagesUnread,
+    },
+    crawl,
+    CRAWL_MAX_PAGES,
+  );
   return {
-    assertions: backstopAbsent(verified, siteText, termsByClaim, input.fullyRead),
+    assertions: backstopAbsent(verified, siteText, termsByClaim, coverage.full, coverage.reason),
     sources,
-    siteFullyRead: input.fullyRead,
+    siteFullyRead: coverage.full,
     pagesRead: input.pagesRead,
     pagesTotal: crawl.pages.length,
-    siteUrlCount: siteUrlCountOf(crawl),
+    siteUrlCount,
     answersRead: branded.length,
     conflation,
   };

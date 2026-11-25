@@ -10,7 +10,8 @@ export type VisibilityEngine = {
 };
 
 /** Ceiling on queries per engine per audit. Sized to fit everything the stage
- *  actually asks for — 2 branded + 5 category + 2 competitor — so nothing is
+ *  actually asks for — 1 branded + 5 category + 2 competitor, plus the reviews
+ *  query when `--reviews` asks for it — so nothing is
  *  silently dropped at the end. It was 8 while category was capped at 3; raising
  *  category to 5 without raising this would have quietly discarded a competitor
  *  query, which is the same bug in a different place. */
@@ -28,7 +29,8 @@ const SNIPPET_CHARS = 300;
  * constrained or reasoned about, and the citations come from the same search
  * index whichever model drives the tool.
  *
- * It is also where the money is: seven probe calls per audit against the
+ * It is also where the money is: up to eight probe calls per audit (the reviews
+ * query is one more, only with `--reviews`) against the
  * analyze pass's one, so this single constant is roughly half the cost of an
  * audit. Opus here buys prose quality in `answer`, which only ever appears as a
  * 300-character snippet.
@@ -110,6 +112,17 @@ export type ProbeInput = {
    *  as cold searches they have no antecedent. */
   categoryQueries: string[];
   competitors: string[];
+  /**
+   * Also ask "<name> reviews". Off by default, an operator option for a brand
+   * and reputation report a person reads before it goes out.
+   *
+   * It asks for reputational material on purpose, and what comes back is
+   * whatever review surface exists: for a B2B firm that is employee ratings,
+   * and an answer that said it found no reviews is a finding about the search,
+   * not about the business. Neither is something a
+   * sales document should carry unread.
+   */
+  reviews?: boolean;
 };
 
 export type ProbeQuery = { query: string; kind: ProbeAnswer["kind"] };
@@ -122,7 +135,7 @@ export function buildQueries(input: ProbeInput): ProbeQuery[] {
   const name = resolveBusinessName(input.business, input.url);
   const candidates: ProbeQuery[] = [
     { query: `who is ${name}`, kind: "branded" },
-    { query: `${name} reviews`, kind: "branded" },
+    ...(input.reviews === true ? [{ query: `${name} reviews`, kind: "branded" } as const] : []),
     // All five, not three. The schema asks the model for up to five and we were
     // paying to generate them, then discarding two — which also pinned the
     // denominator at 3, making visibilityScore a four-valued {0,33,67,100}
@@ -149,7 +162,8 @@ function escapeRegExp(s: string): string {
 /** Legal suffixes engines routinely drop. The analyze prompt lets a site's own
  *  branding carry one into `businessName` ("no legal suffix unless the site
  *  itself uses one"), so requiring it to reappear verbatim guaranteed a miss. */
-const LEGAL_SUFFIX = /\b(llc|inc|incorporated|ltd|limited|corp|corporation|plc|llp|lp|pllc|pc)\b/g;
+export const LEGAL_SUFFIX =
+  /\b(llc|inc|incorporated|ltd|limited|corp|corporation|plc|llp|lp|pllc|pc)\b/g;
 
 /**
  * Reduce a string to lowercase alphanumeric words separated by single spaces.
@@ -495,6 +509,7 @@ export async function runVisibilityProbes(
     answers,
     visibilityScore,
     brandedRecognized,
+    reviewsAsked: input.reviews === true,
     competitorsSeen: [...competitorCounts.entries()]
       .map(([domain, count]) => ({ domain, count }))
       .sort((a, b) => b.count - a.count)

@@ -25,6 +25,20 @@ const engine = (
 });
 
 describe("buildQueries", () => {
+  it('asks "<name> reviews" only when the operator turns it on', () => {
+    const base = {
+      business: "Acme Roofing",
+      url: "https://acme.example/",
+      categoryQueries: ["flat roof contractors Boise"],
+      competitors: [],
+    };
+    expect(buildQueries(base).map((q) => q.query)).not.toContain("Acme Roofing reviews");
+    expect(buildQueries({ ...base, reviews: true })[1]).toEqual({
+      query: "Acme Roofing reviews",
+      kind: "branded",
+    });
+  });
+
   it("asks the branded queries, then the category searches", () => {
     const queries = buildQueries({
       business: "Acme Roofing",
@@ -38,7 +52,9 @@ describe("buildQueries", () => {
       competitors: [],
     });
     expect(queries[0]).toEqual({ query: "who is Acme Roofing", kind: "branded" });
-    expect(queries[1]).toEqual({ query: "Acme Roofing reviews", kind: "branded" });
+    // Not asked by default: it returns reputational material nobody has checked.
+    expect(queries.map((q) => q.query)).not.toContain("Acme Roofing reviews");
+    expect(queries[1]?.kind).toBe("category");
     const byQuery = queries.map((q) => q.query);
     expect(byQuery).toContain("how much does a roof repair cost");
     expect(queries.find((q) => q.query === "how much does a roof repair cost")!.kind).toBe(
@@ -176,11 +192,14 @@ describe("isDistinctiveName", () => {
 });
 
 describe("runVisibilityProbes", () => {
+  // The operator option is on here: these tests are about how the runner asks
+  // and scores two branded queries and a category one, not about the default set.
   const args = {
     url: "https://acme.example/",
     business: "Acme Roofing",
     categoryQueries: ["how much does a roof repair cost"],
     competitors: [],
+    reviews: true,
   };
 
   it("keeps the whole category answer as fullAnswer, while the snippet stays truncated", async () => {
@@ -819,5 +838,32 @@ describe("namesakes on the probe result", () => {
     );
     expect(result.namesakes!.map((n) => n.domain)).toContain("reddoorcreative.com");
     expect(result.namesakes!.map((n) => n.domain)).not.toContain("someagency.example");
+  });
+});
+
+describe("review round 1: reviewsAsked records whether the reviews probe ran", () => {
+  const base = {
+    url: "https://acme.example/",
+    business: "Acme Roofing",
+    categoryQueries: ["how much does a roof repair cost"],
+    competitors: [],
+  };
+  const engines = () => [
+    engine("perplexity", () => ({
+      answer: "Acme Roofing is a Boise contractor.",
+      citedDomains: [],
+    })),
+  ];
+
+  it("is false by default, and the reviews query is not asked", async () => {
+    const result = await runVisibilityProbes(base, engines(), { delayMs: 0 });
+    expect(result.reviewsAsked).toBe(false);
+    expect(result.answers.map((a) => a.query)).not.toContain("Acme Roofing reviews");
+  });
+
+  it("is true when the operator option is given", async () => {
+    const result = await runVisibilityProbes({ ...base, reviews: true }, engines(), { delayMs: 0 });
+    expect(result.reviewsAsked).toBe(true);
+    expect(result.answers.map((a) => a.query)).toContain("Acme Roofing reviews");
   });
 });
