@@ -173,46 +173,17 @@ describe("the Testing rows on a Maintenance email", () => {
     }
   });
 
-  // The operator, 11-25 (decision 2026-11-25-2012, Q2 "Add a sentence"): the intro over the
-  // list says the nightly tests are in it, on Maintenance reports only. The default
-  // `maintenanceIntro` is untouched because the announcement email reuses it.
-  describe("the intro sentence about the nightly tests", () => {
-    const NOTE = "The last items are tested automatically every night.";
-
-    it("follows the intro when at least one Testing row is shown", async () => {
-      const { html } = await renderReportHtml(
-        data("Maintenance", { automatedTestsPassed: ["Test: Desktop Browsers"] }),
-      );
-      const intro = html.indexOf(DEFAULT_COPY.maintenanceIntro);
-      const note = html.indexOf(NOTE);
-      expect(intro).toBeGreaterThanOrEqual(0);
-      expect(note).toBeGreaterThan(intro);
-      expect(note).toBeLessThan(html.search(rowText("Desktop Browsers")));
-      expect(html).toContain(`${DEFAULT_COPY.maintenanceIntro} ${NOTE}`);
-    });
-
-    it("follows a per-site intro override too", async () => {
-      const copy = { ...DEFAULT_COPY, maintenanceIntro: "Custom & intro." };
-      const { html } = await renderReportHtml(
-        data("Maintenance", { automatedTestsPassed: ["Test: Desktop Browsers"], copy }),
-      );
-      expect(html).toContain(`Custom &amp; intro. ${NOTE}`);
-    });
-
-    it("is absent when no Testing row is shown, and on a Testing report", async () => {
-      for (const d of [
-        data("Maintenance", { automatedTestsPassed: [] }),
-        data("Maintenance"),
-        data("Testing", { automatedTestsPassed: TEST_FIELDS }),
-      ]) {
-        const { html } = await renderReportHtml(d);
-        expect(html, d.reportType).not.toContain(NOTE);
-      }
-    });
-
-    it("is not part of the shared default intro the announcement email reuses", () => {
-      expect(DEFAULT_COPY.maintenanceIntro).not.toContain("every night");
-    });
+  // The operator, 11-25 3:22pm PT, on the [TEST]: "'last items' is not specific in context, just
+  // remove that sentence". The intro over the list is the default intro alone, Testing rows or not.
+  it("leave the intro over the list as the plain intro, with nothing appended", async () => {
+    const { html } = await renderReportHtml(
+      data("Maintenance", { automatedTestsPassed: TEST_FIELDS }),
+    );
+    const at = html.indexOf(DEFAULT_COPY.maintenanceIntro);
+    expect(at).toBeGreaterThanOrEqual(0);
+    const after = html.slice(at + DEFAULT_COPY.maintenanceIntro.length).trimStart();
+    expect(after.startsWith("<")).toBe(true);
+    expect(html).not.toContain("tested automatically every night");
   });
 
   it("leave a Testing report as it was, even if a list is passed", async () => {
