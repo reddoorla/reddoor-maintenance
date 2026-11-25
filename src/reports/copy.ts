@@ -2,6 +2,9 @@ import type { WebsiteRow } from "../fleet/site-row.js";
 
 export type ResolvedCopy = {
   maintenanceIntro: string;
+  /** Follows `maintenanceIntro` on a Maintenance report when the list ends with Testing rows
+   *  (the operator, 2026-11-25). Kept out of `maintenanceIntro`, which the announcement reuses. */
+  maintenanceTestsNote: string;
   maintenanceChecks: string[]; // 6; index 3 is the Google row's no-position default
   testingIntro: string;
   testingChecklist: string[]; // 7
@@ -35,6 +38,7 @@ export type ResolvedCopy = {
 export const DEFAULT_COPY: ResolvedCopy = {
   maintenanceIntro:
     "Includes checking the hosting, DNS, Content Management System (CMS, if applicable), search indexing and security of the site for major flaws and updating as necessary.",
+  maintenanceTestsNote: "The last items are tested automatically every night.",
   maintenanceChecks: [
     "Deploy & Function Health",
     "CMS Checked",

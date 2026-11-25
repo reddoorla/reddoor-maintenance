@@ -173,6 +173,39 @@ describe("the Testing rows on a Maintenance email", () => {
     }
   });
 
+  // The operator, 11-25 (decision 2026-11-25-2012, Q2 "Add a sentence"): the intro over the
+  // list says the nightly tests are in it, on Maintenance reports only. The default
+  // `maintenanceIntro` is untouched because the announcement email reuses it.
+  describe("the intro sentence about the nightly tests", () => {
+    const NOTE = "The last items are tested automatically every night.";
+
+    it("follows the intro when at least one Testing row is shown", async () => {
+      const { html } = await renderReportHtml(
+        data("Maintenance", { automatedTestsPassed: ["Test: Desktop Browsers"] }),
+      );
+      const intro = html.indexOf(DEFAULT_COPY.maintenanceIntro);
+      const note = html.indexOf(NOTE);
+      expect(intro).toBeGreaterThanOrEqual(0);
+      expect(note).toBeGreaterThan(intro);
+      expect(note).toBeLessThan(html.search(rowText("Desktop Browsers")));
+    });
+
+    it("is absent when no Testing row is shown, and on a Testing report", async () => {
+      for (const d of [
+        data("Maintenance", { automatedTestsPassed: [] }),
+        data("Maintenance"),
+        data("Testing", { automatedTestsPassed: TEST_FIELDS }),
+      ]) {
+        const { html } = await renderReportHtml(d);
+        expect(html, d.reportType).not.toContain(NOTE);
+      }
+    });
+
+    it("is not part of the shared default intro the announcement email reuses", () => {
+      expect(DEFAULT_COPY.maintenanceIntro).not.toContain("every night");
+    });
+  });
+
   it("leave a Testing report as it was, even if a list is passed", async () => {
     const { html } = await renderReportHtml(data("Testing", { automatedTestsPassed: TEST_FIELDS }));
     expect(html).toMatch(rowText("TESTING"));
