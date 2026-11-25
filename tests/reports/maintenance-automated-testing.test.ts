@@ -188,6 +188,15 @@ describe("the Testing rows on a Maintenance email", () => {
       expect(intro).toBeGreaterThanOrEqual(0);
       expect(note).toBeGreaterThan(intro);
       expect(note).toBeLessThan(html.search(rowText("Desktop Browsers")));
+      expect(html).toContain(`${DEFAULT_COPY.maintenanceIntro} ${NOTE}`);
+    });
+
+    it("follows a per-site intro override too", async () => {
+      const copy = { ...DEFAULT_COPY, maintenanceIntro: "Custom & intro." };
+      const { html } = await renderReportHtml(
+        data("Maintenance", { automatedTestsPassed: ["Test: Desktop Browsers"], copy }),
+      );
+      expect(html).toContain(`Custom &amp; intro. ${NOTE}`);
     });
 
     it("is absent when no Testing row is shown, and on a Testing report", async () => {
