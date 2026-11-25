@@ -1,15 +1,11 @@
 import { describe, it, expect } from "vitest";
-import {
-  autoTickChecklist,
-  type EvidenceRecord,
-  type EvidenceResult,
-} from "../../src/reports/auto-tick.js";
+import type { EvidenceRecord } from "../../src/reports/auto-tick.js";
+import { passedAutomatedTests } from "../../src/reports/automated-tests.js";
 import {
   MAINTENANCE_CHECKLIST,
   TESTING_CHECKLIST,
   checklistFor,
   gatingFields,
-  isHealthGateClear,
 } from "../../src/reports/checklist.js";
 import { renderReportHtml } from "../../src/reports/render.js";
 import { DEFAULT_COPY } from "../../src/reports/copy.js";
@@ -17,15 +13,14 @@ import type { ReportData, ReportType } from "../../src/reports/types.js";
 import { makeWebsiteRow } from "../_helpers/website-row.js";
 
 /**
- * 2026-11-25 (Tim, #website-maintenance, 10:20am PT: "replace with the AEO/SEO upsell. Then
- * include all the testing check boxes now"; the operator: "yes our tests"): every Maintenance
- * report shows the TESTING checklist in place of the blurred image, ticked only by the nightly
- * automated tests. A row is ticked only on a fresh `pass`; nothing ticks it by default.
+ * 2026-11-25. Tim, #website-maintenance 10:20am PT: "replace with the AEO/SEO upsell. Then
+ * include all the testing check boxes now"; the operator: "yes our tests", then "just add all
+ * the tests to the maintenance section". A Maintenance report's MAINTENANCE CHECKS list ends
+ * with the Testing rows the nightly automated tests passed, read when the email is built.
  */
 
 const NOW = new Date("2026-11-25T12:00:00.000Z");
 const FRESH = "2026-11-25T08:00:00.000Z";
-const NO_SEARCH = { search: { value: null, softFailed: false, notConfigured: false } };
 const TEST_FIELDS = TESTING_CHECKLIST.map((i) => i.field);
 
 /** A site whose every nightly testing signal is a fresh pass. */
@@ -45,71 +40,30 @@ function testedSite() {
   });
 }
 
-function ev(result: EvidenceResult): EvidenceRecord {
-  return { result, checkedAt: FRESH, note: "fixture" };
-}
+const PASS: EvidenceRecord = { result: "pass", checkedAt: FRESH, note: "fixture" };
+const MAINT_PASS = Object.fromEntries(MAINTENANCE_CHECKLIST.map((i) => [i.field, PASS]));
+const ALL_PASS = Object.fromEntries(
+  [...MAINTENANCE_CHECKLIST, ...TESTING_CHECKLIST].map((i) => [i.field, PASS]),
+);
 
-function data(type: ReportType, evidence: Record<string, EvidenceRecord>): ReportData {
+function data(type: ReportType, over: Partial<ReportData> = {}): ReportData {
   return {
     siteName: "Acme Co",
     siteUrl: "https://acme.example.com",
     reportType: type,
-    completedOn: new Date("2026-11-25T12:00:00Z"),
+    completedOn: new Date("2026-11-25T00:00:00Z"),
     lighthouse: { performance: 87, accessibility: 91, bestPractices: 100, seo: 95 },
     lastTestedDate: null,
     commentary: null,
     headerImageCid: "acme-header",
-    checklistEvidence: evidence,
+    checklistEvidence: type === "Testing" ? ALL_PASS : MAINT_PASS,
+    ...over,
   };
-}
-
-function allPass(): Record<string, EvidenceRecord> {
-  return Object.fromEntries(
-    [...MAINTENANCE_CHECKLIST, ...TESTING_CHECKLIST].map((i) => [i.field, ev("pass")]),
-  );
 }
 
 function rowText(label: string): RegExp {
   return new RegExp(`>\\s*${label.replace(/[&]/g, "&amp;")}\\s*<`);
 }
-
-describe("a Maintenance report's evidence includes the nightly testing rows", () => {
-  it("records a pass for each Testing row the nightlies passed", () => {
-    const out = autoTickChecklist(testedSite(), "Maintenance", NOW, NO_SEARCH);
-    for (const field of TEST_FIELDS) expect(out.get(field)?.result, field).toBe("pass");
-  });
-
-  it("records a fail as a fail, never a pass", () => {
-    const site = { ...testedSite(), mobileOk: false, smokeOk: "fail" as const };
-    const out = autoTickChecklist(site, "Maintenance", NOW, NO_SEARCH);
-    expect(out.get("Test: Mobile Browsers")?.result).toBe("fail");
-    expect(out.get("Test: Interactions & Animations")?.result).toBe("fail");
-  });
-
-  it("omits an unmeasured Testing row (not unknown) and keeps the send gate as it was", () => {
-    const out = autoTickChecklist(makeWebsiteRow(), "Maintenance", NOW, NO_SEARCH);
-    for (const field of TEST_FIELDS) expect(out.has(field), field).toBe(false);
-    expect(gatingFields("Maintenance").some((f) => f.startsWith("Test:"))).toBe(false);
-    // Maintenance rows all pass, Testing rows all fail: the Maintenance gate is still clear.
-    const evidence = Object.fromEntries([
-      ...MAINTENANCE_CHECKLIST.map((i) => [i.field, ev("pass")] as const),
-      ...TEST_FIELDS.map((f) => [f, ev("fail")] as const),
-    ]);
-    expect(isHealthGateClear({ reportType: "Maintenance", autoEvidence: evidence })).toBe(true);
-  });
-
-  it("records a Testing signal older than 3 days as unknown, so it is not shown", () => {
-    const old = "2026-11-21T08:00:00.000Z";
-    const site = { ...testedSite(), browserCheckedAt: old, lastSmokeAt: old };
-    const out = autoTickChecklist(site, "Maintenance", NOW, NO_SEARCH);
-    expect(out.get("Test: Desktop Browsers")?.result).toBe("unknown");
-    expect(out.get("Test: Interactions & Animations")?.result).toBe("unknown");
-  });
-
-  it("leaves the Maintenance checkboxes at the six maintenance rows", () => {
-    expect(checklistFor("Maintenance")).toEqual(MAINTENANCE_CHECKLIST);
-  });
-});
 
 /** Each checklist row's label, in the order the email shows them. */
 function shownRows(html: string): string[] {
@@ -121,95 +75,104 @@ function shownRows(html: string): string[] {
     .map((r) => r.label);
 }
 
-describe('the Testing rows on a Maintenance email (the operator, 11-25: "just add all the tests to the maintenance section")', () => {
-  it("ends the MAINTENANCE CHECKS list with every Testing row the nightlies passed, with no TESTING section", async () => {
-    const { html } = await renderReportHtml(data("Maintenance", allPass()));
+describe("passedAutomatedTests: the Testing rows the nightlies passed, as of the render", () => {
+  it("lists every Testing row with a fresh pass", () => {
+    expect(passedAutomatedTests(testedSite(), NOW)).toEqual(TEST_FIELDS);
+  });
+
+  it("leaves out a failed row", () => {
+    const site = { ...testedSite(), mobileOk: false, smokeOk: "fail" as const };
+    const out = passedAutomatedTests(site, NOW);
+    expect(out).not.toContain("Test: Mobile Browsers");
+    expect(out).not.toContain("Test: Interactions & Animations");
+    expect(out).toContain("Test: Desktop Browsers");
+  });
+
+  it("leaves out a pass more than 3 days old at `now` (a report drafted a week before its send)", () => {
+    const old = "2026-11-22T11:59:00.000Z"; // 3 days and a minute before NOW
+    const site = { ...testedSite(), browserCheckedAt: old, lastSmokeAt: old };
+    const out = passedAutomatedTests(site, NOW);
+    expect(out).not.toContain("Test: Desktop Browsers");
+    expect(out).not.toContain("Test: Interactions & Animations");
+    expect(out).toContain("Test: Form Functionality");
+  });
+
+  it("keeps a pass exactly 3 days old, and leaves out one stamped after `now`", () => {
+    const site = {
+      ...testedSite(),
+      browserCheckedAt: "2026-11-22T12:00:00.000Z",
+      lastSmokeAt: "2026-11-26T12:00:00.000Z",
+    };
+    const out = passedAutomatedTests(site, NOW);
+    expect(out).toContain("Test: Desktop Browsers");
+    expect(out).not.toContain("Test: Interactions & Animations");
+  });
+
+  it("lists nothing for a site the nightlies never measured, and no form row without a form", () => {
+    expect(passedAutomatedTests(makeWebsiteRow(), NOW)).toEqual([]);
+    const noForm = { ...testedSite(), formE2eOk: null };
+    expect(passedAutomatedTests(noForm, NOW)).not.toContain("Test: Form Functionality");
+  });
+
+  it("changes neither the Maintenance checkboxes nor its send gate", () => {
+    expect(checklistFor("Maintenance")).toEqual(MAINTENANCE_CHECKLIST);
+    expect(gatingFields("Maintenance").some((f) => f.startsWith("Test:"))).toBe(false);
+  });
+});
+
+describe("the Testing rows on a Maintenance email", () => {
+  it("end the MAINTENANCE CHECKS list, with no TESTING section and no blurred image", async () => {
+    const { html } = await renderReportHtml(
+      data("Maintenance", { automatedTestsPassed: TEST_FIELDS }),
+    );
     expect(shownRows(html)).toEqual([
       ...DEFAULT_COPY.maintenanceChecks,
       ...DEFAULT_COPY.testingChecklist,
     ]);
-    // One list: the rows sit between the MAINTENANCE CHECKS heading and the Lighthouse scores.
     const heading = html.search(rowText("MAINTENANCE CHECKS"));
-    const lighthouse = html.indexOf("LIGHTHOUSE");
     expect(heading).toBeGreaterThanOrEqual(0);
-    expect(html.search(rowText("Tested After Updates"))).toBeGreaterThan(heading);
-    expect(html.search(rowText("Tested After Updates"))).toBeLessThan(lighthouse);
+    const last = html.search(rowText("Tested After Updates"));
+    expect(last).toBeGreaterThan(heading);
+    expect(last).toBeLessThan(html.indexOf("LIGHTHOUSE"));
     expect(html).not.toMatch(rowText("TESTING"));
     expect(html).not.toContain(DEFAULT_COPY.testingIntro);
     expect(html).not.toContain("rd-blurred-tests-jpg");
   });
 
-  it("leaves out a row that failed, is stale, does not apply, or has no record", async () => {
-    const evidence = allPass();
-    evidence["Test: Desktop Browsers"] = ev("fail");
-    evidence["Test: Mobile Browsers"] = ev("unknown");
-    evidence["Test: Form Functionality"] = ev("n/a");
-    delete evidence["Test: Links & Navigation"];
-    const { html } = await renderReportHtml(data("Maintenance", evidence));
-    for (const label of [
-      "Desktop Browsers",
-      "Mobile Browsers",
-      "Form Functionality",
-      "Links & Navigation",
-    ]) {
-      expect(html, label).not.toMatch(rowText(label));
-    }
-    for (const label of [
-      "Page Titles & Meta",
-      "Interactions & Animations",
-      "Tested After Updates",
-    ]) {
-      expect(html, label).toMatch(rowText(label));
-    }
-  });
-
-  it("leaves out a pass recorded more than 3 days before the report's date (frozen at draft, sent later)", async () => {
-    const evidence = allPass();
-    // completedOn is 2026-11-25T12:00Z: 4 days after this pass, 2 days after that one.
-    evidence["Test: Mobile Browsers"] = {
-      result: "pass",
-      checkedAt: "2026-11-21T11:00:00.000Z",
-      note: "",
-    };
-    evidence["Test: Desktop Browsers"] = {
-      result: "pass",
-      checkedAt: "2026-11-23T12:00:00.000Z",
-      note: "",
-    };
-    evidence["Test: Links & Navigation"] = { result: "pass", checkedAt: null, note: "" };
-    const { html } = await renderReportHtml(data("Maintenance", evidence));
-    expect(html).not.toMatch(rowText("Mobile Browsers"));
-    expect(html).not.toMatch(rowText("Links & Navigation"));
-    expect(html).toMatch(rowText("Desktop Browsers"));
-  });
-
-  it("shows only the maintenance rows when no Testing row passed", async () => {
-    const evidence = Object.fromEntries(
-      MAINTENANCE_CHECKLIST.map((i) => [i.field, ev("pass")] as const),
+  it("show only the fields passed in, in checklist order", async () => {
+    const { html } = await renderReportHtml(
+      data("Maintenance", {
+        automatedTestsPassed: ["Test: Verified After Updates", "Test: Page Titles & Meta"],
+      }),
     );
-    const { html } = await renderReportHtml(data("Maintenance", evidence));
-    expect(shownRows(html)).toEqual(DEFAULT_COPY.maintenanceChecks);
+    expect(shownRows(html)).toEqual([
+      ...DEFAULT_COPY.maintenanceChecks,
+      "Page Titles & Meta",
+      "Tested After Updates",
+    ]);
   });
 
-  it("leaves a Testing report's TESTING section as it was", async () => {
-    const { html } = await renderReportHtml(data("Testing", allPass()));
+  it("are absent when nothing passed or no list was given; stored Test: evidence alone never ticks one", async () => {
+    for (const over of [{ automatedTestsPassed: [] }, {}, { checklistEvidence: ALL_PASS }]) {
+      const { html } = await renderReportHtml(data("Maintenance", over));
+      expect(shownRows(html)).toEqual(DEFAULT_COPY.maintenanceChecks);
+    }
+  });
+
+  it("leave a Testing report as it was, even if a list is passed", async () => {
+    const { html } = await renderReportHtml(data("Testing", { automatedTestsPassed: TEST_FIELDS }));
     expect(html).toMatch(rowText("TESTING"));
     expect(html).toContain(DEFAULT_COPY.testingIntro);
-    // Its MAINTENANCE CHECKS list holds the six maintenance rows only.
     const testingHeading = html.search(rowText("TESTING"));
     for (const label of DEFAULT_COPY.testingChecklist) {
       expect(html.search(rowText(label)), label).toBeGreaterThan(testingHeading);
     }
-    for (const label of DEFAULT_COPY.testingChecklist) expect(html, label).toMatch(rowText(label));
   });
 });
 
 describe("the AEO/SEO block in the upsell's slot (the operator's pick (a), 11-25)", () => {
   it("is on a Maintenance report, names the site, and links to mailto:info@reddoorla.com", async () => {
-    const { html } = await renderReportHtml({
-      ...data("Maintenance", allPass()),
-      siteName: "Brown & Co",
-    });
+    const { html } = await renderReportHtml(data("Maintenance", { siteName: "Brown & Co" }));
     expect(html).toMatch(rowText("AI SEARCH & SEO"));
     expect(html).toContain("How does Brown &amp; Co show up on Google");
     expect(html).not.toContain("{site}");
@@ -217,18 +180,20 @@ describe("the AEO/SEO block in the upsell's slot (the operator's pick (a), 11-25
   });
 
   it("sits after LEADS, where the blurred image was, and after the checklist", async () => {
-    const { html } = await renderReportHtml({
-      ...data("Maintenance", allPass()),
-      leadsCurrent: 2,
-      leadsPrevious: 1,
-    });
+    const { html } = await renderReportHtml(
+      data("Maintenance", {
+        automatedTestsPassed: TEST_FIELDS,
+        leadsCurrent: 2,
+        leadsPrevious: 1,
+      }),
+    );
     const aeo = html.search(rowText("AI SEARCH & SEO"));
     expect(aeo).toBeGreaterThan(html.search(rowText("LEADS")));
     expect(aeo).toBeGreaterThan(html.search(rowText("Tested After Updates")));
   });
 
   it("is not on a Testing report", async () => {
-    const { html } = await renderReportHtml(data("Testing", allPass()));
+    const { html } = await renderReportHtml(data("Testing"));
     expect(html).not.toMatch(rowText("AI SEARCH & SEO"));
     expect(html).not.toContain("mailto:info@reddoorla.com");
   });

@@ -100,34 +100,18 @@ function testingSections(data: ReportData, copy: ResolvedCopy): string {
   );
 }
 
-/** A Testing row shows on a Maintenance report only when its pass was recorded within this
- *  many days of the report's date. Evidence is frozen at draft, up to a week before the send,
- *  and an approved row is never re-ticked, so the age is checked here, against the date the
- *  email carries. Matches auto-tick's STALE_DAYS. */
-const AUTOMATED_TEST_MAX_AGE_DAYS = 3;
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
-function isRecentPass(
-  record: { result: string; checkedAt: string | null } | undefined,
-  reportDate: Date,
-): boolean {
-  if (record?.result !== "pass" || !record.checkedAt) return false;
-  const at = new Date(record.checkedAt).getTime();
-  if (Number.isNaN(at)) return false;
-  return reportDate.getTime() - at <= AUTOMATED_TEST_MAX_AGE_DAYS * MS_PER_DAY;
-}
-
 /**
  * The Testing rows a Maintenance report adds to the end of its MAINTENANCE CHECKS list
- * (2026-11-25, with the blurred testing upsell gone): the rows the nightly automated tests passed. Strictly a recent `pass` (above): a row whose
- * latest run failed, is stale (`unknown`, or a pass older than 3 days at the report's date),
- * does not apply (`n/a`) or never ran (no record) is left out, never ticked by default. The rows carry no checkbox of their own on a Maintenance report, so
+ * (2026-11-25, with the blurred testing upsell gone): the rows the nightly automated tests passed, as `automatedTestsPassed` carries them
+ * (`passedAutomatedTests`, computed when the email is built). A row whose latest run failed,
+ * is over 3 days old, does not apply or never ran is not in that list, so it is left out,
+ * never ticked by default; an absent list shows none. The rows carry no checkbox of their own on a Maintenance report, so
  * nothing but the evidence can tick them. PURE.
  */
 export function automatedTestingLabels(data: ReportData, copy: ResolvedCopy): string[] {
   return copy.testingChecklist.filter((_, i) => {
     const field = TESTING_CHECKLIST[i]?.field;
-    return field !== undefined && isRecentPass(data.checklistEvidence?.[field], data.completedOn);
+    return field !== undefined && (data.automatedTestsPassed ?? []).includes(field);
   });
 }
 

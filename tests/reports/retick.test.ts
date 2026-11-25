@@ -245,15 +245,3 @@ describe("retickEvidence — a refresh that re-measured Google Indexed", () => {
     ).toEqual({ status: "locked" });
   });
 });
-
-describe("retick on a Maintenance row records the Testing rows' evidence without ticking Testing boxes (11-25)", () => {
-  it("gains Test: evidence and ticks no Test: checkbox", () => {
-    const site = { ...SITE, crossbrowserOk: true, mobileOk: true, linksOk: true };
-    const out = retickEvidence(site, frozen(), NOW);
-    expect(out.status).toBe("reticked");
-    if (out.status !== "reticked") return;
-    expect(out.autoEvidence["Test: Desktop Browsers"]?.result).toBe("pass");
-    expect(out.ticked.some((f) => f.startsWith("Test:"))).toBe(false);
-    expect(Object.keys(out.checklist).some((f) => f.startsWith("Test:"))).toBe(false);
-  });
-});

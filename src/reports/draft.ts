@@ -18,7 +18,7 @@ import type { ReportMirror } from "./report-mirror.js";
 import type { SiteMirror } from "../db/site-mirror.js";
 import { queueDraft, type QueueOutcome } from "./queue.js";
 import { autoTickChecklist } from "./auto-tick.js";
-import { checklistFor } from "./checklist.js";
+import { passedAutomatedTests } from "./automated-tests.js";
 import { readGaConfig } from "./ga/config.js";
 import { searchEnrolled } from "./search-enrolled.js";
 import { fetchReportVisits, measuredHostnames, REPORT_WINDOW_DAYS } from "./ga/client.js";
@@ -317,6 +317,10 @@ export async function draftReportForSite(
     searchPosition: search?.foundOnPage1 ? (search.position ?? undefined) : undefined,
     lastTestedDate,
     commentary: null,
+    // The stored body (the cockpit preview) shows today's nightly results; the send re-reads them.
+    ...(reportType === "Maintenance"
+      ? { automatedTestsPassed: passedAutomatedTests(siteRow, completedOn) }
+      : {}),
     // Completing a half-made row re-stores ITS body, so render with the evidence that row holds:
     // the send re-renders from the row, and the preview must drop the rows the send will.
     checklistEvidence: options.completeRowId
@@ -387,11 +391,8 @@ export async function draftReportForSite(
     };
   }
 
-  // Only this type's checkboxes are ticked: a Maintenance report also records the Testing rows'
-  // evidence (for its email's TESTING list), but has no Testing checkboxes.
-  const boxes = new Set(checklistFor(reportType).map((i) => i.field));
   const checklistTicks = [...evidence.entries()]
-    .filter(([field, e]) => e.result === "pass" && boxes.has(field))
+    .filter(([, e]) => e.result === "pass")
     .map(([field]) => field);
 
   const reportId = `${siteRow.name} — ${reportType} — ${periodEnd.toISOString().slice(0, 10)}`;

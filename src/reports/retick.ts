@@ -1,7 +1,6 @@
 import type { WebsiteRow } from "../fleet/site-row.js";
 import type { ReportRow } from "./report-fields.js";
 import { autoTickChecklist, type AutoTickSignals, type EvidenceRecord } from "./auto-tick.js";
-import { checklistFor } from "./checklist.js";
 
 const GOOGLE_INDEXED = "Maint: Google Indexed";
 
@@ -79,10 +78,7 @@ export function retickEvidence(
 
   const checklist: Record<string, boolean> = { ...report.checklist };
   const ticked: string[] = [];
-  // A Maintenance report records the Testing rows' evidence but has no Testing checkboxes.
-  const boxes = new Set(checklistFor(report.reportType).map((i) => i.field));
   for (const field of changed) {
-    if (!boxes.has(field)) continue;
     if (autoEvidence[field]!.result === "pass" && checklist[field] !== true) {
       checklist[field] = true;
       ticked.push(field);

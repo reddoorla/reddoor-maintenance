@@ -263,3 +263,20 @@ describe("refresh preview takes the site row's current scores (P1-34)", () => {
     ).toBe("100");
   });
 });
+
+describe("renderReportFromRow reads the nightly testing results at render (11-25)", () => {
+  const fresh = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const old = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
+  const tested = (at: string) =>
+    site({ browserCheckedAt: at, crossbrowserOk: true, mobileOk: true, linksOk: true });
+
+  it("adds a freshly passed Testing row to a Maintenance email, though the row stores no Test: evidence", async () => {
+    const r = await renderReportFromRow(tested(fresh), report({ autoEvidence: null }), PLATE);
+    expect(r.html).toMatch(/>\s*Desktop Browsers\s*</);
+  });
+
+  it("leaves out a pass that is a week old at the send", async () => {
+    const r = await renderReportFromRow(tested(old), report({ autoEvidence: null }), PLATE);
+    expect(r.html).not.toMatch(/>\s*Desktop Browsers\s*</);
+  });
+});

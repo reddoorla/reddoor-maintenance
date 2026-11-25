@@ -16,15 +16,17 @@ Landed in reddoorla/reddoor-maintenance#2293 (branch `claude/remove-testing-upse
 - A row that did not pass is left out (pick (a)).
 - Testing reports are unchanged.
 
-**The mapping was already in the code.** `auto-tick.ts` had an evidence function for every Testing row: the browser audit for desktop, mobile, links and titles; form-e2e; smoke; and default-branch CI. It ran only for Testing reports. The new `evidenceItemsFor` gives Maintenance reports the same evidence. It is non-gating, so an unmeasured row is omitted rather than `unknown`, and `checklistFor` and `gatingFields` are unchanged.
+**The mapping was already in the code.** `auto-tick.ts` had an evidence function for every Testing row: the browser audit for desktop, mobile, links and titles; form-e2e; smoke; and default-branch CI. The new `passedAutomatedTests(site, now)` runs those same rules when the email is built. It is never stored, and the Maintenance checkboxes and send gate are unchanged.
 
 **Measured** (read-only Turso, 10:28am PT): all 17 maintained sites pass every Testing row. Form Functionality is `n/a` for three sites with no form: 29 Navy, CalTex and Williamson Homes.
 
-**Defects the review found** (round 1, Opus, three lenses):
+**Defects the reviews found** (Opus, three lenses):
 
-- **Major: a stale tick.** Evidence is frozen at draft, up to 7 days before the send, and an approved row is never re-ticked. So a client could see "passed its latest run" over a pass a week old. Fixed at render: a Testing row shows only when its pass is within 3 days of the email's date.
-- **Minor: Testing checkboxes ticked on Maintenance rows.** The draft and retick tick loops also ticked `Test:` checkbox columns on Maintenance rows. Both loops are now limited to `checklistFor`.
-- **Minor: the intro over-claimed.** It said "every night" and "after every update" for checks that are not all nightly. That intro went with the merge into the maintenance list.
+- **Round 1, major: a stale tick.** Evidence was saved at draft, up to 7 days before the send, and an approved row is never re-ticked, so a client could see a pass a week old. The first fix filtered saved passes to within 3 days of the email's date. It also limited the draft and retick tick loops so they no longer ticked `Test:` checkbox columns on Maintenance rows.
+- **Round 2, two majors on that first fix.**
+  - Measured against the due date, the age check had no lower bound, so a late send still showed old passes. A future timestamp always passed.
+  - On the normal path the rows would almost never show. The nightly drafts 7 days before the due date, so every saved pass was already too old.
+- **Round 3's fix replaced the design rather than patching it.** The rows are read from the site row when the email is built. The send uses its own send time, the draft preview uses the draft time, and selftest uses its own. Stored evidence and the tick loops are back to main.
 
 **Beliefs corrected on contact.**
 
@@ -32,4 +34,4 @@ Landed in reddoorla/reddoor-maintenance#2293 (branch `claude/remove-testing-upse
 - The Reddoor draft the brief named, `report_01M89X5A2PFMMPTCBYWC57T5PQ`, had been sent at 9:56am PT, so `--rerender` was refused.
 - The [TEST] went through `testSendReport` with the CLI's own binding. Its render layered live Testing-row evidence onto that row in memory. Nothing was written to `reports`.
 
-**Not done here.** Maintenance reports drafted or approved before this deploys carry no Testing evidence, so they go out with the AEO block and the six maintenance rows only. An unapproved one gains the rows on its next refresh.
+**Effect on reports already queued.** None needed: the send reads the nightly results itself, so reports drafted before this lands show the Testing rows too.
