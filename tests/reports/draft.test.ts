@@ -293,7 +293,7 @@ describe("draftReportForSite", () => {
     });
   });
 
-  // 2026-11-25: a Maintenance draft's stored body lists the Testing rows the nightly tests
+  // 2026-11-25: a Maintenance draft's rendered body (stored, or the preview) lists the Testing rows the nightly tests
   // passed (`passedAutomatedTests`, read when the draft is built; the send re-reads them).
   describe("the Testing rows on a Maintenance draft (11-25)", () => {
     const recent = () => new Date(Date.now() - 60 * 60 * 1000).toISOString();
@@ -325,8 +325,10 @@ describe("draftReportForSite", () => {
       const html = await previewHtml(browserPassed(), "Maintenance");
       const heading = html.search(/>\s*MAINTENANCE CHECKS\s*</);
       const row = html.search(/>\s*Desktop Browsers\s*</);
+      const aeo = html.search(/>\s*AI SEARCH &amp; SEO\s*</);
       expect(heading).toBeGreaterThanOrEqual(0);
       expect(row).toBeGreaterThan(heading);
+      expect(aeo).toBeGreaterThan(row);
     });
 
     it("a Testing draft shows its Desktop Browsers row once, in the TESTING section, not in the maintenance list", async () => {
