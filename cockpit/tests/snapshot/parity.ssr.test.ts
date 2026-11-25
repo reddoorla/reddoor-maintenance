@@ -162,15 +162,28 @@ async function seed() {
   for (let i = 0; i < 320; i++) {
     const at = new Date(start + i * 18_500_000 + Math.floor(r() * 30) * 60_000);
     const bounced = r() < 0.2;
+    const siteId = pick(["recA", "recA", "recA", "recA", "recB", "recC"]);
+    const slug = { recA: "acme", recB: "beta-builders", recC: "cedar-co" }[siteId];
+    // Mostly the site's own pages, plus the hosts and senders a lead must not come
+    // from (#2296), so both derivations have leads to agree on and rows to drop.
+    const sourceUrl = pick([
+      `https://${slug}.example.com/contact`,
+      `https://www.${slug}.example.com/contact`,
+      `https://${slug}.example.com/contact`,
+      `https://staging.${slug}.example.com/contact`,
+      "http://localhost:4173/contact",
+      null,
+    ]);
     await db
       .insertInto("submissions")
       .values({
         id: `sub${i}`,
         submission_id: i + 1,
-        site_id: pick(["recA", "recA", "recA", "recA", "recB", "recC"]),
+        site_id: siteId,
         form_type: pick(FORMS),
         name: pick(NAMES) ?? "",
-        email: pick(["pat@example.com", "ZOE@Example.COM", "x_y@ex.org"]),
+        email: pick(["pat@patmail.com", "ZOE@Mail.COM", "x_y@ex.org", "qa@reddoorla.com"]),
+        source_url: sourceUrl,
         phone: pick([null, "555-0100", "+1 (555) 0199"]),
         message: pick(MESSAGES),
         status: r() < 0.7 ? "new" : pick(STATUSES),

@@ -115,9 +115,12 @@ describe("only production submissions are leads (maintenance#2296)", () => {
     await seedRow("recA", "contact", "www@x.com", IN, undefined, "https://www.a-site.com/contact");
     // A real lead on the apex of a www-stored site.
     await seedRow("recB", "contact", "apex@x.com", IN, undefined, "https://b-site.com/contact");
+    // Production host, but a test sender (the operator's pick (a), 11-25): no lead.
+    await seedRow("recA", "contact", "staff+form-check@reddoorla.com", IN);
+    await seedRow("recB", "inquiry", "t@c.v", IN);
   });
 
-  it("the report's lead list keeps the apex and www pages and drops every other host", async () => {
+  it("the report's lead list keeps the apex and www pages, drops every other host and every test sender", async () => {
     // recA: a1, a2, the pre-window row, and the www row. Six non-production rows dropped.
     expect(await listLeadTimestampsForSite(db, { id: "recA", url: SITE_URL.recA! })).toHaveLength(
       4,

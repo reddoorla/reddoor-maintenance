@@ -155,7 +155,8 @@ async function seedSubmission(id: string, siteId: string, over: Record<string, u
       site_id: siteId,
       form_type: "contact",
       name: "Pat",
-      email: "pat@example.com",
+      // A real sender: an example.* address is a test sender, never a lead (#2296).
+      email: "pat@patmail.com",
       status: "new",
       notify_status: "sent",
       submitted_at: "2026-10-19T10:00:00.000Z",

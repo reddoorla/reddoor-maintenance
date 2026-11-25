@@ -74,7 +74,7 @@ const probeBody = (marked: boolean) => ({
   message: "Synthetic end-to-end health check — please ignore.",
   company: "Synthetic end-to-end health check — please ignore.",
   interest: "funds",
-  // From the site's own page, so the control counts as a lead (#2296).
+  // From the site's own page, as a real submission is (#2296).
   sourceUrl: "https://acme.example.com/contact",
   ...(marked ? { testMode: true } : {}),
 });
@@ -139,7 +139,10 @@ describe("form-e2e's testMode marker reaches every filter (#779)", () => {
       unreadBadge: 1,
       unreadPage: 1,
       cockpitLeads: 1,
-      digestLeads: 1,
+      // Stored and unread, but never a digest lead: the probe sends from Reddoor's
+      // own domain, which LEADS drops by sender (#2296). The marked case below still
+      // proves the marker reaches the digest, by storing no row at all.
+      digestLeads: 0,
     });
   });
 

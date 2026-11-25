@@ -341,7 +341,9 @@ export function siteDashboardFromSnapshot(
       ? null
       : leadPeriods(
           subs
-            .filter((r) => r.siteId === site.id && isCountedLead(r) && r.submittedAt !== null)
+            .filter(
+              (r) => r.siteId === site.id && isCountedLead(r, site.url) && r.submittedAt !== null,
+            )
             .map((r) => r.submittedAt as string),
           now,
         );

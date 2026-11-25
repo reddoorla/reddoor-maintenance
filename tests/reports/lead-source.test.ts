@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isProductionSource } from "../../src/reports/lead-source.js";
+import { isLead, isProductionSource, isTestSender } from "../../src/reports/lead-source.js";
 
 const SITE = "https://reddoorla.com/";
 
@@ -58,5 +58,62 @@ describe("isProductionSource (maintenance#2296)", () => {
 
   it("ignores case and port in the source host", () => {
     expect(isProductionSource("https://WWW.Reddoorla.com:443/contact", SITE)).toBe(true);
+  });
+});
+
+describe("isTestSender (maintenance#2296, the operator's pick (a), 11-25)", () => {
+  it("is Reddoor's own domain, any local part or +tag, and its subdomains", () => {
+    expect(isTestSender("staff@reddoorla.com")).toBe(true);
+    expect(isTestSender("someone+hedloc-autoreply-1110@reddoorla.com")).toBe(true);
+    expect(isTestSender("Info@REDDOORLA.com ")).toBe(true);
+    expect(isTestSender("a@mail.reddoorla.com")).toBe(true);
+  });
+
+  it("is a reserved domain no mail reaches", () => {
+    expect(isTestSender("turnstile-proof@example.com")).toBe(true);
+    expect(isTestSender("x@example.org")).toBe(true);
+    expect(isTestSender("x@example.net")).toBe(true);
+    expect(isTestSender("x@sub.example.com")).toBe(true);
+    expect(isTestSender("x@shop.test")).toBe(true);
+    expect(isTestSender("x@nowhere.invalid")).toBe(true);
+    expect(isTestSender("x@box.localhost")).toBe(true);
+    expect(isTestSender("x@corp.example")).toBe(true);
+  });
+
+  it("is a one-letter top-level domain", () => {
+    expect(isTestSender("t@c.v")).toBe(true);
+  });
+
+  it("is not a real person on a look-alike or ordinary domain", () => {
+    expect(isTestSender("owner@notreddoorla.com")).toBe(false);
+    expect(isTestSender("owner@reddoorla.com.au")).toBe(false);
+    expect(isTestSender("owner@myexample.com")).toBe(false);
+    expect(isTestSender("jane@gmail.com")).toBe(false);
+    expect(isTestSender("jane@t.co")).toBe(false);
+    expect(isTestSender("jane@studio.io")).toBe(false);
+  });
+
+  it("never matches on a name: 'test' in the local part alone is not a test sender", () => {
+    expect(isTestSender("transtar.tests@gmail.com")).toBe(false);
+  });
+
+  it("is false for an address with no domain", () => {
+    expect(isTestSender("")).toBe(false);
+    expect(isTestSender("nobody")).toBe(false);
+  });
+});
+
+describe("isLead", () => {
+  it("needs both a production source and a real sender", () => {
+    const site = "https://reddoorla.com/";
+    expect(isLead({ sourceUrl: "https://reddoorla.com/c", email: "jane@gmail.com" }, site)).toBe(
+      true,
+    );
+    expect(isLead({ sourceUrl: "https://reddoorla.com/medtech", email: "t@c.v" }, site)).toBe(
+      false,
+    );
+    expect(
+      isLead({ sourceUrl: "https://staging.reddoorla.com/c", email: "jane@gmail.com" }, site),
+    ).toBe(false);
   });
 });
