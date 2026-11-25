@@ -5,6 +5,9 @@ export type ResolvedCopy = {
   maintenanceChecks: string[]; // 6; index 3 is the Google row's no-position default
   testingIntro: string;
   testingChecklist: string[]; // 7
+  /** The intro over a Maintenance report's TESTING list, whose rows are ticked only by the
+   *  nightly automated tests (2026-11-25). */
+  automatedTestingIntro: string;
   notesHeader: string;
   seoCta: string;
   contact: string[]; // closing invitation lines
@@ -47,6 +50,8 @@ export const DEFAULT_COPY: ResolvedCopy = {
     "Interactions & Animations",
     "Tested After Updates",
   ],
+  automatedTestingIntro:
+    "We now test your site automatically every night: in desktop and mobile browsers, its page titles and links, its forms and interactions, and after every update. Each item below passed its latest run.",
   notesHeader: "NOTES",
   seoCta: "Contact us if you are interested in more in-depth data or have questions about SEO.",
   contact: ["Just hit reply.", "We're here to help in any way we can."],

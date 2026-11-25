@@ -1,6 +1,5 @@
 import type { ReportData } from "../types.js";
 import { DEFAULT_COPY, type ResolvedCopy } from "../copy.js";
-import { BLURRED_CID } from "./assets/index.js";
 import {
   checklistRowsSection,
   lighthouseScoresSection,
@@ -29,11 +28,6 @@ import { isHttpUrl } from "../../util/url.js";
  * `escapeXml` from here).
  */
 export const escapeXml = escapeHtml;
-
-// Bundled images: shipped in dist/ via tsup onSuccess copy, attached inline via
-// CID by orchestrate.ts at send time. No external CDN dependency. (The green check
-// image lives in the shared email-sections checklist component.)
-const BLURRED_TESTS = `cid:${BLURRED_CID}`;
 
 export function fmtDate(d: Date | null): string {
   // Guard BOTH null AND an Invalid Date — `new Date("not-a-date")` (a malformed
@@ -95,26 +89,40 @@ function testingSections(data: ReportData, copy: ResolvedCopy): string {
   );
   if (rows.length === 0) return "";
   return (
-    testingIntroSection(copy) +
+    testingIntroSection(copy.testingIntro) +
     checklistRowsSection(rows, { background: "#F4F4F4", lastPaddingBottom: "60px" })
   );
 }
 
-function maintenanceTestingPlaceholder(): string {
-  return `
-    <mj-section background-color="#F4F4F4">
-      <mj-column>
-        <mj-image href="mailto:info@reddoorla.com" src="${BLURRED_TESTS}" />
-      </mj-column>
-    </mj-section>`;
+/**
+ * A Maintenance report's TESTING list (2026-11-25, in place of the blurred testing upsell): the
+ * Testing rows the nightly automated tests passed. Strictly `pass`: a row whose latest run
+ * failed, is stale (`unknown`), does not apply (`n/a`) or never ran (no record) is left out,
+ * never ticked by default. The rows carry no checkbox of their own on a Maintenance report, so
+ * nothing but the evidence can tick them. No passing row, no section. PURE.
+ */
+export function automatedTestingLabels(data: ReportData, copy: ResolvedCopy): string[] {
+  return copy.testingChecklist.filter((_, i) => {
+    const field = TESTING_CHECKLIST[i]?.field;
+    return field !== undefined && data.checklistEvidence?.[field]?.result === "pass";
+  });
 }
 
-function testingIntroSection(copy: ResolvedCopy): string {
+function automatedTestingSections(data: ReportData, copy: ResolvedCopy): string {
+  const rows = automatedTestingLabels(data, copy);
+  if (rows.length === 0) return "";
+  return (
+    testingIntroSection(copy.automatedTestingIntro) +
+    checklistRowsSection(rows, { background: "#F4F4F4", lastPaddingBottom: "60px" })
+  );
+}
+
+function testingIntroSection(intro: string): string {
   return `
     <mj-section background-color="#F4F4F4">
       <mj-column>
         <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="75px">TESTING</mj-text>
-        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px">${escapeXml(copy.testingIntro)}</mj-text>
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px">${escapeXml(intro)}</mj-text>
       </mj-column>
     </mj-section>`;
 }
@@ -207,7 +215,7 @@ export function buildMjml(data: ReportData): string {
       periodDays: data.gaPeriodDays,
       background: "white",
     })}
-    ${isTesting ? testingSections(data, copy) : maintenanceTestingPlaceholder()}
+    ${isTesting ? testingSections(data, copy) : automatedTestingSections(data, copy)}
     ${data.commentary ? commentarySection(data.commentary, copy) : ""}
     <mj-section background-color="white">
       <mj-column padding-top="36px">

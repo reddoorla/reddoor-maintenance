@@ -613,7 +613,8 @@ describe("sendApprovedReports", () => {
     expect(header!.filename).toBe("acme-co-header.jpg");
     expect(header!.contentType).toBe("image/jpeg");
     expect(check).toBeDefined();
-    expect(blurred).toBeDefined();
+    // 2026-11-25: the Maintenance report's blurred testing image is gone.
+    expect(blurred).toBeUndefined();
   });
 
   it("does NOT attach the blurred-tests image to a Testing report (Maintenance-only), keeps check + header", async () => {

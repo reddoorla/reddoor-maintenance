@@ -40,12 +40,12 @@ function toInlineAttachment(a: {
 
 /**
  * Render a report email from fully-assembled `ReportData`: produce the HTML, the gated inline
- * attachments, and the subject. The per-site header attaches always; the two bundled images
- * (`rd-check-png`, `rd-blurred-tests-jpg`) attach only when their cid actually appears in the
+ * attachments, and the subject. The per-site header attaches always; the bundled check image
+ * (`rd-check-png`) attaches only when its cid actually appears in the
  * rendered HTML (a dangling inline part shows as a stray download in some clients). The subject
  * is `subjectOverride` when given, else `defaultReportSubject`. Shared by the production send path
  * (`sendOne`) and the `selftest` command so the rendered email, attachments, and subject can't
- * drift between them. The only I/O is `loadBundledImages` (a disk read of two bundled images).
+ * drift between them. The only I/O is `loadBundledImages` (a disk read of the bundled image).
  */
 export async function renderReportEmail(
   reportData: ReportData,
@@ -61,7 +61,7 @@ export async function renderReportEmail(
       cid: ctx.cidName,
     }),
   ];
-  for (const img of [bundled.check, bundled.blurred]) {
+  for (const img of [bundled.check]) {
     if (html.includes(`cid:${img.cid}`)) {
       attachments.push(
         toInlineAttachment({

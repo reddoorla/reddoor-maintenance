@@ -1,7 +1,7 @@
 import type { ReportType } from "./types.js";
 import type { WebsiteRow } from "../fleet/site-row.js";
 import type { SearchPresence } from "./search/client.js";
-import { checklistFor, gatingFields } from "./checklist.js";
+import { evidenceItemsFor, gatingFields } from "./checklist.js";
 import { isNetlifyAppUrl } from "../util/url.js";
 
 /** A persisted audit signal is only trusted within this window — a stale "pass" degrades to
@@ -61,7 +61,7 @@ export function autoTickChecklist(
   const out = new Map<string, EvidenceRecord>();
   const gating = new Set(gatingFields(reportType));
 
-  for (const item of checklistFor(reportType)) {
+  for (const item of evidenceItemsFor(reportType)) {
     let ev: EvidenceRecord | null;
     switch (item.field) {
       case "Maint: Google Indexed":

@@ -58,6 +58,18 @@ export function checklistFor(type: ReportType): ChecklistItem[] {
   return [];
 }
 
+/**
+ * The items whose evidence a draft of this type records. A Maintenance report also records the
+ * 7 Testing items, measured by the nightly audits, so its email can show the automated testing
+ * checklist (2026-11-25, replacing the blurred testing upsell). They stay out of
+ * {@link checklistFor} and {@link gatingFields}: a Maintenance report's checkboxes and send gate
+ * are unchanged, and an unmeasured Testing item is simply not shown. PURE.
+ */
+export function evidenceItemsFor(type: ReportType): ChecklistItem[] {
+  if (type === "Maintenance") return [...MAINTENANCE_CHECKLIST, ...TESTING_CHECKLIST];
+  return checklistFor(type);
+}
+
 /** The maintenance items whose HEALTH gates a Maintenance send. Google Indexed is advisory
  *  (reported, never blocks) so it is excluded. */
 const MAINTENANCE_GATING_FIELDS: string[] = [

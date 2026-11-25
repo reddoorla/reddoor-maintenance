@@ -37,8 +37,9 @@ describe("renderReportEmail", () => {
     });
     const cids = attachments.map((a) => a.inlineContentId);
     expect(cids).toContain("acme-co-header"); // header always
-    // Maintenance renders the green check and the blurred-tests image, so both attach.
+    // Maintenance renders the green check, so it attaches; the blurred-tests image is gone.
     expect(cids).toContain("rd-check-png");
+    expect(cids).not.toContain("rd-blurred-tests-jpg");
     expect(html).toContain("ANALYTICS"); // sanity: it actually rendered the report
   });
 

@@ -58,7 +58,8 @@ export type ReportData = {
   /** Site's rounded average Google position for its query, when on page 1 (from Search Console).
    *  `undefined` = not on page 1, not checked, or unconfigured — rendered as today's plain check. */
   searchPosition?: number | undefined;
-  /** Only used when reportType === "Maintenance"; the date shown next to the blurred-testing image. */
+  /** Stored with the report. No template shows it: the blurred-testing image it once sat
+   *  beside went on 2026-11-25. */
   lastTestedDate: Date | null;
   /** Optional free-text rendered as a section above the footer. */
   commentary: string | null;

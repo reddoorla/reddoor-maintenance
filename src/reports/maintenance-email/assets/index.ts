@@ -4,7 +4,6 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const CHECK_CID = "rd-check-png";
-export const BLURRED_CID = "rd-blurred-tests-jpg";
 
 export type BundledImage = {
   bytes: Uint8Array;
@@ -50,31 +49,18 @@ function resolveAssetsDir(): string {
 }
 
 /**
- * Read the bundled image bytes from disk. Both Maintenance and Testing
- * variants reference `check.png`; only the Maintenance variant references
- * `blurredTests.jpg`.
+ * Read the bundled image bytes from disk: the green `check.png` every checklist row
+ * references. (The Maintenance report's blurred testing image went on 2026-11-25.)
  */
-export async function loadBundledImages(): Promise<{
-  check: BundledImage;
-  blurred: BundledImage;
-}> {
+export async function loadBundledImages(): Promise<{ check: BundledImage }> {
   const assetsDir = resolveAssetsDir();
-  const [check, blurred] = await Promise.all([
-    readFile(join(assetsDir, "check.png")),
-    readFile(join(assetsDir, "blurredTests.jpg")),
-  ]);
+  const check = await readFile(join(assetsDir, "check.png"));
   return {
     check: {
       bytes: new Uint8Array(check),
       contentType: "image/png",
       cid: CHECK_CID,
       filename: "check.png",
-    },
-    blurred: {
-      bytes: new Uint8Array(blurred),
-      contentType: "image/jpeg",
-      cid: BLURRED_CID,
-      filename: "blurredTests.jpg",
     },
   };
 }
