@@ -77,16 +77,10 @@ function maintenanceCheckLabels(data: ReportData, copy: ResolvedCopy): string[] 
   ];
 }
 
-function maintenanceHeadingBlock(data: ReportData, copy: ResolvedCopy): string {
-  // The intro names what the list holds: when it ends with Testing rows, say so.
-  const withTests =
-    data.reportType === "Maintenance" && automatedTestingLabels(data, copy).length > 0;
-  const intro = withTests
-    ? `${copy.maintenanceIntro} ${copy.maintenanceTestsNote}`
-    : copy.maintenanceIntro;
+function maintenanceHeadingBlock(copy: ResolvedCopy): string {
   return `
         <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="75px">MAINTENANCE CHECKS</mj-text>
-        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px">${escapeXml(intro)}</mj-text>`;
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px">${escapeXml(copy.maintenanceIntro)}</mj-text>`;
 }
 
 function maintenanceChecksSection(rows: string[]): string {
@@ -220,7 +214,7 @@ export function buildMjml(data: ReportData): string {
     <mj-section background-color="white">
       <mj-column>
         <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="75px">COMPLETED ON</mj-text>
-        <mj-text color="${RED}" font-size="44px" font-weight="400">${fmtDate(data.completedOn)}</mj-text>${maintenanceRows.length > 0 ? maintenanceHeadingBlock(data, copy) : ""}
+        <mj-text color="${RED}" font-size="44px" font-weight="400">${fmtDate(data.completedOn)}</mj-text>${maintenanceRows.length > 0 ? maintenanceHeadingBlock(copy) : ""}
       </mj-column>
     </mj-section>
     ${maintenanceChecksSection(maintenanceRows)}
