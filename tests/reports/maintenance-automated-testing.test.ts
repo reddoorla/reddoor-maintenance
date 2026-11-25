@@ -184,6 +184,12 @@ describe("the Testing rows on a Maintenance email", () => {
     const after = html.slice(at + DEFAULT_COPY.maintenanceIntro.length).trimStart();
     expect(after.startsWith("<")).toBe(true);
     expect(html).not.toContain("tested automatically every night");
+
+    const copy = { ...DEFAULT_COPY, maintenanceIntro: "Custom intro." };
+    const custom = await renderReportHtml(
+      data("Maintenance", { automatedTestsPassed: TEST_FIELDS, copy }),
+    );
+    expect(custom.html).toMatch(/Custom intro\.\s*</);
   });
 
   it("leave a Testing report as it was, even if a list is passed", async () => {
