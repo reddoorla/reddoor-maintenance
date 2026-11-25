@@ -168,9 +168,7 @@ describe("the AEO/SEO block in the upsell's slot (the operator's pick (a), 11-25
 
   it("sits before the TESTING list", async () => {
     const { html } = await renderReportHtml(data("Maintenance", allPass()));
-    expect(html.search(rowText("AI SEARCH & SEO"))).toBeLessThan(
-      html.search(rowText("TESTING")),
-    );
+    expect(html.search(rowText("AI SEARCH & SEO"))).toBeLessThan(html.search(rowText("TESTING")));
   });
 
   it("is not on a Testing report", async () => {
