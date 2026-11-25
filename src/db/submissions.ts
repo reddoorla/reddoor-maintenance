@@ -314,8 +314,9 @@ export type SiteSubmissionCounts = { leads: number; signups: number; spamAuto: n
  *  `siteUrls` (the report's LEADS rule; a site missing from it counts no leads);
  *  signups = signup-form rows not bucketed as spam (status NOT IN
  *  ('spam_auto','spam')); spamAuto = status='spam_auto'. Keyed by Websites record
- *  id. Reads the window's rows and tallies here, since the lead rule is not SQL;
- *  the window is one day. */
+ *  id. A row whose site_id is not in `siteUrls` still counts its signups and
+ *  spamAuto but no lead. Reads the window's rows and tallies here, since the lead
+ *  rule is not SQL; the digest's window is one day. */
 export async function countSubmissionsSinceBySite(
   db: Db,
   sinceIso: string,

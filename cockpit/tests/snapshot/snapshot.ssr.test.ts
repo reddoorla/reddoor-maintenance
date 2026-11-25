@@ -305,7 +305,12 @@ describe("loadCockpitSnapshot on a batchReads Db", () => {
       name: "Alice Real",
       email: "alice@example.com",
       message: "Please quote the kitchen remodel",
+      source_url: "https://acme.example.com/contact?utm_source=" + "x".repeat(200),
       spam_reason: "honeypot",
+    });
+    await lead("longmail", new Date(NOW.getTime() - 2 * 86_400_000), {
+      name: "Long Mail",
+      email: `${"q".repeat(90)}@reddoorla.com`,
     });
     for (let i = 0; i < 60; i++) {
       const junk = (tag: string) => `${i}${tag}${"<".repeat(30_000)}`;
@@ -329,8 +334,17 @@ describe("loadCockpitSnapshot on a batchReads Db", () => {
     expect(Buffer.byteLength(devalue.stringify(s))).toBeLessThan(SNAPSHOT_TEXT_BUDGET + 500_000);
     // Every row is still there; the oldest crafted ones and the real lead behind
     // them carry the marker for their message.
-    expect(s.submissions).toHaveLength(61);
+    expect(s.submissions).toHaveLength(62);
     expect(s.submissions?.find((r) => r.id === "alice")?.message).toBe(TEXT_PAST_BUDGET);
+    // What the lead rule reads survives the budget, so the snapshot counts the
+    // same leads as Turso (#2296): the source page's origin, and a long address's
+    // domain behind its 80-character prefix.
+    expect(s.submissions?.find((r) => r.id === "alice")?.sourceUrl).toBe(
+      "https://acme.example.com",
+    );
+    expect(s.submissions?.find((r) => r.id === "longmail")?.email).toBe(
+      `${"q".repeat(80)}…@reddoorla.com`,
+    );
     // What still holds: every count, status and reason, and a search by sender.
     for (const q of [
       "status=spam_auto",

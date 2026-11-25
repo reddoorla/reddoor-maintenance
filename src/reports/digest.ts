@@ -615,8 +615,8 @@ const SUBMISSIONS_DIGEST_WINDOW_MS = 24 * 60 * 60 * 1000;
  *  kysely/libsql are devDependencies consuming fleet sites don't install, and a
  *  Turso blip must drop just this section, never the digest. Returns null (not an
  *  empty map) on failure so the renderer can omit the section rather than claim a
- *  quiet fleet. */
-async function fetchSubmissionsDigestCounts(
+ *  quiet fleet. Exported for its wiring test. */
+export async function fetchSubmissionsDigestCounts(
   now: Date,
   sitesById: ReadonlyMap<string, WebsiteRow>,
 ): Promise<ReadonlyMap<string, SiteSubmissionCounts> | null> {

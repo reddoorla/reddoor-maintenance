@@ -9,21 +9,33 @@ import { isSiteHost } from "../client/site-host.js";
  * `staging.<domain>`, a deploy preview, a `*.netlify.app` host that is not the
  * site's own, and `localhost` (smoke and a11y runs) never count. Neither does a
  * missing or unparseable `source_url`, nor a site whose own `url` gives no host:
- * a lead nobody can place on the live site is not counted. Measured on 2026-11-25,
+ * a lead nobody can place on the live site is not counted. A site `url` stored
+ * without a scheme (`client.com`) is read as `https://`, so a hand-typed roster
+ * row does not silently zero its leads, and a trailing dot on either host (the
+ * DNS root, `client.com.`) is ignored. Comparing against the site's CURRENT url
+ * means a site that moves domain stops counting leads from its old one. Measured on 2026-11-25,
  * no non-spam submission in the fleet lacked a `source_url`
  * (reddoorla/reddoor-maintenance#2296).
  */
 export function isProductionSource(sourceUrl: string | null, siteUrl: string): boolean {
   if (!sourceUrl) return false;
-  let source: URL;
-  let site: URL;
+  const source = parseUrl(sourceUrl);
+  const site = parseUrl(siteUrl) ?? parseUrl(`https://${siteUrl.trim()}`);
+  if (!source || !site) return false;
+  return isSiteHost(withoutRootDot(source.hostname), withoutRootDot(site.hostname));
+}
+
+function parseUrl(s: string): URL | null {
   try {
-    source = new URL(sourceUrl);
-    site = new URL(siteUrl);
+    return new URL(s);
   } catch {
-    return false;
+    return null;
   }
-  return isSiteHost(source.hostname, site.hostname);
+}
+
+/** `client.com.` is `client.com`: the trailing dot names the DNS root. */
+function withoutRootDot(host: string): string {
+  return host.endsWith(".") ? host.slice(0, -1) : host;
 }
 
 /** Reddoor's own domain: a submission from it is Reddoor testing a form, never a
@@ -54,10 +66,12 @@ function isWithin(domain: string, parent: string): boolean {
 export function isTestSender(email: string): boolean {
   const at = email.lastIndexOf("@");
   if (at < 0) return false;
-  const domain = email
-    .slice(at + 1)
-    .trim()
-    .toLowerCase();
+  const domain = withoutRootDot(
+    email
+      .slice(at + 1)
+      .trim()
+      .toLowerCase(),
+  );
   if (domain.length === 0) return false;
   if (isWithin(domain, REDDOOR_DOMAIN)) return true;
   if (RESERVED_DOMAINS.some((d) => isWithin(domain, d))) return true;

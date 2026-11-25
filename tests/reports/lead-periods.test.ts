@@ -87,7 +87,7 @@ describe("isCountedLead", () => {
     expect(isCountedLead({ status: "new", formType: "contact", ...REAL }, SITE_URL)).toBe(true);
     expect(isCountedLead({ status: "read", formType: "inquiry", ...REAL }, SITE_URL)).toBe(true);
   });
-  it("skips spam and signups, as the digest's lead count does", () => {
+  it("skips spam and signups, as every lead count does", () => {
     expect(isCountedLead({ status: "spam", formType: "contact", ...REAL }, SITE_URL)).toBe(false);
     expect(isCountedLead({ status: "spam_auto", formType: "contact", ...REAL }, SITE_URL)).toBe(
       false,

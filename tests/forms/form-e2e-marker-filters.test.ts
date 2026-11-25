@@ -116,14 +116,16 @@ async function filters() {
     unreadBadge: unread.length,
     unreadPage: await countSubmissionsFiltered(db, { status: "new" }),
     cockpitLeads: card?.newLeads ?? null,
-    digestLeads:
+    // The digest's row for the site: present once anything is stored, so it tells
+    // marked from unmarked even though the probe's sender is never a lead.
+    digest:
       (
         await countSubmissionsSinceBySite(
           db,
           "2000-01-01T00:00:00.000Z",
           new Map([[SITE.id, SITE.fields.url]]),
         )
-      ).get(SITE.id)?.leads ?? 0,
+      ).get(SITE.id) ?? null,
   };
 }
 
@@ -139,10 +141,9 @@ describe("form-e2e's testMode marker reaches every filter (#779)", () => {
       unreadBadge: 1,
       unreadPage: 1,
       cockpitLeads: 1,
-      // Stored and unread, but never a digest lead: the probe sends from Reddoor's
-      // own domain, which LEADS drops by sender (#2296). The marked case below still
-      // proves the marker reaches the digest, by storing no row at all.
-      digestLeads: 0,
+      // In the digest, but never a digest lead: the probe sends from Reddoor's own
+      // domain, which LEADS drops by sender (#2296).
+      digest: { leads: 0, signups: 0, spamAuto: 0 },
     });
   });
 
@@ -156,7 +157,7 @@ describe("form-e2e's testMode marker reaches every filter (#779)", () => {
       unreadBadge: 0,
       unreadPage: 0,
       cockpitLeads: 0,
-      digestLeads: 0,
+      digest: null,
     });
   });
 });

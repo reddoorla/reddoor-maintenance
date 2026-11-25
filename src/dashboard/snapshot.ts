@@ -213,8 +213,9 @@ const GAP = Symbol("gap");
  *    on 2026-10-21 was 7,924 characters (681 rows).
  *  - All of them: at most `SNAPSHOT_TEXT_BUDGET`, counted as the bytes SvelteKit's
  *    serialiser writes (`charCost`), newest lead first. A lead past it keeps its
- *    row, its status, its reasons and the first 80 characters of its name, email
- *    and phone, so every count, status and reason filter holds and a search by
+ *    row, its status, its reasons, the first 80 characters of its name, email
+ *    and phone, its email's domain and its source page's origin, so every count
+ *    (leads included, #2296), status and reason filter holds and a search by
  *    sender still finds it; its message and other text become one constant
  *    marker, which the serialiser writes once however many rows hold it. A search
  *    for words in an older lead's message misses it while the budget is spent.
@@ -270,6 +271,38 @@ function cutTo(value: string, max: number): { text: string; cost: number; cut: b
 const KEPT_PAST_BUDGET = ["name", "email", "phone"] as const;
 const PREFIX_PAST_BUDGET = 80;
 
+/** The longest host a lead keeps past the budget: a DNS name's limit. */
+const HOST_MAX = 253;
+
+/** A `sourceUrl` past the budget: its origin, which is all `isCountedLead` reads
+ *  (the page's host), so the snapshot counts the same leads as Turso
+ *  (reddoorla/reddoor-maintenance#2296). Bounded by `HOST_MAX`; anything else
+ *  becomes the marker, which is no production host. */
+function originPastBudget(value: string): string {
+  let origin: string;
+  try {
+    origin = new URL(value).origin;
+  } catch {
+    return TEXT_PAST_BUDGET;
+  }
+  return origin.length <= HOST_MAX + "https://".length + ":65535".length
+    ? origin
+    : TEXT_PAST_BUDGET;
+}
+
+/** An `email` past the budget: the first `PREFIX_PAST_BUDGET` characters, as the
+ *  other sender fields keep, plus its domain, which `isTestSender` reads, so a long
+ *  address from a test domain is not counted in the snapshot when Turso drops it
+ *  (#2296). A domain longer than `HOST_MAX` is no real one and is not kept. */
+function emailPastBudget(value: string): string {
+  const { text, cut } = cutTo(value, PREFIX_PAST_BUDGET);
+  if (!cut) return value;
+  const at = value.lastIndexOf("@");
+  const domain = at < 0 ? "" : value.slice(at + 1);
+  if (at < PREFIX_PAST_BUDGET || domain.length === 0 || domain.length > HOST_MAX) return `${text}…`;
+  return `${text}…@${domain}`;
+}
+
 /** Apply both bounds to the rows, newest first (the order they are read in). */
 function boundLeadText(rows: SubmissionRow[]): SubmissionRow[] {
   let spent = 0;
@@ -285,7 +318,14 @@ function boundLeadText(rows: SubmissionRow[]): SubmissionRow[] {
       if (typeof value !== "string" || value === "") continue;
       const budgeted = field !== "spamReason";
       if (past && budgeted) {
-        if ((KEPT_PAST_BUDGET as readonly string[]).includes(field)) {
+        if (field === "sourceUrl") {
+          // The lead rule reads the host (#2296): keep the origin, which is short.
+          const origin = originPastBudget(value);
+          if (origin !== value) set(field, origin);
+        } else if (field === "email") {
+          const kept = emailPastBudget(value);
+          if (kept !== value) set(field, kept);
+        } else if ((KEPT_PAST_BUDGET as readonly string[]).includes(field)) {
           const { text, cut } = cutTo(value, PREFIX_PAST_BUDGET);
           if (cut) set(field, `${text}…`);
         } else {

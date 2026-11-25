@@ -79,7 +79,7 @@ describe("countSubmissionsSinceBySite", () => {
 });
 
 describe("listLeadTimestampsForSite (P1-127)", () => {
-  it("returns every lead of one site, all time, by the digest's lead rule", async () => {
+  it("returns every lead of one site, all time, by isCountedLead", async () => {
     const at = (await listLeadTimestampsForSite(db, { id: "recA", url: SITE_URL.recA! })).sort();
     // a1 + a2 (read) + the one before the digest window; not the signup or either spam.
     expect(at).toEqual([

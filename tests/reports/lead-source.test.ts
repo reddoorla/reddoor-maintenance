@@ -56,6 +56,17 @@ describe("isProductionSource (maintenance#2296)", () => {
     expect(isProductionSource("https://reddoorla.com/contact", "not a url")).toBe(false);
   });
 
+  it("reads a site url stored without a scheme as https", () => {
+    expect(isProductionSource("https://client.com/contact", "client.com")).toBe(true);
+    expect(isProductionSource("https://client.com/contact", "www.client.com")).toBe(true);
+    expect(isProductionSource("https://staging.client.com/c", "client.com")).toBe(false);
+  });
+
+  it("ignores a trailing root dot on either host", () => {
+    expect(isProductionSource("https://client.com./contact", "https://client.com")).toBe(true);
+    expect(isProductionSource("https://client.com/contact", "https://client.com.")).toBe(true);
+  });
+
   it("ignores case and port in the source host", () => {
     expect(isProductionSource("https://WWW.Reddoorla.com:443/contact", SITE)).toBe(true);
   });
@@ -95,6 +106,11 @@ describe("isTestSender (maintenance#2296, the operator's pick (a), 11-25)", () =
 
   it("never matches on a name: 'test' in the local part alone is not a test sender", () => {
     expect(isTestSender("transtar.tests@gmail.com")).toBe(false);
+  });
+
+  it("ignores a trailing root dot on the domain", () => {
+    expect(isTestSender("bob@gmail.com.")).toBe(false);
+    expect(isTestSender("staff@reddoorla.com.")).toBe(true);
   });
 
   it("is false for an address with no domain", () => {
