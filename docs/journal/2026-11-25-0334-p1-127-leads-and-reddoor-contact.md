@@ -17,12 +17,12 @@ Landed in the P1-127 PR from `claude/p1-127-leads-periods-reddoor-contact`, clos
 
 **Mutations, each red.**
 
-| Mutation | Tests that went red |
-|---|---|
-| Shift the 30-day window by one day | 3 |
-| Swap two months | 2 |
-| Swap current and previous in the report | 1 |
-| Let To drop the contact | 3, two of them through the real send path with a capturing Resend fake |
+| Mutation                                | Tests that went red                                                    |
+| --------------------------------------- | ---------------------------------------------------------------------- |
+| Shift the 30-day window by one day      | 3                                                                      |
+| Swap two months                         | 2                                                                      |
+| Swap current and previous in the report | 1                                                                      |
+| Let To drop the contact                 | 3, two of them through the real send path with a capturing Resend fake |
 
 **Review: three rounds, Opus.**
 
@@ -35,6 +35,7 @@ Landed in the P1-127 PR from `claude/p1-127-leads-periods-reddoor-contact`, clos
 **Sign-off.** The operator saw a LEADS block rendered from the branch and signed it off as is on Tue 11-24 (`decisions/2026-11-24-2104-p1-127-leads-block-sign-off.md`). The sample PNG handed over between sessions showed an older footnote than the code had, so it was re-rendered before he saw it.
 
 **Belief corrected on contact.**
+
 - **The seed.** The decision said to seed Tim on all 18 maintained sites. Asked again on 11-24, the operator changed it to "guess between erik and tim based on discord for projects". The seed is done after landing and is recorded on #2286 and in the workspace journal.
 - **Migrations.** Production has no migration step to run: `openDb` applies pending migrations once per process. 0064 therefore lands on the first database connection after deploy. Before that, `sites` in production had no `reddoor_contact` column, which was checked with `PRAGMA table_info`.
 
