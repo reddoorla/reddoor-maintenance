@@ -58,7 +58,8 @@ export type ReportData = {
   /** Site's rounded average Google position for its query, when on page 1 (from Search Console).
    *  `undefined` = not on page 1, not checked, or unconfigured — rendered as today's plain check. */
   searchPosition?: number | undefined;
-  /** Only used when reportType === "Maintenance"; the date shown next to the blurred-testing image. */
+  /** Stored with the report. No template shows it: the blurred-testing image it once sat
+   *  beside went on 2026-11-25. */
   lastTestedDate: Date | null;
   /** Optional free-text rendered as a section above the footer. */
   commentary: string | null;
@@ -72,6 +73,10 @@ export type ReportData = {
    *  is dropped from the client email (BACKLOG Operator decision 17). Omitted → every row
    *  renders. `| undefined` for exactOptionalPropertyTypes. */
   checklistEvidence?: Record<string, import("./auto-tick.js").EvidenceRecord> | undefined;
+  /** Maintenance-only: the Testing checklist fields the nightly automated tests passed when
+   *  this email was built (`passedAutomatedTests`), shown at the end of the MAINTENANCE CHECKS
+   *  list. Omitted → no Testing rows. `| undefined` for exactOptionalPropertyTypes. */
+  automatedTestsPassed?: string[] | undefined;
   /** Resolved per-site copy (M6a). Omitted → the template falls back to DEFAULT_COPY. */
   copy?: import("./copy.js").ResolvedCopy;
   /** Used in the header `mj-image src`; the email attaches the bytes with this CID. */

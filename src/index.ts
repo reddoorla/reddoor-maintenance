@@ -78,7 +78,6 @@ export type { ReportType, LighthouseScores, ReportData, HeaderImage } from "./re
 export {
   loadBundledImages,
   CHECK_CID,
-  BLURRED_CID,
   type BundledImage,
 } from "./reports/maintenance-email/assets/index.js";
 

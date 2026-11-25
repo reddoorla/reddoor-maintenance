@@ -412,7 +412,6 @@ const requiredExports = [
   // bundled assets — present so the asset-resolution regression can be reproduced
   "loadBundledImages",
   "CHECK_CID",
-  "BLURRED_CID",
   // header-image plate + headline overlays — each its own dist copy, each its
   // own ENOENT exposure
   "loadPlate",
@@ -449,16 +448,13 @@ await check("selfPackageVersion via dist returns real version from arbitrary cwd
   if (out !== pkgVersion) throw new Error(`expected '${pkgVersion}', got '${out}'`);
 });
 
-await check("loadBundledImages returns two non-empty buffers without ENOENT", async () => {
-  const { check: checkPng, blurred } = await mod.loadBundledImages();
+await check("loadBundledImages returns a non-empty buffer without ENOENT", async () => {
+  const { check: checkPng } = await mod.loadBundledImages();
   if (!(checkPng.bytes instanceof Uint8Array) || checkPng.bytes.byteLength === 0) {
     throw new Error("check.png loaded but empty");
   }
-  if (!(blurred.bytes instanceof Uint8Array) || blurred.bytes.byteLength === 0) {
-    throw new Error("blurredTests.jpg loaded but empty");
-  }
-  if (checkPng.cid !== mod.CHECK_CID || blurred.cid !== mod.BLURRED_CID) {
-    throw new Error(`CID mismatch: ${checkPng.cid}, ${blurred.cid}`);
+  if (checkPng.cid !== mod.CHECK_CID) {
+    throw new Error(`CID mismatch: ${checkPng.cid}`);
   }
 });
 
@@ -509,7 +505,6 @@ const shippedAssets = [
   "dist/reports/header-image/assets/headline-announcement.png",
   "dist/reports/header-image/assets/headline-launch.png",
   "dist/reports/maintenance-email/assets/check.png",
-  "dist/reports/maintenance-email/assets/blurredTests.jpg",
 ];
 for (const rel of shippedAssets) {
   await check(`${rel} is present in the PUBLISHED dist/ layout`, () => {

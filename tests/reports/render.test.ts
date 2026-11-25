@@ -209,10 +209,13 @@ describe("renderReportHtml", () => {
     expect(html).not.toContain("rd-blurred-tests-jpg");
   });
 
-  it("renders the blurred-tests placeholder when reportType is Maintenance", async () => {
+  it("renders no blurred-tests image on a Maintenance report (2026-11-25), and no testing row without evidence", async () => {
     const { html } = await renderReportHtml(baseData({ reportType: "Maintenance" }));
-    expect(html).toContain("rd-blurred-tests-jpg");
+    expect(html).not.toContain("rd-blurred-tests-jpg");
+    expect(html).not.toContain("blurredTests");
+    // No evidence at all: no automated test passed, so no TESTING row is ticked.
     expect(html).not.toContain("Desktop Browsers");
+    expect(html).not.toMatch(/>\s*TESTING\s*</);
   });
 
   it("references the check.png CID in checklist rows (no external CDN URL)", async () => {

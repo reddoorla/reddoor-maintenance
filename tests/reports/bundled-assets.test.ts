@@ -10,7 +10,7 @@ const distIndex = resolve(here, "../../dist/index.js");
 // Regression for the 0.10.0–0.10.1 prod-only ENOENT.
 //
 // The loader previously used `dirname(fileURLToPath(import.meta.url))` to find
-// `check.png` and `blurredTests.jpg` "next to itself." Vitest evaluates source
+// `check.png` "next to itself." Vitest evaluates source
 // files directly, where `import.meta.url` resolves to the .ts beside the
 // assets, so every dev test passed. After tsup inlined the loader into
 // dist/cli/bin.js (and dist/index.js etc), `import.meta.url` resolved to the
@@ -30,25 +30,24 @@ describe("bundled email assets (post-build regression for 0.10.0–0.10.1 ENOENT
     }
   });
 
-  function invokeLoaderFrom(cwd: string): { check: number; blurred: number } {
+  function invokeLoaderFrom(cwd: string): { check: number } {
     const distUrl = `file://${distIndex.replace(/\\/g, "/")}`;
     const script = `
       import("${distUrl}")
         .then(m => m.loadBundledImages())
-        .then(r => process.stdout.write(JSON.stringify({ check: r.check.bytes.length, blurred: r.blurred.bytes.length })))
+        .then(r => process.stdout.write(JSON.stringify({ check: r.check.bytes.length })))
         .catch(e => { process.stderr.write(String(e)); process.exit(1); });
     `;
     const out = execFileSync(process.execPath, ["--input-type=module", "-e", script], {
       cwd,
       encoding: "utf-8",
     });
-    return JSON.parse(out) as { check: number; blurred: number };
+    return JSON.parse(out) as { check: number };
   }
 
   it("loader works when invoked from the package root", () => {
     const r = invokeLoaderFrom(resolve(here, "../.."));
     expect(r.check).toBeGreaterThan(1000); // ~1.6 KB png
-    expect(r.blurred).toBeGreaterThan(100_000); // ~600 KB jpg
   });
 
   // The actual failure mode that shipped: npx runs the package from
@@ -57,6 +56,5 @@ describe("bundled email assets (post-build regression for 0.10.0–0.10.1 ENOENT
   it("loader works when cwd is unrelated to the package install location", () => {
     const r = invokeLoaderFrom("/");
     expect(r.check).toBeGreaterThan(1000);
-    expect(r.blurred).toBeGreaterThan(100_000);
   });
 });
