@@ -114,4 +114,18 @@ describe("buildReportDataForSite", () => {
     expect(d.gaUsersCurrent).toBeUndefined();
     expect(d.searchPosition).toBeUndefined();
   });
+
+  it("automatedTestsPassed: a fresh browser pass on a Maintenance report, never on another type", async () => {
+    const passed = site({ browserCheckedAt: "2026-06-26T11:00:00Z", crossbrowserOk: true });
+    const maint = await buildReportDataForSite(passed, "Maintenance", NOW, {
+      scores,
+      header: HEADER,
+    });
+    expect(maint.automatedTestsPassed).toContain("Test: Desktop Browsers");
+    const testing = await buildReportDataForSite(passed, "Testing", NOW, {
+      scores,
+      header: HEADER,
+    });
+    expect(testing.automatedTestsPassed).toBeUndefined();
+  });
 });

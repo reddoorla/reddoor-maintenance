@@ -265,18 +265,27 @@ describe("refresh preview takes the site row's current scores (P1-34)", () => {
 });
 
 describe("renderReportFromRow reads the nightly testing results at render (11-25)", () => {
-  const fresh = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-  const old = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
+  const DAY = 24 * 60 * 60 * 1000;
+  // Pinned tightly to the 3-day window: the send's `now` is the real clock, so a pass 2.9
+  // days old is in and one 3.1 days old is out.
+  const within = new Date(Date.now() - 2.9 * DAY).toISOString();
+  const beyond = new Date(Date.now() - 3.1 * DAY).toISOString();
+  const old = new Date(Date.now() - 8 * DAY).toISOString();
   const tested = (at: string) =>
     site({ browserCheckedAt: at, crossbrowserOk: true, mobileOk: true, linksOk: true });
 
   it("adds a freshly passed Testing row to a Maintenance email, though the row stores no Test: evidence", async () => {
-    const r = await renderReportFromRow(tested(fresh), report({ autoEvidence: null }), PLATE);
+    const r = await renderReportFromRow(tested(within), report({ autoEvidence: null }), PLATE);
     expect(r.html).toMatch(/>\s*Desktop Browsers\s*</);
   });
 
   it("leaves out a pass that is a week old at the send", async () => {
     const r = await renderReportFromRow(tested(old), report({ autoEvidence: null }), PLATE);
+    expect(r.html).not.toMatch(/>\s*Desktop Browsers\s*</);
+  });
+
+  it("leaves out a pass 3.1 days old at the send, just past the 3-day window", async () => {
+    const r = await renderReportFromRow(tested(beyond), report({ autoEvidence: null }), PLATE);
     expect(r.html).not.toMatch(/>\s*Desktop Browsers\s*</);
   });
 });

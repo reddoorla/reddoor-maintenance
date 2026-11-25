@@ -10,7 +10,7 @@ const distIndex = resolve(here, "../../dist/index.js");
 // Regression for the 0.10.0–0.10.1 prod-only ENOENT.
 //
 // The loader previously used `dirname(fileURLToPath(import.meta.url))` to find
-// `check.png` and `blurredTests.jpg` "next to itself." Vitest evaluates source
+// `check.png` "next to itself." Vitest evaluates source
 // files directly, where `import.meta.url` resolves to the .ts beside the
 // assets, so every dev test passed. After tsup inlined the loader into
 // dist/cli/bin.js (and dist/index.js etc), `import.meta.url` resolved to the

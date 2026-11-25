@@ -26,7 +26,9 @@ Landed in reddoorla/reddoor-maintenance#2293 (branch `claude/remove-testing-upse
 - **Round 2, two majors on that first fix.**
   - Measured against the due date, the age check had no lower bound, so a late send still showed old passes. A future timestamp always passed.
   - On the normal path the rows would almost never show. The nightly drafts 7 days before the due date, so every saved pass was already too old.
-- **Round 3's fix replaced the design rather than patching it.** The rows are read from the site row when the email is built. The send uses its own send time, the draft preview uses the draft time, and selftest uses its own. Stored evidence and the tick loops are back to main.
+- **The fix after round 2 (`f5317dc9`) replaced the design rather than patching it.** The rows are read from the site row when the email is built. The send uses its own send time, the draft preview uses the draft time, and selftest uses its own. Stored evidence and the tick loops are back to main.
+
+- **Round 3, on `f5317dc9`, one major, in the tests.** Correctness and client output found nits and minors only; the tests lens found the gaps. Replacing the draft's `passedAutomatedTests(siteRow, completedOn)` with `[]` left all 1063 report tests green, so the cockpit preview could lose the Testing rows unseen. Minors, folded: the selftest path (`report-data.ts`) was unpinned the same way; the send's `new Date()` could run 2 days late and stay green, because the fresh fixture pass was 1 hour old (now 2.9 days, with a 3.1-day case left out); a per-site `testingChecklist` override was untested; the changeset described a TESTING checklist that no longer exists. Each new test went red on its mutation. The blank-site-name CTA ("How does  show up…") needs a code change and a test, so it is filed as #2294. The fixes touched tests and the changeset only; `src/` is unchanged from `f5317dc9`.
 
 **Beliefs corrected on contact.**
 

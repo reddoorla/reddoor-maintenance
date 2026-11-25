@@ -293,6 +293,52 @@ describe("draftReportForSite", () => {
     });
   });
 
+  // 2026-11-25: a Maintenance draft's stored body lists the Testing rows the nightly tests
+  // passed (`passedAutomatedTests`, read when the draft is built; the send re-reads them).
+  describe("the Testing rows on a Maintenance draft (11-25)", () => {
+    const recent = () => new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const browserPassed = () =>
+      siteFixture({
+        browserCheckedAt: recent(),
+        crossbrowserOk: true,
+        mobileOk: true,
+        linksOk: true,
+      });
+
+    async function previewHtml(site: WebsiteRow, type: "Maintenance" | "Testing"): Promise<string> {
+      const { mkdtemp, rm } = await import("node:fs/promises");
+      const { tmpdir } = await import("node:os");
+      const { join } = await import("node:path");
+      const dir = await mkdtemp(join(tmpdir(), "draft-testing-rows-"));
+      try {
+        const result = await draftReportForSite(site, type, {
+          previewOnly: true,
+          previewPath: join(dir, "preview.html"),
+        });
+        return result.html;
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    }
+
+    it("a Maintenance draft lists a passed Testing row inside its MAINTENANCE CHECKS list", async () => {
+      const html = await previewHtml(browserPassed(), "Maintenance");
+      const heading = html.search(/>\s*MAINTENANCE CHECKS\s*</);
+      const row = html.search(/>\s*Desktop Browsers\s*</);
+      expect(heading).toBeGreaterThanOrEqual(0);
+      expect(row).toBeGreaterThan(heading);
+    });
+
+    it("a Testing draft shows its Desktop Browsers row once, in the TESTING section, not in the maintenance list", async () => {
+      const html = await previewHtml(browserPassed(), "Testing");
+      const testingHeading = html.search(/>\s*TESTING\s*</);
+      const row = html.search(/>\s*Desktop Browsers\s*</);
+      expect(testingHeading).toBeGreaterThanOrEqual(0);
+      expect(row).toBeGreaterThan(testingHeading);
+      expect(html.match(/>\s*Desktop Browsers\s*</g)).toHaveLength(1);
+    });
+  });
+
   it("derives periodStart as the day AFTER the latest prior report's periodEnd (half-open)", async () => {
     // The prior report already covered through its periodEnd inclusively, so this
     // report starts the next day. Without the +1 the boundary day (here 2026-04-26)

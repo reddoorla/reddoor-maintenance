@@ -617,10 +617,9 @@ describe("sendApprovedReports", () => {
     expect(blurred).toBeUndefined();
   });
 
-  it("does NOT attach the blurred-tests image to a Testing report (Maintenance-only), keeps check + header", async () => {
-    // The blurred-tests image (cid:rd-blurred-tests-jpg) is referenced only by the Maintenance
-    // template. A Testing report must not carry it as a dangling inline attachment. The check
-    // image IS referenced by the testing checklist, so it stays.
+  it("attaches no blurred-tests image to a Testing report (the image is gone), keeps check + header", async () => {
+    // 2026-11-25: the blurred-tests image was removed (with the Maintenance upsell it sat in), so
+    // no report carries it. The check image IS referenced by the testing checklist, so it stays.
     const h = harness({
       Reports: [
         reportRow({

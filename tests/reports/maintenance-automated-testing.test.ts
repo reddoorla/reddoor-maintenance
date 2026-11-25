@@ -139,6 +139,20 @@ describe("the Testing rows on a Maintenance email", () => {
     expect(html).not.toContain("rd-blurred-tests-jpg");
   });
 
+  it("show a per-site copy override of a Testing label, not the default", async () => {
+    const copy = {
+      ...DEFAULT_COPY,
+      testingChecklist: DEFAULT_COPY.testingChecklist.map((l) =>
+        l === "Desktop Browsers" ? "Desktop Browser Checks" : l,
+      ),
+    };
+    const { html } = await renderReportHtml(
+      data("Maintenance", { automatedTestsPassed: TEST_FIELDS, copy }),
+    );
+    expect(html).toMatch(rowText("Desktop Browser Checks"));
+    expect(html).not.toMatch(rowText("Desktop Browsers"));
+  });
+
   it("show only the fields passed in, in checklist order", async () => {
     const { html } = await renderReportHtml(
       data("Maintenance", {
