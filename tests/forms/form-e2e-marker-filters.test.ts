@@ -74,6 +74,8 @@ const probeBody = (marked: boolean) => ({
   message: "Synthetic end-to-end health check — please ignore.",
   company: "Synthetic end-to-end health check — please ignore.",
   interest: "funds",
+  // From the site's own page, so the control counts as a lead (#2296).
+  sourceUrl: "https://acme.example.com/contact",
   ...(marked ? { testMode: true } : {}),
 });
 
@@ -115,7 +117,13 @@ async function filters() {
     unreadPage: await countSubmissionsFiltered(db, { status: "new" }),
     cockpitLeads: card?.newLeads ?? null,
     digestLeads:
-      (await countSubmissionsSinceBySite(db, "2000-01-01T00:00:00.000Z")).get(SITE.id)?.leads ?? 0,
+      (
+        await countSubmissionsSinceBySite(
+          db,
+          "2000-01-01T00:00:00.000Z",
+          new Map([[SITE.id, SITE.fields.url]]),
+        )
+      ).get(SITE.id)?.leads ?? 0,
   };
 }
 

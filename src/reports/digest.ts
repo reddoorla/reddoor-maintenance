@@ -618,6 +618,7 @@ const SUBMISSIONS_DIGEST_WINDOW_MS = 24 * 60 * 60 * 1000;
  *  quiet fleet. */
 async function fetchSubmissionsDigestCounts(
   now: Date,
+  sitesById: ReadonlyMap<string, WebsiteRow>,
 ): Promise<ReadonlyMap<string, SiteSubmissionCounts> | null> {
   try {
     const [{ openDb, readDbConfig }, { countSubmissionsSinceBySite }] = await Promise.all([
@@ -628,6 +629,8 @@ async function fetchSubmissionsDigestCounts(
     return await countSubmissionsSinceBySite(
       db,
       new Date(now.getTime() - SUBMISSIONS_DIGEST_WINDOW_MS).toISOString(),
+      // A lead must come from its site's production host, as in the report (#2296).
+      new Map([...sitesById].map(([id, site]) => [id, site.url])),
     );
   } catch (e) {
     console.warn(`⚠ submissions telemetry unavailable (libSQL): ${(e as Error).message}`);
@@ -999,7 +1002,7 @@ export async function runDigest(
     const counts =
       options.submissionCounts !== undefined
         ? options.submissionCounts
-        : await fetchSubmissionsDigestCounts(today);
+        : await fetchSubmissionsDigestCounts(today, sites);
     const submissions = buildSubmissionsDigestSection(counts, sites);
 
     // P1-78d: the badge says what is news in THIS email. An item the last mail did

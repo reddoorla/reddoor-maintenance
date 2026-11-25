@@ -187,9 +187,12 @@ describe("makeReportMirror — leads (P1-127)", () => {
       formType: "contact",
       name: "Lead",
       email: "lead@x.com",
+      sourceUrl: "https://x.com/contact",
       submittedAt: new Date("2026-11-10T19:00:00.000Z"),
     });
     const mirror = await makeReportMirror(async () => db);
-    expect(await mirror.leadsForSite!("recA")).toEqual(["2026-11-10T19:00:00.000Z"]);
+    expect(await mirror.leadsForSite!({ id: "recA", url: "https://x.com" })).toEqual([
+      "2026-11-10T19:00:00.000Z",
+    ]);
   });
 });

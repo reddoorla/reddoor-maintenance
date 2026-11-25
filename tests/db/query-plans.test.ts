@@ -216,12 +216,6 @@ const ALLOWED_RAW_SCANS: Array<{
     requestPath: true,
     why: "every site's slug, as listSites reads every site; bounded by fleet size",
   },
-  {
-    scenario: "countSubmissionsSinceBySite (digest telemetry)",
-    table: "submissions",
-    requestPath: false,
-    why: "batch only — the digest cron, once a day; a full read is the correct shape for a per-site tally",
-  },
 ];
 
 // ————————————————————————————————————————————————————————————————————————————
@@ -424,7 +418,8 @@ function scenarios(state: { createdId: string; reservedId: string }): Scenario[]
     {
       name: "listLeadTimestampsForSite (site page leads panel)",
       covers: ["listLeadTimestampsForSite"],
-      run: (db) => submissions.listLeadTimestampsForSite(db, "recA"),
+      run: (db) =>
+        submissions.listLeadTimestampsForSite(db, { id: "recA", url: "https://acme.com" }),
     },
     {
       name: "setSubmissionStatusRow",
@@ -445,7 +440,7 @@ function scenarios(state: { createdId: string; reservedId: string }): Scenario[]
     {
       name: "countSubmissionsSinceBySite (digest telemetry)",
       covers: ["countSubmissionsSinceBySite"],
-      run: (db) => submissions.countSubmissionsSinceBySite(db, SINCE_ISO),
+      run: (db) => submissions.countSubmissionsSinceBySite(db, SINCE_ISO, new Map()),
     },
     {
       name: "findRecentDuplicateSubmissions (spray scan)",

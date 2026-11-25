@@ -159,6 +159,9 @@ async function seedSubmission(id: string, siteId: string, over: Record<string, u
       status: "new",
       notify_status: "sent",
       submitted_at: "2026-10-19T10:00:00.000Z",
+      // From recA's own page (`seedSite` gives it https://acme.example.com), so the
+      // non-spam rows are leads (#2296).
+      source_url: "https://acme.example.com/contact",
       ...over,
     } as never)
     .execute();
