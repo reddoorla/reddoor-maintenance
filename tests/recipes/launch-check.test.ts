@@ -98,6 +98,11 @@ describe("launchCheck", () => {
     expect(lines.filter((l) => l.state !== "ok")).toEqual([]);
   });
 
+  it("does not hold a launch for a missing Reddoor contact: that only warns at approve (P1-127)", async () => {
+    const lines = await launchCheck(row({ "Reddoor contact": undefined }), goodDeps());
+    expect(lines.find((l) => l.step === "contact")?.state).toBe("ok");
+  });
+
   it("fails Williamson on every step it was missing on 2026-10-14", async () => {
     const lines = await launchCheck(williamson(), goodDeps());
     expect(Object.fromEntries(lines.map((l) => [l.step, l.state]))).toEqual({

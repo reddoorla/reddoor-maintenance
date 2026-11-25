@@ -37,6 +37,8 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): Re
     lighthouse: lighthouseFromFields(f),
     gaUsersCurrent: (f["GA users (period)"] as number | undefined) ?? null,
     gaUsersPrevious: (f["GA users (prev period)"] as number | undefined) ?? null,
+    leadsCurrent: (f["Leads (period)"] as number | undefined) ?? null,
+    leadsPrevious: (f["Leads (prev period)"] as number | undefined) ?? null,
     searchFoundPage1:
       typeof f["Search found page 1"] === "boolean" ? (f["Search found page 1"] as boolean) : null,
     searchPosition: (f["Search position"] as number | undefined) ?? null,
@@ -90,6 +92,9 @@ function lighthouseFromFields(f: Record<string, unknown>): LighthouseScores | nu
 export type ReportEnrichment = {
   gaUsersCurrent?: number;
   gaUsersPrevious?: number;
+  /** P1-127: leads over the same 30-day windows (`leadPeriods`). */
+  leadsCurrent?: number;
+  leadsPrevious?: number;
   searchFoundPage1?: boolean;
   searchPosition?: number;
 };

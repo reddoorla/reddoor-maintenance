@@ -848,4 +848,24 @@ export const MIGRATIONS: Migration[] = [
     id: "0063_prospect_audits_superseded_by",
     sql: `ALTER TABLE prospect_audits ADD COLUMN superseded_by TEXT;`,
   },
+  {
+    // P1-127: the site's Reddoor contact (Nicole, Tim or Erik), CC'd on every
+    // report so a Reddoor person receives exactly what the client receives.
+    // `point_of_contact` is the CLIENT; this is ours. Add-only.
+    id: "0064_sites_reddoor_contact",
+    sql: `ALTER TABLE sites ADD COLUMN reddoor_contact TEXT;`,
+  },
+  {
+    // P1-127: the report's lead count for the last 30 complete Pacific days
+    // (leadPeriods), stored with the draft like the GA visits beside it, so the
+    // send renders the number that was approved. Add-only; one column per
+    // migration, for the reason 0015 gives.
+    id: "0065_reports_leads_current",
+    sql: `ALTER TABLE reports ADD COLUMN leads_current INTEGER;`,
+  },
+  {
+    // P1-127: the 30 days before that.
+    id: "0066_reports_leads_previous",
+    sql: `ALTER TABLE reports ADD COLUMN leads_previous INTEGER;`,
+  },
 ];

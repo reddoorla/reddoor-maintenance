@@ -13,6 +13,7 @@ import {
   REPORT_FROM_ADDRESS,
   isProbablyEmail,
   parseAddresses,
+  reportRecipients,
   withGlobalCc,
 } from "./addresses.js";
 
@@ -271,11 +272,10 @@ async function sendOne(
   // downscale + full MJML render). A misconfigured-recipients site is a guaranteed
   // failure, so fail fast here rather than after burning that work. Same checks +
   // messages as before — only the position moved.
-  const explicitTo = parseAddresses(site.reportRecipientsTo);
-  // Run pointOfContact through the parser too — operators sometimes paste
-  // "a@x, b@y" into that single-line field.
-  const fallbackTo = parseAddresses(site.pointOfContact);
-  const to = explicitTo ?? fallbackTo ?? [];
+  // reportRecipients runs pointOfContact through the parser too: operators
+  // sometimes paste "a@x, b@y" into that single-line field. Its CC carries the
+  // per-site CC, the site's Reddoor contact (P1-127) and the ops inbox.
+  const { to, cc: finalCc } = reportRecipients(site);
   if (to.length === 0) {
     throw new Error(
       `Site '${site.name}' has no recipients (Report recipients (To) AND point of contact are both empty)`,
@@ -289,14 +289,11 @@ async function sendOne(
       );
     }
   }
-  const cc = parseAddresses(site.reportRecipientsCc);
-  if (cc) {
-    for (const addr of cc) {
-      if (!isProbablyEmail(addr)) {
-        throw new Error(
-          `Site '${site.name}' CC is malformed: ${addr} — fix Report recipients (CC) in the site's details`,
-        );
-      }
+  for (const addr of finalCc) {
+    if (!isProbablyEmail(addr)) {
+      throw new Error(
+        `Site '${site.name}' CC is malformed: ${addr} — fix Report recipients (CC) or Reddoor contact in the site's details`,
+      );
     }
   }
 
@@ -319,8 +316,8 @@ async function sendOne(
     // Resend returns the original message id rather than sending a duplicate.
     idempotencyKey: `report:${report.id}`,
   };
-  // Always CC the ops inbox (info@reddoorla.com), in addition to any per-site CC.
-  const finalCc = withGlobalCc(cc, to);
+  // Always CC the Reddoor contact and the ops inbox (info@reddoorla.com), in
+  // addition to any per-site CC.
   if (finalCc.length > 0) payload.cc = finalCc;
 
   // The last step before the email leaves: anything that changed the row since

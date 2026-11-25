@@ -126,6 +126,7 @@ function rowFromJoined(r: JoinedRow): WebsiteRow {
     gitRepo: str(r.git_repo),
     reportRecipientsTo: str(r.report_recipients_to),
     reportRecipientsCc: str(r.report_recipients_cc),
+    reddoorContact: str(r.reddoor_contact),
     acceptedWatchConditions: parseAwc(r.accepted_watch_conditions),
     headerImage:
       headerFilename !== null && headerType !== null
@@ -232,6 +233,7 @@ const SITE_COLUMNS = [
   "sites.netlify_id",
   "sites.report_recipients_to",
   "sites.report_recipients_cc",
+  "sites.reddoor_contact",
   "sites.copy_intro",
   "sites.copy_contact",
   "sites.copy_footer",
@@ -635,6 +637,8 @@ function reportRowFromDb(
     lighthouse,
     gaUsersCurrent: r.ga_users_current,
     gaUsersPrevious: r.ga_users_previous,
+    leadsCurrent: r.leads_current,
+    leadsPrevious: r.leads_previous,
     searchFoundPage1: bool(r.search_found_page1),
     searchPosition: r.search_position,
     lastTestedDate: r.last_tested_date,
@@ -688,6 +692,8 @@ export const REPORT_LIST_COLUMNS = [
   "lighthouse_seo",
   "ga_users_current",
   "ga_users_previous",
+  "leads_current",
+  "leads_previous",
   "search_found_page1",
   "search_position",
   "last_tested_date",
@@ -828,6 +834,8 @@ export type ReportMirrorPatch = Partial<
     | "lighthouse_seo"
     | "ga_users_current"
     | "ga_users_previous"
+    | "leads_current"
+    | "leads_previous"
     | "search_found_page1"
     | "search_position"
     | "completed_on"
@@ -1118,6 +1126,23 @@ export async function storeLighthouseScores(
       lighthouse_best_practices: scores.bestPractices,
       lighthouse_seo: scores.seo,
     })
+    .where("id", "=", reportId)
+    .where("sent_at", "is", null)
+    .where("approved_to_send", "=", 0)
+    .executeTakeFirst();
+  return res.numUpdatedRows > 0n;
+}
+
+/** P1-127: a report's lead counts, on the same terms as {@link storeGaVisits}:
+ *  only while the row is unsent and unapproved. Returns whether a row matched. */
+export async function storeLeadCounts(
+  db: Db,
+  reportId: string,
+  leads: { current: number; previous: number },
+): Promise<boolean> {
+  const res = await db
+    .updateTable("reports")
+    .set({ leads_current: leads.current, leads_previous: leads.previous })
     .where("id", "=", reportId)
     .where("sent_at", "is", null)
     .where("approved_to_send", "=", 0)

@@ -30,6 +30,7 @@ export function makeWebsiteRow(over: Partial<WebsiteRow> = {}): WebsiteRow {
     gitRepo: null,
     reportRecipientsTo: null,
     reportRecipientsCc: null,
+    reddoorContact: null,
     acceptedWatchConditions: [],
     headerImage: null,
     pScore: null,

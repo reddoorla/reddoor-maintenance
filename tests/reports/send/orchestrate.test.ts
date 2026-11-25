@@ -316,6 +316,28 @@ describe("sendApprovedReports", () => {
     expect(captured[0]!.cc).toEqual(["info@reddoorla.com"]);
   });
 
+  it("CCs the site's Reddoor contact even when Report recipients (To) override the point of contact (P1-127)", async () => {
+    const h = harness({
+      Reports: [reportRow()],
+      Websites: [siteRow({ "Report recipients (CC)": "", "Reddoor contact": "tim@reddoorla.com" })],
+    });
+    const { client, captured } = captureClient();
+    await sendApprovedReports({ ...h.io, resend: client });
+    expect(captured[0]!.to).toEqual(["explicit@acme.example.com"]);
+    expect(captured[0]!.cc).toEqual(["tim@reddoorla.com", "info@reddoorla.com"]);
+  });
+
+  it("fails the report when the Reddoor contact is malformed, before sending", async () => {
+    const h = harness({
+      Reports: [reportRow()],
+      Websites: [siteRow({ "Reddoor contact": "tim at reddoorla" })],
+    });
+    const { client, captured } = captureClient();
+    const res = await sendApprovedReports({ ...h.io, resend: client });
+    expect(captured).toHaveLength(0);
+    expect(res.output).toContain("Reddoor contact");
+  });
+
   it("fails the report when no recipients exist", async () => {
     const h = harness({
       Reports: [reportRow()],

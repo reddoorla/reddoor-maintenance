@@ -1,6 +1,6 @@
 import type { SubmissionsPageModel } from "../../../../src/dashboard/submissions-page.js";
 import { buildSubmissionRowView, type SubmissionRowView } from "../../lib/submission/view.js";
-import { spamFacets, type SpamFacet } from "./view.js";
+import { periodLinks, spamFacets, type SpamFacet } from "./view.js";
 
 /** What the `/submissions` page component is handed: the page model with each
  *  row cut to what the list itself shows, one row view per row, and the spam
@@ -14,6 +14,9 @@ export type SubmissionsPageData = {
   /** By row id: the row component `/s/:slug` uses too, every string decided here. */
   rowViews: Record<string, SubmissionRowView>;
   facets: SpamFacet[];
+  /** One-click periods (P1-127), each keeping the other filters. Optional so a
+   *  hand-built page model still renders. */
+  periods?: Array<{ label: string; href: string }>;
 };
 
 export function buildSubmissionsPageData(
@@ -25,5 +28,6 @@ export function buildSubmissionsPageData(
     model: { ...rest, rows: rows.map(({ id, slug, siteName }) => ({ id, slug, siteName })) },
     rowViews: Object.fromEntries(rows.map((r) => [r.id, buildSubmissionRowView(r, now)])),
     facets: spamFacets(model),
+    periods: periodLinks(model, now),
   };
 }

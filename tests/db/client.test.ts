@@ -98,6 +98,9 @@ describe("openDb", () => {
       "0061_prospect_audits_withdrawn_at",
       "0062_prospect_audits_withdrawn_by",
       "0063_prospect_audits_superseded_by",
+      "0064_sites_reddoor_contact",
+      "0065_reports_leads_current",
+      "0066_reports_leads_previous",
     ]);
     await db.destroy();
   });

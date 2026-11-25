@@ -38,6 +38,9 @@ export type ReportRow = {
   lighthouse: LighthouseScores | null;
   gaUsersCurrent: number | null;
   gaUsersPrevious: number | null;
+  /** P1-127: leads in the last 30 complete Pacific days, and the 30 before. */
+  leadsCurrent: number | null;
+  leadsPrevious: number | null;
   searchFoundPage1: boolean | null;
   searchPosition: number | null;
   lastTestedDate: string | null;

@@ -28,6 +28,9 @@ export type DraftInput = {
    *  for the site or the fetch failed — the operator fills the fields manually. */
   gaUsersCurrent?: number;
   gaUsersPrevious?: number;
+  /** P1-127: leads in the same two windows. Omitted when they could not be read. */
+  leadsCurrent?: number;
+  leadsPrevious?: number;
   /** Search-presence result. `searchFoundPage1` is written only when a query ran against a
    *  resolved Search Console property (true or false — false is the operator-only negative
    *  signal); with no matching property it is omitted and the column stays NULL.
@@ -76,6 +79,8 @@ export function draftFields(input: DraftInput): Record<string, unknown> {
   if (input.lastTestedDate) fields["Last tested date"] = ymd(input.lastTestedDate);
   if (input.gaUsersCurrent !== undefined) fields["GA users (period)"] = input.gaUsersCurrent;
   if (input.gaUsersPrevious !== undefined) fields["GA users (prev period)"] = input.gaUsersPrevious;
+  if (input.leadsCurrent !== undefined) fields["Leads (period)"] = input.leadsCurrent;
+  if (input.leadsPrevious !== undefined) fields["Leads (prev period)"] = input.leadsPrevious;
   if (input.searchFoundPage1 !== undefined) fields["Search found page 1"] = input.searchFoundPage1;
   if (input.searchPosition !== undefined) fields["Search position"] = input.searchPosition;
   if (input.period !== undefined) fields["Period"] = input.period;

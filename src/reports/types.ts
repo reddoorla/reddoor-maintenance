@@ -47,6 +47,10 @@ export type ReportData = {
    *  `| undefined` is explicit so callers can pass `undefined` under exactOptionalPropertyTypes. */
   gaUsersCurrent?: number | undefined;
   gaUsersPrevious?: number | undefined;
+  /** P1-127: leads in the last 30 complete Pacific days and the 30 before. `undefined`
+   *  = not read, and the LEADS block is left out; a real 0 renders. */
+  leadsCurrent?: number | undefined;
+  leadsPrevious?: number | undefined;
   /** Length in days of the GA "current" window (compared against the equal-length prior window).
    *  Drives the analytics trend label ("vs the previous N days"); omitted → the generic
    *  "last period". `| undefined` for exactOptionalPropertyTypes. */

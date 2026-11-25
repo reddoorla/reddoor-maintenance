@@ -1102,3 +1102,65 @@ describe("redatedRerenderDeps (#2157)", () => {
     expect(bound.stored()).toBe(false);
   });
 });
+
+describe("rerenderReport — leads (P1-127)", () => {
+  const OLD = report({ leadsCurrent: 3, leadsPrevious: 1 });
+  const LEADS = { current: 7, previous: 4 };
+
+  it("re-measures an unsent, unapproved report's leads as of now, stores them, and renders with them", async () => {
+    const measuredAt: Date[] = [];
+    const written: Array<{ id: string; leads: unknown }> = [];
+    const rendered: ReportRow[] = [];
+    await rerenderReport(
+      deps({
+        getReport: async () => OLD,
+        measureLeads: async (_site, now) => {
+          measuredAt.push(now);
+          return LEADS;
+        },
+        storeLeads: async (id, leads) => {
+          written.push({ id, leads });
+          return true;
+        },
+        render: async (_s, rep) => {
+          rendered.push(rep);
+          return { html: "x" };
+        },
+      }),
+      "recREP",
+    );
+    expect(measuredAt).toEqual([NOW]);
+    expect(written).toEqual([{ id: "recREP", leads: LEADS }]);
+    expect(rendered[0]).toMatchObject({ leadsCurrent: 7, leadsPrevious: 4 });
+  });
+
+  it("never re-measures an approved report, and keeps what is stored when the read fails", async () => {
+    let measured = false;
+    const rendered: ReportRow[] = [];
+    await rerenderReport(
+      deps({
+        getReport: async () => report({ ...OLD, approvedToSend: true }),
+        measureLeads: async () => {
+          measured = true;
+          return LEADS;
+        },
+        storeLeads: async () => true,
+      }),
+      "recREP",
+    );
+    expect(measured).toBe(false);
+    await rerenderReport(
+      deps({
+        getReport: async () => OLD,
+        measureLeads: async () => null,
+        storeLeads: async () => true,
+        render: async (_s, rep) => {
+          rendered.push(rep);
+          return { html: "x" };
+        },
+      }),
+      "recREP",
+    );
+    expect(rendered[0]).toMatchObject({ leadsCurrent: 3, leadsPrevious: 1 });
+  });
+});

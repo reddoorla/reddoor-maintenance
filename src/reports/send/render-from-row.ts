@@ -72,6 +72,8 @@ export async function renderReportFromRow(
     lighthouse: requireLighthouse(report),
     gaUsersCurrent: report.gaUsersCurrent ?? undefined,
     gaUsersPrevious: report.gaUsersPrevious ?? undefined,
+    leadsCurrent: report.leadsCurrent ?? undefined,
+    leadsPrevious: report.leadsPrevious ?? undefined,
     gaPeriodDays,
     searchPosition:
       report.searchFoundPage1 && report.searchPosition !== null ? report.searchPosition : undefined,

@@ -68,6 +68,8 @@ function reportRow(over: Partial<ReportRow> = {}): ReportRow {
     lighthouse: { performance: 87, accessibility: 95, bestPractices: 90, seo: 100 },
     gaUsersCurrent: 2100,
     gaUsersPrevious: 1900,
+    leadsCurrent: null,
+    leadsPrevious: null,
     searchFoundPage1: null,
     searchPosition: null,
     lastTestedDate: "2026-04-10",
@@ -588,6 +590,8 @@ describe("renderSiteDashboardHtml — report-source data on report rows", () => 
         reportId: "rep_ga",
         gaUsersCurrent: 2100,
         gaUsersPrevious: 1900,
+        leadsCurrent: null,
+        leadsPrevious: null,
         searchFoundPage1: true,
         searchPosition: 4,
       }),
@@ -605,6 +609,8 @@ describe("renderSiteDashboardHtml — report-source data on report rows", () => 
         reportId: "rep_none",
         gaUsersCurrent: null,
         gaUsersPrevious: null,
+        leadsCurrent: null,
+        leadsPrevious: null,
         searchFoundPage1: null,
         searchPosition: null,
       }),
@@ -1432,7 +1438,7 @@ describe("renderSiteDashboardHtml — preflight chip + send-blocker gate", () =>
     reportRow({ draftReady: true, approvedToSend: false, sentAt: null, period: "2026-07" });
 
   it("renders a green chip and an enabled button on a send-clean site", () => {
-    const html = renderSiteDashboardHtml(siteRow(), [
+    const html = renderSiteDashboardHtml(siteRow({ reddoorContact: "tim@reddoorla.com" }), [
       { ...pendingReport(), checklist: { ...COMPLETE_MAINTENANCE } },
     ]);
     expect(html).toContain("preflight: clear");

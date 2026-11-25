@@ -46,6 +46,7 @@ vi.mock("../../src/db/fleet-state.js", () => ({
   storeChecklistEvidence: vi.fn(async () => true),
   storeLighthouseScores: vi.fn(async () => true),
   storeGaVisits: vi.fn(async () => true),
+  storeLeadCounts: vi.fn(async () => true),
   mirrorHealthFields: vi.fn(async () => true),
 }));
 vi.mock("../../src/reports/draft.js", async (importOriginal) => ({
@@ -59,13 +60,22 @@ vi.mock("../../src/reports/draft.js", async (importOriginal) => ({
   fetchGaVisits: vi.fn(async () => ({ value: { current: 217, previous: 206 }, softFailed: false })),
 }));
 
+// P1-127: the lead read, fed one lead from three days ago (inside the 30-day window).
+vi.mock("../../src/db/submissions.js", () => ({
+  listLeadTimestampsForSite: vi.fn(async () => [
+    new Date(Date.now() - 3 * 86_400_000).toISOString(),
+  ]),
+}));
+
 import { runReportCommand } from "../../src/cli/commands/report.js";
 import {
   mirrorHealthFields,
   storeChecklistEvidence,
   storeLighthouseScores,
   storeGaVisits,
+  storeLeadCounts,
 } from "../../src/db/fleet-state.js";
+import { listLeadTimestampsForSite } from "../../src/db/submissions.js";
 import { fetchGaVisits, fetchSearch } from "../../src/reports/draft.js";
 
 describe("report --rerender binds the Google Indexed re-measure to the real IO", () => {
@@ -127,6 +137,19 @@ describe("report --rerender binds the analytics refresh to the real IO (P1-73)",
     expect(vi.mocked(storeGaVisits).mock.calls.at(-1)!.slice(1)).toEqual([
       "report_X",
       { current: 217, previous: 206 },
+    ]);
+  });
+});
+
+describe("report --rerender binds the leads refresh to the real IO (P1-127)", () => {
+  it("reads the report's site's leads and stores the measured pair on the report", async () => {
+    const out = await runReportCommand(undefined, { rerender: "report_X" });
+    expect(out.code).toBe(0);
+    expect(vi.mocked(listLeadTimestampsForSite).mock.calls.at(-1)).toEqual([{}, "recSITE"]);
+    expect(vi.mocked(storeLeadCounts).mock.calls.at(-1)).toEqual([
+      {},
+      "report_X",
+      { current: 1, previous: 0 },
     ]);
   });
 });

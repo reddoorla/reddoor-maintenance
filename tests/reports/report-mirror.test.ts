@@ -177,3 +177,19 @@ describe("makeReportMirror (always observable, never swallows)", () => {
     }
   });
 });
+
+describe("makeReportMirror — leads (P1-127)", () => {
+  it("answers leadsForSite from the submissions table, so the nightly draft gets its LEADS block", async () => {
+    const db = await openDb({ url: ":memory:" });
+    const { createSubmission } = await import("../../src/db/submissions.js");
+    await createSubmission(db, {
+      siteId: "recA",
+      formType: "contact",
+      name: "Lead",
+      email: "lead@x.com",
+      submittedAt: new Date("2026-11-10T19:00:00.000Z"),
+    });
+    const mirror = await makeReportMirror(async () => db);
+    expect(await mirror.leadsForSite!("recA")).toEqual(["2026-11-10T19:00:00.000Z"]);
+  });
+});

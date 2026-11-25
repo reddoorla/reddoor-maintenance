@@ -91,6 +91,7 @@ export const EDITABLE_SITE_FIELDS: Record<string, EditableField> = {
   pointOfContact: { column: "point of contact", kind: "email" },
   reportRecipientsTo: { column: "Report recipients (To)", kind: "emails" },
   reportRecipientsCc: { column: "Report recipients (CC)", kind: "emails" },
+  reddoorContact: { column: "Reddoor contact", kind: "emails" },
   copyIntro: { column: "Copy — Intro", kind: "text", maxLen: 2000 },
   copyContact: { column: "Copy — Contact", kind: "text", maxLen: 2000 },
   copyFooter: { column: "Copy — Footer", kind: "text", maxLen: 2000 },

@@ -7,6 +7,7 @@ import {
 import {
   listNewSubmissions,
   listSubmissionsForSite,
+  listLeadTimestampsForSite,
   listSubmissionsFiltered,
   countSubmissionsFiltered,
   listSpamReasonsFiltered,
@@ -35,6 +36,7 @@ import { parseSubmissionsQuery, buildSubmissionsPageModel, PAGE_SIZE } from "./s
 import type { SubmissionsPageModel } from "./submissions-page.js";
 import { readSiteAlarmInputs, buildSiteAlarm } from "./site-alarm.js";
 import { orElse } from "./or-else.js";
+import { leadPeriods, type LeadPeriods } from "../reports/lead-periods.js";
 import { readLatestDeps } from "../fleet-daily/read.js";
 import type { LatestDeps } from "../alerts/production-signals.js";
 
@@ -136,6 +138,8 @@ export type SiteDashboardData = {
   site: WebsiteRow;
   reports: ReportRow[];
   submissions: SubmissionRow[];
+  /** Leads by period (P1-127); null when the read failed. */
+  leads: LeadPeriods | null;
   spamTotals: ScreenOutTotals | null;
   alarm: SiteAlarmContext | null;
 };
@@ -163,7 +167,7 @@ export async function loadSiteDashboard(
   // The fleet-wide functions are not gone: the nightly digest and the fleet
   // cockpit genuinely render every site and still use them. What changed is
   // that the ONE-site page no longer pays the fleet's price.
-  const [reports, submissions, spamTotals, alarmInputs] = await Promise.all([
+  const [reports, submissions, leadTimes, spamTotals, alarmInputs] = await Promise.all([
     // The FULL report set goes to the renderer. The "recent 6" history-table
     // slice is canonical inside the renderer. Pre-slicing here would hide an OLD
     // pending report from the approve list + its button while the fleet banner
@@ -172,6 +176,8 @@ export async function loadSiteDashboard(
     listReportsForSite(db, site.id),
     // submissions section simply absent — the rest of the page still renders
     orElse<SubmissionRow[]>(() => listSubmissionsForSite(db, { id: site.id, name: site.name }), []),
+    // the leads panel simply absent on a failed read
+    orElse<string[] | null>(() => listLeadTimestampsForSite(db, site.id), null),
     // panel simply absent — never blank the page
     orElse<ScreenOutTotals | null>(
       () => screenOutTotalsForSite(db, site.id, screenOutsSince(now, 30)),
@@ -185,7 +191,8 @@ export async function loadSiteDashboard(
   // Cockpit alarm verdict for the header chip strip.
   const alarm = buildSiteAlarm(site, reports, baseUrl, now, alarmInputs);
 
-  return { site, reports, submissions, spamTotals, alarm };
+  const leads = leadTimes === null ? null : leadPeriods(leadTimes, now);
+  return { site, reports, submissions, leads, spamTotals, alarm };
 }
 
 export type SubmissionsPageLoad =

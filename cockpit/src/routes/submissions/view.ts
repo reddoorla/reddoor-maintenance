@@ -1,4 +1,43 @@
+import { reportWindows } from "../../../../src/reports/ga/window.js";
+import { LEADS_TIME_ZONE, shortDay } from "../../../../src/reports/lead-periods.js";
 import type { SubmissionsPageModel } from "../../../../src/dashboard/submissions-page.js";
+
+/** The one-click periods beside the date inputs (P1-127), each labelled with
+ *  the date it sets. They set the page's own `from` filter, which compares that
+ *  date with the stored UTC time, so a link is "since <date>", not the site
+ *  page's Pacific 30-day window (which ends yesterday): the two can differ by
+ *  the leads in the hours around midnight, and the list holds every status and
+ *  form type the other filters allow. PURE. */
+export function periodLinks(
+  m: Pick<SubmissionsPageModel, "filter">,
+  now: Date,
+): Array<{ label: string; href: string }> {
+  const since = (days: number) => {
+    const ymd = reportWindows(now, LEADS_TIME_ZONE, days).current.startDate;
+    return { label: `Since ${shortDay(ymd)}`, href: periodHref(m, days, now) };
+  };
+  return [since(30), since(90), { label: "All time", href: periodHref(m, null, now) }];
+}
+
+/** The href for one period: `from` set to the first day of the `days` complete
+ *  Pacific days that ended yesterday (`reportWindows`), every other filter
+ *  kept, back to page 1. `null` days clears the dates (all time). PURE. */
+export function periodHref(
+  m: Pick<SubmissionsPageModel, "filter">,
+  days: number | null,
+  now: Date,
+): string {
+  const p = new URLSearchParams();
+  const f = m.filter;
+  if (f.site) p.set("site", f.site);
+  if (f.type) p.set("type", f.type);
+  if (f.status) p.set("status", f.status);
+  if (f.q) p.set("q", f.q);
+  if (days !== null) p.set("from", reportWindows(now, LEADS_TIME_ZONE, days).current.startDate);
+  if (f.reason) p.set("reason", f.reason);
+  const qs = p.toString();
+  return qs ? `/submissions?${qs}` : "/submissions";
+}
 
 /** Href for page `page` of the active filter. */
 export function pageHref(m: Pick<SubmissionsPageModel, "filter">, page: number): string {

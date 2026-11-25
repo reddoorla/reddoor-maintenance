@@ -89,6 +89,7 @@ export function mapRow(rec: { id: string; fields: Record<string, unknown> }): We
     gitRepo: (f["Git repo"] as string | undefined) ?? null,
     reportRecipientsTo: (f["Report recipients (To)"] as string | undefined) ?? null,
     reportRecipientsCc: (f["Report recipients (CC)"] as string | undefined) ?? null,
+    reddoorContact: (f["Reddoor contact"] as string | undefined) ?? null,
     // Tolerate BOTH the current Multiple-Select array shape AND a delimited long-text
     // string (comma/newline separated), so the field can migrate to a plain text column
     // with no code change here. Trim + drop empties either way. The array branch also

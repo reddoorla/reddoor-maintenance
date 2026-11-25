@@ -5,6 +5,7 @@ import {
   checklistRowsSection,
   lighthouseScoresSection,
   analyticsSection,
+  leadsSection,
   RED,
   GREY,
 } from "../email-sections.js";
@@ -199,6 +200,12 @@ export function buildMjml(data: ReportData): string {
       periodDays: data.gaPeriodDays,
       background: "white",
       footnoteLines: [escapeXml(copy.seoCta)],
+    })}
+    ${leadsSection({
+      current: data.leadsCurrent,
+      previous: data.leadsPrevious,
+      periodDays: data.gaPeriodDays,
+      background: "white",
     })}
     ${isTesting ? testingSections(data, copy) : maintenanceTestingPlaceholder()}
     ${data.commentary ? commentarySection(data.commentary, copy) : ""}

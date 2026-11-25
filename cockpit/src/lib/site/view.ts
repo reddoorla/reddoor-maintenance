@@ -17,7 +17,7 @@ import {
 import { rendersCommentary } from "../../../../src/reports/template-for.js";
 import { heldUntilDue, sendDayLabel } from "../../../../src/reports/due.js";
 import { approveBlockers, type PreflightFinding } from "../../../../src/reports/preflight.js";
-import { parseAddresses, withGlobalCc } from "../../../../src/reports/send/addresses.js";
+import { reportRecipients } from "../../../../src/reports/send/addresses.js";
 import { isVisibleInStrip } from "../../../../src/dashboard/submission-rules.js";
 import { SUBMISSION_FORM_TYPES } from "../../../../src/forms/types.js";
 import {
@@ -34,6 +34,7 @@ import { assignTier, type SiteAlarmContext } from "../../../../src/dashboard/fle
 import { chipClass } from "../cockpit/view.js";
 import { buildSubmissionRowView, type SubmissionRowView } from "../submission/view.js";
 import { retestPlanForRow } from "../../../../src/retest/site-retest.js";
+import { shortDay, shortMonth, type LeadPeriods } from "../../../../src/reports/lead-periods.js";
 
 /**
  * The `/s/:slug` page as plain data (#582). Every value the old string renderer
@@ -249,9 +250,8 @@ function sendTimingLine(now: Date, r: Pick<ReportRow, "dueOn">): string {
 }
 
 function recipients(site: WebsiteRow): PendingView["recipients"] {
-  const to = parseAddresses(site.reportRecipientsTo) ?? parseAddresses(site.pointOfContact) ?? [];
+  const { to, cc } = reportRecipients(site);
   if (to.length === 0) return { missing: true };
-  const cc = withGlobalCc(parseAddresses(site.reportRecipientsCc), to);
   const ccPart = cc.length > 0 ? ` · CC ${cc.join(", ")}` : "";
   return { missing: false, text: `To ${to.join(", ")}${ccPart}` };
 }
@@ -478,6 +478,7 @@ function detailRows(site: WebsiteRow, now: Date): DetailRowView[] {
     input("Report recipients (To)", "reportRecipientsTo", site.reportRecipientsTo),
     input("Report recipients (CC)", "reportRecipientsCc", site.reportRecipientsCc),
     input("Point of contact", "pointOfContact", site.pointOfContact),
+    input("Reddoor contact (always copied)", "reddoorContact", site.reddoorContact),
     input("GA4 property", "ga4PropertyId", site.ga4PropertyId),
     input("Search query", "searchQuery", site.searchQuery),
     input("Git repo", "gitRepo", site.gitRepo),
@@ -696,5 +697,39 @@ export function buildSiteView(
             shown: shown.map((s) => buildSubmissionRowView(s, now)),
             viewAllHref: `/submissions?site=${nameSlug}`,
           },
+  };
+}
+
+/** The site page's leads panel (P1-127). PURE. */
+export type LeadsView = {
+  last30: number;
+  prior30: number;
+  /** "up 48%", "down 10%", "no change", "new" (none before), or "" (none either side). */
+  change: string;
+  /** The current window as Pacific days, e.g. "Oct 25 – Nov 23". */
+  window: string;
+  months: Array<{ label: string; count: number }>;
+  allTime: number;
+};
+
+export function leadsView(p: LeadPeriods): LeadsView {
+  const pct = p.prior30 === 0 ? 0 : Math.round(((p.last30 - p.prior30) / p.prior30) * 100);
+  const change =
+    p.prior30 === 0
+      ? p.last30 > 0
+        ? "new"
+        : ""
+      : pct > 0
+        ? `up ${pct}%`
+        : pct < 0
+          ? `down ${Math.abs(pct)}%`
+          : "no change";
+  return {
+    last30: p.last30,
+    prior30: p.prior30,
+    change,
+    window: `${shortDay(p.current.startDate)} – ${shortDay(p.current.endDate)}`,
+    months: p.months.map(({ month, count }) => ({ label: shortMonth(month), count })),
+    allTime: p.allTime,
   };
 }

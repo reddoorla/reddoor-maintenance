@@ -5,6 +5,7 @@ import {
   approveBlockers,
   formatBlockers,
   healthBlockers,
+  reddoorContactFindings,
 } from "../../src/reports/preflight.js";
 import type { ReportRow } from "../../src/reports/report-fields.js";
 import { autoTickChecklist, type EvidenceRecord } from "../../src/reports/auto-tick.js";
@@ -25,6 +26,8 @@ function makeReportRow(over: Partial<ReportRow> = {}): ReportRow {
     lighthouse: null,
     gaUsersCurrent: null,
     gaUsersPrevious: null,
+    leadsCurrent: null,
+    leadsPrevious: null,
     searchFoundPage1: null,
     searchPosition: null,
     lastTestedDate: null,
@@ -61,6 +64,7 @@ function cleanSite(over: Parameters<typeof makeWebsiteRow>[0] = {}) {
     url: "https://acme.example.com",
     status: "maintained",
     pointOfContact: "owner@acme.example.com",
+    reddoorContact: "tim@reddoorla.com",
     maintenanceFreq: "Monthly",
     maintenanceFreqRaw: "Monthly",
     testingFreq: "None",
@@ -543,5 +547,44 @@ describe("approveBlockers — CMS Checked on a site with no CMS (#911)", () => {
       approveBlockers(site, reportFor(site, { "Maint: CMS Checked": true })),
     ).join(" ");
     expect(fails).toContain("Maint: CMS Checked: not yet green (unknown)");
+  });
+});
+
+describe("reddoorContactFindings (P1-127)", () => {
+  const checksOf = (over: Parameters<typeof cleanSite>[0]) =>
+    reddoorContactFindings(cleanSite(over)).map((f) => `${f.level}:${f.check}`);
+
+  it("is quiet for a Reddoor address", () => {
+    expect(checksOf({})).toEqual([]);
+  });
+  it("warns, without blocking approval, when the site has none", () => {
+    expect(checksOf({ reddoorContact: null })).toEqual(["warn:reddoor-contact-missing"]);
+    expect(checksOf({ reddoorContact: "  " })).toEqual(["warn:reddoor-contact-missing"]);
+  });
+  it("fails a malformed address, and that blocks approval", () => {
+    expect(checksOf({ reddoorContact: "tim at reddoorla" })).toEqual(["fail:recipients-malformed"]);
+    const REPORT = makeReportRow({
+      lighthouse: { performance: 90, accessibility: 100, bestPractices: 100, seo: 100 },
+      autoEvidence: healthCleanEvidence(),
+    });
+    expect(
+      formatBlockers(
+        approveBlockers(cleanSite({ reddoorContact: "tim at reddoorla" }), REPORT),
+      ).join(" "),
+    ).toContain("Reddoor contact 'tim at reddoorla' is malformed");
+  });
+  it("reaches the approve gate as a warning, never a blocker, when the site has none", () => {
+    const REPORT = makeReportRow({
+      lighthouse: { performance: 90, accessibility: 100, bestPractices: 100, seo: 100 },
+      autoEvidence: healthCleanEvidence(),
+    });
+    const findings = approveBlockers(cleanSite({ reddoorContact: null }), REPORT);
+    expect(findings.map((f) => `${f.level}:${f.check}`)).toEqual(["warn:reddoor-contact-missing"]);
+    expect(formatBlockers(findings)).toEqual([]);
+  });
+  it("warns when the address is not Reddoor's (the client belongs in point of contact)", () => {
+    expect(checksOf({ reddoorContact: "owner@acme.example.com" })).toEqual([
+      "warn:reddoor-contact-not-reddoor",
+    ]);
   });
 });

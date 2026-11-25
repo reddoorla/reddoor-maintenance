@@ -3,7 +3,7 @@
 import { siteSlug } from "../fleet/site-row.js";
 import type { WebsiteRow } from "../fleet/site-row.js";
 import type { ReportRow } from "./report-row.js";
-import { parseAddresses, isProbablyEmail } from "./send/addresses.js";
+import { parseAddresses, isProbablyEmail, reportRecipients } from "./send/addresses.js";
 import { DAY_MS, DRAFT_LEAD_DAYS, ELIGIBLE_STATUSES, reportPeriodKey } from "./due.js";
 import type { ReportType } from "./types.js";
 import { gatingHealth, isSendOverridden } from "./checklist.js";
@@ -169,6 +169,7 @@ export function preflightSite(
       });
     }
   }
+  if (scheduledForType) findings.push(...reddoorContactFindings(site));
   if (!isOperatorSite(site)) {
     const operatorAddrs = to.filter((a) => OPERATOR_DOMAINS.includes(domainOf(a)));
     if (operatorAddrs.length > 0) {
@@ -435,15 +436,52 @@ export function healthBlockers(report: ReportRow): PreflightFinding[] {
 }
 
 /**
+ * The site's Reddoor contact (P1-127): CC'd on every report so a Reddoor person
+ * gets what the client gets. Empty warns (the send still goes, to the client and
+ * the ops inbox); a malformed address fails, as a malformed CC does; an address
+ * outside Reddoor's domains warns, since this field is ours and the client's
+ * belongs in point of contact.
+ */
+export function reddoorContactFindings(site: WebsiteRow): PreflightFinding[] {
+  const addrs = parseAddresses(site.reddoorContact) ?? [];
+  if (addrs.length === 0) {
+    return [
+      {
+        level: "warn",
+        check: "reddoor-contact-missing",
+        message:
+          "no Reddoor contact — set one in the site's details so a Reddoor person is CC'd on what the client receives",
+      },
+    ];
+  }
+  const findings: PreflightFinding[] = [];
+  for (const addr of addrs) {
+    if (!isProbablyEmail(addr)) {
+      findings.push({
+        level: "fail",
+        check: "recipients-malformed",
+        message: `Reddoor contact '${addr}' is malformed — fix Reddoor contact in the site's details`,
+      });
+    } else if (!OPERATOR_DOMAINS.includes(domainOf(addr))) {
+      findings.push({
+        level: "warn",
+        check: "reddoor-contact-not-reddoor",
+        message: `Reddoor contact '${addr}' is not a Reddoor address — the client's address belongs in point of contact`,
+      });
+    }
+  }
+  return findings;
+}
+
+/**
  * The recipient half of {@link approveBlockers}: no resolvable To, a malformed
  * To or CC, and the operator-only To warning. Exported so `launch-check` asks
  * the same question before a launch that the approve gate asks after it.
  */
 export function recipientFindings(site: WebsiteRow): PreflightFinding[] {
   const findings: PreflightFinding[] = [];
-  const explicitTo = parseAddresses(site.reportRecipientsTo);
-  const fallbackTo = parseAddresses(site.pointOfContact);
-  const to = explicitTo ?? fallbackTo ?? [];
+  // The send's own rule (P1-127), so the gate and the send cannot disagree on To.
+  const { to } = reportRecipients(site);
   if (to.length === 0) {
     findings.push({
       level: "fail",
@@ -519,7 +557,13 @@ export function headerImageFindings(site: WebsiteRow): PreflightFinding[] {
 export function approveBlockers(site: WebsiteRow, report: ReportRow): PreflightFinding[] {
   const findings: PreflightFinding[] = [];
 
-  findings.push(...recipientFindings(site), ...headerImageFindings(site));
+  // The Reddoor contact is the approve gate's, not recipientFindings': launch-check
+  // shares that one, and a missing contact must not hold a launch (review round 2).
+  findings.push(
+    ...recipientFindings(site),
+    ...reddoorContactFindings(site),
+    ...headerImageFindings(site),
+  );
   // sendOne throws on a null report.lighthouse (one blank/non-numeric cell nulls
   // all four) — the REPORT's snapshot, not the Websites-row scores.
   if (report.lighthouse === null) {
