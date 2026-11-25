@@ -117,6 +117,25 @@ function automatedTestingSections(data: ReportData, copy: ResolvedCopy): string 
   );
 }
 
+/**
+ * The AEO/SEO block in the slot the blurred testing upsell held (2026-11-25, the operator's
+ * pick (a), `decisions/2026-11-25-1835-remove-testing-upsell-aeo-seo-block.md`): a call to
+ * action for the analytics scorecard (P1-128), linked to `mailto:` the contact address, as the
+ * blurred image was. Maintenance reports only. PURE.
+ */
+export function aeoSeoSection(siteName: string, copy: ResolvedCopy): string {
+  const body = escapeXml(copy.aeoSeoBody).split("{site}").join(escapeXml(siteName));
+  const contact = escapeXml(copy.aeoSeoContact);
+  return `
+    <mj-section background-color="#F4F4F4">
+      <mj-column>
+        <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="75px">${escapeXml(copy.aeoSeoHeading)}</mj-text>
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px">${body}</mj-text>
+        <mj-text color="${RED}" font-family="helvetica, sans-serif" font-size="16px" font-weight="700" line-height="24px" padding-bottom="36px"><a href="mailto:${contact}" style="color:${RED};text-decoration:underline;">${contact}</a></mj-text>
+      </mj-column>
+    </mj-section>`;
+}
+
 function testingIntroSection(intro: string): string {
   return `
     <mj-section background-color="#F4F4F4">
@@ -215,7 +234,7 @@ export function buildMjml(data: ReportData): string {
       periodDays: data.gaPeriodDays,
       background: "white",
     })}
-    ${isTesting ? testingSections(data, copy) : automatedTestingSections(data, copy)}
+    ${isTesting ? testingSections(data, copy) : aeoSeoSection(data.siteName, copy) + automatedTestingSections(data, copy)}
     ${data.commentary ? commentarySection(data.commentary, copy) : ""}
     <mj-section background-color="white">
       <mj-column padding-top="36px">

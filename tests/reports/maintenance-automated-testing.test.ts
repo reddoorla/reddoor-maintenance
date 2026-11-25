@@ -153,3 +153,29 @@ describe("the Maintenance email's TESTING list", () => {
     for (const label of DEFAULT_COPY.testingChecklist) expect(html, label).toMatch(rowText(label));
   });
 });
+
+describe("the AEO/SEO block in the upsell's slot (the operator's pick (a), 11-25)", () => {
+  it("is on a Maintenance report, names the site, and links to mailto:info@reddoorla.com", async () => {
+    const { html } = await renderReportHtml({
+      ...data("Maintenance", allPass()),
+      siteName: "Brown & Co",
+    });
+    expect(html).toMatch(rowText("AI SEARCH & SEO"));
+    expect(html).toContain("How does Brown &amp; Co show up on Google");
+    expect(html).not.toContain("{site}");
+    expect(html).toContain('href="mailto:info@reddoorla.com"');
+  });
+
+  it("sits before the TESTING list", async () => {
+    const { html } = await renderReportHtml(data("Maintenance", allPass()));
+    expect(html.search(rowText("AI SEARCH & SEO"))).toBeLessThan(
+      html.search(rowText("TESTING")),
+    );
+  });
+
+  it("is not on a Testing report", async () => {
+    const { html } = await renderReportHtml(data("Testing", allPass()));
+    expect(html).not.toMatch(rowText("AI SEARCH & SEO"));
+    expect(html).not.toContain("mailto:info@reddoorla.com");
+  });
+});

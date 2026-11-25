@@ -8,6 +8,13 @@ export type ResolvedCopy = {
   /** The intro over a Maintenance report's TESTING list, whose rows are ticked only by the
    *  nightly automated tests (2026-11-25). */
   automatedTestingIntro: string;
+  /** The AEO/SEO block that replaced the blurred testing upsell on Maintenance reports
+   *  (2026-11-25, the operator's pick (a): a call to action for the P1-128 scorecard).
+   *  `{site}` in the body is replaced by the site's name; the body is followed by
+   *  `aeoSeoContact`, linked to `mailto:` that address. */
+  aeoSeoHeading: string;
+  aeoSeoBody: string;
+  aeoSeoContact: string;
   notesHeader: string;
   seoCta: string;
   contact: string[]; // closing invitation lines
@@ -52,6 +59,10 @@ export const DEFAULT_COPY: ResolvedCopy = {
   ],
   automatedTestingIntro:
     "We now test your site automatically every night: in desktop and mobile browsers, its page titles and links, its forms and interactions, and after every update. Each item below passed its latest run.",
+  aeoSeoHeading: "AI SEARCH & SEO",
+  aeoSeoBody:
+    "How does {site} show up on Google and in AI assistants like ChatGPT? We're starting a monthly scorecard: goals we set with you, tracked across Google, Bing and AI search. Just reply, or write to us, to be among the first:",
+  aeoSeoContact: "info@reddoorla.com",
   notesHeader: "NOTES",
   seoCta: "Contact us if you are interested in more in-depth data or have questions about SEO.",
   contact: ["Just hit reply.", "We're here to help in any way we can."],
