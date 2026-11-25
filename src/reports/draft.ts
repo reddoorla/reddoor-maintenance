@@ -18,6 +18,7 @@ import type { ReportMirror } from "./report-mirror.js";
 import type { SiteMirror } from "../db/site-mirror.js";
 import { queueDraft, type QueueOutcome } from "./queue.js";
 import { autoTickChecklist } from "./auto-tick.js";
+import { checklistFor } from "./checklist.js";
 import { readGaConfig } from "./ga/config.js";
 import { searchEnrolled } from "./search-enrolled.js";
 import { fetchReportVisits, measuredHostnames, REPORT_WINDOW_DAYS } from "./ga/client.js";
@@ -386,8 +387,11 @@ export async function draftReportForSite(
     };
   }
 
+  // Only this type's checkboxes are ticked: a Maintenance report also records the Testing rows'
+  // evidence (for its email's TESTING list), but has no Testing checkboxes.
+  const boxes = new Set(checklistFor(reportType).map((i) => i.field));
   const checklistTicks = [...evidence.entries()]
-    .filter(([, e]) => e.result === "pass")
+    .filter(([field, e]) => e.result === "pass" && boxes.has(field))
     .map(([field]) => field);
 
   const reportId = `${siteRow.name} — ${reportType} — ${periodEnd.toISOString().slice(0, 10)}`;

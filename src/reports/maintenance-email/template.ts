@@ -68,7 +68,13 @@ function maintenanceCheckLabels(data: ReportData, copy: ResolvedCopy): string[] 
       ? `Page 1 Google Result (#${data.searchPosition})`
       : (copy.maintenanceChecks[3] ?? "");
   const labels = copy.maintenanceChecks.map((label, i) => (i === 3 ? googleLabel : label));
-  return shownChecklistLabels(MAINTENANCE_CHECKLIST, labels, data.checklistEvidence);
+  // 2026-11-25 (the operator: "just add all the tests to the maintenance section"): a
+  // Maintenance report's list goes on with the Testing rows the nightly tests recently passed.
+  const testing = data.reportType === "Maintenance" ? automatedTestingLabels(data, copy) : [];
+  return [
+    ...shownChecklistLabels(MAINTENANCE_CHECKLIST, labels, data.checklistEvidence),
+    ...testing,
+  ];
 }
 
 function maintenanceHeadingBlock(copy: ResolvedCopy): string {
@@ -89,32 +95,40 @@ function testingSections(data: ReportData, copy: ResolvedCopy): string {
   );
   if (rows.length === 0) return "";
   return (
-    testingIntroSection(copy.testingIntro) +
+    testingIntroSection(copy) +
     checklistRowsSection(rows, { background: "#F4F4F4", lastPaddingBottom: "60px" })
   );
 }
 
+/** A Testing row shows on a Maintenance report only when its pass was recorded within this
+ *  many days of the report's date. Evidence is frozen at draft, up to a week before the send,
+ *  and an approved row is never re-ticked, so the age is checked here, against the date the
+ *  email carries. Matches auto-tick's STALE_DAYS. */
+const AUTOMATED_TEST_MAX_AGE_DAYS = 3;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+function isRecentPass(
+  record: { result: string; checkedAt: string | null } | undefined,
+  reportDate: Date,
+): boolean {
+  if (record?.result !== "pass" || !record.checkedAt) return false;
+  const at = new Date(record.checkedAt).getTime();
+  if (Number.isNaN(at)) return false;
+  return reportDate.getTime() - at <= AUTOMATED_TEST_MAX_AGE_DAYS * MS_PER_DAY;
+}
+
 /**
- * A Maintenance report's TESTING list (2026-11-25, in place of the blurred testing upsell): the
- * Testing rows the nightly automated tests passed. Strictly `pass`: a row whose latest run
- * failed, is stale (`unknown`), does not apply (`n/a`) or never ran (no record) is left out,
- * never ticked by default. The rows carry no checkbox of their own on a Maintenance report, so
- * nothing but the evidence can tick them. No passing row, no section. PURE.
+ * The Testing rows a Maintenance report adds to the end of its MAINTENANCE CHECKS list
+ * (2026-11-25, with the blurred testing upsell gone): the rows the nightly automated tests passed. Strictly a recent `pass` (above): a row whose
+ * latest run failed, is stale (`unknown`, or a pass older than 3 days at the report's date),
+ * does not apply (`n/a`) or never ran (no record) is left out, never ticked by default. The rows carry no checkbox of their own on a Maintenance report, so
+ * nothing but the evidence can tick them. PURE.
  */
 export function automatedTestingLabels(data: ReportData, copy: ResolvedCopy): string[] {
   return copy.testingChecklist.filter((_, i) => {
     const field = TESTING_CHECKLIST[i]?.field;
-    return field !== undefined && data.checklistEvidence?.[field]?.result === "pass";
+    return field !== undefined && isRecentPass(data.checklistEvidence?.[field], data.completedOn);
   });
-}
-
-function automatedTestingSections(data: ReportData, copy: ResolvedCopy): string {
-  const rows = automatedTestingLabels(data, copy);
-  if (rows.length === 0) return "";
-  return (
-    testingIntroSection(copy.automatedTestingIntro) +
-    checklistRowsSection(rows, { background: "#F4F4F4", lastPaddingBottom: "60px" })
-  );
 }
 
 /**
@@ -136,12 +150,12 @@ export function aeoSeoSection(siteName: string, copy: ResolvedCopy): string {
     </mj-section>`;
 }
 
-function testingIntroSection(intro: string): string {
+function testingIntroSection(copy: ResolvedCopy): string {
   return `
     <mj-section background-color="#F4F4F4">
       <mj-column>
         <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="75px">TESTING</mj-text>
-        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px">${escapeXml(intro)}</mj-text>
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px">${escapeXml(copy.testingIntro)}</mj-text>
       </mj-column>
     </mj-section>`;
 }
@@ -234,7 +248,7 @@ export function buildMjml(data: ReportData): string {
       periodDays: data.gaPeriodDays,
       background: "white",
     })}
-    ${isTesting ? testingSections(data, copy) : aeoSeoSection(data.siteName, copy) + automatedTestingSections(data, copy)}
+    ${isTesting ? testingSections(data, copy) : aeoSeoSection(data.siteName, copy)}
     ${data.commentary ? commentarySection(data.commentary, copy) : ""}
     <mj-section background-color="white">
       <mj-column padding-top="36px">

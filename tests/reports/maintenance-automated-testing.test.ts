@@ -98,18 +98,44 @@ describe("a Maintenance report's evidence includes the nightly testing rows", ()
     expect(isHealthGateClear({ reportType: "Maintenance", autoEvidence: evidence })).toBe(true);
   });
 
+  it("records a Testing signal older than 3 days as unknown, so it is not shown", () => {
+    const old = "2026-11-21T08:00:00.000Z";
+    const site = { ...testedSite(), browserCheckedAt: old, lastSmokeAt: old };
+    const out = autoTickChecklist(site, "Maintenance", NOW, NO_SEARCH);
+    expect(out.get("Test: Desktop Browsers")?.result).toBe("unknown");
+    expect(out.get("Test: Interactions & Animations")?.result).toBe("unknown");
+  });
+
   it("leaves the Maintenance checkboxes at the six maintenance rows", () => {
     expect(checklistFor("Maintenance")).toEqual(MAINTENANCE_CHECKLIST);
   });
 });
 
-describe("the Maintenance email's TESTING list", () => {
-  it("shows every Testing row the nightlies passed, under the automated intro, with no blurred image", async () => {
+/** Each checklist row's label, in the order the email shows them. */
+function shownRows(html: string): string[] {
+  const labels = [...DEFAULT_COPY.maintenanceChecks, ...DEFAULT_COPY.testingChecklist];
+  return labels
+    .map((label) => ({ label, at: html.search(rowText(label)) }))
+    .filter((r) => r.at >= 0)
+    .sort((a, b) => a.at - b.at)
+    .map((r) => r.label);
+}
+
+describe('the Testing rows on a Maintenance email (the operator, 11-25: "just add all the tests to the maintenance section")', () => {
+  it("ends the MAINTENANCE CHECKS list with every Testing row the nightlies passed, with no TESTING section", async () => {
     const { html } = await renderReportHtml(data("Maintenance", allPass()));
-    expect(html).toMatch(rowText("TESTING"));
-    expect(html).toContain(DEFAULT_COPY.automatedTestingIntro);
+    expect(shownRows(html)).toEqual([
+      ...DEFAULT_COPY.maintenanceChecks,
+      ...DEFAULT_COPY.testingChecklist,
+    ]);
+    // One list: the rows sit between the MAINTENANCE CHECKS heading and the Lighthouse scores.
+    const heading = html.search(rowText("MAINTENANCE CHECKS"));
+    const lighthouse = html.indexOf("LIGHTHOUSE");
+    expect(heading).toBeGreaterThanOrEqual(0);
+    expect(html.search(rowText("Tested After Updates"))).toBeGreaterThan(heading);
+    expect(html.search(rowText("Tested After Updates"))).toBeLessThan(lighthouse);
+    expect(html).not.toMatch(rowText("TESTING"));
     expect(html).not.toContain(DEFAULT_COPY.testingIntro);
-    for (const label of DEFAULT_COPY.testingChecklist) expect(html, label).toMatch(rowText(label));
     expect(html).not.toContain("rd-blurred-tests-jpg");
   });
 
@@ -137,19 +163,43 @@ describe("the Maintenance email's TESTING list", () => {
     }
   });
 
-  it("drops the whole section when no Testing row passed", async () => {
+  it("leaves out a pass recorded more than 3 days before the report's date (frozen at draft, sent later)", async () => {
+    const evidence = allPass();
+    // completedOn is 2026-11-25T12:00Z: 4 days after this pass, 2 days after that one.
+    evidence["Test: Mobile Browsers"] = {
+      result: "pass",
+      checkedAt: "2026-11-21T11:00:00.000Z",
+      note: "",
+    };
+    evidence["Test: Desktop Browsers"] = {
+      result: "pass",
+      checkedAt: "2026-11-23T12:00:00.000Z",
+      note: "",
+    };
+    evidence["Test: Links & Navigation"] = { result: "pass", checkedAt: null, note: "" };
+    const { html } = await renderReportHtml(data("Maintenance", evidence));
+    expect(html).not.toMatch(rowText("Mobile Browsers"));
+    expect(html).not.toMatch(rowText("Links & Navigation"));
+    expect(html).toMatch(rowText("Desktop Browsers"));
+  });
+
+  it("shows only the maintenance rows when no Testing row passed", async () => {
     const evidence = Object.fromEntries(
       MAINTENANCE_CHECKLIST.map((i) => [i.field, ev("pass")] as const),
     );
     const { html } = await renderReportHtml(data("Maintenance", evidence));
-    expect(html).not.toMatch(rowText("TESTING"));
+    expect(shownRows(html)).toEqual(DEFAULT_COPY.maintenanceChecks);
   });
 
   it("leaves a Testing report's TESTING section as it was", async () => {
     const { html } = await renderReportHtml(data("Testing", allPass()));
     expect(html).toMatch(rowText("TESTING"));
     expect(html).toContain(DEFAULT_COPY.testingIntro);
-    expect(html).not.toContain(DEFAULT_COPY.automatedTestingIntro);
+    // Its MAINTENANCE CHECKS list holds the six maintenance rows only.
+    const testingHeading = html.search(rowText("TESTING"));
+    for (const label of DEFAULT_COPY.testingChecklist) {
+      expect(html.search(rowText(label)), label).toBeGreaterThan(testingHeading);
+    }
     for (const label of DEFAULT_COPY.testingChecklist) expect(html, label).toMatch(rowText(label));
   });
 });
@@ -166,9 +216,15 @@ describe("the AEO/SEO block in the upsell's slot (the operator's pick (a), 11-25
     expect(html).toContain('href="mailto:info@reddoorla.com"');
   });
 
-  it("sits before the TESTING list", async () => {
-    const { html } = await renderReportHtml(data("Maintenance", allPass()));
-    expect(html.search(rowText("AI SEARCH & SEO"))).toBeLessThan(html.search(rowText("TESTING")));
+  it("sits after LEADS, where the blurred image was, and after the checklist", async () => {
+    const { html } = await renderReportHtml({
+      ...data("Maintenance", allPass()),
+      leadsCurrent: 2,
+      leadsPrevious: 1,
+    });
+    const aeo = html.search(rowText("AI SEARCH & SEO"));
+    expect(aeo).toBeGreaterThan(html.search(rowText("LEADS")));
+    expect(aeo).toBeGreaterThan(html.search(rowText("Tested After Updates")));
   });
 
   it("is not on a Testing report", async () => {
