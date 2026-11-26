@@ -93,7 +93,7 @@ Mutations after round 3, each red: dropping the in-budget special case (1), the 
   - a full-width comma;
   - a CJK full stop;
   - a zero-width space;
-  - `test@example.com ,`, where the trim ran before the strip.
+  - `test@example.com ,`, where the trim ran before the strip. (Round 5 corrected this one: it fails `EMAIL_RE`, which allows no space, so no stored row can hold it.)
 
   The strip now removes any trailing Unicode punctuation, symbol, separator, format character or space.
 
@@ -116,3 +116,15 @@ Mutations after round 4, each red:
 - no space classes (1);
 - no address-literal check (1);
 - `https:` only in the snapshot (1).
+
+**Review round 5** (three fresh Opus lenses, on round 4's fix) was dirty by the rule that a reproduced behaviour defect is never a minor. That makes five dirty rounds, the stop.
+
+- **The defect** (edge-cases lens, reproduced again on the committed code). An emoji after a test address stopped the strip: `test@example.com❤️` and `test@example.com✔️` pass `EMAIL_RE`, and they still counted as leads. The emoji's variation selector (U+FE0F) is a combining mark, which the class did not hold, so the strip halted at it. A comma carrying a combining accent did the same. It takes a tester typing an emoji after a test address on a form whose field is not `type=email`.
+- **The fix**, folded in before asking. A combining mark is stripped together with the punctuation or symbol it follows, and never after a letter, so an IDN TLD that ends in a mark (`.हिन्दी`) keeps it and stays a real sender. Removing the mark from the pattern turns a test red.
+- **The wiring lens found nothing.** It ran 13.8 million fuzz cases with no mismatch between the snapshot's kept email and the full one. Its negative control (a broken stand-in) found 5,053.
+- **The tests lens found two minors, both folded in.** Round 4's journal claimed `test@example.com ,` passes `EMAIL_RE`; it does not, and that line is now corrected in place. The changeset now names the address-literal rule and every stripped character class.
+- **Its two nits are noted, not acted on.** `\p{Z}` and `\s` overlap, and the strip-before-trim order cannot be told apart by any input ingest accepts.
+
+**Process note.** The round-5 tests lens ran its mutations in the shared worktree while the other two lenses read it. The wiring lens noticed, and re-ran against `git show HEAD:` copies. The edge-cases finding was then re-checked against the committed code. A later round should give the mutating lens its own copy.
+
+Per the stop rule, the PR went to the operator with a decision file. Workspace `decisions/` holds it, under the time of the ask.

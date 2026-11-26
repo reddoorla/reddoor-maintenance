@@ -140,6 +140,10 @@ describe("isTestSender (maintenance#2296, the operator's pick (a), 11-25)", () =
     expect(isTestSender("staff@reddoorla.com\u3002")).toBe(true); // a CJK full stop
     expect(isTestSender("test@example.com\u200b")).toBe(true); // a zero-width space
     expect(isTestSender("bob@m\u00fcnchen.de\u201d")).toBe(false);
+    expect(isTestSender("test@example.com\u2764\ufe0f")).toBe(true); // an emoji and its selector
+    expect(isTestSender("test@example.com,\u0301")).toBe(true); // a mark on a comma
+    // A mark after a letter is the domain's own: an IDN TLD keeps it, and stays real.
+    expect(isTestSender("bob@example.\u0939\u093f\u0928\u094d\u0926\u0940")).toBe(false);
   });
 
   it("is false for an address literal", () => {

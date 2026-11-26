@@ -45,10 +45,12 @@ function withoutRootDot(host: string): string {
 
 /** `example.com,` or `reddoorla.com>.` is the domain before its trailing
  *  punctuation, symbols, spaces and invisible characters: a typed comma, a pasted
- *  `>` or smart quote, a full-width comma or a zero-width space does not make a test
- *  address real. It strips the DNS root's trailing dots too. */
+ *  `>` or smart quote, a full-width comma, an emoji or a zero-width space does not
+ *  make a test address real. It strips the DNS root's trailing dots too. */
 function withoutTrailingPunctuation(domain: string): string {
-  return domain.replace(/[\p{P}\p{S}\p{Z}\p{Cf}\s]+$/u, "");
+  // A combining mark rides on the character it follows (the emoji selector in
+  // `❤️`), so it goes with a stripped one; one after a letter is the domain's own.
+  return domain.replace(/(?:[\p{P}\p{S}\p{Z}\p{Cf}\s]\p{M}*)+$/u, "");
 }
 
 /** Reddoor's own domain: a submission from it is Reddoor testing a form, never a
