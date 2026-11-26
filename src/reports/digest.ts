@@ -640,7 +640,8 @@ export async function fetchSubmissionsDigestCounts(
 
 /** Assemble the "Submissions (24h)" section from the per-site counts. PURE (exported
  *  for direct tests). Totals sum ALL map entries — an orphan site id still counts in
- *  the fleet totals. bySite lists only ids that resolve in `sitesById` AND carry any
+ *  the fleet totals (its signups and auto-spam; never a lead, which needs its site's
+ *  url, #2296). bySite lists only ids that resolve in `sitesById` AND carry any
  *  nonzero count, sorted by total volume desc then siteName A-Z. null counts (libSQL
  *  unavailable) → null (section omitted). */
 export function buildSubmissionsDigestSection(

@@ -14,6 +14,7 @@ import { orElse } from "./or-else.js";
 import { prismicAckNamesReport } from "../alerts/digest-collectors.js";
 import { readLatestDeps, readOverviewNights } from "../fleet-daily/read.js";
 import type { SubmissionRow } from "../reports/submission-row.js";
+import { isTestSender } from "../reports/lead-source.js";
 import {
   DEPLOY_AFTER_MERGE_MS,
   RECENT_AUDITS_LIMIT,
@@ -214,7 +215,8 @@ const GAP = Symbol("gap");
  *  - All of them: at most `SNAPSHOT_TEXT_BUDGET`, counted as the bytes SvelteKit's
  *    serialiser writes (`charCost`), newest lead first. A lead past it keeps its
  *    row, its status, its reasons, the first 80 characters of its name, email
- *    and phone, its email's domain and its source page's origin, so every count
+ *    and phone, and what the lead rule reads of its email and source page
+ *    (`emailPastBudget`, `originPastBudget`), so every count
  *    (leads included, #2296), status and reason filter holds and a search by
  *    sender still finds it; its message and other text become one constant
  *    marker, which the serialiser writes once however many rows hold it. A search
@@ -271,36 +273,41 @@ function cutTo(value: string, max: number): { text: string; cost: number; cut: b
 const KEPT_PAST_BUDGET = ["name", "email", "phone"] as const;
 const PREFIX_PAST_BUDGET = 80;
 
-/** The longest host a lead keeps past the budget: a DNS name's limit. */
-const HOST_MAX = 253;
+/** A plain ASCII host name: what a lead's page or address domain keeps past the
+ *  budget. Each character serialises to one byte, so a kept host costs at most
+ *  253 bytes however the field was crafted. */
+const PLAIN_HOST = /^[a-z0-9.-]{1,253}$/i;
 
-/** A `sourceUrl` past the budget: its origin, which is all `isCountedLead` reads
- *  (the page's host), so the snapshot counts the same leads as Turso
- *  (reddoorla/reddoor-maintenance#2296). Bounded by `HOST_MAX`; anything else
- *  becomes the marker, which is no production host. */
+/** A `sourceUrl` past the budget: `https://<host>` for an http(s) page on a plain
+ *  host, else the marker. `isProductionSource` reads only that (an http(s) page
+ *  and its host, compared with the site's own plain hosts), so the snapshot counts
+ *  exactly the leads Turso does (reddoorla/reddoor-maintenance#2296). */
 function originPastBudget(value: string): string {
-  let origin: string;
+  let url: URL;
   try {
-    origin = new URL(value).origin;
+    url = new URL(value);
   } catch {
     return TEXT_PAST_BUDGET;
   }
-  return origin.length <= HOST_MAX + "https://".length + ":65535".length
-    ? origin
-    : TEXT_PAST_BUDGET;
+  if (url.protocol !== "http:" && url.protocol !== "https:") return TEXT_PAST_BUDGET;
+  return PLAIN_HOST.test(url.hostname) ? `https://${url.hostname}` : TEXT_PAST_BUDGET;
 }
 
-/** An `email` past the budget: the first `PREFIX_PAST_BUDGET` characters, as the
- *  other sender fields keep, plus its domain, which `isTestSender` reads, so a long
- *  address from a test domain is not counted in the snapshot when Turso drops it
- *  (#2296). A domain longer than `HOST_MAX` is no real one and is not kept. */
+/** An `email` past the budget: its local part's first `PREFIX_PAST_BUDGET`
+ *  characters, as the other sender fields keep, then what `isTestSender` reads.
+ *  That is its domain when the domain is a plain host. Otherwise it is a stand-in
+ *  with the same verdict: `invalid` (a reserved TLD) for a test sender, or no
+ *  domain for a real one. So the snapshot counts exactly the leads Turso does
+ *  (#2296), and the kept text stays bounded. */
 function emailPastBudget(value: string): string {
-  const { text, cut } = cutTo(value, PREFIX_PAST_BUDGET);
-  if (!cut) return value;
   const at = value.lastIndexOf("@");
-  const domain = at < 0 ? "" : value.slice(at + 1);
-  if (at < PREFIX_PAST_BUDGET || domain.length === 0 || domain.length > HOST_MAX) return `${text}…`;
-  return `${text}…@${domain}`;
+  const local = at < 0 ? value : value.slice(0, at);
+  const { text, cut } = cutTo(local, PREFIX_PAST_BUDGET);
+  const keptLocal = cut ? `${text}…` : text;
+  if (at < 0) return keptLocal;
+  const domain = value.slice(at + 1);
+  const keptDomain = PLAIN_HOST.test(domain) ? domain : isTestSender(value) ? "invalid" : "";
+  return keptDomain === "" ? keptLocal : `${keptLocal}@${keptDomain}`;
 }
 
 /** Apply both bounds to the rows, newest first (the order they are read in). */

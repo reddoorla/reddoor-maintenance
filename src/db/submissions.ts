@@ -140,6 +140,8 @@ export async function listLeadTimestampsForSite(
     .selectFrom("submissions")
     .select(["submitted_at", "status", "form_type", "source_url", "email"])
     .where("site_id", "=", site.id)
+    // isCountedLead drops spam too; filtering it here skips reading its text.
+    .where("status", "not in", ["spam", "spam_auto"])
     .execute();
   return rows.flatMap((r) =>
     r.submitted_at !== null &&

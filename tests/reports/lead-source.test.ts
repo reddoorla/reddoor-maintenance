@@ -62,6 +62,15 @@ describe("isProductionSource (maintenance#2296)", () => {
     expect(isProductionSource("https://staging.client.com/c", "client.com")).toBe(false);
   });
 
+  it("reads a scheme-less site url with a port as its host", () => {
+    expect(isProductionSource("https://client.com/contact", "client.com:8080")).toBe(true);
+  });
+
+  it("counts only an http(s) page", () => {
+    expect(isProductionSource("foo://www.client.com/x", "https://client.com")).toBe(false);
+    expect(isProductionSource("blob:https://client.com/x", "https://client.com")).toBe(false);
+  });
+
   it("ignores a trailing root dot on either host", () => {
     expect(isProductionSource("https://client.com./contact", "https://client.com")).toBe(true);
     expect(isProductionSource("https://client.com/contact", "https://client.com.")).toBe(true);
@@ -111,6 +120,8 @@ describe("isTestSender (maintenance#2296, the operator's pick (a), 11-25)", () =
   it("ignores a trailing root dot on the domain", () => {
     expect(isTestSender("bob@gmail.com.")).toBe(false);
     expect(isTestSender("staff@reddoorla.com.")).toBe(true);
+    expect(isTestSender("bob@gmail.com..")).toBe(false);
+    expect(isTestSender("a@.")).toBe(false);
   });
 
   it("is false for an address with no domain", () => {

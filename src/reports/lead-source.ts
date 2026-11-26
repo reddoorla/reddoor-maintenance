@@ -12,30 +12,35 @@ import { isSiteHost } from "../client/site-host.js";
  * a lead nobody can place on the live site is not counted. A site `url` stored
  * without a scheme (`client.com`) is read as `https://`, so a hand-typed roster
  * row does not silently zero its leads, and a trailing dot on either host (the
- * DNS root, `client.com.`) is ignored. Comparing against the site's CURRENT url
+ * DNS root, `client.com.`) is ignored. Only an http(s) page counts. Comparing against the site's CURRENT url
  * means a site that moves domain stops counting leads from its old one. Measured on 2026-11-25,
  * no non-spam submission in the fleet lacked a `source_url`
  * (reddoorla/reddoor-maintenance#2296).
  */
 export function isProductionSource(sourceUrl: string | null, siteUrl: string): boolean {
   if (!sourceUrl) return false;
-  const source = parseUrl(sourceUrl);
-  const site = parseUrl(siteUrl) ?? parseUrl(`https://${siteUrl.trim()}`);
+  const source = webUrl(sourceUrl);
+  const site = webUrl(siteUrl) ?? webUrl(`https://${siteUrl.trim()}`);
   if (!source || !site) return false;
   return isSiteHost(withoutRootDot(source.hostname), withoutRootDot(site.hostname));
 }
 
-function parseUrl(s: string): URL | null {
+/** `s` as an http(s) URL, or null. `client.com:8080` parses as the scheme
+ *  `client.com:`, so it is null here and the caller's `https://` retry reads it
+ *  as the host it is. An http(s) URL that parses always has a host. */
+function webUrl(s: string): URL | null {
+  let url: URL;
   try {
-    return new URL(s);
+    url = new URL(s);
   } catch {
     return null;
   }
+  return url.protocol === "http:" || url.protocol === "https:" ? url : null;
 }
 
-/** `client.com.` is `client.com`: the trailing dot names the DNS root. */
+/** `client.com.` is `client.com`: a trailing dot names the DNS root. */
 function withoutRootDot(host: string): string {
-  return host.endsWith(".") ? host.slice(0, -1) : host;
+  return host.replace(/\.+$/, "");
 }
 
 /** Reddoor's own domain: a submission from it is Reddoor testing a form, never a

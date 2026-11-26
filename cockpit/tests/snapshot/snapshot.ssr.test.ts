@@ -312,6 +312,17 @@ describe("loadCockpitSnapshot on a batchReads Db", () => {
       name: "Long Mail",
       email: `${"q".repeat(90)}@reddoorla.com`,
     });
+    // The `@` before character 80, and a long test domain after it.
+    await lead("longdomain", new Date(NOW.getTime() - 3 * 86_400_000), {
+      name: "Long Domain",
+      email: `a@${"b".repeat(90)}.example.com`,
+    });
+    // A test domain that is no plain host, and a crafted source host.
+    await lead("oddmail", new Date(NOW.getTime() - 4 * 86_400_000), {
+      name: "Odd Mail",
+      email: `a@${"<".repeat(300)}.reddoorla.com`,
+      source_url: `https://${"x".repeat(300)}.com/contact`,
+    });
     for (let i = 0; i < 60; i++) {
       const junk = (tag: string) => `${i}${tag}${"<".repeat(30_000)}`;
       await lead(`atk${i}`, new Date(NOW.getTime() - i * 60_000), {
@@ -334,7 +345,7 @@ describe("loadCockpitSnapshot on a batchReads Db", () => {
     expect(Buffer.byteLength(devalue.stringify(s))).toBeLessThan(SNAPSHOT_TEXT_BUDGET + 500_000);
     // Every row is still there; the oldest crafted ones and the real lead behind
     // them carry the marker for their message.
-    expect(s.submissions).toHaveLength(62);
+    expect(s.submissions).toHaveLength(64);
     expect(s.submissions?.find((r) => r.id === "alice")?.message).toBe(TEXT_PAST_BUDGET);
     // What the lead rule reads survives the budget, so the snapshot counts the
     // same leads as Turso (#2296): the source page's origin, and a long address's
@@ -345,6 +356,12 @@ describe("loadCockpitSnapshot on a batchReads Db", () => {
     expect(s.submissions?.find((r) => r.id === "longmail")?.email).toBe(
       `${"q".repeat(80)}…@reddoorla.com`,
     );
+    expect(s.submissions?.find((r) => r.id === "longdomain")?.email).toBe(
+      `a@${"b".repeat(90)}.example.com`,
+    );
+    // No plain host: a stand-in with the same verdict, bounded either way.
+    expect(s.submissions?.find((r) => r.id === "oddmail")?.email).toBe("a@invalid");
+    expect(s.submissions?.find((r) => r.id === "oddmail")?.sourceUrl).toBe(TEXT_PAST_BUDGET);
     // What still holds: every count, status and reason, and a search by sender.
     for (const q of [
       "status=spam_auto",
