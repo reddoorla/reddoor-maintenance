@@ -9,6 +9,7 @@ import type { ReportData } from "../types.js";
 import { REPORT_WINDOW_DAYS } from "../ga/window.js";
 import { prepareHeaderImage } from "../maintenance-email/header-image.js";
 import { applyReportTypeHeadline } from "../header-image/index.js";
+import { passedAutomatedTests } from "../automated-tests.js";
 
 /**
  * The scores a render cannot proceed without, or a message naming the exact
@@ -80,6 +81,10 @@ export async function renderReportFromRow(
     lastTestedDate: report.lastTestedDate ? new Date(report.lastTestedDate) : null,
     commentary: report.commentary,
     checklistEvidence: report.autoEvidence ?? undefined,
+    // Read at render, so the send shows the nightly results as of the send.
+    ...(report.reportType === "Maintenance"
+      ? { automatedTestsPassed: passedAutomatedTests(site, new Date()) }
+      : {}),
     copy: resolveCopy(site),
     headerImageCid: cidName,
     headerWidth: header.displayWidth,

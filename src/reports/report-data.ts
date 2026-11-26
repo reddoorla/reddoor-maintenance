@@ -7,6 +7,7 @@ import { REPORT_WINDOW_DAYS } from "./ga/window.js";
 import { announcementSiteExtras } from "./announcement-email/template.js";
 import type { PreparedHeader } from "./send/render-email.js";
 import { autoTickChecklist } from "./auto-tick.js";
+import { passedAutomatedTests } from "./automated-tests.js";
 
 /** The traffic/search lookback window (days) used for report-email previews. */
 const PREVIEW_WINDOW_DAYS = 30;
@@ -55,6 +56,7 @@ export async function buildReportDataForSite(
         ? new Date(site.lastLighthouseAuditAt)
         : null,
     commentary: null,
+    ...(type === "Maintenance" ? { automatedTestsPassed: passedAutomatedTests(site, now) } : {}),
     copy: resolveCopy(site),
     headerImageCid: cidName,
     headerWidth: header.displayWidth,

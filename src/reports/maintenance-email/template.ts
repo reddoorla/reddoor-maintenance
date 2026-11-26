@@ -1,6 +1,5 @@
 import type { ReportData } from "../types.js";
 import { DEFAULT_COPY, type ResolvedCopy } from "../copy.js";
-import { BLURRED_CID } from "./assets/index.js";
 import {
   checklistRowsSection,
   lighthouseScoresSection,
@@ -29,11 +28,6 @@ import { isHttpUrl } from "../../util/url.js";
  * `escapeXml` from here).
  */
 export const escapeXml = escapeHtml;
-
-// Bundled images: shipped in dist/ via tsup onSuccess copy, attached inline via
-// CID by orchestrate.ts at send time. No external CDN dependency. (The green check
-// image lives in the shared email-sections checklist component.)
-const BLURRED_TESTS = `cid:${BLURRED_CID}`;
 
 export function fmtDate(d: Date | null): string {
   // Guard BOTH null AND an Invalid Date — `new Date("not-a-date")` (a malformed
@@ -74,7 +68,13 @@ function maintenanceCheckLabels(data: ReportData, copy: ResolvedCopy): string[] 
       ? `Page 1 Google Result (#${data.searchPosition})`
       : (copy.maintenanceChecks[3] ?? "");
   const labels = copy.maintenanceChecks.map((label, i) => (i === 3 ? googleLabel : label));
-  return shownChecklistLabels(MAINTENANCE_CHECKLIST, labels, data.checklistEvidence);
+  // 2026-11-25 (the operator: "just add all the tests to the maintenance section"): a
+  // Maintenance report's list goes on with the Testing rows the nightly tests recently passed.
+  const testing = data.reportType === "Maintenance" ? automatedTestingLabels(data, copy) : [];
+  return [
+    ...shownChecklistLabels(MAINTENANCE_CHECKLIST, labels, data.checklistEvidence),
+    ...testing,
+  ];
 }
 
 function maintenanceHeadingBlock(copy: ResolvedCopy): string {
@@ -100,11 +100,36 @@ function testingSections(data: ReportData, copy: ResolvedCopy): string {
   );
 }
 
-function maintenanceTestingPlaceholder(): string {
+/**
+ * The Testing rows a Maintenance report adds to the end of its MAINTENANCE CHECKS list
+ * (2026-11-25, with the blurred testing upsell gone): the rows the nightly automated tests passed, as `automatedTestsPassed` carries them
+ * (`passedAutomatedTests`, computed when the email is built). A row whose latest run failed,
+ * is over 3 days old, does not apply or never ran is not in that list, so it is left out,
+ * never ticked by default; an absent list shows none. The rows carry no checkbox of their own on a Maintenance report, so
+ * nothing but the evidence can tick them. PURE.
+ */
+export function automatedTestingLabels(data: ReportData, copy: ResolvedCopy): string[] {
+  return copy.testingChecklist.filter((_, i) => {
+    const field = TESTING_CHECKLIST[i]?.field;
+    return field !== undefined && (data.automatedTestsPassed ?? []).includes(field);
+  });
+}
+
+/**
+ * The AEO/SEO block in the slot the blurred testing upsell held (2026-11-25, the operator's
+ * pick (a), `decisions/2026-11-25-1835-remove-testing-upsell-aeo-seo-block.md`): a call to
+ * action for the analytics scorecard (P1-128), linked to `mailto:` the contact address, as the
+ * blurred image was. Maintenance reports only. PURE.
+ */
+export function aeoSeoSection(siteName: string, copy: ResolvedCopy): string {
+  const body = escapeXml(copy.aeoSeoBody).split("{site}").join(escapeXml(siteName));
+  const contact = escapeXml(copy.aeoSeoContact);
   return `
     <mj-section background-color="#F4F4F4">
       <mj-column>
-        <mj-image href="mailto:info@reddoorla.com" src="${BLURRED_TESTS}" />
+        <mj-text color="${RED}" font-size="20px" font-weight="700" padding-top="75px">${escapeXml(copy.aeoSeoHeading)}</mj-text>
+        <mj-text color="${GREY}" font-family="helvetica, sans-serif" font-size="16px" font-weight="300" line-height="24px">${body}</mj-text>
+        <mj-text color="${RED}" font-family="helvetica, sans-serif" font-size="16px" font-weight="700" line-height="24px" padding-bottom="36px"><a href="mailto:${contact}" style="color:${RED};text-decoration:underline;">${contact}</a></mj-text>
       </mj-column>
     </mj-section>`;
 }
@@ -207,7 +232,7 @@ export function buildMjml(data: ReportData): string {
       periodDays: data.gaPeriodDays,
       background: "white",
     })}
-    ${isTesting ? testingSections(data, copy) : maintenanceTestingPlaceholder()}
+    ${isTesting ? testingSections(data, copy) : aeoSeoSection(data.siteName, copy)}
     ${data.commentary ? commentarySection(data.commentary, copy) : ""}
     <mj-section background-color="white">
       <mj-column padding-top="36px">
