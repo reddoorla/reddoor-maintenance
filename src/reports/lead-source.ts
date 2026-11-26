@@ -43,11 +43,12 @@ function withoutRootDot(host: string): string {
   return host.replace(/\.+$/, "");
 }
 
-/** `example.com,` or `reddoorla.com>.` is the domain before its trailing ASCII
- *  punctuation: a typed comma or a pasted `>` does not make a test address real.
- *  It strips the DNS root's trailing dots too. */
+/** `example.com,` or `reddoorla.com>.` is the domain before its trailing
+ *  punctuation, symbols, spaces and invisible characters: a typed comma, a pasted
+ *  `>` or smart quote, a full-width comma or a zero-width space does not make a test
+ *  address real. It strips the DNS root's trailing dots too. */
 function withoutTrailingPunctuation(domain: string): string {
-  return domain.replace(/[!-/:-@[-`{-~]+$/, "");
+  return domain.replace(/[\p{P}\p{S}\p{Z}\p{Cf}\s]+$/u, "");
 }
 
 /** Reddoor's own domain: a submission from it is Reddoor testing a form, never a
@@ -84,7 +85,8 @@ export function isTestSender(email: string): boolean {
       .trim()
       .toLowerCase(),
   );
-  if (domain.length === 0) return false;
+  // An address literal (`bob@[1.2.3.4]`) names a server, not a domain: no rule here reads it.
+  if (domain.length === 0 || domain.startsWith("[")) return false;
   if (isWithin(domain, REDDOOR_DOMAIN)) return true;
   if (RESERVED_DOMAINS.some((d) => isWithin(domain, d))) return true;
   const tld = domain.slice(domain.lastIndexOf(".") + 1);

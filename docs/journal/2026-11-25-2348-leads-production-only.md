@@ -84,3 +84,35 @@ Mutations after round 3, each red: dropping the in-budget special case (1), the 
 **Left as a note.** The reserved test TLDs in other scripts (`.テスト`, punycoded `xn--zckzah`) are not test senders. That is outside the operator's pick (a) list.
 
 **One more consequence.** A report approved but not yet sent keeps the LEADS figure it was drafted with, because `refreshLeads` returns early once a report is approved. That is the existing lock, and it is not changed here.
+
+**Review round 4** (three fresh Opus lenses, on round 3's fix) was dirty. It found one major and one reproduced gap, and both are fixed:
+
+- **Round 3's in-budget fix had no regression test on a real address or URL** (tests lens). The field-cap test feeds `"x"×1,000,000` to every field, so it never reaches an `@` or a host. Two mutations stayed green: dropping the domain from the in-budget email, and marking the in-budget page instead of keeping its host. Round 3's mutation line above overstated it: "dropping the in-budget special case" went red only because the marker and the prefix look different. A new test now cuts `"x"×20,500 + "@example.com"` and a page with a 20,500-character userinfo in front of the site's host. It checks the kept text, and that `isCountedLead` gives the same verdict on the kept row as on the full one.
+- **Non-ASCII trailing punctuation still counted a test sender** (edge-cases lens, reproduced). Each of these passes ingest's `EMAIL_RE` and was counted:
+  - `test@example.com”`, a smart quote pasted from Mail or Word;
+  - a full-width comma;
+  - a CJK full stop;
+  - a zero-width space;
+  - `test@example.com ,`, where the trim ran before the strip.
+
+  The strip now removes any trailing Unicode punctuation, symbol, separator, format character or space.
+
+Folded in too:
+
+- **An address literal is not read as a domain.** `bob@[1.2.3.4]` had become a "one-letter TLD" once `]` was stripped.
+- **New tests pin the rest of the strip's character class.** `]` and `}` were untested ranges.
+- **An `http://` page past the budget is now tested.** It keeps its host, as Turso counts it.
+- **The changeset names `.example` and the punctuation rule.**
+
+The wiring lens ran 16,192 grid cases and 400,000 random ones through the real rule and a copy of the snapshot code. It found no mismatch for any real host. Its one minor is filed as reddoorla/reddoor-maintenance#2300: since round 3, an email or page over 20,000 characters keeps only its verdict-keeping form, so search and display lose the rest. No count changes. Two nits are noted there too: sub-delimiter characters in a host, and the in-budget branch over-charging the budget.
+
+Mutations after round 4, each red:
+
+- the in-budget email losing its domain (1);
+- the in-budget page marked (1);
+- no `\p{P}` in the strip (3);
+- no `\p{S}` (1);
+- no `\p{Cf}` (1);
+- no space classes (1);
+- no address-literal check (1);
+- `https:` only in the snapshot (1).

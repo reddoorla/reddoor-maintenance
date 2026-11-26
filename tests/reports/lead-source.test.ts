@@ -129,6 +129,21 @@ describe("isTestSender (maintenance#2296, the operator's pick (a), 11-25)", () =
     expect(isTestSender("staff@reddoorla.com>")).toBe(true);
     expect(isTestSender("bob@gmail.com,")).toBe(false);
     expect(isTestSender("bob@gmail.com);")).toBe(false);
+    expect(isTestSender("test@example.com]")).toBe(true);
+    expect(isTestSender("test@example.com}")).toBe(true);
+    expect(isTestSender("test@example.com ,")).toBe(true);
+  });
+
+  it("ignores trailing non-ASCII punctuation and invisible characters", () => {
+    expect(isTestSender("test@example.com\u201d")).toBe(true); // a smart quote
+    expect(isTestSender("test@example.com\uff0c")).toBe(true); // a full-width comma
+    expect(isTestSender("staff@reddoorla.com\u3002")).toBe(true); // a CJK full stop
+    expect(isTestSender("test@example.com\u200b")).toBe(true); // a zero-width space
+    expect(isTestSender("bob@m\u00fcnchen.de\u201d")).toBe(false);
+  });
+
+  it("is false for an address literal", () => {
+    expect(isTestSender("bob@[1.2.3.4]")).toBe(false);
   });
 
   it("is false for an address with no domain", () => {

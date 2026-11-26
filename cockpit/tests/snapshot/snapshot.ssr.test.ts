@@ -14,6 +14,7 @@ import {
 } from "../../../src/dashboard/snapshot.js";
 import { createRequire } from "node:module";
 import { loadSubmissionsPage } from "../../../src/dashboard/page-data.js";
+import { isCountedLead } from "../../../src/reports/lead-periods.js";
 import {
   SnapshotGap,
   auditsFromSnapshot,
@@ -291,6 +292,53 @@ describe("loadCockpitSnapshot on a batchReads Db", () => {
     }
   });
 
+  it("keeps what the lead rule reads when it cuts an oversized email or page (#2296)", async () => {
+    // Inside the budget, a field over the cap used to be cut mid-text: the `@` or
+    // the host went, and the snapshot's verdict left Turso's.
+    const db = await openDb({ url });
+    const rows: Record<string, { email: string; source_url: string }> = {
+      // A test sender behind a long local part: not counted on either side.
+      longtest: {
+        email: `${"x".repeat(20_500)}@example.com`,
+        source_url: "https://a.example/contact",
+      },
+      // A real sender on the site's page behind a long userinfo: counted on both.
+      longpage: {
+        email: "bob@gmail.com",
+        source_url: `https://${"u".repeat(20_500)}@a.example/contact`,
+      },
+    };
+    for (const [id, over] of Object.entries(rows)) {
+      await db
+        .insertInto("submissions")
+        .values({
+          id,
+          site_id: "recA",
+          form_type: "contact",
+          status: "new",
+          notify_status: "sent",
+          submitted_at: "2026-10-19T10:00:00.000Z",
+          name: "Long",
+          ...over,
+        } as never)
+        .execute();
+    }
+    const s = await loadCockpitSnapshot(db, NOW, "https://dash.example");
+    await db.destroy();
+    const kept = (id: string) => s.submissions?.find((r) => r.id === id);
+    expect(kept("longtest")?.email).toBe(`${"x".repeat(80)}…@example.com`);
+    expect(kept("longpage")?.sourceUrl).toBe("https://a.example");
+    for (const [id, over] of Object.entries(rows)) {
+      const row = kept(id)!;
+      const full = { ...row, email: over.email, sourceUrl: over.source_url };
+      expect(isCountedLead(row, "https://a.example"), id).toBe(
+        isCountedLead(full, "https://a.example"),
+      );
+    }
+    expect(isCountedLead(kept("longtest")!, "https://a.example")).toBe(false);
+    expect(isCountedLead(kept("longpage")!, "https://a.example")).toBe(true);
+  });
+
   it("bounds the whole snapshot however many crafted leads arrive", async () => {
     // The shape round 2 of the review found: every free-text field full of `<`,
     // which the serialiser writes as six bytes, each field distinct so nothing is
@@ -339,6 +387,12 @@ describe("loadCockpitSnapshot on a batchReads Db", () => {
       email: `a@${"<".repeat(10)}.gmail.com`,
       source_url: "foo://acme.example.com/contact",
     });
+    // An http page: Turso counts it, so its host is kept too.
+    await lead("httppage", new Date(NOW.getTime() - 5 * 86_400_000 - 1), {
+      name: "Http Page",
+      email: "c@gmail.com",
+      source_url: "http://acme.example.com/contact",
+    });
     // A local part holding an `@`, and a domain that is no plain host.
     await lead("twoat", new Date(NOW.getTime() - 6 * 86_400_000), {
       name: "Two At",
@@ -367,7 +421,7 @@ describe("loadCockpitSnapshot on a batchReads Db", () => {
     expect(Buffer.byteLength(devalue.stringify(s))).toBeLessThan(SNAPSHOT_TEXT_BUDGET + 500_000);
     // Every row is still there; the oldest crafted ones and the real lead behind
     // them carry the marker for their message.
-    expect(s.submissions).toHaveLength(66);
+    expect(s.submissions).toHaveLength(67);
     expect(s.submissions?.find((r) => r.id === "alice")?.message).toBe(TEXT_PAST_BUDGET);
     // What the lead rule reads survives the budget, so the snapshot counts the
     // same leads as Turso (#2296): the source page as `https://<host>`, and a long address's
@@ -388,6 +442,9 @@ describe("loadCockpitSnapshot on a batchReads Db", () => {
     // that is not http(s) keeps the marker, as Turso counts no such page.
     expect(s.submissions?.find((r) => r.id === "realodd")?.email).toBe("a@");
     expect(s.submissions?.find((r) => r.id === "realodd")?.sourceUrl).toBe(TEXT_PAST_BUDGET);
+    expect(s.submissions?.find((r) => r.id === "httppage")?.sourceUrl).toBe(
+      "https://acme.example.com",
+    );
     // The `@` stays, so the local part's own `@reddoorla.com` is never read as the domain.
     expect(s.submissions?.find((r) => r.id === "twoat")?.email).toBe("x@reddoorla.com@");
     expect(s.submissions?.find((r) => r.id === "twoat")?.sourceUrl).toBe(
