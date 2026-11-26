@@ -48,9 +48,31 @@ function withoutRootDot(host: string): string {
  *  `>` or smart quote, a full-width comma, an emoji or a zero-width space does not
  *  make a test address real. It strips the DNS root's trailing dots too. */
 function withoutTrailingPunctuation(domain: string): string {
-  // A combining mark rides on the character it follows (the emoji selector in
-  // `❤️`), so it goes with a stripped one; one after a letter is the domain's own.
-  return domain.replace(/(?:[\p{P}\p{S}\p{Z}\p{Cf}\s]\p{M}*)+$/u, "");
+  // One backward walk, so a crafted run of thousands of `,́` costs linear time: a
+  // trailing-anchored regex retried every start in the run, about 2.9 s for 10,000
+  // pairs, on each lead count. A combining mark rides on the character it follows
+  // (the emoji selector in `❤️`), so it goes with a stripped one; one after a letter
+  // is the domain's own.
+  let end = domain.length;
+  for (;;) {
+    let i = end;
+    while (i > 0 && MARK.test(charBefore(domain, i))) i -= charBefore(domain, i).length;
+    if (i === 0 || !STRIPPED.test(charBefore(domain, i))) return domain.slice(0, end);
+    end = i - charBefore(domain, i).length;
+  }
+}
+
+const MARK = /^\p{M}$/u;
+const STRIPPED = /^[\p{P}\p{S}\p{Z}\p{Cf}\s]$/u;
+
+/** The code point that ends just before index `i` (one or two UTF-16 units). */
+function charBefore(s: string, i: number): string {
+  const low = s.charCodeAt(i - 1);
+  if (i >= 2 && low >= 0xdc00 && low <= 0xdfff) {
+    const high = s.charCodeAt(i - 2);
+    if (high >= 0xd800 && high <= 0xdbff) return s.slice(i - 2, i);
+  }
+  return s.slice(i - 1, i);
 }
 
 /** Reddoor's own domain: a submission from it is Reddoor testing a form, never a

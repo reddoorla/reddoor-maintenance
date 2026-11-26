@@ -146,6 +146,15 @@ describe("isTestSender (maintenance#2296, the operator's pick (a), 11-25)", () =
     expect(isTestSender("bob@example.\u0939\u093f\u0928\u094d\u0926\u0940")).toBe(false);
   });
 
+  it("strips a long crafted run of punctuation in linear time", () => {
+    // A trailing-anchored regex took about 2.9 s on 10,000 pairs; each lead count reruns it.
+    const crafted = "x@a.b" + ",\u0301".repeat(50_000) + "a";
+    const started = performance.now();
+    expect(isTestSender(crafted)).toBe(false);
+    expect(isTestSender("t@example.com" + ",\u0301".repeat(50_000))).toBe(true);
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
   it("is false for an address literal", () => {
     expect(isTestSender("bob@[1.2.3.4]")).toBe(false);
   });
