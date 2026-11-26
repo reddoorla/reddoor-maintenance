@@ -114,6 +114,112 @@ describe("GET /auth/login — the page", () => {
   });
 });
 
+describe("GET /auth/login on the old netlify.app host (P1-122)", () => {
+  // The state cookie is set on the host the flow starts on, and Google returns
+  // to the redirect URI on DASHBOARD_BASE_URL's host. Started on the old host,
+  // the callback would never see the cookie and fail with error=state, so the
+  // login page hops to the canonical host first.
+  const LEGACY = "reddoor-maintenance.netlify.app";
+  const OLD = `https://${LEGACY}`;
+
+  it("hops to the canonical host, keeping the query, before any cookie is set", async () => {
+    googleConfigured();
+    process.env.DASHBOARD_BASE_URL = "https://dashboard.reddoorla.com";
+    const res = await authFn(get(`${OLD}/auth/login?start=1&returnTo=%2Ffleet`), ctx);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe(
+      "https://dashboard.reddoorla.com/auth/login?start=1&returnTo=%2Ffleet",
+    );
+    expect(cookieFor(res, STATE_COOKIE)).toBeUndefined();
+  });
+
+  it("hops the plain login page too", async () => {
+    googleConfigured();
+    process.env.DASHBOARD_BASE_URL = "https://dashboard.reddoorla.com";
+    const res = await authFn(get(`${OLD}/auth/login`), ctx);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("https://dashboard.reddoorla.com/auth/login");
+  });
+
+  it("serves the page in place while the old host is still the canonical one", async () => {
+    googleConfigured();
+    process.env.DASHBOARD_BASE_URL = OLD;
+    const res = await authFn(get(`${OLD}/auth/login`), ctx);
+    expect(res.status).toBe(200);
+  });
+
+  it("leaves a deploy preview's own host alone (it signs in with the shared password)", async () => {
+    googleConfigured();
+    process.env.DASHBOARD_BASE_URL = "https://dashboard.reddoorla.com";
+    const res = await authFn(
+      get("https://deploy-preview-12--reddoor-maintenance.netlify.app/auth/login"),
+      ctx,
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("hops with DASHBOARD_BASE_URL unset, as on production today (the code default)", async () => {
+    googleConfigured();
+    delete process.env.DASHBOARD_BASE_URL;
+    const res = await authFn(get(`${OLD}/auth/login?start=1`), ctx);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("https://dashboard.reddoorla.com/auth/login?start=1");
+  });
+
+  it("hops the other way while the old host is still canonical", async () => {
+    googleConfigured();
+    process.env.DASHBOARD_BASE_URL = OLD;
+    const res = await authFn(get("https://dashboard.reddoorla.com/auth/login?start=1"), ctx);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe(`${OLD}/auth/login?start=1`);
+    expect(cookieFor(res, STATE_COOKIE)).toBeUndefined();
+  });
+
+  it("hops only when the Host header and req.url agree, so it can never loop", async () => {
+    googleConfigured();
+    process.env.DASHBOARD_BASE_URL = "https://dashboard.reddoorla.com";
+    // Arrived on the custom domain although req.url names the netlify.app host:
+    // hopping on either one alone would redirect the canonical host to itself.
+    const mixedA = await authFn(get(`${OLD}/auth/login`, { host: "dashboard.reddoorla.com" }), ctx);
+    expect(mixedA.status).toBe(200);
+    const mixedB = await authFn(
+      get("https://dashboard.reddoorla.com/auth/login", { host: LEGACY }),
+      ctx,
+    );
+    expect(mixedB.status).toBe(200);
+    // Agreeing, with the port and case a Host header can carry: hop.
+    const agreed = await authFn(
+      get(`${OLD}/auth/login`, { host: "REDDOOR-MAINTENANCE.NETLIFY.APP:443" }),
+      ctx,
+    );
+    expect(agreed.status).toBe(302);
+    expect(agreed.headers.get("location")).toBe("https://dashboard.reddoorla.com/auth/login");
+  });
+
+  it("renders the page when DASHBOARD_BASE_URL does not parse, rather than a 502", async () => {
+    googleConfigured();
+    for (const bad of ["dashboard.reddoorla.com", "dashboard.reddoorla.com:443"]) {
+      process.env.DASHBOARD_BASE_URL = bad;
+      const res = await authFn(get(`${OLD}/auth/login`), ctx);
+      expect(res.status, bad).toBe(200);
+    }
+  });
+
+  it("never hops to a host outside the cockpit's two", async () => {
+    googleConfigured();
+    process.env.DASHBOARD_BASE_URL = "https://elsewhere.example.com";
+    const res = await authFn(get(`${OLD}/auth/login`), ctx);
+    expect(res.status).toBe(200);
+  });
+
+  it("does not hop the callback, which must answer where Google sends it", async () => {
+    googleConfigured();
+    process.env.DASHBOARD_BASE_URL = "https://dashboard.reddoorla.com";
+    const res = await authFn(get(`${OLD}/auth/callback?state=x&code=y`), ctx);
+    expect(res.headers.get("location")).toBe("/auth/login?error=state");
+  });
+});
+
 describe("GET /auth/login?start=1 — beginning the flow", () => {
   it("redirects to Google with PKCE and sets the state cookie", async () => {
     googleConfigured();

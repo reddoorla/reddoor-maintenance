@@ -344,10 +344,37 @@ time-dependent takes an injected clock.
 ## Deploy-time
 
 **1. Google Cloud OAuth client.** Create a Web application client. Authorized
-redirect URI: `https://reddoor-maintenance.netlify.app/auth/callback`, derived
+redirect URI: `https://dashboard.reddoorla.com/auth/callback`, derived
 in code from `resolveDashboardBaseUrl` so it cannot drift from the registered
 value. Google permits no wildcards, which is why deploy previews cannot use
 Google sign-in and keep the shared password instead.
+
+Until P1-122 (maintenance#2238) the host was
+`https://reddoor-maintenance.netlify.app`. That host still serves the site with
+no redirect. `/auth/login` on either of the two hosts hops to whichever one
+`resolveDashboardBaseUrl` names, because the state cookie must be set on the
+host Google returns to. Production sets no `DASHBOARD_BASE_URL` (read
+2026-11-23), so it runs on the code default, and **deploying a change to the
+default is itself the switch.** Move the host in this order, or sign-in breaks:
+
+1. The new hostname resolves (DNS CNAME to `reddoor-maintenance.netlify.app`,
+   DNS-only), it is added to the Netlify site, and it serves with a valid
+   certificate.
+2. The new `…/auth/callback` is an authorized redirect URI on the OAuth
+   client, beside the old one. If Google refuses it as an invalid redirect,
+   add the domain (`reddoorla.com`) under the consent screen's Authorized
+   domains first; `netlify.app` never needed that.
+3. Only then deploy the new default (or set `DASHBOARD_BASE_URL` in the
+   production context and redeploy: functions read env at deploy). Set the
+   repo's Actions variable `DASHBOARD_BASE_URL` to the same value for the
+   digest.
+4. Remove the old redirect URI only once sign-in at the new host is proven.
+   Until then, rolling back is publishing the previous deploy.
+
+The hop knows the cockpit's hosts by name (`DASHBOARD_HOST` and
+`LEGACY_DASHBOARD_HOST` in `src/dashboard/handler-helpers.ts`) and never hops to
+any other. A move to a third host adds it there in the same change, or a flow
+started on the old hosts ends in `error=state`.
 
 **2. Netlify environment variables.** Link the checkout to the site first, and
 read every variable back: `netlify env:set` accepts `--site <id>` as a global

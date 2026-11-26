@@ -497,14 +497,21 @@ value>'` after loading `credentials.env` and before `gpg` (loading the file afte
 
 6. **Verify.** Curl the central site's health endpoint and check it reports
    `TURSO_DATABASE_URL` as present (presence only, never values; `README.md` §"Site
-   deployment", step 3). The host is `https://reddoor-maintenance.netlify.app` — the code
-   default in `src/dashboard/handler-helpers.ts:7`, overridable by `DASHBOARD_BASE_URL`:
+   deployment", step 3). The cockpit's host is `https://dashboard.reddoorla.com` — the code
+   default in `src/dashboard/handler-helpers.ts`, overridable by `DASHBOARD_BASE_URL`, and
+   a CNAME to `reddoor-maintenance.netlify.app` at `reddoorla.com`'s DNS. Moving it again
+   follows the order in the Google-auth spec's "Deploy-time" (domain and certificate, then
+   the Google redirect URI, then the base URL), or sign-in breaks. The old host
+   `https://reddoor-maintenance.netlify.app` stays live with no redirect, and must: every
+   fleet site's `FORMS_INGEST_URL` and the Resend webhook registration POST to it
+   (maintenance#2238). Check both hosts:
 
    ```sh
    curl https://reddoor-maintenance.netlify.app/.netlify/functions/resend-webhook
+   curl https://dashboard.reddoorla.com/.netlify/functions/resend-webhook
    ```
 
-   Then load the cockpit at that host's `/`, and re-run the backup by hand —
+   Then load the cockpit at `https://dashboard.reddoorla.com/`, and re-run the backup by hand —
    `gh workflow run fleet-db-backup.yml --repo reddoorla/reddoor-maintenance` — and confirm it
    goes green. Note what that proves: the nightly reads the Actions secrets, so a green run
    confirms step 5 landed, not step 4.

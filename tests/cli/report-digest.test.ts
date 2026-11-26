@@ -38,6 +38,25 @@ describe("runReportCommand --digest routing", () => {
     expect(runDigest).toHaveBeenCalledTimes(1);
   });
 
+  it("links the digest to dashboard.reddoorla.com when DASHBOARD_BASE_URL is unset (P1-122)", async () => {
+    const saved = process.env.DASHBOARD_BASE_URL;
+    delete process.env.DASHBOARD_BASE_URL;
+    try {
+      const runDigest = vi.fn(async () => ({ output: "ok", code: 0 }));
+      vi.doMock("../../src/reports/digest.js", () => ({ runDigest }));
+      const { runReportCommand } = await import("../../src/cli/commands/report.js");
+
+      await runReportCommand(undefined, { digest: true });
+
+      expect(runDigest).toHaveBeenCalledWith(
+        expect.objectContaining({ baseUrl: "https://dashboard.reddoorla.com" }),
+      );
+    } finally {
+      if (saved === undefined) delete process.env.DASHBOARD_BASE_URL;
+      else process.env.DASHBOARD_BASE_URL = saved;
+    }
+  });
+
   it("uses DASHBOARD_BASE_URL env override when set", async () => {
     process.env.DASHBOARD_BASE_URL = "https://custom.example.com";
     try {
