@@ -275,6 +275,16 @@ describe("loadCockpitSnapshot on a batchReads Db", () => {
       const get = (id: string) => (byId.get(id) as Record<string, unknown> | undefined)?.[field];
       expect(get("real"), field).toBe(real);
       const big = String(get("big"));
+      // The lead rule reads the page's host and the address's domain (#2296), so
+      // these two keep what the verdict reads, as past the budget, not a cut.
+      if (field === "sourceUrl") {
+        expect(big).toBe(TEXT_PAST_BUDGET);
+        continue;
+      }
+      if (field === "email") {
+        expect(big).toBe(`${"x".repeat(80)}…`);
+        continue;
+      }
       expect(big.length, field).toBeLessThan(SNAPSHOT_FIELD_MAX + 200);
       expect(big.startsWith("x".repeat(SNAPSHOT_FIELD_MAX)), field).toBe(true);
       expect(big, field).toContain("980000 more characters cut by the cockpit");
@@ -323,6 +333,18 @@ describe("loadCockpitSnapshot on a batchReads Db", () => {
       email: `a@${"<".repeat(300)}.reddoorla.com`,
       source_url: `https://${"x".repeat(300)}.com/contact`,
     });
+    // A real sender whose domain is no plain host: an empty domain, still counted.
+    await lead("realodd", new Date(NOW.getTime() - 5 * 86_400_000), {
+      name: "Real Odd",
+      email: `a@${"<".repeat(10)}.gmail.com`,
+      source_url: "foo://acme.example.com/contact",
+    });
+    // A local part holding an `@`, and a domain that is no plain host.
+    await lead("twoat", new Date(NOW.getTime() - 6 * 86_400_000), {
+      name: "Two At",
+      email: "x@reddoorla.com@<<",
+      source_url: "https://my_site.example.com/contact",
+    });
     for (let i = 0; i < 60; i++) {
       const junk = (tag: string) => `${i}${tag}${"<".repeat(30_000)}`;
       await lead(`atk${i}`, new Date(NOW.getTime() - i * 60_000), {
@@ -345,10 +367,10 @@ describe("loadCockpitSnapshot on a batchReads Db", () => {
     expect(Buffer.byteLength(devalue.stringify(s))).toBeLessThan(SNAPSHOT_TEXT_BUDGET + 500_000);
     // Every row is still there; the oldest crafted ones and the real lead behind
     // them carry the marker for their message.
-    expect(s.submissions).toHaveLength(64);
+    expect(s.submissions).toHaveLength(66);
     expect(s.submissions?.find((r) => r.id === "alice")?.message).toBe(TEXT_PAST_BUDGET);
     // What the lead rule reads survives the budget, so the snapshot counts the
-    // same leads as Turso (#2296): the source page's origin, and a long address's
+    // same leads as Turso (#2296): the source page as `https://<host>`, and a long address's
     // domain behind its 80-character prefix.
     expect(s.submissions?.find((r) => r.id === "alice")?.sourceUrl).toBe(
       "https://acme.example.com",
@@ -362,6 +384,15 @@ describe("loadCockpitSnapshot on a batchReads Db", () => {
     // No plain host: a stand-in with the same verdict, bounded either way.
     expect(s.submissions?.find((r) => r.id === "oddmail")?.email).toBe("a@invalid");
     expect(s.submissions?.find((r) => r.id === "oddmail")?.sourceUrl).toBe(TEXT_PAST_BUDGET);
+    // A real sender keeps an empty domain, so it is still no test sender; a page
+    // that is not http(s) keeps the marker, as Turso counts no such page.
+    expect(s.submissions?.find((r) => r.id === "realodd")?.email).toBe("a@");
+    expect(s.submissions?.find((r) => r.id === "realodd")?.sourceUrl).toBe(TEXT_PAST_BUDGET);
+    // The `@` stays, so the local part's own `@reddoorla.com` is never read as the domain.
+    expect(s.submissions?.find((r) => r.id === "twoat")?.email).toBe("x@reddoorla.com@");
+    expect(s.submissions?.find((r) => r.id === "twoat")?.sourceUrl).toBe(
+      "https://my_site.example.com",
+    );
     // What still holds: every count, status and reason, and a search by sender.
     for (const q of [
       "status=spam_auto",

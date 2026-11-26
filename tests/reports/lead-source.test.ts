@@ -124,6 +124,13 @@ describe("isTestSender (maintenance#2296, the operator's pick (a), 11-25)", () =
     expect(isTestSender("a@.")).toBe(false);
   });
 
+  it("ignores trailing punctuation on the domain (a typed comma, a pasted >)", () => {
+    expect(isTestSender("test@example.com,")).toBe(true);
+    expect(isTestSender("staff@reddoorla.com>")).toBe(true);
+    expect(isTestSender("bob@gmail.com,")).toBe(false);
+    expect(isTestSender("bob@gmail.com);")).toBe(false);
+  });
+
   it("is false for an address with no domain", () => {
     expect(isTestSender("")).toBe(false);
     expect(isTestSender("nobody")).toBe(false);

@@ -63,3 +63,24 @@ Mutation 14 (dropping an "empty host" check) survived, which proved the check de
 **Mutations** (each turned a test red): dropping the host filter (7 failing), matching the host by suffix (6), treating `www` as non-production (7), dropping the sender rule (4), and matching the sender domain by bare suffix (1). After round 1, five more: the snapshot budget dropping the origin (1) or the email domain (1), no `https` fallback for a scheme-less site url (1), the digest given no site urls (1), and a trailing root dot kept (2). After round 2: any scheme counting (1), no stand-in for an odd test domain (1), round 1's inverted email condition restored (1), and only one trailing dot stripped (1).
 
 **Not done in code.** The 11-17 vendor pitch (`office@animaticlogo.com` on `reddoorla.com/contact`) is still a lead until someone marks it spam on `/s/reddoor`. Once that is done, Reddoor's 30-day count is 0.
+
+**Review round 3** (a continuation session, three fresh Opus lenses on the same split, run on the branch with `main` merged in) was dirty again. It found two majors and one reproduced parity gap, and all of them are fixed:
+
+- **Two snapshot branches had no test** (tests lens, by mutation). Making the email stand-in always `invalid` kept 213 tests green, and so did deleting the http(s) check in `originPastBudget`. A Unicode or space-padded real address (`bob@münchen.de`) takes the first branch, so a regression would have dropped real leads from the snapshot's count without a test noticing. New rows now pin both: `a@<<<….gmail.com` keeps `a@`, and a `foo://` page keeps the marker.
+- **The 20,000-character cut was still in budget** (wiring lens, reproduced with tsx). Round 2 made only the past-budget branch keep what the verdict reads. Inside the budget, a field over `SNAPSHOT_FIELD_MAX` was still cut mid-text. `"x"×20,500 + "@example.com"` lost its `@` and counted as a lead in the snapshot, though Turso called it a test sender. A long userinfo in front of `@client.com` lost its host the other way. Ingest's `EMAIL_RE` has no length cap. Both fields now take their past-budget form whenever they are cut. The field-cap test now expects that form for those two fields: the one assertion changed, following the new behaviour.
+
+Two minors were folded in:
+
+- **The `@` is now kept when the email's domain is dropped.** A local part that held its own `@` was being read as the address: `x@reddoorla.com@<<` was counted in Turso and not in the snapshot.
+- **`isTestSender` strips trailing ASCII punctuation, not only dots.** `test@example.com,` and `staff@reddoorla.com>` pass `EMAIL_RE`, and both were counted as leads.
+
+Two nits were folded in:
+
+- **`_` is allowed in `PLAIN_HOST`.** The URL parser accepts it in a host, so `my_site.com` kept its leads in Turso but lost them in the snapshot.
+- **Wording.** A stale "origin" comment and variable name, and the changeset's `example.*`, which now reads `example.com`/`.org`/`.net`.
+
+Mutations after round 3, each red: dropping the in-budget special case (1), the old "no domain" return (1), the stand-in always `invalid` (1), no http(s) check in the snapshot (1), no `_` in `PLAIN_HOST` (1), and stripping only dots from the domain (1).
+
+**Left as a note.** The reserved test TLDs in other scripts (`.テスト`, punycoded `xn--zckzah`) are not test senders. That is outside the operator's pick (a) list.
+
+**One more consequence.** A report approved but not yet sent keeps the LEADS figure it was drafted with, because `refreshLeads` returns early once a report is approved. That is the existing lock, and it is not changed here.
