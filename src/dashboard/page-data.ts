@@ -177,7 +177,7 @@ export async function loadSiteDashboard(
     // submissions section simply absent — the rest of the page still renders
     orElse<SubmissionRow[]>(() => listSubmissionsForSite(db, { id: site.id, name: site.name }), []),
     // the leads panel simply absent on a failed read
-    orElse<string[] | null>(() => listLeadTimestampsForSite(db, site.id), null),
+    orElse<string[] | null>(() => listLeadTimestampsForSite(db, site), null),
     // panel simply absent — never blank the page
     orElse<ScreenOutTotals | null>(
       () => screenOutTotalsForSite(db, site.id, screenOutsSince(now, 30)),

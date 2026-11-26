@@ -269,7 +269,7 @@ export async function draftReportForSite(
     shouldEnrich &&
     store?.leadsForSite &&
     (reportType === "Maintenance" || reportType === "Testing")
-      ? await measureLeads(siteRow, () => store.leadsForSite!(siteRow.id), today)
+      ? await measureLeads(siteRow, () => store.leadsForSite!(siteRow), today)
       : null;
   const softFailures: SoftFailure[] = [
     ...(gaResult.softFailed ? (["ga"] as const) : []),

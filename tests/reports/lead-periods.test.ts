@@ -79,16 +79,28 @@ describe("leadPeriods: month over month", () => {
   });
 });
 
+const SITE_URL = "https://acme.com";
+const REAL = { sourceUrl: "https://acme.com/contact", email: "jane@gmail.com" };
+
 describe("isCountedLead", () => {
   it("counts a lead form that is not spam, whatever its read state", () => {
-    expect(isCountedLead({ status: "new", formType: "contact" })).toBe(true);
-    expect(isCountedLead({ status: "read", formType: "inquiry" })).toBe(true);
+    expect(isCountedLead({ status: "new", formType: "contact", ...REAL }, SITE_URL)).toBe(true);
+    expect(isCountedLead({ status: "read", formType: "inquiry", ...REAL }, SITE_URL)).toBe(true);
   });
-  it("skips spam and signups, as the digest's lead count does", () => {
-    expect(isCountedLead({ status: "spam", formType: "contact" })).toBe(false);
-    expect(isCountedLead({ status: "spam_auto", formType: "contact" })).toBe(false);
-    expect(isCountedLead({ status: "new", formType: "newsletter" })).toBe(false);
-    expect(isCountedLead({ status: "new", formType: "rsvp" })).toBe(false);
+  it("skips spam and signups, as every lead count does", () => {
+    expect(isCountedLead({ status: "spam", formType: "contact", ...REAL }, SITE_URL)).toBe(false);
+    expect(isCountedLead({ status: "spam_auto", formType: "contact", ...REAL }, SITE_URL)).toBe(
+      false,
+    );
+    expect(isCountedLead({ status: "new", formType: "newsletter", ...REAL }, SITE_URL)).toBe(false);
+    expect(isCountedLead({ status: "new", formType: "rsvp", ...REAL }, SITE_URL)).toBe(false);
+  });
+  it("skips a staging page and a test sender (#2296)", () => {
+    const row = { status: "new", formType: "contact" };
+    expect(
+      isCountedLead({ ...row, ...REAL, sourceUrl: "https://staging.acme.com/contact" }, SITE_URL),
+    ).toBe(false);
+    expect(isCountedLead({ ...row, ...REAL, email: "t@c.v" }, SITE_URL)).toBe(false);
   });
 });
 

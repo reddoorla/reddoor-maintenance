@@ -12,6 +12,7 @@ import {
 } from "../reports/submission-row.js";
 import type { FormType, SubmissionStatus } from "../reports/submission-row.js";
 import { SIGNUP_FORM_TYPES } from "../forms/types.js";
+import { isCountedLead } from "../reports/lead-periods.js";
 
 export type SubmissionFilter = {
   siteId?: string;
@@ -128,18 +129,29 @@ export async function listNewSubmissions(db: Db, max = 200): Promise<SubmissionR
 }
 
 /** When each of one site's leads arrived (ISO), every one of them: the input to
- *  `leadPeriods` (P1-127). A lead is what `countSubmissionsSinceBySite` counts as
- *  one: not spam, not a signup form. One column, so all time stays cheap. */
-export async function listLeadTimestampsForSite(db: Db, siteId: string): Promise<string[]> {
-  const signupList = sql.join(SIGNUP_FORM_TYPES.map((t) => sql`${t}`));
+ *  `leadPeriods` (P1-127). A lead is {@link isCountedLead} (not spam, not a signup,
+ *  from the site's own production host, not a test sender; maintenance#2296), the
+ *  rule `countSubmissionsSinceBySite` and the snapshot's site page count by too. */
+export async function listLeadTimestampsForSite(
+  db: Db,
+  site: { id: string; url: string },
+): Promise<string[]> {
   const rows = await db
     .selectFrom("submissions")
-    .select("submitted_at")
-    .where("site_id", "=", siteId)
+    .select(["submitted_at", "status", "form_type", "source_url", "email"])
+    .where("site_id", "=", site.id)
+    // isCountedLead drops spam too; filtering it here skips reading its text.
     .where("status", "not in", ["spam", "spam_auto"])
-    .where(sql<SqlBool>`form_type not in (${signupList})`)
     .execute();
-  return rows.flatMap((r) => (r.submitted_at === null ? [] : [r.submitted_at]));
+  return rows.flatMap((r) =>
+    r.submitted_at !== null &&
+    isCountedLead(
+      { status: r.status, formType: r.form_type, sourceUrl: r.source_url, email: r.email },
+      site.url,
+    )
+      ? [r.submitted_at]
+      : [],
+  );
 }
 
 /** Takes `{ id, name }` but filters by id alone. */
@@ -300,39 +312,42 @@ export async function countSubmissionsFiltered(db: Db, filter: SubmissionFilter)
 export type SiteSubmissionCounts = { leads: number; signups: number; spamAuto: number };
 
 /** Per-site submission counts on/after `sinceIso` (full ISO timestamp) for the
- *  digest telemetry line. Grouped one-query: leads/signups = rows NOT auto- or
- *  operator-bucketed as spam (status NOT IN ('spam_auto','spam')) split by
- *  isLeadFormType; spamAuto = status='spam_auto'. Keyed by Websites record id. */
+ *  digest telemetry line. leads = {@link isCountedLead} against the site's url in
+ *  `siteUrls` (the report's LEADS rule; a site missing from it counts no leads);
+ *  signups = signup-form rows not bucketed as spam (status NOT IN
+ *  ('spam_auto','spam')); spamAuto = status='spam_auto'. Keyed by Websites record
+ *  id. A row whose site_id is not in `siteUrls` still counts its signups and
+ *  spamAuto but no lead. Reads the window's rows and tallies here, since the lead
+ *  rule is not SQL; the digest's window is one day. */
 export async function countSubmissionsSinceBySite(
   db: Db,
   sinceIso: string,
+  siteUrls: ReadonlyMap<string, string>,
 ): Promise<Map<string, SiteSubmissionCounts>> {
-  const signupList = sql.join(SIGNUP_FORM_TYPES.map((t) => sql`${t}`));
   const rows = await db
     .selectFrom("submissions")
-    .select([
-      "site_id",
-      sql<number>`sum(case when status not in ('spam_auto','spam') and form_type not in (${signupList}) then 1 else 0 end)`.as(
-        "leads_n",
-      ),
-      sql<number>`sum(case when status not in ('spam_auto','spam') and form_type in (${signupList}) then 1 else 0 end)`.as(
-        "signups_n",
-      ),
-      sql<number>`sum(case when status = 'spam_auto' then 1 else 0 end)`.as("spam_auto_n"),
-    ])
+    .select(["site_id", "status", "form_type", "source_url", "email"])
     .where("submitted_at", ">=", sinceIso)
-    .groupBy("site_id")
     .execute();
-  return new Map(
-    rows.map((r) => [
-      r.site_id,
-      {
-        leads: Number(r.leads_n) || 0,
-        signups: Number(r.signups_n) || 0,
-        spamAuto: Number(r.spam_auto_n) || 0,
-      },
-    ]),
-  );
+  const counts = new Map<string, SiteSubmissionCounts>();
+  for (const r of rows) {
+    let c = counts.get(r.site_id);
+    if (!c) {
+      c = { leads: 0, signups: 0, spamAuto: 0 };
+      counts.set(r.site_id, c);
+    }
+    const spam = r.status === "spam" || r.status === "spam_auto";
+    if (r.status === "spam_auto") c.spamAuto++;
+    if (!spam && (SIGNUP_FORM_TYPES as readonly string[]).includes(r.form_type)) c.signups++;
+    const row = {
+      status: r.status,
+      formType: r.form_type,
+      sourceUrl: r.source_url,
+      email: r.email,
+    };
+    if (isCountedLead(row, siteUrls.get(r.site_id) ?? "")) c.leads++;
+  }
+  return counts;
 }
 
 /** A normalized body shorter than this never triggers the exact-duplicate signal —

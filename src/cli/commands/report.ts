@@ -371,8 +371,7 @@ async function bindRerender(db: Db): Promise<RerenderDeps> {
     storeLookup: (siteId, fields) => mirrorHealthFields(db, siteId, fields),
     measureVisits: (site, now) => fetchGaVisits(site, now),
     storeVisits: (id, visits) => storeGaVisits(db, id, visits),
-    measureLeads: (site, now) =>
-      measureLeads(site, () => listLeadTimestampsForSite(db, site.id), now),
+    measureLeads: (site, now) => measureLeads(site, () => listLeadTimestampsForSite(db, site), now),
     storeLeads: (id, leads) => storeLeadCounts(db, id, leads),
     now: () => new Date(),
   };

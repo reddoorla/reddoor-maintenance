@@ -145,7 +145,7 @@ describe("report --rerender binds the leads refresh to the real IO (P1-127)", ()
   it("reads the report's site's leads and stores the measured pair on the report", async () => {
     const out = await runReportCommand(undefined, { rerender: "report_X" });
     expect(out.code).toBe(0);
-    expect(vi.mocked(listLeadTimestampsForSite).mock.calls.at(-1)).toEqual([{}, "recSITE"]);
+    expect(vi.mocked(listLeadTimestampsForSite).mock.calls.at(-1)).toEqual([{}, SITE]);
     expect(vi.mocked(storeLeadCounts).mock.calls.at(-1)).toEqual([
       {},
       "report_X",

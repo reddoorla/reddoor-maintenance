@@ -14,6 +14,7 @@ import { orElse } from "./or-else.js";
 import { prismicAckNamesReport } from "../alerts/digest-collectors.js";
 import { readLatestDeps, readOverviewNights } from "../fleet-daily/read.js";
 import type { SubmissionRow } from "../reports/submission-row.js";
+import { isTestSender } from "../reports/lead-source.js";
 import {
   DEPLOY_AFTER_MERGE_MS,
   RECENT_AUDITS_LIMIT,
@@ -213,8 +214,10 @@ const GAP = Symbol("gap");
  *    on 2026-10-21 was 7,924 characters (681 rows).
  *  - All of them: at most `SNAPSHOT_TEXT_BUDGET`, counted as the bytes SvelteKit's
  *    serialiser writes (`charCost`), newest lead first. A lead past it keeps its
- *    row, its status, its reasons and the first 80 characters of its name, email
- *    and phone, so every count, status and reason filter holds and a search by
+ *    row, its status, its reasons, the first 80 characters of its name, email
+ *    and phone, and what the lead rule reads of its email and source page
+ *    (`emailPastBudget`, `originPastBudget`), so every count
+ *    (leads included, #2296), status and reason filter holds and a search by
  *    sender still finds it; its message and other text become one constant
  *    marker, which the serialiser writes once however many rows hold it. A search
  *    for words in an older lead's message misses it while the budget is spent.
@@ -270,6 +273,46 @@ function cutTo(value: string, max: number): { text: string; cost: number; cut: b
 const KEPT_PAST_BUDGET = ["name", "email", "phone"] as const;
 const PREFIX_PAST_BUDGET = 80;
 
+/** A plain ASCII host name: what a lead's page or address domain keeps past the
+ *  budget. Each character serialises to one byte, so a kept host costs at most
+ *  253 bytes however the field was crafted. `_` is allowed because the URL parser
+ *  accepts it in a host. */
+const PLAIN_HOST = /^[a-z0-9._-]{1,253}$/i;
+
+/** A `sourceUrl` past the budget: `https://<host>` for an http(s) page on a plain
+ *  host, else the marker. `isProductionSource` reads only that (an http(s) page
+ *  and its host, compared with the site's own plain hosts), so the snapshot counts
+ *  exactly the leads Turso does (reddoorla/reddoor-maintenance#2296). */
+function originPastBudget(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return TEXT_PAST_BUDGET;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return TEXT_PAST_BUDGET;
+  return PLAIN_HOST.test(url.hostname) ? `https://${url.hostname}` : TEXT_PAST_BUDGET;
+}
+
+/** An `email` past the budget: its local part's first `PREFIX_PAST_BUDGET`
+ *  characters, as the other sender fields keep, then what `isTestSender` reads.
+ *  That is its domain when the domain is a plain host. Otherwise it is a stand-in
+ *  with the same verdict: `invalid` (a reserved TLD) for a test sender, or an
+ *  empty domain (a trailing `@`) for a real one. The `@` is kept even then, so a
+ *  local part that itself holds an `@` is never read as the address. So the
+ *  snapshot counts exactly the leads Turso does (#2296), and the kept text stays
+ *  bounded. */
+function emailPastBudget(value: string): string {
+  const at = value.lastIndexOf("@");
+  const local = at < 0 ? value : value.slice(0, at);
+  const { text, cut } = cutTo(local, PREFIX_PAST_BUDGET);
+  const keptLocal = cut ? `${text}…` : text;
+  if (at < 0) return keptLocal;
+  const domain = value.slice(at + 1);
+  const keptDomain = PLAIN_HOST.test(domain) ? domain : isTestSender(value) ? "invalid" : "";
+  return `${keptLocal}@${keptDomain}`;
+}
+
 /** Apply both bounds to the rows, newest first (the order they are read in). */
 function boundLeadText(rows: SubmissionRow[]): SubmissionRow[] {
   let spent = 0;
@@ -285,7 +328,14 @@ function boundLeadText(rows: SubmissionRow[]): SubmissionRow[] {
       if (typeof value !== "string" || value === "") continue;
       const budgeted = field !== "spamReason";
       if (past && budgeted) {
-        if ((KEPT_PAST_BUDGET as readonly string[]).includes(field)) {
+        if (field === "sourceUrl") {
+          // The lead rule reads the page's scheme and host (#2296): keep `https://<host>`.
+          const page = originPastBudget(value);
+          if (page !== value) set(field, page);
+        } else if (field === "email") {
+          const kept = emailPastBudget(value);
+          if (kept !== value) set(field, kept);
+        } else if ((KEPT_PAST_BUDGET as readonly string[]).includes(field)) {
           const { text, cut } = cutTo(value, PREFIX_PAST_BUDGET);
           if (cut) set(field, `${text}…`);
         } else {
@@ -295,7 +345,11 @@ function boundLeadText(rows: SubmissionRow[]): SubmissionRow[] {
       }
       const { text, cost, cut } = cutTo(value, SNAPSHOT_FIELD_MAX);
       if (budgeted) spent += cost;
-      if (cut) {
+      if (cut && (field === "sourceUrl" || field === "email")) {
+        // A cut here would lose the host or the `@`, and the lead rule reads both
+        // (#2296): keep what the verdict reads, as past the budget.
+        set(field, field === "sourceUrl" ? originPastBudget(value) : emailPastBudget(value));
+      } else if (cut) {
         set(
           field,
           `${text} … [${value.length - text.length} more characters cut by the cockpit; the whole lead is in Turso]`,

@@ -1,12 +1,13 @@
 import { isLeadFormType, type FormType } from "../forms/types.js";
+import { isLead } from "./lead-source.js";
 import { reportWindows, REPORT_WINDOW_DAYS, type GaDateRange } from "./ga/window.js";
 
 /**
  * Leads by period (P1-127, Tim 2026-11-23: "filter leads by time vs. all time
  * ... the last 30 days ... or month over month"). PURE.
  *
- * A lead is what the digest counts as one: a non-signup form, not bucketed as
- * spam (`countSubmissionsSinceBySite`). Days are Pacific, Reddoor's own, and
+ * A lead is {@link isCountedLead}: a non-signup form, not bucketed as spam, sent
+ * from the site's production host by a real sender. Days are Pacific, Reddoor's own, and
  * the 30-day windows are {@link reportWindows}: the 30 complete days that
  * ended yesterday and the 30 before. They are the same windows the report's
  * analytics block compares where the GA property reports in Pacific time; a
@@ -55,10 +56,20 @@ export type LeadPeriods = {
   months: Array<{ month: string; count: number }>;
 };
 
-/** The digest's lead rule, one row at a time. */
-export function isCountedLead(row: { status: string; formType: string }): boolean {
+/** The one lead rule, a row at a time: not spam, a lead form (not a signup), and
+ *  `isLead` (from the site's own apex/www page, not a test sender;
+ *  reddoorla/reddoor-maintenance#2296). The report's LEADS block, the site page's
+ *  lead panel (from Turso and from the snapshot) and the digest's 24h leads all
+ *  count by it. */
+export function isCountedLead(
+  row: { status: string; formType: string; sourceUrl: string | null; email: string },
+  siteUrl: string,
+): boolean {
   return (
-    row.status !== "spam" && row.status !== "spam_auto" && isLeadFormType(row.formType as FormType)
+    row.status !== "spam" &&
+    row.status !== "spam_auto" &&
+    isLeadFormType(row.formType as FormType) &&
+    isLead(row, siteUrl)
   );
 }
 

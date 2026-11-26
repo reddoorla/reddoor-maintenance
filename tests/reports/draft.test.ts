@@ -1311,17 +1311,18 @@ describe("draftReportForSite — leads (P1-127)", () => {
   const ago = (days: number) => new Date(Date.now() - days * DAY).toISOString();
 
   it("stores the site's leads in the report's two 30-day windows", async () => {
-    const asked: string[] = [];
+    const asked: Array<{ id: string; url: string }> = [];
     Object.assign(writer, {
-      leadsForSite: async (siteId: string) => {
-        asked.push(siteId);
+      leadsForSite: async (s: { id: string; url: string }) => {
+        asked.push(s);
         return [ago(3), ago(5), ago(40)];
       },
     });
     const site = siteFixture();
     await draftReportForSite(site, "Maintenance", NO_HEADER);
     const fields = writer.inserts[0]!.fields;
-    expect(asked).toEqual([site.id]);
+    // The site row itself, so the read can match leads to its production host (#2296).
+    expect(asked).toEqual([site]);
     expect(fields["Leads (period)"]).toBe(2);
     expect(fields["Leads (prev period)"]).toBe(1);
   });

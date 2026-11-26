@@ -615,9 +615,10 @@ const SUBMISSIONS_DIGEST_WINDOW_MS = 24 * 60 * 60 * 1000;
  *  kysely/libsql are devDependencies consuming fleet sites don't install, and a
  *  Turso blip must drop just this section, never the digest. Returns null (not an
  *  empty map) on failure so the renderer can omit the section rather than claim a
- *  quiet fleet. */
-async function fetchSubmissionsDigestCounts(
+ *  quiet fleet. Exported for its wiring test. */
+export async function fetchSubmissionsDigestCounts(
   now: Date,
+  sitesById: ReadonlyMap<string, WebsiteRow>,
 ): Promise<ReadonlyMap<string, SiteSubmissionCounts> | null> {
   try {
     const [{ openDb, readDbConfig }, { countSubmissionsSinceBySite }] = await Promise.all([
@@ -628,6 +629,8 @@ async function fetchSubmissionsDigestCounts(
     return await countSubmissionsSinceBySite(
       db,
       new Date(now.getTime() - SUBMISSIONS_DIGEST_WINDOW_MS).toISOString(),
+      // A lead must come from its site's production host, as in the report (#2296).
+      new Map([...sitesById].map(([id, site]) => [id, site.url])),
     );
   } catch (e) {
     console.warn(`⚠ submissions telemetry unavailable (libSQL): ${(e as Error).message}`);
@@ -637,7 +640,8 @@ async function fetchSubmissionsDigestCounts(
 
 /** Assemble the "Submissions (24h)" section from the per-site counts. PURE (exported
  *  for direct tests). Totals sum ALL map entries — an orphan site id still counts in
- *  the fleet totals. bySite lists only ids that resolve in `sitesById` AND carry any
+ *  the fleet totals (its signups and auto-spam; never a lead, which needs its site's
+ *  url, #2296). bySite lists only ids that resolve in `sitesById` AND carry any
  *  nonzero count, sorted by total volume desc then siteName A-Z. null counts (libSQL
  *  unavailable) → null (section omitted). */
 export function buildSubmissionsDigestSection(
@@ -999,7 +1003,7 @@ export async function runDigest(
     const counts =
       options.submissionCounts !== undefined
         ? options.submissionCounts
-        : await fetchSubmissionsDigestCounts(today);
+        : await fetchSubmissionsDigestCounts(today, sites);
     const submissions = buildSubmissionsDigestSection(counts, sites);
 
     // P1-78d: the badge says what is news in THIS email. An item the last mail did
